@@ -1,0 +1,52 @@
+.clientes-wrap{ max-width:1200px; margin:0 auto; padding:24px; }
+.clientes-tabs{ display:flex; gap:8px; margin-bottom:14px; }
+.clientes-tabs .tab{
+  text-decoration:none; padding:8px 12px; border-radius:10px; font-weight:700;
+  color:#0f172a; background:#fff; border:1px solid rgba(0,0,0,.06);
+  box-shadow:0 6px 16px rgba(0,0,0,.06);
+}
+.clientes-content{}
+
+/* ===== Formulario ===== */
+.form-card{
+  background:#fff; border:1px solid rgba(0,0,0,.06);
+  border-radius:16px; box-shadow:0 10px 24px rgba(0,0,0,.07);
+  padding:18px;
+}
+.form-card h2{ margin:0 0 6px; }
+.form-card h3{ margin:12px 0 6px; }
+
+.form-grid{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:12px; }
+.form-row{ display:flex; flex-direction:column; gap:6px; }
+.form-row.col-2{ grid-column: span 2; }
+.form-row label{ font-weight:700; color:#334155; }
+.form-row input, .form-row select, .form-row textarea{
+  border:1px solid rgba(0,0,0,.12); border-radius:10px; padding:10px 12px; outline:none;
+}
+.phone-inline{ display:grid; grid-template-columns:120px 1fr; gap:8px; }
+.form-row.check{ justify-content:flex-end; }
+
+.form-actions{ margin-top:12px; display:flex; gap:10px; }
+.form-msg{ margin-top:8px; color:#155724; font-weight:700; }
+
+/* ===== Consulta ===== */
+.consulta-card{
+  background:#fff; border:1px solid rgba(0,0,0,.06);
+  border-radius:16px; box-shadow:0 10px 24px rgba(0,0,0,.07);
+  padding:18px;
+}
+.consulta-toolbar{ display:flex; gap:8px; margin-bottom:12px; }
+.tabla{ display:grid; gap:6px; }
+.thead, .trow{
+  display:grid; grid-template-columns: 2fr 2fr 1fr 1.3fr 1fr; gap:8px;
+  padding:10px 12px; border-radius:10px; background:#fff;
+  border:1px solid rgba(0,0,0,.06);
+}
+.thead{ background:#f8fafc; font-weight:800; }
+.paginacion{ margin-top:12px; display:flex; align-items:center; gap:10px; }
+.thead,
+.trow {
+  display: grid;
+  grid-template-columns: 2fr 2fr 1fr 1.2fr 1.2fr 0.8fr; /* 6 columnas */
+  gap: 8px;
+}

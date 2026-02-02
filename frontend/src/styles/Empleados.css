@@ -1,0 +1,83 @@
+.empleados-page {
+  max-width: 1200px;
+}
+
+/* Título similar a "NUEVA ORDEN DE SERVICIO" */
+.empleados-header {
+  text-align: center;
+}
+
+.empleados-title {
+  font-size: 1.9rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0;
+  color: #1f2933;
+}
+
+/* Tarjeta estilo sistema */
+.card-taller {
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+.card-taller-header {
+  background: linear-gradient(90deg, #f9735b, #f54748);
+  color: #fff;
+  padding: 0.55rem 1.25rem;
+  border-radius: 14px 14px 0 0 !important;
+  border-bottom: none;
+}
+
+.card-taller-header .card-title {
+  font-size: 1.05rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Botón primario con el rojo del sistema */
+.btn-taller-primary {
+  background-color: #f54748;
+  border-color: #f54748;
+  color: #fff;
+  font-weight: 600;
+  padding-inline: 1.4rem;
+}
+
+.btn-taller-primary:hover {
+  background-color: #e03637;
+  border-color: #e03637;
+}
+
+/* Tablas más limpias */
+.empleados-table thead th {
+  background-color: #f9fafb;
+  border-bottom: 2px solid #e5e7eb;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.empleados-table tbody td {
+  font-size: 0.9rem;
+}
+
+/* Alert ajustada */
+.empleados-alert {
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+/* Subtítulo filtro */
+.empleados-filtro {
+  font-size: 0.9rem;
+}
+
+/* Form general */
+.empleados-form .form-label {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}

@@ -1,0 +1,117 @@
+.login-page {
+  
+   margin: 0;
+  height: 100vh;              /* ocupa toda la pantalla */
+  display: flex;
+  justify-content: center;    /* centra horizontal */
+  align-items: center; 
+}
+/* Contenedor principal */
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: auto;
+  padding: 20px;
+  background: transparent;
+}
+
+/* Tarjeta de login (izquierda y derecha) */
+.login-left,
+.login-right {
+  flex: 1;
+  min-height: 500px;
+}
+
+/* Columna izquierda (imagen) */
+.login-left {
+  background: url('../img/nissan.jpg') no-repeat center center/cover;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top-left-radius: 15px;
+  border-bottom-left-radius: 15px;
+  overflow: hidden;
+  padding: 40px;
+}
+
+/* Oscurecer la imagen con overlay */
+.login-left .overlay {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 30px;
+  color: white;
+  text-align: center;
+  border-radius: 10px;
+}
+
+.login-left h2 {
+  font-weight: bold;
+  margin-bottom: 20px;
+}
+
+.login-left .btn-group {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+/* Columna derecha (formulario) */
+.login-right {
+  background: white;
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-top-right-radius: 15px;
+  border-bottom-right-radius: 15px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.login-form h2 {
+  font-weight: bold;
+}
+
+.login-form p {
+  margin-bottom: 20px;
+}
+
+.login-form .form-control {
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.login-form button {
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 16px;
+}
+
+.forgot-password {
+  display: block;
+  margin-top: 5px;
+  text-align: right;
+  font-size: 14px;
+  text-decoration: none;
+  color: #888;
+}
+
+.forgot-password:hover {
+  color: #000;
+}
+
+/* Responsivo */
+@media (max-width: 768px) {
+  .login-container {
+    flex-direction: column;
+  }
+
+  .login-left,
+  .login-right {
+    border-radius: 0;
+  }
+
+  .login-left {
+    min-height: 200px;
+  }
+}

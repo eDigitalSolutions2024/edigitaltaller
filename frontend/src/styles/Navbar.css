@@ -1,0 +1,222 @@
+:root{
+  --sidebar-w: 260px;
+  --sidebar-w-collapsed: 72px;
+  --sidebar-bg: linear-gradient(180deg,#2d2a6b,#d34b3f);
+}
+
+/* Contenedor general con sidebar fija */
+.app-shell {}
+.app-content{
+  margin-left: var(--sidebar-w);
+  padding: 16px;
+  transition: margin-left .2s ease;
+}
+.app-shell.is-collapsed .app-content{
+  margin-left: var(--sidebar-w-collapsed);
+}
+
+/* Sidebar fija */
+.sidebar{
+  position: fixed;
+  inset: 0 auto 0 0; /* top:0,left:0,bottom:0 */
+  width: var(--sidebar-w);
+  background: var(--sidebar-bg);
+  color:#fff;
+  display:flex;
+  flex-direction:column;
+  padding:12px;
+  gap:12px;
+  z-index: 20;
+  transition: width .2s ease;
+  box-shadow: 0 8px 30px rgba(0,0,0,.15);
+}
+.sidebar.is-collapsed{ width: var(--sidebar-w-collapsed); }
+
+/* Top */
+.sidebar__top{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.sidebar__toggle{
+  background: rgba(255,255,255,.15);
+  border:none;
+  color:#fff;
+  border-radius:10px;
+  padding:6px 10px;
+  cursor:pointer;
+  font-weight:700;
+}
+.sidebar__toggle:hover{ filter: brightness(.95); }
+
+.sidebar__brand{
+  display:flex; align-items:center; gap:8px; font-weight:800;
+}
+.brand-text{ white-space:nowrap; }
+
+/* Nav links */
+.sidebar__nav{
+  display:flex; flex-direction:column; gap:6px; margin-top:6px;
+}
+.sidebar__link{
+  display:flex; align-items:center; gap:10px;
+  text-decoration:none; color:#fff; opacity:.95;
+  padding:10px 12px; border-radius:12px;
+}
+.sidebar__link:hover{ background: rgba(255,255,255,.15); }
+.sidebar__link.active{ background: rgba(255,255,255,.22); }
+
+.emoji{ font-size:20px; width:24px; text-align:center; }
+.label{ transition: opacity .15s ease; }
+
+/* Cuando está colapsada, oculta el texto y deja solo el ícono */
+.sidebar.is-collapsed .label{ display:none; }
+
+/* Bottom */
+.sidebar__bottom{
+  margin-top:auto;
+  display:flex; flex-direction:column; gap:8px;
+}
+.sidebar__user{ opacity:.95; font-weight:600; padding-left:4px; }
+.sidebar__logout{
+  background:#fff; color:#2d2a6b; border:none;
+  border-radius:10px; padding:8px 12px; cursor:pointer; font-weight:700;
+}
+.sidebar__logout:hover{ filter:brightness(.95); }
+
+/* Responsive: en móviles, colapsada por defecto */
+@media (max-width: 900px){
+  .app-content{ margin-left: var(--sidebar-w-collapsed); }
+  .sidebar{ width: var(--sidebar-w-collapsed); }
+}
+
+/* EXISTENTE: variables y estilos que ya tienes arriba… */
+
+/* Overlay para cerrar tocando fuera en móvil */
+.app-overlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.35);
+  z-index: 15;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease;
+}
+
+/* --- MODO MÓVIL: sidebar entra/sale con is-hidden --- */
+@media (max-width: 900px){
+  /* El contenido ocupa todo el ancho en móvil */
+  .app-content{ margin-left: 0; }
+
+  /* El sidebar se mueve fuera por X cuando .app-shell tiene is-hidden */
+  .sidebar{
+    transform: translateX(0);
+    transition: width .2s ease, transform .25s ease;
+  }
+  .app-shell.is-hidden .sidebar{
+    transform: translateX(-100%);
+  }
+
+  /* Mostrar overlay cuando NO está hidden (sidebar visible) */
+  .app-shell:not(.is-hidden) .app-overlay{
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* Lo demás de tu CSS se queda igual */
+/* Grupo con submenú */
+.sidebar__group { width: 100%; }
+.sidebar__group-toggle{
+  width: 100%;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  /* ya hereda estilos de .sidebar__link */
+  display: flex; align-items: center; gap: 10px;
+}
+.sidebar__group .chev{
+  margin-left: auto;
+  transition: transform .15s ease;
+  opacity: .9;
+}
+.sidebar__group.open .chev{ transform: rotate(180deg); }
+
+/* Contenedor de sublinks */
+.sidebar__sublinks{
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding-left: 12px; /* ligera sangría */
+}
+.sidebar__group.open .sidebar__sublinks{ display: flex; }
+
+/* Estilo de sublink (ligeramente más pequeño e indentado) */
+.sidebar__sublink{
+  display: flex; align-items: center; gap: 10px;
+  text-decoration: none;
+  color: #fff; opacity: .95;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 0.95em;
+  /* indent extra para icono */
+  padding-left: 38px;
+}
+.sidebar__sublink:hover{ background: rgba(255,255,255,.12); }
+.sidebar__sublink.active{ background: rgba(255,255,255,.20); }
+
+/* Cuando el sidebar está colapsado, ocultamos submenú */
+.sidebar.is-collapsed .sidebar__sublinks{ display: none !important; }
+
+
+/* Asegura altura completa del sidebar */
+.sidebar{
+  height: 100vh;              /* fallback */
+  min-height: 0;              /* permite que los hijos flex puedan scrollear */
+}
+@supports (height: 100dvh){
+  .sidebar{ height: 100dvh; } /* corrige en móviles iOS/Android */
+}
+
+/* La zona de navegación crece y hace scroll */
+.sidebar__nav{
+  flex: 1 1 auto;             /* ocupa el espacio entre top y bottom */
+  overflow-y: auto;           /* << barra de scroll */
+  min-height: 0;              /* importante en layouts flex */
+  padding-right: 6px;         /* deja espacio para la barra */
+  scrollbar-gutter: stable both-edges; /* evita “saltos” al aparecer la barra */
+}
+
+/* Scrollbar bonita (opcional) */
+.sidebar__nav::-webkit-scrollbar{ width: 8px; }
+.sidebar__nav::-webkit-scrollbar-thumb{
+  background: rgba(255,255,255,.35); border-radius: 8px;
+}
+.sidebar__nav::-webkit-scrollbar-track{ background: transparent; }
+
+/* En modo colapsado puedes quitar el padding derecho si quieres */
+.sidebar.is-collapsed .sidebar__nav{ padding-right: 0; }
+
+/* sub-submenú (Devoluciones dentro de Refaccionaria) */
+.sidebar__subgroup { margin-left: 0.1rem; }
+.sidebar__subgroup-toggle { width: 100%; text-align: left; border: 0; background: none; cursor: pointer; }
+
+.sidebar__subsublinks { display: none; padding-left: 3rem; }
+.sidebar__subgroup.open > .sidebar__subsublinks { display: block; }
+
+.sidebar__subsublink {
+  display: block;
+  padding: .35rem .75rem;
+  border-radius: .5rem;
+  font-size: .92rem;
+  opacity: .95;
+  color: #fff;
+}
+.sidebar__subsublink:hover,
+.sidebar__subsublink.active {
+  background: rgba(255,255,255,.08); /* ajusta a tu tema */
+}
+
+
