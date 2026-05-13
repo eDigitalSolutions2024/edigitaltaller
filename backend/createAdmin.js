@@ -2,45 +2,57 @@
 
 require('dotenv').config();
 const mongoose = require('mongoose');
-const connectDB = require('./config/db');   // usa tu misma función de conexión
-const User = require('./models/User');      // ajusta si tu modelo se llama distinto
+const connectDB = require('./config/db');
+const User = require('./models/User');
 
 const run = async () => {
   try {
     console.log('✅ Iniciando script de creación de admin...');
 
-    // 1. Conectar a Mongo
     await connectDB();
     console.log('✅ Conectado a MongoDB desde createAdmin.js');
 
-    // 2. Datos del admin (CÁMBIALOS si quieres)
     const adminData = {
       name: 'Admin Taller',
-      workshopName: 'Taller Principal',
+      username: 'admin',
       email: 'admin@taller.com',
-      password: 'admin123', // se encripta por el pre('save') del schema
+      password: 'admin123',
       role: 'admin',
+
+      // opcionales del nuevo modelo
+      telefono: '',
+      celular: '',
+      serie: '',
+      serieLlantera: 'L',
+      razonSocial: null,
+      legacyLevel: '1',
+      isActive: true,
+      employee: null
     };
 
-    // 3. Verificar si ya existe
-    const existing = await User.findOne({ email: adminData.email });
+    const existing = await User.findOne({
+      $or: [
+        { email: adminData.email.toLowerCase() },
+        { username: adminData.username.toLowerCase() }
+      ]
+    });
 
     if (existing) {
-      console.log('⚠️ Ya existe un usuario con ese email:', adminData.email);
-      console.log('   No se creó un nuevo admin.');
+      console.log('⚠️ Ya existe un usuario con ese email o username:');
+      console.log(`   Email: ${adminData.email}`);
+      console.log(`   Username: ${adminData.username}`);
       await mongoose.disconnect();
       process.exit(0);
     }
 
-    // 4. Crear el admin
-    const admin = new User(adminData);
-    await admin.save();
+    const admin = await User.create(adminData);
 
     console.log('🎉 Admin creado correctamente:');
+    console.log(`   Nombre:   ${admin.name}`);
+    console.log(`   Usuario:  ${admin.username}`);
     console.log(`   Email:    ${admin.email}`);
     console.log(`   Password: ${adminData.password}  (recuerda cambiarla luego)`);
 
-    // 5. Cerrar conexión
     await mongoose.disconnect();
     console.log('🔌 Conexión a Mongo cerrada.');
     process.exit(0);

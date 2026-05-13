@@ -7,12 +7,15 @@ const PAGE_SIZES = [10, 25, 50, 100];
 export default function BDCodigos() {
   const [form, setForm] = useState({
     _id: "",
-    tipo: "refaccion",          // refaccion | servicio
-    numeroParte: "",            // para editar existentes
+    tipo: "refaccion",
+    numeroParte: "",
     descripcion: "",
     proveedor: "",
-    grupoServicio: "otros",     // 👈 NUEVO (solo aplica a servicios)
+    grupoServicio: "otros",
+    codigoSat: "",
+    descripcionSat: "",
   });
+
 
   // vista actual: refaccion | servicio
   const [tipo, setTipo] = useState("refaccion");
@@ -49,7 +52,9 @@ export default function BDCodigos() {
           numeroParte: x.numeroParte || "",
           proveedor: x.proveedor || "",
           descripcion: x.descripcion || "",
-          grupoServicio: x.grupoServicio || "otros",  // 👈 NUEVO
+          grupoServicio: x.grupoServicio || "otros",
+          codigoSat: x.codigoSat || "",
+          descripcionSat: x.descripcionSat || "",
         }));
         setItems(data);
       } catch (e) {
@@ -97,7 +102,10 @@ export default function BDCodigos() {
           (x.codigo || "").toLowerCase().includes(q) ||
           (x.numeroParte || "").toLowerCase().includes(q) ||
           (x.descripcion || "").toLowerCase().includes(q) ||
-          (x.proveedor || "").toLowerCase().includes(q)
+          (x.proveedor || "").toLowerCase().includes(q) ||
+          (x.codigoSat || "").toLowerCase().includes(q) ||
+          (x.descripcionSat || "").toLowerCase().includes(q)
+
       );
     }
 
@@ -148,13 +156,16 @@ export default function BDCodigos() {
       const isEdit = Boolean(form._id);
 
       const payload = {
-        tipo: form.tipo || tipo, // refaccion | servicio
-        // si es alta usamos el nextCode, si es edición mandamos el existente
-        numeroParte: isEdit ? (form.numeroParte || "").trim() : nextCode,
+        tipo: form.tipo || tipo,
+        codigo: (form.numeroParte || "").trim(),
+        numeroParte: (form.numeroParte || "").trim(),
         descripcion: form.descripcion.trim(),
         proveedor:
           (form.tipo || tipo) === "servicio" ? "" : form.proveedor.trim(),
+        codigoSat: form.codigoSat.trim(),
+        descripcionSat: form.descripcionSat.trim(),
       };
+
 
       // Solo mandamos grupoServicio si es SERVICIO
       if ((form.tipo || tipo) === "servicio") {
@@ -200,6 +211,9 @@ export default function BDCodigos() {
       proveedor: x.proveedor || "",
       descripcion: x.descripcion || "",
       grupoServicio: x.grupoServicio || "otros",
+      codigoSat: x.codigoSat || "",
+      descripcionSat: x.descripcionSat || "",
+
     }));
     setItems(data);
   }
@@ -221,6 +235,8 @@ export default function BDCodigos() {
       descripcion: "",
       proveedor: "",
       grupoServicio: tipo === "servicio" ? "motor" : "otros",
+      codigoSat: "",
+      descripcionSat: "",
     });
     setRefSel("");
   }
@@ -242,6 +258,8 @@ export default function BDCodigos() {
       descripcion: x.descripcion || "",
       proveedor: x.proveedor || "",
       grupoServicio: x.grupoServicio || "otros",
+      codigoSat: x.codigoSat || "",
+      descripcionSat: x.descripcionSat || "",
     });
   }
 
@@ -255,13 +273,6 @@ export default function BDCodigos() {
     await recargarTabla();
     await recargarOptions();
   }
-
-  // lo que se muestra en el input:
-  // - si estás editando, el número existente
-  // - si es alta, el nextCode calculado
-  const displayCodigo = form._id
-    ? (form.numeroParte || "")
-    : nextCode;
 
   return (
     <div className="container-fluid py-3">
@@ -302,23 +313,27 @@ export default function BDCodigos() {
                 <div className="col-12">
                   <small className="text-muted">
                     Tipo actual:{" "}
-                    <strong>
-                      {tipo === "servicio" ? "SERVICIO" : "REFACCIÓN"}
-                    </strong>
+                    <strong>{tipo === "servicio" ? "SERVICIO" : "REFACCIÓN"}</strong>
                   </small>
                 </div>
 
-                <div className="col-md-4">
-                  <label className="form-label">Número de Parte / Código:</label>
-                  <input
-                    className="form-control"
-                    value={displayCodigo}
-                    disabled
-                    readOnly
-                  />
+                <div className="col-12">
+                  <h6 className="fw-bold border-bottom pb-2 mb-0">
+                    Datos internos
+                  </h6>
                 </div>
 
                 <div className="col-md-4">
+                  <label className="form-label">Código interno:</label>
+                  <input
+                    className="form-control"
+                    name="numeroParte"
+                    value={form.numeroParte}
+                    onChange={onChange}
+                  />
+                </div>
+
+                <div className="col-md-8">
                   <label className="form-label">Descripción:</label>
                   <input
                     className="form-control"
@@ -328,7 +343,6 @@ export default function BDCodigos() {
                   />
                 </div>
 
-                {/* Proveedor solo se muestra para refacciones */}
                 {tipo === "refaccion" && (
                   <div className="col-md-4">
                     <label className="form-label">Proveedor:</label>
@@ -341,8 +355,7 @@ export default function BDCodigos() {
                   </div>
                 )}
 
-                {/* 👇 NUEVO: grupo de servicio solo cuando tipo === servicio */}
-                {tipo === "servicio" && (
+               {/* {tipo === "servicio" && (
                   <div className="col-md-4">
                     <label className="form-label">Grupo de servicio:</label>
                     <select
@@ -357,18 +370,50 @@ export default function BDCodigos() {
                       <option value="otros">Otros servicios</option>
                     </select>
                   </div>
+                )}  */}
+
+                {tipo === "servicio" && (
+                  <>
+                    <div className="col-12 mt-3">
+                      <h6 className="fw-bold border-bottom pb-2 mb-0">
+                        Datos SAT
+                      </h6>
+                    </div>
+
+                    <div className="col-md-4">
+                      <label className="form-label">Código SAT:</label>
+                      <input
+                        className="form-control"
+                        name="codigoSat"
+                        value={form.codigoSat}
+                        onChange={onChange}
+                      />
+                    </div>
+
+                    <div className="col-md-8">
+                      <label className="form-label">Descripción SAT:</label>
+                      <input
+                        className="form-control"
+                        name="descripcionSat"
+                        value={form.descripcionSat}
+                        onChange={onChange}
+                      />
+                    </div>
+                  </>
                 )}
               </div>
 
               <div className="d-flex justify-content-end mt-3">
                 <button
-                  className="btn btn-primary"
+                  type="button"
+                  className="btn btn-primary px-4"
                   onClick={guardar}
                   disabled={loading}
                 >
                   {loading ? "Guardando..." : "Guardar"}
                 </button>
               </div>
+
 
               {/* Selector + Buscar */}
               <div className="row align-items-end mt-4">
@@ -475,10 +520,13 @@ export default function BDCodigos() {
                     >
                       Código {chev(sort, "codigo")}
                     </th>
-                    <th role="button" onClick={() => changeSort("proveedor")}>
+                    {/*<th role="button" onClick={() => changeSort("proveedor")}>
                       Proveedor {chev(sort, "proveedor")}
-                    </th>
+                    </th>*/}
                     <th>Descripción</th>
+                    {tipo === "servicio" && <th>Código SAT</th>}
+                    {tipo === "servicio" && <th>Descripción SAT</th>}
+
                     <th style={{ width: 50 }} className="text-center">
                       X
                     </th>
@@ -487,7 +535,7 @@ export default function BDCodigos() {
                 <tbody>
                   {pageData.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="text-center py-4">
+                      <td colSpan={tipo === "servicio" ? 7 : 5} className="text-center py-4">
                         Sin registros
                       </td>
                     </tr>
@@ -497,8 +545,11 @@ export default function BDCodigos() {
                         {/* ID automático (R1 / S1...) */}
                         <td>{x.codigo || String(x._id).slice(-4)}</td>
                         <td>{x.codigo || x.numeroParte}</td>
-                        <td>{x.proveedor || "—"}</td>
+                        {/*<td>{x.proveedor || "—"}</td>*/}
                         <td>{x.descripcion}</td>
+                        {tipo === "servicio" && <td>{x.codigoSat || "—"}</td>}
+                        {tipo === "servicio" && <td>{x.descripcionSat || "—"}</td>}
+
                         <td className="text-center">
                           <button
                             className="btn btn-link text-danger p-0"

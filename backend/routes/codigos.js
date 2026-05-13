@@ -43,12 +43,15 @@ router.get('/', async (req, res) => {
 
     if (q) {
       filter.$or = [
-        { numeroParte:  new RegExp(q, 'i') },
-        { descripcion:  new RegExp(q, 'i') },
-        { proveedor:    new RegExp(q, 'i') },
-        { codigo:       new RegExp(q, 'i') },
+        { numeroParte: new RegExp(q, 'i') },
+        { descripcion: new RegExp(q, 'i') },
+        { proveedor: new RegExp(q, 'i') },
+        { codigo: new RegExp(q, 'i') },
+        { codigoSat: new RegExp(q, 'i') },
+        { descripcionSat: new RegExp(q, 'i') },
       ];
     }
+
 
     const total = await Codigo.countDocuments(filter);
     const data  = await Codigo.find(filter)
@@ -74,7 +77,17 @@ router.get('/options', async (req, res) => {
 
   const list = await Codigo.find(
     filter,
-    { codigo:1, numeroParte:1, proveedor:1, descripcion:1, tipo:1, grupoServicio:1 }
+    {
+      codigo: 1,
+      numeroParte: 1,
+      proveedor: 1,
+      descripcion: 1,
+      tipo: 1,
+      grupoServicio: 1,
+      codigoSat: 1,
+      descripcionSat: 1,
+    }
+
   )
     .sort({ codigo:1 })
     .lean();
@@ -86,7 +99,10 @@ router.get('/options', async (req, res) => {
     grupoServicio: x.grupoServicio || 'otros',
     label: `${x.codigo} - ${x.numeroParte}${x.proveedor ? ' - ' + x.proveedor : ''}`,
     descripcion: x.descripcion || '',
+    codigoSat: x.codigoSat || '',
+    descripcionSat: x.descripcionSat || '',
   }));
+
 
   res.json({ success: true, data });
 });
@@ -111,27 +127,29 @@ router.post('/', async (req, res) => {
         ? 'servicio'
         : 'refaccion';
 
-    // 2) siguiente código (R1, S1, etc.)
-    const codigo = await nextCodigo(tipo);
+    const codigo = (req.body.codigo || req.body.numeroParte || '').trim();
 
-    // 3) resto de datos
     const payload = {
       tipo,
-      codigo, // 👈 aquí guardamos R1/S1...
-      numeroParte: (req.body.numeroParte || '').trim(),
+      codigo,
+      numeroParte: codigo,
       descripcion: (req.body.descripcion || '').trim(),
       proveedor:
         tipo === 'servicio'
           ? ''
           : (req.body.proveedor || '').trim(),
+      codigoSat: (req.body.codigoSat || '').trim(),
+      descripcionSat: (req.body.descripcionSat || '').trim(),
     };
+
+
 
     // 👇 SOLO servicios: guardamos grupoServicio
     if (tipo === 'servicio') {
       payload.grupoServicio = sanitizeGrupoServicio(req.body.grupoServicio);
     }
 
-    if (!payload.numeroParte) throw new Error('Número de parte es obligatorio');
+    if (!payload.codigo) throw new Error('Código es obligatorio');
 
     const created = await Codigo.create(payload);
     res.status(201).json({ success:true, data:created });
@@ -143,11 +161,18 @@ router.post('/', async (req, res) => {
 // Actualizar (no cambiamos el código)
 router.put('/:id', async (req, res) => {
   try {
+    const codigo = (req.body.codigo || req.body.numeroParte || '').trim();
+
     const payload = {
-      numeroParte: (req.body.numeroParte || '').trim(),
+      codigo,
+      numeroParte: codigo,
       descripcion: (req.body.descripcion || '').trim(),
       proveedor: (req.body.proveedor || '').trim(),
+      codigoSat: (req.body.codigoSat || '').trim(),
+      descripcionSat: (req.body.descripcionSat || '').trim(),
     };
+
+
 
     // si quieres permitir cambiar tipo:
     if (req.body.tipo === 'servicio' || req.body.tipo === 'refaccion') {

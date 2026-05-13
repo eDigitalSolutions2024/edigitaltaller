@@ -24,6 +24,10 @@ const CodigoSchema = new mongoose.Schema({
   descripcion:  { type: String, trim: true },
   marca:        { type: String, trim: true },
 
+  
+  // Datos SAT para facturación
+  codigoSat: { type: String, trim: true, default: "" },
+  descripcionSat: { type: String, trim: true, default: "" },
 
 
    // 👇 NUEVO: para que el PDF sepa en qué columna va
@@ -40,6 +44,8 @@ CodigoSchema.index({
   descripcion: 'text',
   numeroParte: 'text',
   marca: 'text',
+  codigoSat: 'text',
+  descripcionSat: 'text',
 });
 
 module.exports = mongoose.model('CodigoRefaccion', CodigoSchema);

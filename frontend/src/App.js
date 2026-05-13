@@ -19,6 +19,10 @@ import Devoluciones from "./pages/refaccionaria/devoluciones/DevolucionesLayout"
 import ConsultarInventario from "./pages/refaccionaria/ConsultarInventario";
 import ConsultarFacturaProveedor from "./pages/refaccionaria/ConsultarFacturaProveedor.jsx";
 import BDCodigos from "./pages/refaccionaria/BDCodigos";
+import SolicitudesTaller from "./pages/refaccionaria/SolicitudesTaller";
+import SolicitudTallerDetalle from "./pages/refaccionaria/SolicitudTallerDetalle";
+
+
 
 // Proveedores
 import ProveedoresLayout from "./pages/proveedores/ProveedoresLayout";
@@ -42,6 +46,14 @@ import ConsultaVales from "./pages/refaccionaria/devoluciones/consultas-vales";
 
 import Empleados from "./pages/Empleados";
 import OrdenesCompraList from "./pages/OrdenesCompraList";
+
+//Administracion
+import Usuarios from "./pages/admin/Usuarios";
+
+//Configuracion
+import Configuracion from "./pages/configuration/Configuracion";
+
+
 
 const PrivateRoute = ({ children }) => {
   const token = localStorage.getItem("token");
@@ -103,6 +115,10 @@ export default function App() {
             <Route index element={<Navigate to="entrada" replace />} />
             <Route path="entrada" element={<EntradaInventario />} />
             <Route path="salida" element={<SalidaRefaccion />} />
+            <Route path="solicitudes-taller" element={<SolicitudesTaller />} />
+            <Route path="solicitudes-taller/:id" element={<SolicitudTallerDetalle />} />
+
+
 
             {/* Devoluciones */}
             <Route path="devoluciones/*" element={<Devoluciones />}>
@@ -122,8 +138,14 @@ export default function App() {
           {/* Empleados */}
           <Route path="empleados" element={<Empleados />} />
 
+          {/* Administración de usuarios */}
+          <Route path="admin/usuarios" element={<Usuarios />} />
+
           {/* Órdenes de compra */}
           <Route path="ordenes-compra" element={<OrdenesCompraList />} />
+
+          {/* Configuración */}
+          <Route path="configuracion" element={<Configuracion />} />
         </Route>
 
         {/* Fallback */}

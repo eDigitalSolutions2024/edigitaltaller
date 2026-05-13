@@ -6,10 +6,19 @@ import {
 } from "../../api/vehiculos";
 import http from "../../api/http"; // 👈 para descargar el PDF de la OC
 
-export default function VehiculoRequisicionDiagnostico({ orden, onSaved }) {
+export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPresupuesto, }) {
   const [diagnostico, setDiagnostico] = useState("");
   const [rows, setRows] = useState([]); // refaccionesSolicitadas
   const [cargos, setCargos] = useState([]); // cargosEnOrden
+  const [moRows, setMoRows] = useState([]);
+  const [moLine, setMoLine] = useState({
+    concepto: "",
+    mecanico: "",
+    horas: "",
+    fechaPago: "",
+    observaciones: "",
+  });
+
   const [line, setLine] = useState({
     cant: "",
     unidad: "",
@@ -22,10 +31,13 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved }) {
     moneda: "MN",
     tiempoEntrega: "",
     core: "",
+    precioCore: "",
     observaciones: "",
   });
   const [saving, setSaving] = useState(false);
   const [savingLine, setSavingLine] = useState(false); // para el botón +
+
+  const [editingRefIdx, setEditingRefIdx] = useState(null);
 
   // Carga inicial desde la orden
   useEffect(() => {
@@ -36,16 +48,36 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved }) {
     // Refacciones solicitadas (arriba)
     const refConEstatus = (orden.refaccionesSolicitadas || []).map((r) => ({
       ...r,
+      cant: Number(r.cant || 0),
       estatus: r.estatus || "PENDIENTE",
+      opcionSeleccionada:
+        r.opcionSeleccionada === undefined ? null : r.opcionSeleccionada,
+      opciones: Array.isArray(r.opciones)
+        ? r.opciones.map((op) => ({
+            ...op,
+            precioUnitario: Number(op.precioUnitario || 0),
+            tipoCambio: op.moneda === "USD" ? Number(op.tipoCambio || 0) : 0,
+            importeTotal:
+              Number(op.importeTotal || 0) ||
+              Number(r.cant || 0) *
+                Number(op.precioUnitario || 0) *
+                (op.moneda === "USD" ? Number(op.tipoCambio || 0) : 1),
+            precioCore: op.core === "SI" ? Number(op.precioCore || 0) : 0,
+            moneda: op.moneda || "MN",
+            seleccionada: !!op.seleccionada,
+          }))
+        : [],
       requiereOC: !!r.requiereOC,
       ocGenerada: !!r.ocGenerada,
       numeroOC: r.numeroOC || null,
-      ordenCompra: r.ordenCompra || null, // 👈 ID de la OC
+      ordenCompra: r.ordenCompra || null,
     }));
+
     setRows(refConEstatus);
 
     // Cargos en orden (lo que ya viene del backend)
     setCargos(orden.cargosEnOrden || []);
+    setMoRows(orden.manoObra || []);
   }, [orden]);
 
   const handleLineChange = (e) => {
@@ -55,6 +87,63 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved }) {
       [name]: value,
     }));
   };
+
+  const handleMoLineChange = (e) => {
+    const { name, value } = e.target;
+    setMoLine((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const addMoRow = async () => {
+    if (!moLine.concepto.trim()) {
+      alert("En mano de obra captura al menos el concepto/servicio.");
+      return;
+    }
+
+    const nuevasMo = [...moRows, moLine];
+
+    setMoRows(nuevasMo);
+    setMoLine({
+      concepto: "",
+      mecanico: "",
+      horas: "",
+      fechaPago: "",
+      observaciones: "",
+    });
+
+    try {
+      await saveRequisicionDiagnostico(orden._id, {
+        diagnosticoTecnico: diagnostico,
+        refacciones: rows,
+        manoObra: nuevasMo,
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Error al guardar la mano de obra.");
+      setMoRows(moRows);
+    }
+  };
+
+
+  const removeMoRow = async (idx) => {
+    const prevMo = moRows;
+    const nuevasMo = moRows.filter((_, i) => i !== idx);
+
+    setMoRows(nuevasMo);
+
+    try {
+      await saveRequisicionDiagnostico(orden._id, {
+        diagnosticoTecnico: diagnostico,
+        refacciones: rows,
+        manoObra: nuevasMo,
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Error al borrar la mano de obra.");
+      setMoRows(prevMo);
+    }
+  };
+
+
 
   // Botón +: agrega refacción y guarda en backend
   const handleAddLine = async () => {
@@ -72,6 +161,7 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved }) {
       cant: cantNum,
       precioUnitario: puNum,
       importeTotal: importe,
+      precioCore: line.core === "NO" ? Number(line.precioCore) || 0 : 0,
       estatus: "PENDIENTE",
       requiereOC: false,
       ocGenerada: false,
@@ -94,6 +184,7 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved }) {
       moneda: "MN",
       tiempoEntrega: "",
       core: "",
+      precioCore: "",
       observaciones: "",
     });
 
@@ -102,6 +193,7 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved }) {
       await saveRequisicionDiagnostico(orden._id, {
         diagnosticoTecnico: diagnostico,
         refacciones: nuevasFilas,
+        manoObra: moRows,
       });
     } catch (err) {
       console.error(err);
@@ -117,23 +209,139 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved }) {
   };
 
   const handleEditRow = (idx) => {
-    const r = rows[idx];
-    setLine({
-      cant: String(r.cant ?? ""),
-      unidad: r.unidad || "",
-      refaccion: r.refaccion || "",
-      tipo: r.tipo || "",
-      marca: r.marca || "",
-      proveedor: r.proveedor || "",
-      codigo: r.codigo || "",
-      precioUnitario:
-        r.precioUnitario != null ? String(r.precioUnitario) : "",
-      moneda: r.moneda || "MN",
-      tiempoEntrega: r.tiempoEntrega || "",
-      core: r.core || "",
-      observaciones: r.observaciones || "",
+    setEditingRefIdx(idx);
+  };
+
+  const handleUpdateRefRow = (idx, field, value) => {
+    const nuevasFilas = [...rows];
+
+    nuevasFilas[idx][field] = value;
+
+    const cant = Number(nuevasFilas[idx].cant) || 0;
+    const precio = Number(nuevasFilas[idx].precioUnitario) || 0;
+
+    nuevasFilas[idx].importeTotal = cant * precio;
+
+    if (field === "core" && value !== "NO") {
+      nuevasFilas[idx].precioCore = 0;
+    }
+
+    if (field === "precioCore") {
+      nuevasFilas[idx].precioCore = Number(value) || 0;
+    }
+
+    setRows(nuevasFilas);
+  };
+
+  const handleSaveEditRow = async () => {
+    try {
+      setEditingRefIdx(null);
+
+      await saveRequisicionDiagnostico(orden._id, {
+        diagnosticoTecnico: diagnostico,
+        refacciones: rows,
+        manoObra: moRows,
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Error al guardar los cambios de la refacción.");
+    }
+  };
+
+  const getSeleccionadas = () =>
+    rows.filter((r) => r.estatus === "APROBADA" && r.opcionSeleccionada !== null);
+
+  const handleSeleccionarOpcion = async (refIdx, opIdx) => {
+    const ref = rows[refIdx];
+    const opcion = ref?.opciones?.[opIdx];
+
+    if (!opcion) return;
+
+    const cant = Number(ref.cant || 0);
+    const precio = Number(opcion.precioUnitario || 0);
+    const moneda = opcion.moneda || "MN";
+    const tipoCambio = moneda === "USD" ? Number(opcion.tipoCambio || 0) : 0;
+    const importe = cant * precio * (moneda === "USD" ? tipoCambio : 1);
+
+
+    const nuevasFilas = rows.map((r, i) => {
+      if (i !== refIdx) return r;
+
+      return {
+        ...r,
+        unidad: opcion.unidad || r.unidad || "",
+        tipo: opcion.tipo || "",
+        marca: opcion.marca || "",
+        proveedor: opcion.proveedor || "",
+        codigo: opcion.codigo || "",
+        precioUnitario: precio,
+        tipoCambio,
+        importeTotal: importe,
+        moneda,
+        tiempoEntrega: opcion.tiempoEntrega || "",
+        core: opcion.core || "",
+        precioCore: Number(opcion.precioCore || 0),
+        observaciones: opcion.observaciones || "",
+        opcionSeleccionada: opIdx,
+        opciones: (r.opciones || []).map((op, idx) => ({
+          ...op,
+          seleccionada: idx === opIdx,
+        })),
+        estatus: "APROBADA",
+      };
     });
-    handleRemoveRow(idx);
+
+    setRows(nuevasFilas);
+
+    try {
+      await saveRequisicionDiagnostico(orden._id, {
+        diagnosticoTecnico: diagnostico,
+        refacciones: nuevasFilas,
+        manoObra: moRows,
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Error al elegir la refacción.");
+    }
+  };
+
+  const handleQuitarSeleccion = async (refIdx) => {
+    const nuevasFilas = rows.map((r, i) => {
+      if (i !== refIdx) return r;
+
+      return {
+        ...r,
+        tipo: "",
+        marca: "",
+        proveedor: "",
+        codigo: "",
+        precioUnitario: 0,
+        importeTotal: 0,
+        tiempoEntrega: "",
+        core: "",
+        precioCore: 0,
+        observaciones: "",
+        opcionSeleccionada: null,
+        opciones: (r.opciones || []).map((op) => ({
+          ...op,
+          seleccionada: false,
+        })),
+        estatus: "PENDIENTE",
+      };
+    });
+
+    setRows(nuevasFilas);
+
+    try {
+      await saveRequisicionDiagnostico(orden._id, {
+        diagnosticoTecnico: diagnostico,
+        refacciones: nuevasFilas,
+        manoObra: moRows,
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Error al quitar la selección.");
+    }
   };
 
   const handleSetStatus = async (idx, estatus) => {
@@ -148,6 +356,7 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved }) {
       await saveRequisicionDiagnostico(orden._id, {
         diagnosticoTecnico: diagnostico,
         refacciones: nuevasFilas,
+        manoObra: moRows,
       });
     } catch (err) {
       console.error(err);
@@ -243,6 +452,16 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved }) {
     [rows]
   );
 
+  const totalSeleccionadas = useMemo(
+    () =>
+      getSeleccionadas().reduce(
+        (acc, r) => acc + (Number(r.importeTotal) || 0),
+        0
+      ),
+    [rows]
+  );
+
+
   const totalCargos = useMemo(
     () => cargos.reduce((acc, c) => acc + (Number(c.importeTotal) || 0), 0),
     [cargos]
@@ -255,25 +474,104 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved }) {
       minimumFractionDigits: 2,
     }).format(Number(n) || 0);
 
-  const handleSave = async () => {
+  const formatFecha = (value) => {
+    if (!value) return "";
+
+    const [year, month, day] = String(value).split("-");
+    if (!year || !month || !day) return value;
+
+    const meses = [
+      "Enero",
+      "Febrero",
+      "Marzo",
+      "Abril",
+      "Mayo",
+      "Junio",
+      "Julio",
+      "Agosto",
+      "Septiembre",
+      "Octubre",
+      "Noviembre",
+      "Diciembre",
+    ];
+
+    return `${day}-${meses[Number(month) - 1]}-${year}`;
+  };
+
+
+  const guardarRequisicion = async (estadoOrden) => {
+    const payload = {
+      diagnosticoTecnico: diagnostico,
+      refacciones: rows,
+      manoObra: moRows,
+    };
+
+    if (estadoOrden) {
+      payload.estadoOrden = estadoOrden;
+    }
+
+    const res = await saveRequisicionDiagnostico(orden._id, payload);
+    const vAct = res.data.vehiculo;
+
+    if (onSaved) onSaved(vAct);
+
+    return vAct;
+  };
+
+  const handleGuardarSeleccion = async () => {
     try {
       setSaving(true);
-      const payload = {
-        diagnosticoTecnico: diagnostico,
-        refacciones: rows,
-        estadoOrden: "PENDIENTE_AUTORIZACION",
-      };
-      const res = await saveRequisicionDiagnostico(orden._id, payload);
-      const vAct = res.data.vehiculo;
-      if (onSaved) onSaved(vAct);
-      alert("Orden enviada al asesor correctamente.");
+      await guardarRequisicion();
+      alert("Selección guardada correctamente.");
     } catch (err) {
       console.error(err);
-      alert("Error al guardar la requisición/diagnóstico.");
+      alert("Error al guardar la selección.");
     } finally {
       setSaving(false);
     }
   };
+
+  const handleRegresarRefaccionaria = async () => {
+    const ok = window.confirm(
+      "¿Deseas regresar esta orden a refaccionaria?"
+    );
+
+    if (!ok) return;
+
+    try {
+      setSaving(true);
+      await guardarRequisicion("PENDIENTE_REFACCIONARIA");
+      alert("Orden regresada a refaccionaria.");
+    } catch (err) {
+      console.error(err);
+      alert("Error al regresar la orden a refaccionaria.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleContinuarPresupuesto = async () => {
+    if (getSeleccionadas().length === 0) {
+      alert("Selecciona al menos una refacción para continuar al presupuesto.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await guardarRequisicion("PENDIENTE_AUTORIZACION_CLIENTE");
+      alert("Refacciones enviadas a presupuesto.");
+
+      if (onGoPresupuesto) {
+        onGoPresupuesto();
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error al continuar a presupuesto.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
 
   const badgeClass = (estatus) => {
     switch (estatus) {
@@ -301,22 +599,139 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved }) {
             />
           </div>
 
-          <div className="mt-4">
+          <div className="mt-4 d-flex flex-column gap-2 align-items-stretch">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleGuardarSeleccion}
+              disabled={saving}
+            >
+              Guardar selección
+            </button>
+
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              onClick={handleRegresarRefaccionaria}
+              disabled={saving}
+            >
+              Regresar a Refaccionaria
+            </button>
+
             <button
               type="button"
               className="btn btn-primary"
-              onClick={handleSave}
+              onClick={handleContinuarPresupuesto}
               disabled={saving}
             >
-              {saving ? "Enviando..." : "Enviar Orden a Asesor"}
+              {saving ? "Guardando..." : "Continuar a Presupuesto"}
             </button>
           </div>
+
+
         </div>
 
-        {/* ===== Tabla refacciones solicitadas (arriba) ===== */}
-        <h5 className="text-center mb-2 fw-bold">REFACCIONES SOLICITADAS</h5>
+        <h5 className="text-center mb-2 fw-bold">OPCIONES DE REFACCIONES</h5>
 
-        <div className="table-responsive mb-2">
+        <div className="mb-4">
+          {rows.length === 0 && (
+            <div className="alert alert-info text-center">
+              No hay refacciones solicitadas.
+            </div>
+          )}
+
+          {rows.map((r, idx) => (
+            <div className="border rounded mb-3" key={idx}>
+              <div className="bg-light px-3 py-2 d-flex justify-content-between">
+                <div>
+                  <strong>{r.refaccion}</strong>
+                  <span className="ms-3">Cantidad: {r.cant}</span>
+                  {r.unidad && <span className="ms-2">({r.unidad})</span>}
+                </div>
+                <span className={badgeClass(r.estatus || "PENDIENTE")}>
+                  {r.estatus || "PENDIENTE"}
+                </span>
+              </div>
+
+              <div className="table-responsive">
+                <table className="table table-bordered table-sm align-middle mb-0">
+                  <thead className="table-light text-center">
+                    <tr>
+                      <th>Tipo</th>
+                      <th>Marca</th>
+                      <th>Proveedor</th>
+                      <th>Código</th>
+                      <th>Precio</th>
+                      <th>Importe</th>
+                      <th>Moneda</th>
+                      <th>Tipo Cambio</th>
+                      <th>Tiempo</th>
+                      <th>Core</th>
+                      <th>Precio Core</th>
+                      <th>Observaciones</th>
+                      <th style={{ width: "110px" }}>Acción</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {(!r.opciones || r.opciones.length === 0) && (
+                      <tr>
+                        <td colSpan={13} className="text-center text-muted">
+                          Refaccionaria aún no agregó opciones.
+                        </td>
+                      </tr>
+                    )}
+
+                    {(r.opciones || []).map((op, opIdx) => (
+                      <tr
+                        key={opIdx}
+                        className={op.seleccionada ? "table-success" : ""}
+                      >
+                        <td className="text-center">{op.tipo || "-"}</td>
+                        <td>{op.marca || "-"}</td>
+                        <td>{op.proveedor || "-"}</td>
+                        <td>{op.codigo || "-"}</td>
+                        <td className="text-end">{formatMoney(op.precioUnitario)}</td>
+                        <td className="text-end fw-bold">
+                          {formatMoney(op.importeTotal)}
+                        </td>
+                        <td className="text-center">{op.moneda || "MN"}</td>
+                        <td className="text-end">
+                          {(op.moneda || "MN") === "USD"
+                            ? Number(op.tipoCambio || 0).toFixed(4)
+                            : "-"}
+                        </td>
+                        <td>{op.tiempoEntrega || "-"}</td>
+                        <td className="text-center">{op.core || "N/A"}</td>
+                        <td className="text-end">
+                          {op.precioCore ? formatMoney(op.precioCore) : "-"}
+                        </td>
+                        <td>{op.observaciones || "-"}</td>
+                        <td className="text-center">
+                          <button
+                            type="button"
+                            className={
+                              op.seleccionada
+                                ? "btn btn-success btn-sm w-100"
+                                : "btn btn-outline-primary btn-sm w-100"
+                            }
+                            onClick={() => handleSeleccionarOpcion(idx, opIdx)}
+                          >
+                            {op.seleccionada ? "Elegida" : "Elegir"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <h5 className="text-center mb-2 fw-bold">REFACCIONES SELECCIONADAS</h5>
+
+        <div className="table-responsive mb-4">
           <table className="table table-bordered table-sm align-middle">
             <thead className="table-light text-center">
               <tr>
@@ -330,267 +745,187 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved }) {
                 <th>Precio Unitario</th>
                 <th>Importe Total</th>
                 <th>Moneda</th>
+                <th>Tipo Cambio</th>
                 <th>Tiempo Entrega</th>
                 <th>Observaciones</th>
-                <th>Estatus</th>
-                <th>Orden compra</th>
-                <th>Acción</th>
+                <th style={{ width: "100px" }}>Acción</th>
               </tr>
             </thead>
+
             <tbody>
-              {rows.length === 0 && (
+              {getSeleccionadas().length === 0 && (
                 <tr>
-                  <td colSpan={15} className="text-center text-muted">
-                    No hay refacciones capturadas.
+                  <td colSpan={14} className="text-center text-muted">
+                    No hay refacciones seleccionadas.
                   </td>
                 </tr>
               )}
 
-              {rows.map((r, idx) => (
-                <tr key={idx}>
-                  <td className="text-center">{r.cant}</td>
-                  <td className="text-center">{r.unidad}</td>
-                  <td>{r.refaccion}</td>
-                  <td className="text-center">{r.tipo}</td>
-                  <td className="text-center">{r.marca}</td>
-                  <td className="text-center">{r.proveedor}</td>
-                  <td className="text-center">{r.codigo}</td>
-                  <td className="text-end">{formatMoney(r.precioUnitario)}</td>
-                  <td className="text-end">{formatMoney(r.importeTotal)}</td>
-                  <td className="text-center">{r.moneda}</td>
-                  <td className="text-center">{r.tiempoEntrega}</td>
-                  <td>{r.observaciones}</td>
-                  <td className="text-center">
-                    <span className={badgeClass(r.estatus || "PENDIENTE")}>
-                      {r.estatus || "PENDIENTE"}
-                    </span>
-                  </td>
+              {rows.map((r, idx) => {
+                if (r.estatus !== "APROBADA" || r.opcionSeleccionada === null) {
+                  return null;
+                }
 
-                  {/* ✅ COLUMNA ORDEN DE COMPRA */}
-                  <td className="text-center">
-                    {r.ocGenerada && r.ordenCompra ? (
+                return (
+                  <tr key={idx}>
+                    <td className="text-center">{r.cant}</td>
+                    <td className="text-center">{r.unidad}</td>
+                    <td>{r.refaccion}</td>
+                    <td className="text-center">{r.tipo}</td>
+                    <td>{r.marca}</td>
+                    <td>{r.proveedor}</td>
+                    <td>{r.codigo}</td>
+                    <td className="text-end">{formatMoney(r.precioUnitario)}</td>
+                    <td className="text-end fw-bold">{formatMoney(r.importeTotal)}</td>
+                    <td className="text-center">{r.moneda}</td>
+                    <td className="text-end">
+                      {(r.moneda || "MN") === "USD"
+                        ? Number(r.tipoCambio || 0).toFixed(4)
+                        : "-"}
+                    </td>
+                    <td>{r.tiempoEntrega}</td>
+                    <td>{r.observaciones}</td>
+                    <td className="text-center">
                       <button
                         type="button"
-                        className="btn btn-info btn-sm"
-                        onClick={() => handleVerOrdenCompra(r.ordenCompra)}
+                        className="btn btn-outline-danger btn-sm w-100"
+                        onClick={() => handleQuitarSeleccion(idx)}
                       >
-                        {r.numeroOC ? `OC ${r.numeroOC}` : "Ver OC"}
+                        Quitar
                       </button>
-                    ) : (
-                      <input
-                        type="checkbox"
-                        disabled={r._ocLoading}
-                        onChange={() => handleGenerarOC(idx)}
-                        title={
-                          r.estatus !== "APROBADA"
-                            ? "Solo refacciones APROBADAS pueden generar OC"
-                            : "Generar orden de compra"
-                        }
-                      />
-                    )}
-                  </td>
-
-                  <td className="text-center">
-                    <div className="btn-group-vertical btn-group-sm">
-                      <button
-                        type="button"
-                        className="btn btn-warning"
-                        onClick={() => handleEditRow(idx)}
-                      >
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-danger"
-                        onClick={() => handleRemoveRow(idx)}
-                      >
-                        Borrar
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-success"
-                        onClick={() => handleSetStatus(idx, "APROBADA")}
-                      >
-                        Autorizado
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-outline-danger"
-                        onClick={() => handleSetStatus(idx, "RECHAZADA")}
-                      >
-                        Rechazado
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
+
             <tfoot>
               <tr>
                 <td colSpan={8} className="text-end fw-bold">
                   Total:
                 </td>
                 <td className="text-end fw-bold">
-                  {formatMoney(totalGeneral)}
+                  {formatMoney(totalSeleccionadas)}
                 </td>
-                <td colSpan={6}></td> {/* 8 + 1 + 6 = 15 columnas */}
+                <td colSpan={5}></td>
               </tr>
             </tfoot>
           </table>
         </div>
 
-        {/* ===== Línea de captura (abajo) ===== */}
+
+        <h5 className="text-center mb-2 fw-bold">MANO DE OBRA</h5>
+
         <div className="table-responsive mb-4">
-          <table className="table table-bordered table-sm align-middle mb-0">
+          <table className="table table-bordered table-sm align-middle">
             <thead className="table-light text-center">
               <tr>
-                <th>Cant</th>
-                <th>Unidad</th>
-                <th>Refacción</th>
-                <th>Tipo</th>
-                <th>Marca</th>
-                <th>Proveedor</th>
-                <th>Código</th>
-                <th>Precio Unitario</th>
-                <th>Moneda</th>
-                <th>Tiempo Entrega</th>
-                <th>Core</th>
+                <th>Reparación y/o Servicio</th>
+                <th>Mecánico</th>
+                <th>Horas</th>
+                <th>Fecha de Pago</th>
                 <th>Observaciones</th>
-                <th>Acción</th>
+                <th style={{ width: "70px" }}>Acción</th>
               </tr>
             </thead>
+
             <tbody>
-              <tr>
-                <td style={{ width: "70px" }}>
-                  <input
-                    type="number"
-                    className="form-control form-control-sm"
-                    name="cant"
-                    value={line.cant}
-                    onChange={handleLineChange}
-                  />
-                </td>
-                <td style={{ width: "90px" }}>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
-                    name="unidad"
-                    value={line.unidad}
-                    onChange={handleLineChange}
-                  />
-                </td>
+              <tr className="table-info">
                 <td>
                   <input
                     type="text"
                     className="form-control form-control-sm"
-                    name="refaccion"
-                    value={line.refaccion}
-                    onChange={handleLineChange}
+                    name="concepto"
+                    value={moLine.concepto}
+                    onChange={handleMoLineChange}
                   />
                 </td>
-                <td style={{ width: "120px" }}>
-                  <select
-                    className="form-select form-select-sm"
-                    name="tipo"
-                    value={line.tipo}
-                    onChange={handleLineChange}
-                  >
-                    <option value="">Selec...</option>
-                    <option value="Original">Original</option>
-                    <option value="Alterna">Alterna</option>
-                  </select>
-                </td>
-                <td style={{ width: "120px" }}>
+
+                <td style={{ width: "160px" }}>
                   <input
                     type="text"
                     className="form-control form-control-sm"
-                    name="marca"
-                    value={line.marca}
-                    onChange={handleLineChange}
+                    name="mecanico"
+                    value={moLine.mecanico}
+                    onChange={handleMoLineChange}
                   />
                 </td>
-                <td style={{ width: "120px" }}>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
-                    name="proveedor"
-                    value={line.proveedor}
-                    onChange={handleLineChange}
-                  />
-                </td>
-                <td style={{ width: "110px" }}>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
-                    name="codigo"
-                    value={line.codigo}
-                    onChange={handleLineChange}
-                  />
-                </td>
-                <td style={{ width: "120px" }}>
+
+                <td style={{ width: "80px" }}>
                   <input
                     type="number"
-                    step="0.01"
+                    step="0.1"
                     className="form-control form-control-sm"
-                    name="precioUnitario"
-                    value={line.precioUnitario}
-                    onChange={handleLineChange}
+                    name="horas"
+                    value={moLine.horas}
+                    onChange={handleMoLineChange}
                   />
                 </td>
-                <td style={{ width: "90px" }}>
-                  <select
-                    className="form-select form-select-sm"
-                    name="moneda"
-                    value={line.moneda}
-                    onChange={handleLineChange}
-                  >
-                    <option value="MN">MN</option>
-                    <option value="USD">USD</option>
-                  </select>
-                </td>
-                <td style={{ width: "110px" }}>
+
+                <td style={{ width: "150px" }}>
                   <input
-                    type="text"
+                    type="date"
                     className="form-control form-control-sm"
-                    name="tiempoEntrega"
-                    value={line.tiempoEntrega}
-                    onChange={handleLineChange}
+                    name="fechaPago"
+                    value={moLine.fechaPago}
+                    onChange={handleMoLineChange}
                   />
                 </td>
-                <td style={{ width: "100px" }}>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
-                    name="core"
-                    value={line.core}
-                    onChange={handleLineChange}
-                  />
-                </td>
+
                 <td>
                   <input
                     type="text"
                     className="form-control form-control-sm"
                     name="observaciones"
-                    value={line.observaciones}
-                    onChange={handleLineChange}
+                    value={moLine.observaciones}
+                    onChange={handleMoLineChange}
                   />
                 </td>
-                <td className="text-center" style={{ width: "70px" }}>
+
+                <td className="text-center">
                   <button
                     type="button"
                     className="btn btn-sm btn-primary"
-                    onClick={handleAddLine}
-                    disabled={savingLine}
+                    onClick={addMoRow}
                   >
-                    {savingLine ? "..." : "+"}
+                    +
                   </button>
                 </td>
               </tr>
+
+              {moRows.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="text-center text-muted">
+                    No hay registros de mano de obra.
+                  </td>
+                </tr>
+              )}
+
+              {moRows.map((m, idx) => (
+                <tr key={idx}>
+                  <td>{m.concepto}</td>
+                  <td className="text-center">{m.mecanico}</td>
+                  <td className="text-center">{m.horas}</td>
+                  <td className="text-center">{formatFecha(m.fechaPago)}</td>
+                  <td>{m.observaciones}</td>
+                  <td className="text-center">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-danger"
+                      onClick={() => removeMoRow(idx)}
+                    >
+                      Borrar
+                    </button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
 
-        {/* ===== NUEVA SECCIÓN: CARGOS EN ORDEN ===== */}
+
+
+        {/* ===== NUEVA SECCIÓN: CARGOS EN ORDEN ===== 
         <h5 className="text-center mb-2 fw-bold">CARGOS EN ORDEN</h5>
 
         <div className="table-responsive">
@@ -649,7 +984,8 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved }) {
               </tr>
             </tfoot>
           </table>
-        </div>
+        </div>*/}
+
       </div>
     </div>
   );

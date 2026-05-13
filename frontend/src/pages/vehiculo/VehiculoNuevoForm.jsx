@@ -14,11 +14,55 @@ function generateOrdenServicio() {
   return `OS-${yyyy}${mm}${dd}-${hh}${mi}${ss}`;
 }
 
+function getTodayInputDate() {
+  const ahora = new Date();
+  const yyyy = ahora.getFullYear();
+  const mm = String(ahora.getMonth() + 1).padStart(2, "0");
+  const dd = String(ahora.getDate()).padStart(2, "0");
+
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getCurrentInputTime() {
+  const ahora = new Date();
+  const hh = String(ahora.getHours()).padStart(2, "0");
+  const mi = String(ahora.getMinutes()).padStart(2, "0");
+
+  return `${hh}:${mi}`;
+}
+
+function formatDateForInput(value) {
+  if (!value) return "";
+
+  if (typeof value === "string") {
+    // Si ya viene como YYYY-MM-DD, lo dejamos igual
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+
+    // Si viene como ISO: 2026-05-08T...
+    if (value.includes("T")) return value.split("T")[0];
+  }
+
+  const fecha = new Date(value);
+  if (Number.isNaN(fecha.getTime())) return "";
+
+  const yyyy = fecha.getFullYear();
+  const mm = String(fecha.getMonth() + 1).padStart(2, "0");
+  const dd = String(fecha.getDate()).padStart(2, "0");
+
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+
+
 export default function VehiculoNuevoForm({
   cliente,
   initialData,
   readOnly = false,
+  onCreated,
 }) {
+  const esParticular = cliente?.tipoCliente === "Particular";
+  const requiereFactura = cliente?.requiereFacturacion === true;
+  
   const [form, setForm] = useState({
     // ----- Datos de orden / cabecera -----
     ordenServicio: "", // se llenará automático al montar
@@ -47,6 +91,8 @@ export default function VehiculoNuevoForm({
     numeroInt: "",
     colonia: "",
     rfc: "",
+    regimenFiscal: "",
+    usoCFDI: "",
     codigoPostal: "",
     ciudad: "",
     estado: "",
@@ -104,12 +150,19 @@ export default function VehiculoNuevoForm({
     observaciones: "",
   });
 
+  const [otrosIndicadoresActivo, setOtrosIndicadoresActivo] = useState(false);
+
+  const [guardando, setGuardando] = useState(false);
+  const [guardado, setGuardado] = useState(false);
+
   // 🔹 Al montar, si es ALTA (sin initialData), generamos folio de OS
   useEffect(() => {
     if (!initialData) {
       setForm((prev) => ({
         ...prev,
         ordenServicio: generateOrdenServicio(),
+        fechaRecepcion: getTodayInputDate(),
+        horaRecepcion: getCurrentInputTime(),
       }));
     }
   }, [initialData]);
@@ -119,10 +172,13 @@ export default function VehiculoNuevoForm({
     if (!cliente) return;
 
     const esParticular = cliente.tipoCliente === "Particular";
+    const requiereFactura = cliente.requiereFacturacion === true;
 
     const tel = cliente.telefono || {};
     const cel = cliente.celular || {};
-    const dir = cliente.direccion || {};
+    const dir = cliente?.requiereFacturacion
+    ? cliente.facturacion?.direccion || {}
+    : cliente.direccion || {};
     const gob = cliente.gobierno || {};
     const dep = gob.dependencia || {};
     const contactoGob = gob.contactoGobierno || {};
@@ -148,7 +204,11 @@ export default function VehiculoNuevoForm({
             // EMPRESA / GOBIERNO
             nombreGobierno: gob.nombreGobierno || cliente.nombre || "",
             nombreContactoGobierno:
-              contactoGob.nombre || contactoDep.nombre || "",
+              cliente.apellidoPaterno ||
+              cliente.empresa?.contacto?.nombre ||
+              contactoGob.nombre ||
+              contactoDep.nombre ||
+              "",
             nombreDependencia: dep.nombre || "",
             nombreContactoDependencia: contactoDep.nombre || "",
             // limpiamos campos de particular
@@ -174,6 +234,8 @@ export default function VehiculoNuevoForm({
 
       // === RFC y correo ===
       rfc: cliente.rfc || "",
+      regimenFiscal: cliente.facturacion?.regimenFiscal || "",
+      usoCFDI: cliente.facturacion?.usoCFDI || "",
       correo:
         cliente.email ||
         contactoGob.correo ||
@@ -188,6 +250,8 @@ export default function VehiculoNuevoForm({
     setForm((prev) => ({
       ...prev,
       ...initialData,
+      fechaRecepcion: formatDateForInput(initialData.fechaRecepcion),
+      horaRecepcion: initialData.horaRecepcion || "",
     }));
   }, [initialData]);
 
@@ -203,7 +267,9 @@ export default function VehiculoNuevoForm({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
     if (readOnly) return;
+    if (guardando || guardado) return;
 
     if (!cliente || !cliente._id) {
       alert("No hay cliente seleccionado.");
@@ -211,20 +277,32 @@ export default function VehiculoNuevoForm({
     }
 
     try {
+      setGuardando(true);
+
       const payload = {
         ...form,
-        // aseguramos que precioGrua vaya como número
         precioGrua: form.grua === "SI" ? Number(form.precioGrua || 0) : 0,
       };
 
       const res = await createVehiculo(cliente._id, payload);
+
+      setGuardado(true);
+
+      const vehiculoCreado = res.data?.vehiculo || res.data;
+
+      if (onCreated) {
+        onCreated(vehiculoCreado);
+      }
+
       console.log("Vehiculo guardado:", res.data || res);
       alert(
         `Vehículo / orden guardada correctamente.\nOrden de Servicio: ${payload.ordenServicio}`
       );
+
     } catch (err) {
       console.error("Error guardando vehiculo:", err);
       alert("Error al guardar el vehículo. Revisa la consola.");
+      setGuardando(false);
     }
   };
 
@@ -244,6 +322,78 @@ export default function VehiculoNuevoForm({
       </select>
     </div>
   );
+
+  const handleTodoOkAccesorios = () => {
+    if (readOnly) return;
+
+    setForm((prev) => ({
+      ...prev,
+      espejoLateralIzq: true,
+      espejoLateralDer: true,
+      copasDelanterasIzq: true,
+      copasDelanterasDer: true,
+      parabrisas: "BUENO",
+      focosDel: true,
+      focosTras: true,
+      espejoInt: true,
+      tapetesDelanterosIzq: true,
+      tapetesDelanterosDer: true,
+      estereo: true,
+      extra: true,
+      copasTraserasIzq: true,
+      copasTraserasDer: true,
+      micas: true,
+      antena: true,
+      encendedor: true,
+      tapetesTraserosIzq: true,
+      tapetesTraserosDer: true,
+      gato: true,
+      bateria: true,
+    }));
+  };
+
+  const handleLimpiarAccesorios = () => {
+    if (readOnly) return;
+
+    setForm((prev) => ({
+      ...prev,
+      espejoLateralIzq: false,
+      espejoLateralDer: false,
+      copasDelanterasIzq: false,
+      copasDelanterasDer: false,
+      parabrisas: "",
+      focosDel: false,
+      focosTras: false,
+      espejoInt: false,
+      tapetesDelanterosIzq: false,
+      tapetesDelanterosDer: false,
+      estereo: false,
+      extra: false,
+      copasTraserasIzq: false,
+      copasTraserasDer: false,
+      micas: false,
+      antena: false,
+      encendedor: false,
+      tapetesTraserosIzq: false,
+      tapetesTraserosDer: false,
+      gato: false,
+      bateria: false,
+    }));
+  };
+
+  const handleIndicadoresNo = () => {
+    if (readOnly) return;
+
+    setForm((prev) => ({
+      ...prev,
+      checkEngine: "NO",
+      abs: "NO",
+      airBag: "NO",
+      frenos: "NO",
+      aceite: "NO",
+      alternador: "NO",
+    }));
+  };
 
   return (
     <div className="card mt-3">
@@ -327,80 +477,121 @@ export default function VehiculoNuevoForm({
                   </>
                 ) : (
                   <>
-                    {/* === EMPRESA / GOBIERNO === */}
-                    <div className="col-12">
-                      <label className="form-label">
-                        Nombre Gobierno / Empresa
-                      </label>
+                    {/* === EMPRESA PRIVADA === */}
+                    {cliente?.tipoCliente === "Empresa Privada" && (
+                      <>
+                        <div className="col-12">
+                          <label className="form-label">Nombre Empresa</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            name="nombreGobierno"
+                            value={form.nombreGobierno}
+                            onChange={handleChange}
+                          />
+                        </div>
+
+                        <div className="col-12">
+                          <label className="form-label">Nombre Contacto Empresa</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            name="nombreContactoGobierno"
+                            value={form.nombreContactoGobierno}
+                            onChange={handleChange}
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {/* === GOBIERNO === */}
+                    {cliente?.tipoCliente === "Gobierno" && (
+                      <>
+                        <div className="col-12">
+                          <label className="form-label">
+                            Nombre Gobierno
+                          </label>
+
+                          <input
+                            type="text"
+                            className="form-control"
+                            name="nombreGobierno"
+                            value={form.nombreGobierno}
+                            onChange={handleChange}
+                          />
+                        </div>
+
+                        <div className="col-12">
+                          <label className="form-label">
+                            Nombre Contacto Gobierno
+                          </label>
+
+                          <input
+                            type="text"
+                            className="form-control"
+                            name="nombreContactoGobierno"
+                            value={form.nombreContactoGobierno}
+                            onChange={handleChange}
+                          />
+                        </div>
+
+                        <div className="col-12">
+                          <label className="form-label">Nombre Dependencia</label>
+
+                          <input
+                            type="text"
+                            className="form-control"
+                            name="nombreDependencia"
+                            value={form.nombreDependencia}
+                            onChange={handleChange}
+                          />
+                        </div>
+
+                        <div className="col-12">
+                          <label className="form-label">
+                            Nombre Contacto Dependencia
+                          </label>
+
+                          <input
+                            type="text"
+                            className="form-control"
+                            name="nombreContactoDependencia"
+                            value={form.nombreContactoDependencia}
+                            onChange={handleChange}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+
+                {/* TELEFONOS */}
+                {/* Teléfono fijo SOLO empresa/gobierno */}
+                {!esParticular && (
+                  <>
+                    <div className="col-md-3">
+                      <label className="form-label">Teléfono Fijo (LADA)</label>
                       <input
                         type="text"
                         className="form-control"
-                        name="nombreGobierno"
-                        value={form.nombreGobierno}
+                        name="telefonoFijoLada"
+                        value={form.telefonoFijoLada}
                         onChange={handleChange}
                       />
                     </div>
 
-                    <div className="col-12">
-                      <label className="form-label">
-                        Nombre Contacto Gobierno / Empresa
-                      </label>
+                    <div className="col-md-9">
+                      <label className="form-label">&nbsp;</label>
                       <input
                         type="text"
                         className="form-control"
-                        name="nombreContactoGobierno"
-                        value={form.nombreContactoGobierno}
-                        onChange={handleChange}
-                      />
-                    </div>
-
-                    <div className="col-12">
-                      <label className="form-label">Nombre Dependencia</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        name="nombreDependencia"
-                        value={form.nombreDependencia}
-                        onChange={handleChange}
-                      />
-                    </div>
-
-                    <div className="col-12">
-                      <label className="form-label">
-                        Nombre Contacto Dependencia
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        name="nombreContactoDependencia"
-                        value={form.nombreContactoDependencia}
+                        name="telefonoFijo"
+                        value={form.telefonoFijo}
                         onChange={handleChange}
                       />
                     </div>
                   </>
                 )}
-
-                {/* Teléfonos */}
-                <div className="col-md-3">
-                  <label className="form-label">Teléfono Fijo (LADA)</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="telefonoFijoLada"
-                    value={form.telefonoFijoLada}
-                    onChange={handleChange}
-                  />
-                </div>
-                <div className="col-md-9">
-                  <label className="form-label">&nbsp;</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="telefonoFijo"
-                    value={form.telefonoFijo}
-                    onChange={handleChange}
-                  />
-                </div>
 
                 <div className="col-md-3">
                   <label className="form-label">Celular (LADA)</label>
@@ -467,6 +658,7 @@ export default function VehiculoNuevoForm({
                   />
                 </div>
 
+                {requiereFactura && (
                 <div className="col-md-6">
                   <label className="form-label">RFC</label>
                   <input
@@ -477,6 +669,33 @@ export default function VehiculoNuevoForm({
                     onChange={handleChange}
                   />
                 </div>
+              )}
+
+              {requiereFactura && (
+                <>
+                  <div className="col-md-6">
+                    <label className="form-label">Régimen Fiscal</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      name="regimenFiscal"
+                      value={form.regimenFiscal}
+                      onChange={handleChange}
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">Uso de CFDI</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      name="usoCFDI"
+                      value={form.usoCFDI}
+                      onChange={handleChange}
+                    />
+                  </div>
+                </>
+              )}
 
                 <div className="col-md-6">
                   <label className="form-label">Código Postal</label>
@@ -698,6 +917,28 @@ export default function VehiculoNuevoForm({
 
           {/* ====== ACCESORIOS / CHECKBOXES ====== */}
           <hr className="my-3" />
+          {!readOnly && (
+          <div className="d-flex justify-content-start align-items-center gap-3 mb-3">
+            <p className="text-muted small mb-0 me-auto">
+              Los elementos marcados indican que el vehículo cuenta con dichos accesorios
+              al momento de la recepción.
+            </p>
+            <button
+              type="button"
+              className="btn btn-sm btn-success"
+              onClick={handleTodoOkAccesorios}
+            >
+              Todo OK
+            </button>
+
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-secondary"
+              onClick={handleLimpiarAccesorios}
+            >
+              Limpiar accesorios
+            </button>
+          </div>)}
 
           <div className="row g-2">
             {/* Espejos, copas, parabrisas, etc. */}
@@ -987,33 +1228,84 @@ export default function VehiculoNuevoForm({
           {/* ====== INDICADORES TABLERO / MECÁNICOS ====== */}
           <hr className="my-3" />
 
+          <div className="d-flex justify-content-between align-items-center mb-2">
+            <h6 className="fw-bold mb-0">Indicadores del Tablero</h6>
+
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-secondary"
+              onClick={handleIndicadoresNo}
+            >
+              Limpiar indicadores
+            </button>
+          </div>
+
+          <p className="text-muted small mb-2">
+            Marca únicamente los indicadores que se encuentren encendidos o presenten alerta.
+          </p>
+
           <div className="row g-2">
-            <div className="col-12">
-              <label className="form-label">Indicadores del Tablero</label>
-              <input
-                type="text"
-                className="form-control"
-                name="indicadoresTablero"
-                value={form.indicadoresTablero}
-                onChange={handleChange}
-              />
-            </div>
+            {[
+              ["checkEngine", "Check Engine"],
+              ["abs", "ABS"],
+              ["airBag", "Air Bag"],
+              ["frenos", "Frenos"],
+              ["aceite", "Aceite"],
+              ["alternador", "Alternador"],
+            ].map(([name, label]) => (
+              <div className="col-md-4 col-sm-6" key={name}>
+                <div className="form-check">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    id={name}
+                    checked={form[name] === "SI"}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        [name]: e.target.checked ? "SI" : "NO",
+                      }))
+                    }
+                  />
+                  <label className="form-check-label" htmlFor={name}>
+                    {label}
+                  </label>
+                </div>
+              </div>
+            ))}
 
-            {renderSiNoSelect("checkEngine", "Check Engine")}
-            {renderSiNoSelect("abs", "Abs")}
-            {renderSiNoSelect("airBag", "Air Bag")}
-            {renderSiNoSelect("frenos", "Frenos")}
-            {renderSiNoSelect("aceite", "Aceite")}
-            {renderSiNoSelect("alternador", "Alternador")}
+            <div className="col-12 mt-2">
+              <div className="form-check mb-2">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  id="otrosIndicadoresCheck"
+                  checked={otrosIndicadoresActivo}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setOtrosIndicadoresActivo(checked);
 
-            <div className="col-12">
-              <label className="form-label">Otros</label>
+                    if (!checked) {
+                      setForm((prev) => ({
+                        ...prev,
+                        otros: "",
+                      }));
+                    }
+                  }}
+                />
+                <label className="form-check-label" htmlFor="otrosIndicadoresCheck">
+                  Otros indicadores
+                </label>
+              </div>
+
               <input
                 type="text"
                 className="form-control"
                 name="otros"
+                placeholder="Especificar otros indicadores"
                 value={form.otros}
                 onChange={handleChange}
+                disabled={!otrosIndicadoresActivo}
               />
             </div>
 
@@ -1030,11 +1322,13 @@ export default function VehiculoNuevoForm({
           </div>
 
           {!readOnly && (
-            <div className="mt-3 text-center">
-              <button type="submit" className="btn btn-success px-5">
-                Guardar
-              </button>
-            </div>
+            <button
+              type="submit"
+              className="btn btn-success px-5"
+              disabled={guardando || guardado}
+            >
+              {guardando ? "Guardando..." : guardado ? "Guardado" : "Guardar"}
+            </button>
           )}
         </form>
       </div>

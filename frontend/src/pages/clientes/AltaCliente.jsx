@@ -56,6 +56,8 @@ const initial = {
     estado: "",
   },
   facturacion: {
+     regimenFiscal: "",
+     usoCFDI: "",
     direccion: {
       calle: "",
       numeroExterior: "",
@@ -69,6 +71,7 @@ const initial = {
   asesorResponsable: "",
   condicionesPago: "",
   observaciones: "",
+  requiereFacturacion: false, 
 
   // EMPRESA (Privada/Arrendadora)
   empresa: {
@@ -162,6 +165,13 @@ export default function AltaCliente() {
         const merged = {
           ...initial,
           ...c,
+          requiereFacturacion: Boolean(
+            c.rfc ||
+            c.direccion?.calle ||
+            c.direccion?.codigoPostal ||
+            c.facturacion?.direccion?.calle ||
+            c.facturacion?.direccion?.codigoPostal
+          ),
           telefono: { ...initial.telefono, ...(c.telefono || {}) },
           celular: { ...initial.celular, ...(c.celular || {}) },
           direccion: { ...initial.direccion, ...(c.direccion || {}) },
@@ -261,14 +271,17 @@ export default function AltaCliente() {
     try {
       let payload = deepClone(form);
 
-          // 👉 Por ahora usamos SOLO la dirección de facturación
-    // y la guardamos en cliente.direccion
-    if (payload.facturacion && payload.facturacion.direccion) {
-      payload.direccion = deepClone(payload.facturacion.direccion);
+   if (payload.requiereFacturacion) {
+      payload.facturacion = {
+        mismaQueDireccion: false,
+        regimenFiscal: payload.facturacion?.regimenFiscal || "",
+        usoCFDI: payload.facturacion?.usoCFDI || "",
+        direccion: payload.facturacion?.direccion || {},
+      };
+    } else {
+      payload.rfc = "";
+      payload.facturacion = undefined;
     }
-
-    // Opcional: si no quieres guardar nada de facturación aún
-    delete payload.facturacion;
 
 
       // Limpia ramas que no aplican
@@ -334,8 +347,9 @@ export default function AltaCliente() {
       {form.tipoCliente === "Particular" && (
         <div className="form-grid">
           <div className="form-row">
-            <label>Nombre</label>
+            <label>Nombre *</label>
             <input
+              required={form.tipoCliente === "Particular"}
               value={form.nombre ?? ""}
               onChange={(e) => upd("nombre", e.target.value)}
             />
@@ -363,7 +377,7 @@ export default function AltaCliente() {
             />
           </div>
 
-          <div className="form-row">
+          {/*<div className="form-row">
             <label>Teléfono Fijo</label>
             <div className="phone-inline">
               <input
@@ -377,22 +391,87 @@ export default function AltaCliente() {
                 onChange={(e) => upd("telefono.numero", e.target.value)}
               />
             </div>
-          </div>
+          </div>*/}
 
           <div className="form-row">
-            <label>Celular</label>
+            <label>Celular *</label>
             <div className="phone-inline">
               <input
                 placeholder="LADA"
+                required={form.tipoCliente === "Particular"}
                 value={form.celular?.lada ?? ""}
                 onChange={(e) => upd("celular.lada", e.target.value)}
               />
               <input
                 placeholder="Número"
+                required={form.tipoCliente === "Particular"}
                 value={form.celular?.numero ?? ""}
                 onChange={(e) => upd("celular.numero", e.target.value)}
               />
             </div>
+          </div>
+
+          {/* Dirección del cliente particular */}
+          <div className="form-row">
+            <label>Dirección (Calle) *</label>
+            <input
+              required={form.tipoCliente === "Particular"}
+              value={form.direccion?.calle ?? ""}
+              onChange={(e) => upd("direccion.calle", e.target.value)}
+            />
+          </div>
+
+          <div className="form-row">
+            <label>Número Exterior *</label>
+            <input
+              required={form.tipoCliente === "Particular"}
+              value={form.direccion?.numeroExterior ?? ""}
+              onChange={(e) => upd("direccion.numeroExterior", e.target.value)}
+            />
+          </div>
+
+          <div className="form-row">
+            <label>Número Interior</label>
+            <input
+              value={form.direccion?.numeroInterior ?? ""}
+              onChange={(e) => upd("direccion.numeroInterior", e.target.value)}
+            />
+          </div>
+
+          <div className="form-row">
+            <label>Colonia *</label>
+            <input
+              required={form.tipoCliente === "Particular"}
+              value={form.direccion?.colonia ?? ""}
+              onChange={(e) => upd("direccion.colonia", e.target.value)}
+            />
+          </div>
+
+          <div className="form-row">
+            <label>Código Postal *</label>
+            <input
+              required={form.tipoCliente === "Particular"}
+              value={form.direccion?.codigoPostal ?? ""}
+              onChange={(e) => upd("direccion.codigoPostal", e.target.value)}
+            />
+          </div>
+
+          <div className="form-row">
+            <label>Ciudad *</label>
+            <input
+              required={form.tipoCliente === "Particular"}
+              value={form.direccion?.ciudad ?? ""}
+              onChange={(e) => upd("direccion.ciudad", e.target.value)}
+            />
+          </div>
+
+          <div className="form-row">
+            <label>Estado *</label>
+            <input
+              required={form.tipoCliente === "Particular"}
+              value={form.direccion?.estado ?? ""}
+              onChange={(e) => upd("direccion.estado", e.target.value)}
+            />
           </div>
         </div>
       )}
@@ -794,81 +873,144 @@ export default function AltaCliente() {
       )}
 
       {/* ===== Facturación ===== */}
-      <h3>Datos de Facturación</h3>
+      <div className="facturacion-toggle">
+        <label className="checkbox-inline">
+          <input
+            type="checkbox"
+            checked={form.requiereFacturacion || false}
+            onChange={(e) => upd("requiereFacturacion", e.target.checked)}
+          />
+          ¿El cliente requiere facturación?
+        </label>
+      </div>
+
+      {form.requiereFacturacion && (
+        <>
+          <h3>Datos de Facturación</h3>
+
+          <div className="form-grid">
+            <div className="form-row">
+              <label>RFC</label>
+              <input
+                value={form.rfc ?? ""}
+                onChange={(e) => upd("rfc", e.target.value.toUpperCase())}
+              />
+            </div>
+
+            <div className="form-row">
+              <label>Régimen Fiscal</label>
+              <select
+                value={form.facturacion?.regimenFiscal ?? ""}
+                onChange={(e) => upd("facturacion.regimenFiscal", e.target.value)}
+              >
+                <option value="">-- Seleccionar --</option>
+                <option value="601">601 - General de Ley Personas Morales</option>
+                <option value="603">603 - Personas Morales con Fines no Lucrativos</option>
+                <option value="605">605 - Sueldos y Salarios</option>
+                <option value="606">606 - Arrendamiento</option>
+                <option value="612">612 - Personas Físicas con Actividades Empresariales</option>
+                <option value="616">616 - Sin obligaciones fiscales</option>
+                <option value="626">626 - Régimen Simplificado de Confianza</option>
+              </select>
+            </div>
+
+            <div className="form-row">
+              <label>Uso de CFDI</label>
+              <select
+                value={form.facturacion?.usoCFDI ?? ""}
+                onChange={(e) => upd("facturacion.usoCFDI", e.target.value)}
+              >
+                <option value="">-- Seleccionar --</option>
+                <option value="G01">G01 - Adquisición de mercancías</option>
+                <option value="G03">G03 - Gastos en general</option>
+                <option value="I01">I01 - Construcciones</option>
+                <option value="I02">I02 - Mobiliario y equipo de oficina</option>
+                <option value="I04">I04 - Equipo de cómputo</option>
+                <option value="D01">D01 - Honorarios médicos</option>
+                <option value="D10">D10 - Pagos por servicios educativos</option>
+                <option value="S01">S01 - Sin efectos fiscales</option>
+              </select>
+            </div>
+
+            <div className="form-row">
+              <label>Dirección (Calle)</label>
+              <input
+                value={form.facturacion?.direccion?.calle ?? ""}
+                onChange={(e) => upd("facturacion.direccion.calle", e.target.value)}
+              />
+            </div>
+
+            <div className="form-row">
+              <label>Número Exterior</label>
+              <input
+                value={form.facturacion?.direccion?.numeroExterior ?? ""}
+                onChange={(e) =>
+                  upd("facturacion.direccion.numeroExterior", e.target.value)
+                }
+              />
+            </div>
+
+            <div className="form-row">
+              <label>Número Interior</label>
+              <input
+                value={form.facturacion?.direccion?.numeroInterior ?? ""}
+                onChange={(e) =>
+                  upd("facturacion.direccion.numeroInterior", e.target.value)
+                }
+              />
+            </div>
+
+            <div className="form-row">
+              <label>Colonia</label>
+              <input
+                value={form.facturacion?.direccion?.colonia ?? ""}
+                onChange={(e) => upd("facturacion.direccion.colonia", e.target.value)}
+              />
+            </div>
+
+            <div className="form-row">
+              <label>Código Postal</label>
+              <input
+                value={form.facturacion?.direccion?.codigoPostal ?? ""}
+                onChange={(e) =>
+                  upd("facturacion.direccion.codigoPostal", e.target.value)
+                }
+              />
+            </div>
+
+            <div className="form-row">
+              <label>Ciudad</label>
+              <input
+                value={form.facturacion?.direccion?.ciudad ?? ""}
+                onChange={(e) => upd("facturacion.direccion.ciudad", e.target.value)}
+              />
+            </div>
+
+            <div className="form-row">
+              <label>Estado</label>
+              <input
+                value={form.facturacion?.direccion?.estado ?? ""}
+                onChange={(e) => upd("facturacion.direccion.estado", e.target.value)}
+              />
+            </div>
+
+            <div className="form-row">
+              <label>Condiciones de Pago</label>
+              <select
+                value={form.condicionesPago ?? ""}
+                onChange={(e) => upd("condicionesPago", e.target.value)}
+              >
+                <option value="">-- Seleccionar --</option>
+                <option value="Contado">Contado</option>
+                <option value="Credito">Crédito</option>
+              </select>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 👉 Combo de Asesor Responsable */}
       <div className="form-grid">
-        <div className="form-row">
-          <label>RFC</label>
-          <input
-            value={form.rfc ?? ""}
-            onChange={(e) => upd("rfc", e.target.value.toUpperCase())}
-          />
-        </div>
-
-        <div className="form-row">
-          <label>Dirección (Calle)</label>
-          <input
-            value={form.facturacion?.direccion?.calle ?? ""}
-            onChange={(e) =>
-              upd("facturacion.direccion.calle", e.target.value)
-            }
-          />
-        </div>
-        <div className="form-row">
-          <label>Número Exterior</label>
-          <input
-            value={form.facturacion?.direccion?.numeroExterior ?? ""}
-            onChange={(e) =>
-              upd("facturacion.direccion.numeroExterior", e.target.value)
-            }
-          />
-        </div>
-        <div className="form-row">
-          <label>Número Interior</label>
-          <input
-            value={form.facturacion?.direccion?.numeroInterior ?? ""}
-            onChange={(e) =>
-              upd("facturacion.direccion.numeroInterior", e.target.value)
-            }
-          />
-        </div>
-        <div className="form-row">
-          <label>Colonia</label>
-          <input
-            value={form.facturacion?.direccion?.colonia ?? ""}
-            onChange={(e) =>
-              upd("facturacion.direccion.colonia", e.target.value)
-            }
-          />
-        </div>
-        <div className="form-row">
-          <label>Código Postal</label>
-          <input
-            value={form.facturacion?.direccion?.codigoPostal ?? ""}
-            onChange={(e) =>
-              upd("facturacion.direccion.codigoPostal", e.target.value)
-            }
-          />
-        </div>
-        <div className="form-row">
-          <label>Ciudad</label>
-          <input
-            value={form.facturacion?.direccion?.ciudad ?? ""}
-            onChange={(e) =>
-              upd("facturacion.direccion.ciudad", e.target.value)
-            }
-          />
-        </div>
-        <div className="form-row">
-          <label>Estado</label>
-          <input
-            value={form.facturacion?.direccion?.estado ?? ""}
-            onChange={(e) =>
-              upd("facturacion.direccion.estado", e.target.value)
-            }
-          />
-        </div>
-
-        {/* 👉 Combo de Asesor Responsable */}
         <div className="form-row">
           <label>Asesor Responsable</label>
           <select
@@ -885,18 +1027,6 @@ export default function AltaCliente() {
           </select>
         </div>
 
-        <div className="form-row">
-          <label>Condiciones de Pago</label>
-          <select
-            value={form.condicionesPago ?? ""}
-            onChange={(e) => upd("condicionesPago", e.target.value)}
-            placeholder="Contado, Crédito 15, Crédito 30..."
-          >
-            <option value="">-- Seleccionar --</option>
-            <option value="Contado">Contado</option>
-            <option value="Credito">Crédito</option>
-          </select>
-        </div>
         <div className="form-row col-12">
           <label>Observaciones</label>
           <textarea
@@ -911,6 +1041,7 @@ export default function AltaCliente() {
         <button className="btn btn-primary" disabled={saving}>
           {saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Guardar"}
         </button>
+
         {!isEdit && (
           <button
             type="reset"
@@ -921,6 +1052,7 @@ export default function AltaCliente() {
             Limpiar
           </button>
         )}
+
         <button
           type="button"
           className="btn btn-outline-secondary"

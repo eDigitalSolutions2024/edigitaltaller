@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 const TABS = [
   { key: "PENDIENTE_CAPTURA", label: "PENDIENTE CAPTURA" },
   { key: "PENDIENTE_REFACCIONARIA", label: "PENDIENTE REFACCIONARIA" },
-  { key: "PENDIENTE_AUTORIZACION", label: "PENDIENTE AUTORIZACION CLIENTE" },
+  { key: "PENDIENTE_AUTORIZACION_CLIENTE", label: "PENDIENTE AUTORIZACION CLIENTE" },
   { key: "REPARACION_EN_CURSO", label: "REPARACIÓN EN CURSO" },
   { key: "CALIDAD", label: "CALIDAD" },
   { key: "PENDIENTE_CERRAR", label: "PENDIENTE DE CERRAR" },
@@ -166,7 +166,13 @@ export default function VehiculosConsultaOrdenes() {
     <tr
       key={r._id}
       style={{ cursor: "pointer" }}
-      onClick={() => navigate(`/vehiculo/orden/${r._id}`)}  // 👈
+      onClick={() => {
+        const targetTab =
+          tab === "PENDIENTE_AUTORIZACION_CLIENTE" ? "presupuesto" : "datos";
+
+        navigate(`/vehiculo/orden/${r._id}?tab=${targetTab}`);
+      }}
+  // 👈
     >
       <td className="text-center">{r.ordenServicio || "-"}</td>
       <td>{r.nombreGobierno || r.cliente?.nombre || "-"}</td>

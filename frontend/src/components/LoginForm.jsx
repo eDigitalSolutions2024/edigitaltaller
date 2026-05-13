@@ -1,13 +1,13 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";        // ← para redirigir
+import { useNavigate } from "react-router-dom";
 import { loginApi } from "../api/auth";
-import { saveSession } from "../auth";                 // ← guarda token y user en localStorage
+import { saveSession } from "../auth";
 import "../styles/login.css";
 
 export default function LoginForm() {
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState("");
+  const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -18,18 +18,19 @@ export default function LoginForm() {
     setLoading(true);
 
     try {
-      // 👈 IMPORTANTE: enviar un OBJETO { email, password }
       const { data } = await loginApi({
-        email: email.trim(),
+        login: login.trim(),
         password,
-        // si validas el taller en backend, agrega: workshopName: 'Edigital Solutions'
       });
 
-      // data = { token, user }
       saveSession(data);
       navigate("/dashboard");
     } catch (err) {
-      const msg = err?.response?.data?.message || err.message || "Error en el login";
+      const msg =
+        err?.response?.data?.message ||
+        err.message ||
+        "Error en el login";
+
       setError(msg);
     } finally {
       setLoading(false);
@@ -38,28 +39,27 @@ export default function LoginForm() {
 
   return (
     <div className="login-container">
-      {/* Columna izquierda */}
       <div className="login-left">
         <div className="overlay">
           <h2>Bienvenidos a Edigital Solutions</h2>
         </div>
       </div>
 
-      {/* Columna derecha */}
       <div className="login-right">
         <form onSubmit={handleSubmit} className="login-form">
-          <h2 className="mb-2">Inicia Sesion</h2>
+          <h2 className="mb-2">Inicia Sesión</h2>
           <p className="text-muted">Edigital Solutions</p>
 
           {error && <div className="alert alert-danger">{error}</div>}
 
           <div className="mb-3">
             <input
-              type="email"
+              type="text"
               className="form-control"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Usuario o correo"
+              value={login}
+              onChange={(e) => setLogin(e.target.value)}
+              autoComplete="username"
               required
             />
           </div>
@@ -68,15 +68,16 @@ export default function LoginForm() {
             <input
               type="password"
               className="form-control"
-              placeholder="Password"
+              placeholder="Contraseña"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
               required
             />
           </div>
 
           <button className="btn btn-danger w-100" disabled={loading}>
-            {loading ? "Cargando..." : "Login"}
+            {loading ? "Cargando..." : "Entrar"}
           </button>
         </form>
       </div>

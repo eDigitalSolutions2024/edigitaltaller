@@ -6,6 +6,14 @@ const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
 
+    username: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true
+    },
+
     email: {
       type: String,
       required: true,
@@ -19,17 +27,55 @@ const userSchema = new mongoose.Schema(
     role: {
       type: String,
       enum: [
-        'admin',       // administrador / jefe
-        'staff',       // genérico
+        'admin',
         'mecanico',
         'recepcion',
-        'contabilidad',
-        'consulta'
+        'cajas',
+        'captura',
+        'refaccionario',
+        'asesor_servicio',
+        'cuentas_por_pagar',
+        'auditoria',
+        'cuentas_por_cobrar',
+        'recursos_humanos'
       ],
-      default: 'admin'
+      default: 'captura'
     },
 
-    // más adelante lo puedes ligar a Empleado
+    legacyLevel: {
+      type: String,
+      default: null
+    },
+
+    razonSocial: {
+      type: Number,
+      default: null
+    },
+
+    telefono: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+
+    celular: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+
+    serie: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+
+    serieLlantera: {
+      type: String,
+      trim: true,
+      default: 'L'
+    },
+
     employee: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Empleado',
@@ -46,8 +92,10 @@ const userSchema = new mongoose.Schema(
 
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
+
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
+
   next();
 });
 

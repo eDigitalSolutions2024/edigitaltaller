@@ -53,6 +53,17 @@ export async function generarOrdenCompra(ordenId, refaccion) {
   return data; // aquí te puede regresar { numeroOC, idOC, ... }
 };
 
+export const openPresupuestoPdf = (id) => {
+  const url = `${API}/vehiculos/${id}/presupuesto-pdf`;
+  window.open(url, "_blank", "noopener");
+};
+
 // Cerrar orden
 export const closeOrden = (id) =>
   http.put(`/vehiculos/${id}/cerrar`);
+
+export const openVentaClientePdf = (id) => {
+  const url = `${API}/vehiculos/${id}/venta-cliente-pdf`;
+  window.open(url, "_blank", "noopener");
+};
+

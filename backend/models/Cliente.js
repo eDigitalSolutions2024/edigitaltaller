@@ -40,7 +40,7 @@ const ContactoSchema = new Schema(
 
 const EmpresaSchema = new Schema(
   {
-    //razonSocial: { type: String, trim: true },
+    razonSocial: { type: String, trim: true },
     contacto: { type: ContactoSchema, default: undefined },
   },
   { _id: false }
@@ -67,6 +67,8 @@ const FacturacionSchema = new Schema(
   {
     mismaQueDireccion: { type: Boolean, default: true },
     direccion: { type: DireccionSchema, default: undefined },
+    regimenFiscal: { type: String, trim: true },
+    usoCFDI: { type: String, trim: true },
   },
   { _id: false }
 );
@@ -94,9 +96,10 @@ const ClienteSchema = new Schema(
     celular: { type: TelefonoSchema, default: undefined },
 
     // Fiscal/ubicación comunes
+    requiereFacturacion: { type: Boolean, default: false },
     rfc: { type: String, trim: true, uppercase: true },
     direccion: { type: DireccionSchema, default: undefined },
-    facturacion: { type: FacturacionSchema, default: () => ({ mismaQueDireccion: true }) },
+    facturacion: { type: FacturacionSchema, default: undefined },
 
     // Extra
     asesorResponsable: { type: String, trim: true },
@@ -155,12 +158,12 @@ ClienteSchema.pre("validate", function (next) {
     this.gobierno = undefined;
   }
 
-  if (t === "Empresa Privada" || t === "Empresa Arrendadora") {//|| !this.empresa.razonSocial || !this.empresa.razonSocial.trim()
-    if (!this.empresa  ) {
+  /*if (t === "Empresa Privada" || t === "Empresa Arrendadora") {
+    if (!this.empresa || !this.empresa.razonSocial || !this.empresa.razonSocial.trim()) {
       this.invalidate("empresa.razonSocial", "La razón social es obligatoria para empresas.");
     }
     this.gobierno = undefined;
-  }
+  }*/
 
   if (t === "Empresa Gobierno") {
     if (!this.gobierno || !this.gobierno.nombreGobierno || !this.gobierno.nombreGobierno.trim()) {

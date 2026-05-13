@@ -9,6 +9,10 @@ const { proteger, requiereRol } = require('../middleware/auth');   // 👈 NUEVO
 const { streamVehiculoOperativoPdf } = require('../service/VehiculoOperativoPdf');
 const { streamVehiculoOrdenPdf } = require('../service/vehiculoOrdenPdf');
 
+const { generarPresupuestoPDF } = require('../service/vehiculoPresupuestoPDF');
+const { generarVentaClientePDF } = require('../service/VehiculoVentaClientePDF');
+
+
 
 // 👇 Helper para generar folio de OC
 function generarNumeroOC() {
@@ -43,7 +47,6 @@ async function generarOrdenServicio() {
   // Formato: OS-00001, OS-00002, etc.
   return `OS-${String(nextNum).padStart(5, '0')}`;
 }
-
 
 // POST /api/vehiculos  -> registrar nuevo vehículo para un cliente
 router.post('/', async (req, res) => {
@@ -184,6 +187,7 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
       diagnosticoTecnico,
       refacciones,      // viene del frontend
       cargosEnOrden,    // opcional, para después
+      manoObra,         // opcional, para después
       estadoOrden,      // opcional, si quieres avanzar el flujo
     } = req.body;
 
@@ -208,10 +212,25 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
       vehiculo.cargosEnOrden = cargosEnOrden;
     }
 
+    if (Array.isArray(manoObra)) {
+      vehiculo.manoObra = manoObra;
+    }
+
+
     // Si quieres ir moviendo la orden de estado
     if (estadoOrden) {
       vehiculo.estadoOrden = estadoOrden;
+
+      if (estadoOrden === 'PENDIENTE_REFACCIONARIA') {
+        vehiculo.fechaSolicitudRefacciones = new Date();
+        vehiculo.fechaRespuestaRefaccionaria = null;
+      }
+
+      if (estadoOrden === 'PENDIENTE_AUTORIZACION_CLIENTE') {
+        vehiculo.fechaRespuestaRefaccionaria = new Date();
+      }
     }
+
 
     await vehiculo.save();
 
@@ -233,6 +252,14 @@ router.put('/:id/presupuesto-venta', async (req, res) => {
       observacionesExternas,
       observacionesInternas,
       estadoOrden,
+      dirigidoA,
+      departamento,
+      requiereFactura,
+      observCotizacion,
+      accionCotizacion,
+      crearNuevaVersionCotizacion,
+      accionVentaCliente,
+      crearNuevaVersionVentaCliente,
     } = req.body;
 
     const vehiculo = await Vehiculo.findById(id);
@@ -260,10 +287,155 @@ router.put('/:id/presupuesto-venta', async (req, res) => {
       vehiculo.observacionesInternas = observacionesInternas;
     }
 
+    if (typeof dirigidoA === 'string') {
+      vehiculo.dirigidoA = dirigidoA;
+    }
+
+    if (typeof departamento === 'string') {
+      vehiculo.departamento = departamento;
+    }
+
+    if (typeof observCotizacion === 'string') {
+      vehiculo.observCotizacion = observCotizacion;
+    }
+
     if (estadoOrden) {
       vehiculo.estadoOrden = estadoOrden;
     }
+    
+    if (
+      accionCotizacion === 'ENVIAR_COTIZACION' &&
+      Array.isArray(presupuesto) &&
+      presupuesto.length > 0
+    ) {
+      const ultimaCotizacion =
+        vehiculo.historialCotizaciones?.[vehiculo.historialCotizaciones.length - 1];
 
+      const hayCotizacionActiva =
+        ultimaCotizacion &&
+        ['ENVIADA', 'PARCIALMENTE_AUTORIZADA'].includes(ultimaCotizacion.estado);
+
+      if (hayCotizacionActiva && !crearNuevaVersionCotizacion) {
+        return res.status(409).json({
+          ok: false,
+          code: 'COTIZACION_ACTIVA_EXISTENTE',
+          msg: `Ya existe una cotización activa (${ultimaCotizacion.folio}).`,
+          cotizacion: ultimaCotizacion,
+        });
+      }
+
+
+      const siguienteNumero = (vehiculo.historialCotizaciones?.length || 0) + 1;
+
+      const partidas = presupuesto.map((p, index) => ({
+        ...p,
+        estatusCotizacion: p.estatusCotizacion || 'PENDIENTE_CLIENTE',
+        origenPresupuestoIndex: index,
+      }));
+
+      const todasAutorizadas = partidas.every(
+        (p) => p.estatusCotizacion === 'AUTORIZADA'
+      );
+
+      const todasRechazadas = partidas.every(
+        (p) => p.estatusCotizacion === 'RECHAZADA'
+      );
+
+      const algunaAutorizada = partidas.some(
+        (p) => p.estatusCotizacion === 'AUTORIZADA'
+      );
+
+      const estadoCotizacion = todasAutorizadas
+        ? 'AUTORIZADA'
+        : todasRechazadas
+          ? 'RECHAZADA'
+          : algunaAutorizada
+            ? 'PARCIALMENTE_AUTORIZADA'
+            : 'ENVIADA';
+
+      vehiculo.historialCotizaciones.push({
+        folio: `COT-${String(siguienteNumero).padStart(4, '0')}`,
+        fecha: new Date(),
+        estado: estadoCotizacion,
+        dirigidoA: dirigidoA || vehiculo.dirigidoA || '',
+        departamento: departamento || vehiculo.departamento || '',
+        observCotizacion: observCotizacion || vehiculo.observCotizacion || '',
+        partidas,
+      });
+
+      if (
+        accionVentaCliente === 'GUARDAR_HISTORIAL_VENTA' &&
+        Array.isArray(presupuesto) &&
+        presupuesto.length > 0
+      ) {
+        const ultimaVenta =
+          vehiculo.historialVentaCliente?.[vehiculo.historialVentaCliente.length - 1];
+
+        const hayVentaActiva =
+          ultimaVenta &&
+          ['ENVIADA', 'PARCIALMENTE_AUTORIZADA', 'PENDIENTE'].includes(ultimaVenta.estado);
+
+        if (hayVentaActiva && !crearNuevaVersionVentaCliente) {
+          return res.status(409).json({
+            ok: false,
+            code: 'VENTA_CLIENTE_ACTIVA_EXISTENTE',
+            msg: `Ya existe un historial de venta activo (${ultimaVenta.folio}).`,
+            ventaCliente: ultimaVenta,
+          });
+        }
+
+        const siguienteNumero = (vehiculo.historialVentaCliente?.length || 0) + 1;
+
+        const partidas = presupuesto.map((p, index) => ({
+          ...p,
+          estatusCliente: p.estatusCliente || 'COTIZADA',
+          origenPresupuestoIndex: index,
+        }));
+
+        const todasVendidas = partidas.every(
+          (p) => p.estatusCliente === 'VENDIDA'
+        );
+
+        const todasAutorizadas = partidas.every(
+          (p) => ['AUTORIZADA', 'VENDIDA'].includes(p.estatusCliente)
+        );
+
+        const todasNoAutorizadas = partidas.every(
+          (p) => p.estatusCliente === 'NO_AUTORIZADA'
+        );
+
+        const algunaAutorizada = partidas.some(
+          (p) => ['AUTORIZADA', 'VENDIDA'].includes(p.estatusCliente)
+        );
+
+        const algunaPendiente = partidas.some(
+          (p) => p.estatusCliente === 'PENDIENTE'
+        );
+
+        const estadoVenta = todasVendidas
+          ? 'VENDIDA'
+          : todasAutorizadas
+            ? 'AUTORIZADA'
+            : todasNoAutorizadas
+              ? 'NO_AUTORIZADA'
+              : algunaAutorizada
+                ? 'PARCIALMENTE_AUTORIZADA'
+                : algunaPendiente
+                  ? 'PENDIENTE'
+                  : 'ENVIADA';
+
+        vehiculo.historialVentaCliente.push({
+          folio: `VENTA-${String(siguienteNumero).padStart(4, '0')}`,
+          fecha: new Date(),
+          estado: estadoVenta,
+          dirigidoA: dirigidoA || vehiculo.dirigidoA || '',
+          departamento: departamento || vehiculo.departamento || '',
+          observCotizacion: observCotizacion || vehiculo.observCotizacion || '',
+          partidas,
+        });
+      }
+
+    }
     await vehiculo.save();
 
     return res.json({ ok: true, vehiculo });
@@ -272,6 +444,8 @@ router.put('/:id/presupuesto-venta', async (req, res) => {
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });
+
+
 
 // 💥 Generar Orden de Compra para una refacción
 // POST /api/vehiculos/:id/orden-compra
@@ -457,5 +631,55 @@ router.put('/:id/cerrar', async (req, res) => {
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });
+
+// GET /api/vehiculos/:id/presupuesto-pdf
+router.get('/:id/presupuesto-pdf', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const vehiculo = await Vehiculo.findById(id);
+
+    if (!vehiculo) {
+      return res.status(404).json({
+        success: false,
+        message: 'Orden no encontrada'
+      });
+    }
+
+    await generarPresupuestoPDF(res, vehiculo);
+
+  } catch (err) {
+    console.error('Error generando PDF de presupuesto:', err);
+
+    res.status(500).json({
+      success: false,
+      message: 'Error al generar PDF'
+    });
+  }
+});
+
+// GET /api/vehiculos/:id/venta-cliente-pdf
+router.get('/:id/venta-cliente-pdf', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const vehiculo = await Vehiculo.findById(id);
+
+    if (!vehiculo) {
+      return res.status(404).json({
+        success: false,
+        message: 'Orden no encontrada'
+      });
+    }
+
+    await generarVentaClientePDF(res, vehiculo);
+  } catch (err) {
+    console.error('Error generando PDF de venta al cliente:', err);
+
+    res.status(500).json({
+      success: false,
+      message: 'Error al generar PDF de venta al cliente'
+    });
+  }
+});
+
 
 module.exports = router;

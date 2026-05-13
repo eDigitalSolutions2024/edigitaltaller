@@ -1,5 +1,5 @@
 // src/pages/vehiculo/VehiculoEntrada.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { getClientes } from "../../api/customers"; // 👈 obtiene clientes del backend
 import VehiculoNuevoForm from "./VehiculoNuevoForm";
 import { listVehiculosByCliente } from "../../api/vehiculos"; // 👈 vehículos por cliente
@@ -21,6 +21,7 @@ export default function VehiculoEntrada() {
   const [errorVehiculos, setErrorVehiculos] = useState("");
 
   const navigate = useNavigate();
+  const tabsRef = useRef(null);
 
   // 1) Cargar clientes al montar
   useEffect(() => {
@@ -60,10 +61,14 @@ export default function VehiculoEntrada() {
     setFiltrados(resultado);
   }, [q, clientes]);
 
-  const handleSeleccion = (cliente) => {
+  const handleSeleccion = async (cliente) => {
     setClienteSeleccionado(cliente);
-    setMostrarAcciones(false);       // hasta que den clic en Buscar
-    setMostrarFormNuevoCarro(false); // por si venías de otro cliente
+
+    // mostrar acciones automáticamente
+    setMostrarAcciones(true);
+
+    // reset
+    setMostrarFormNuevoCarro(false);
     setVehiculosCliente([]);
     setErrorVehiculos("");
 
@@ -71,7 +76,11 @@ export default function VehiculoEntrada() {
       cliente.nombre ||
       cliente.nombre_cliente ||
       `${cliente.nombre_cliente} ${cliente.apellidos || ""}`.trim();
+
     setQ(nombre);
+
+    // cargar vehículos automáticamente
+    await cargarVehiculosCliente(cliente._id);
   };
 
   const cargarVehiculosCliente = async (clienteId) => {
@@ -91,17 +100,6 @@ export default function VehiculoEntrada() {
     }
   };
 
-  const handleBuscar = () => {
-    if (!clienteSeleccionado) {
-      alert("Primero selecciona un cliente de la lista.");
-      return;
-    }
-
-    setMostrarAcciones(true);
-    setMostrarFormNuevoCarro(false); // reinicia el formulario de carro
-    cargarVehiculosCliente(clienteSeleccionado._id); // 👈 carga vehículos
-  };
-
   const handleNuevoCarro = () => {
     console.log("Nuevo carro para cliente:", clienteSeleccionado);
     setMostrarFormNuevoCarro(true); // 👈 mostrar el formulario
@@ -110,6 +108,12 @@ export default function VehiculoEntrada() {
   const handleSinCarro = () => {
     console.log("Orden sin carro para cliente:", clienteSeleccionado);
     // aquí luego harás el flujo de orden sin carro
+  };
+
+  const handleVehiculoCreado = (vehiculo) => {
+    if (!vehiculo?._id) return;
+
+    navigate(`/vehiculo/orden/${vehiculo._id}?tab=servicio`);
   };
 
   return (
@@ -132,7 +136,7 @@ export default function VehiculoEntrada() {
             </div>
 
             {/* Input */}
-            <div className="col-12 col-md-6">
+            <div className="col-12">
               <input
                 type="text"
                 className="form-control"
@@ -148,7 +152,7 @@ export default function VehiculoEntrada() {
               />
             </div>
 
-            {/* Botón Buscar */}
+            {/* Botón Buscar 
             <div className="col-12 col-md-3 d-grid">
               <button
                 type="button"
@@ -157,7 +161,7 @@ export default function VehiculoEntrada() {
               >
                 Buscar
               </button>
-            </div>
+            </div>*/}
           </div>
 
           {/* Estado de carga / error */}
@@ -280,11 +284,14 @@ export default function VehiculoEntrada() {
 
       {/* 👇 AQUÍ APARECE EL FORMULARIO GRANDE CUANDO DAN "Nuevo Carro" */}
       {mostrarFormNuevoCarro && clienteSeleccionado && (
-        <VehiculoNuevoForm cliente={clienteSeleccionado} />
+        <VehiculoNuevoForm
+          cliente={clienteSeleccionado}
+          onCreated={handleVehiculoCreado}
+        />
       )}
 
       <small className="text-muted d-block mt-2">
-        * Primero selecciona un cliente de la lista y luego da clic en “Buscar”
+        * Selecciona un cliente de la lista para continuar.
         para continuar con el registro del vehículo o de la orden sin carro.
       </small>
     </div>

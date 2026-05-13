@@ -14,10 +14,14 @@ app.use(express.json());
 const empleadosRoutes = require('./routes/empleados');
 const ordenesCompraRoutes = require('./routes/ordenesCompra');
 
+const usersRoutes = require('./routes/users');
+
 
 app.get('/', (_req, res) => res.send('API Taller OK'));
 app.use('/api/auth', require('./routes/authRoutes'));
 
+//ruta de administración de usuarios
+app.use('/api/users', require('./routes/users'));
 
 app.use("/api/clientes", require("./routes/clientes"));
 
@@ -38,6 +42,9 @@ app.use('/api/salidas', require('./routes/salidas'));
 app.use('/api/empleados', empleadosRoutes);
 
 app.use('/api/devoluciones', require('./routes/devoluciones')); 
+
+//Rutas de configuracion
+app.use('/api/configuracion', require('./routes/configuracion'));
 
 
 app.use('/api/ordenes-compra', ordenesCompraRoutes);

@@ -1,6 +1,6 @@
 // src/pages/vehiculo/VehiculoOrdenDetalle.jsx
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import {
   getVehiculoById,
   openOperativoPdf,
@@ -13,13 +13,17 @@ import VehiculoPresupuestoVenta from "./VehiculoPresupuestoVenta"; // 👈 NUEVO
 import VehiculoOrdenGeneral from "./VehiculoOrdenGeneral";
 
 
-export default function VehiculoOrdenDetalle() {
+
+
+export default function VehiculoOrdenDetalle() {  
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const [orden, setOrden] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState("datos"); // 'datos' | 'servicio' | 'req' | 'presupuesto' | 'general'
-  const [ordenIniciada, setOrdenIniciada] = useState(false);
+  const initialTab = searchParams.get("tab") || "datos";
+  const [tab, setTab] = useState(initialTab); // 'datos' | 'servicio' | 'req' | 'presupuesto' | 'general'
+  const ordenIniciada = !!orden?.ordenIniciada;
 
   useEffect(() => {
     const load = async () => {
@@ -29,7 +33,7 @@ export default function VehiculoOrdenDetalle() {
         const res = await getVehiculoById(id);
         const v = res.data.vehiculo;
         setOrden(v);
-        setOrdenIniciada(!!v.ordenIniciada);
+        //setOrdenIniciada(!!v.ordenIniciada);
       } catch (err) {
         console.error(err);
         setError("No se pudo cargar la orden.");
@@ -43,9 +47,7 @@ export default function VehiculoOrdenDetalle() {
   // cuando guardas en "Servicio o Reparación"
   const handleServicioSaved = (vehiculoActualizado) => {
     setOrden(vehiculoActualizado);
-    setOrdenIniciada(true); // ya está iniciada
-    // si quieres mandarlo directo a Requisición al guardar:
-    // setTab("req");
+    setTab("req");
   };
 
   if (loading) {
@@ -148,6 +150,7 @@ export default function VehiculoOrdenDetalle() {
         <VehiculoRequisicionDiagnostico
           orden={orden}
           onSaved={(vActualizado) => setOrden(vActualizado)}
+          onGoPresupuesto={() => setTab("presupuesto")}
         />
       )}
 

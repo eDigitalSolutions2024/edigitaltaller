@@ -9,7 +9,7 @@ router.post("/", async (req, res) => {
     const body = { ...req.body };
 
     // 🔴 Por ahora NO usamos facturación
-    delete body.facturacion;
+    //delete body.facturacion;
 
     const cliente = await Cliente.create(body);
     res.status(201).json({ ok: true, data: cliente });
@@ -59,7 +59,7 @@ router.put("/:id", async (req, res) => {
     const body = { ...req.body };
 
     // 🔴 Tampoco actualizamos facturación por ahora
-    delete body.facturacion;
+    //delete body.facturacion;
 
     const c = await Cliente.findByIdAndUpdate(req.params.id, body, {
       new: true,

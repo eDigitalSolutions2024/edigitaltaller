@@ -73,6 +73,17 @@ useEffect(() => {
   }
 }, [location.pathname]);
 
+// === ADMINISTRACIÓN ===
+const [adminOpen, setAdminOpen] = useState(
+  location.pathname.startsWith('/admin')
+);
+
+useEffect(() => {
+  if (location.pathname.startsWith('/admin')) {
+    setAdminOpen(true);
+  }
+}, [location.pathname]);
+
 
   const handleLogout = () => { logout(); navigate("/login"); };
 
@@ -111,15 +122,46 @@ useEffect(() => {
           <span className="emoji">🏠</span><span className="label">Inicio</span>
         </NavLink>
 
+        {/* Administración (solo admin) */}
+          {user?.role === 'admin' && (
+            <div className={`sidebar__group ${adminOpen ? 'open' : ''}`}>
+              <button
+                type="button"
+                className="sidebar__link sidebar__group-toggle"
+                onClick={() => setAdminOpen(o => !o)}
+                aria-expanded={adminOpen}
+                aria-controls="submenu-admin"
+                title="Administración"
+              >
+                <span className="emoji">🛡️</span>
+                <span className="label">Administración</span>
+                {!collapsed && <span className="chev" aria-hidden>▾</span>}
+              </button>
 
+              <div id="submenu-admin" className="sidebar__sublinks">
+                <NavLink
+                  to="/admin/usuarios"
+                      className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+                >
+                <span className="label">Usuarios</span>
+                </NavLink>
+              </div>
+
+            </div>
+          )}
+
+          {user?.role === 'admin' && (
+              <NavLink to="/configuracion" className="sidebar__link" title="Configuración">
+                <span className="emoji">⚙️</span>
+                <span className="label">Configuración</span>
+              </NavLink>
+            )}
 
         <NavLink to="/ordenes-compra" className="sidebar__link" title="Órdenes">
           <span className="emoji">📋</span><span className="label">Órdenes de compra</span>
         </NavLink>
 
       
-
-
         {/* === GRUPO: CLIENTES === */}
         <div className={`sidebar__group ${clientesOpen ? 'open' : ''}`}>
           <button
@@ -153,10 +195,6 @@ useEffect(() => {
         {/* === FIN GRUPO CLIENTES === */}
         
 
-
-
-        
-
         {/* === GRUPO: PROVEEDORES === */}
           <div className={`sidebar__group ${provOpen ? 'open' : ''}`}>
             <button
@@ -188,9 +226,6 @@ useEffect(() => {
             </div>
           </div>
           {/* === FIN GRUPO PROVEEDORES === */}
-
-
-
 
 
          {/* === NUEVO GRUPO: VEHÍCULO === */}
@@ -273,6 +308,14 @@ useEffect(() => {
               <span className="label">Salida Refacción</span>
             </NavLink>
 
+            <NavLink
+              to="/refaccionaria/solicitudes-taller"
+              className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+            >
+              <span className="label">Solicitudes Taller</span>
+            </NavLink>
+
+
 
 
             {/* SUBMENÚ: Devoluciones */}
@@ -349,34 +392,24 @@ useEffect(() => {
           </div>
         </div>
         {/* === FIN GRUPO REFACCIONARIA === */}
-
-
-
                 {/* Empleados (solo admin) */}
-        {user?.role === 'admin' && (
-          <NavLink
-            to="/empleados"
-            className="sidebar__link"
-            title="Empleados"
-          >
-            <span className="emoji">👷‍♂️</span>
-            <span className="label">Empleados</span>
-          </NavLink>
-        )}
+                  {user?.role === 'admin' && (
+                    <NavLink
+                      to="/empleados"
+                      className="sidebar__link"
+                      title="Empleados"
+                    >
+                      <span className="emoji">👷‍♂️</span>
+                      <span className="label">Empleados</span>
+                    </NavLink>
+                  )}
 
+                  
 
-
-
-
-
-        <NavLink to="/reportes" className="sidebar__link" title="Reportes">
-          <span className="emoji">📈</span><span className="label">Reportes</span>
-        </NavLink>
-
-        <NavLink to="/ajustes" className="sidebar__link" title="Ajustes">
-          <span className="emoji">⚙️</span><span className="label">Ajustes</span>
-        </NavLink>
-      </nav>
+            <NavLink to="/reportes" className="sidebar__link" title="Reportes">
+              <span className="emoji">📈</span><span className="label">Reportes</span>
+            </NavLink>
+          </nav>
 
       {/* Bottom */}
       <div className="sidebar__bottom">
