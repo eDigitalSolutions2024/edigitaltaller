@@ -16,21 +16,16 @@ export default function BDCodigos() {
     descripcionSat: "",
   });
 
-
-  // vista actual: refaccion | servicio
   const [tipo, setTipo] = useState("refaccion");
-
-  const [options, setOptions] = useState([]);  // para "Seleccionar Refacción/Servicio"
+  const [options, setOptions] = useState([]);
   const [refSel, setRefSel] = useState("");
-
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
   const [query, setQuery] = useState("");
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
-  const [sort, setSort] = useState({ key: "codigo", dir: "asc" }); // ordenar por código
+  const [sort, setSort] = useState({ key: "codigo", dir: "asc" });
 
-  // Cargar options y tabla
   useEffect(() => {
     (async () => {
       try {
@@ -47,7 +42,7 @@ export default function BDCodigos() {
 
         const data = (t?.data || t || []).map((x) => ({
           _id: x._id || x.id,
-          codigo: x.codigo || "",         // R1 / S1...
+          codigo: x.codigo || "",
           tipo: x.tipo || "refaccion",
           numeroParte: x.numeroParte || "",
           proveedor: x.proveedor || "",
@@ -61,10 +56,8 @@ export default function BDCodigos() {
         console.error(e);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ====== CÓDIGO SIGUIENTE POR TIPO (solo para ALTAS) ======
   const nextCode = useMemo(() => {
     const prefix = tipo === "servicio" ? "S" : "R";
     const codesOfType = items
@@ -75,12 +68,10 @@ export default function BDCodigos() {
         const n = parseInt(String(c).replace(/^[RS]/i, ""), 10);
         return Number.isNaN(n) ? 0 : n;
       });
-
     const max = codesOfType.length ? Math.max(...codesOfType) : 0;
-    return prefix + (max + 1); // p.ej. R1, S3...
+    return prefix + (max + 1);
   }, [items, tipo]);
 
-  // options visibles según tipo
   const visibleOptions = useMemo(() => {
     return (options || []).filter((o) => {
       const t = o.tipo || "refaccion";
@@ -90,12 +81,10 @@ export default function BDCodigos() {
 
   const filtered = useMemo(() => {
     const q = (query || "").toLowerCase().trim();
-
     let arr = items.filter((x) => {
       const t = x.tipo || "refaccion";
       return tipo === "servicio" ? t === "servicio" : t !== "servicio";
     });
-
     if (q) {
       arr = arr.filter(
         (x) =>
@@ -105,17 +94,14 @@ export default function BDCodigos() {
           (x.proveedor || "").toLowerCase().includes(q) ||
           (x.codigoSat || "").toLowerCase().includes(q) ||
           (x.descripcionSat || "").toLowerCase().includes(q)
-
       );
     }
-
     arr.sort((a, b) => {
       const dir = sort.dir === "asc" ? 1 : -1;
       const av = String(a[sort.key] || "").toLowerCase();
       const bv = String(b[sort.key] || "").toLowerCase();
       return av.localeCompare(bv) * dir;
     });
-
     return arr;
   }, [items, query, sort, tipo]);
 
@@ -144,8 +130,8 @@ export default function BDCodigos() {
     setForm((f) => ({
       ...f,
       tipo: nuevoTipo,
-      // cuando cambias a servicio, aseguramos un grupo por defecto
-      grupoServicio: nuevoTipo === "servicio" ? (f.grupoServicio || "motor") : "otros",
+      grupoServicio:
+        nuevoTipo === "servicio" ? f.grupoServicio || "motor" : "otros",
     }));
     setPage(1);
   };
@@ -153,8 +139,6 @@ export default function BDCodigos() {
   async function guardar() {
     try {
       setLoading(true);
-      const isEdit = Boolean(form._id);
-
       const payload = {
         tipo: form.tipo || tipo,
         codigo: (form.numeroParte || "").trim(),
@@ -166,8 +150,6 @@ export default function BDCodigos() {
         descripcionSat: form.descripcionSat.trim(),
       };
 
-
-      // Solo mandamos grupoServicio si es SERVICIO
       if ((form.tipo || tipo) === "servicio") {
         payload.grupoServicio = form.grupoServicio || "otros";
       }
@@ -213,15 +195,12 @@ export default function BDCodigos() {
       grupoServicio: x.grupoServicio || "otros",
       codigoSat: x.codigoSat || "",
       descripcionSat: x.descripcionSat || "",
-
     }));
     setItems(data);
   }
 
   async function recargarOptions() {
-    const o = await fetch(`${API}/codigos/options`, {
-      credentials: "include",
-    })
+    const o = await fetch(`${API}/codigos/options`, { credentials: "include" })
       .then((r) => r.json())
       .catch(() => ({}));
     setOptions(o?.data || []);
@@ -274,6 +253,13 @@ export default function BDCodigos() {
     await recargarOptions();
   }
 
+  const GRUPO_LABELS = {
+    motor: "Mantenimiento del motor",
+    lubricacion: "Lubricación",
+    revision: "Revisión",
+    otros: "Otros servicios",
+  };
+
   return (
     <div className="container-fluid py-3">
       <div className="row justify-content-center">
@@ -281,9 +267,7 @@ export default function BDCodigos() {
           <div className="card shadow-sm border-0">
             <div className="card-header bg-white border-0 d-flex justify-content-between align-items-center">
               <h2 className="h4 mb-0">ALTA DE CÓDIGOS</h2>
-
-              {/* Switch refacción / servicio (afecta formulario y tabla) */}
-              <div className="btn-group" role="group" aria-label="Tipo de código">
+              <div className="btn-group" role="group">
                 <button
                   type="button"
                   className={
@@ -308,12 +292,13 @@ export default function BDCodigos() {
             </div>
 
             <div className="card-body">
-              {/* Formulario superior */}
               <div className="row g-3">
                 <div className="col-12">
                   <small className="text-muted">
                     Tipo actual:{" "}
-                    <strong>{tipo === "servicio" ? "SERVICIO" : "REFACCIÓN"}</strong>
+                    <strong>
+                      {tipo === "servicio" ? "SERVICIO" : "REFACCIÓN"}
+                    </strong>
                   </small>
                 </div>
 
@@ -355,7 +340,8 @@ export default function BDCodigos() {
                   </div>
                 )}
 
-               {/* {tipo === "servicio" && (
+                {/* ✅ grupoServicio ahora visible para servicios */}
+                {tipo === "servicio" && (
                   <div className="col-md-4">
                     <label className="form-label">Grupo de servicio:</label>
                     <select
@@ -364,19 +350,22 @@ export default function BDCodigos() {
                       value={form.grupoServicio}
                       onChange={onChange}
                     >
-                      <option value="motor">Motor / Suspensión</option>
+                      <option value="motor">Mantenimiento del motor</option>
                       <option value="lubricacion">Lubricación</option>
-                      <option value="revision">Revisión / Ajustes</option>
+                      <option value="revision">Revisión</option>
                       <option value="otros">Otros servicios</option>
                     </select>
                   </div>
-                )}  */}
+                )}
 
                 {tipo === "servicio" && (
                   <>
                     <div className="col-12 mt-3">
                       <h6 className="fw-bold border-bottom pb-2 mb-0">
-                        Datos SAT
+                        Datos SAT{" "}
+                        <small className="text-muted fw-normal">
+                          (requerido cuando el cliente solicita factura)
+                        </small>
                       </h6>
                     </div>
 
@@ -414,7 +403,6 @@ export default function BDCodigos() {
                 </button>
               </div>
 
-
               {/* Selector + Buscar */}
               <div className="row align-items-end mt-4">
                 <div className="col-md-9">
@@ -447,7 +435,7 @@ export default function BDCodigos() {
               </div>
             </div>
 
-            {/* Tabla inferior */}
+            {/* Tabla */}
             <div className="table-responsive px-3">
               <div className="d-flex align-items-center justify-content-between mb-2">
                 <div className="d-flex align-items-center gap-2">
@@ -469,7 +457,6 @@ export default function BDCodigos() {
                   <span className="text-muted small">entries</span>
                 </div>
 
-                {/* Switch también en la tabla */}
                 <div className="btn-group">
                   <button
                     type="button"
@@ -514,19 +501,17 @@ export default function BDCodigos() {
                 <thead>
                   <tr>
                     <th style={{ width: 80 }}>ID</th>
-                    <th
-                      role="button"
-                      onClick={() => changeSort("codigo")}
-                    >
+                    <th role="button" onClick={() => changeSort("codigo")}>
                       Código {chev(sort, "codigo")}
                     </th>
-                    {/*<th role="button" onClick={() => changeSort("proveedor")}>
-                      Proveedor {chev(sort, "proveedor")}
-                    </th>*/}
                     <th>Descripción</th>
+                    {tipo === "servicio" && (
+                      <th role="button" onClick={() => changeSort("grupoServicio")}>
+                        Grupo {chev(sort, "grupoServicio")}
+                      </th>
+                    )}
                     {tipo === "servicio" && <th>Código SAT</th>}
                     {tipo === "servicio" && <th>Descripción SAT</th>}
-
                     <th style={{ width: 50 }} className="text-center">
                       X
                     </th>
@@ -535,21 +520,32 @@ export default function BDCodigos() {
                 <tbody>
                   {pageData.length === 0 ? (
                     <tr>
-                      <td colSpan={tipo === "servicio" ? 7 : 5} className="text-center py-4">
+                      <td
+                        colSpan={tipo === "servicio" ? 7 : 4}
+                        className="text-center py-4"
+                      >
                         Sin registros
                       </td>
                     </tr>
                   ) : (
                     pageData.map((x) => (
                       <tr key={x._id}>
-                        {/* ID automático (R1 / S1...) */}
                         <td>{x.codigo || String(x._id).slice(-4)}</td>
                         <td>{x.codigo || x.numeroParte}</td>
-                        {/*<td>{x.proveedor || "—"}</td>*/}
                         <td>{x.descripcion}</td>
-                        {tipo === "servicio" && <td>{x.codigoSat || "—"}</td>}
-                        {tipo === "servicio" && <td>{x.descripcionSat || "—"}</td>}
-
+                        {tipo === "servicio" && (
+                          <td>
+                            <span className="badge bg-secondary">
+                              {GRUPO_LABELS[x.grupoServicio] || x.grupoServicio || "—"}
+                            </span>
+                          </td>
+                        )}
+                        {tipo === "servicio" && (
+                          <td>{x.codigoSat || "—"}</td>
+                        )}
+                        {tipo === "servicio" && (
+                          <td>{x.descripcionSat || "—"}</td>
+                        )}
                         <td className="text-center">
                           <button
                             className="btn btn-link text-danger p-0"
@@ -564,11 +560,10 @@ export default function BDCodigos() {
                 </tbody>
               </table>
 
-              {/* Footer paginación */}
               <div className="d-flex align-items-center justify-content-between pb-3">
                 <div className="small text-muted">
                   Página {pageSafe} de {totalPages} — {filtered.length} registros
-                  ({tipo === "servicio" ? " servicios" : " refacciones"})
+                  {tipo === "servicio" ? " servicios" : " refacciones"}
                 </div>
                 <ul className="pagination pagination-sm mb-0">
                   <li className={`page-item ${pageSafe === 1 ? "disabled" : ""}`}>
@@ -582,9 +577,7 @@ export default function BDCodigos() {
                   {Array.from({ length: totalPages }).map((_, i) => (
                     <li
                       key={i}
-                      className={`page-item ${
-                        pageSafe === i + 1 ? "active" : ""
-                      }`}
+                      className={`page-item ${pageSafe === i + 1 ? "active" : ""}`}
                     >
                       <button
                         className="page-link"
@@ -595,15 +588,11 @@ export default function BDCodigos() {
                     </li>
                   ))}
                   <li
-                    className={`page-item ${
-                      pageSafe === totalPages ? "disabled" : ""
-                    }`}
+                    className={`page-item ${pageSafe === totalPages ? "disabled" : ""}`}
                   >
                     <button
                       className="page-link"
-                      onClick={() =>
-                        setPage((p) => Math.min(totalPages, p + 1))
-                      }
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                     >
                       Next
                     </button>
@@ -611,7 +600,6 @@ export default function BDCodigos() {
                 </ul>
               </div>
             </div>
-
           </div>
         </div>
       </div>

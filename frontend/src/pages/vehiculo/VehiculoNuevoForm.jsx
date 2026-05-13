@@ -136,6 +136,7 @@ export default function VehiculoNuevoForm({
     tapetesTraserosDer: false,
     gato: false,
     bateria: false,
+    nivelGasolina: false,
 
     // ----- Indicadores del tablero / mecánicos -----
     checkEngine: "",
@@ -942,7 +943,7 @@ export default function VehiculoNuevoForm({
 
           <div className="row g-2">
             {/* Espejos, copas, parabrisas, etc. */}
-            <div className="col-md-6">
+            <div className="col-md-4">
               <div className="row g-1">
                 <div className="col-12 fw-semibold mb-1">
                   Espejo / Copas / Focos / Interior
@@ -1103,7 +1104,7 @@ export default function VehiculoNuevoForm({
             </div>
 
             {/* Columna derecha de accesorios */}
-            <div className="col-md-6">
+            <div className="col-md-4">
               <div className="row g-1">
                 <div className="col-12 fw-semibold mb-1">
                   Copas Traseras / Tapetes / Otros
@@ -1223,6 +1224,118 @@ export default function VehiculoNuevoForm({
                 </div>
               </div>
             </div>
+
+            {/* Columna gasolina */}
+            <div className="col-md-4">
+              <div className="d-flex flex-column align-items-center" style={{ paddingLeft: "250px" }}>
+                <div className="fw-semibold mb-1">
+                  Nivel de Gasolina
+                </div>
+
+                <svg
+                  width="200"
+                  height="130"
+                  viewBox="0 0 200 130"
+                  style={{ cursor: readOnly ? "default" : "pointer" }}
+                  onClick={(e) => {
+                    if (readOnly) return;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const scaleX = 200 / rect.width;
+                    const scaleY = 130 / rect.height;
+                    const mx = (e.clientX - rect.left) * scaleX;
+                    const my = (e.clientY - rect.top) * scaleY;
+                    const dx = mx - 100, dy = my - 100;
+                    let angle = Math.atan2(dy, dx);
+                    if (angle < 0) angle += 2 * Math.PI;
+                    const START_RAD = 210 * Math.PI / 180;
+                    const END_RAD = 330 * Math.PI / 180;
+                    let pct = (angle - START_RAD) / (END_RAD - START_RAD);
+                    pct = Math.max(0, Math.min(1, pct));
+                    const NIVELES = [
+                      { pct: 0,     label: "E" },
+                      { pct: 0.125, label: "1/8" },
+                      { pct: 0.25,  label: "1/4" },
+                      { pct: 0.375, label: "3/8" },
+                      { pct: 0.5,   label: "1/2" },
+                      { pct: 0.625, label: "5/8" },
+                      { pct: 0.75,  label: "3/4" },
+                      { pct: 0.875, label: "7/8" },
+                      { pct: 1,     label: "F" },
+                    ];
+                    const closest = NIVELES.reduce((a, b) =>
+                      Math.abs(b.pct - pct) < Math.abs(a.pct - pct) ? b : a
+                    );
+                    setForm((prev) => ({ ...prev, nivelGasolina: closest.label }));
+                  }}
+                >
+                  {(() => {
+                    const CX = 100, CY = 100, R = 70;
+                    const START_DEG = 210, END_DEG = 330;
+                    const NIVELES = [
+                      { pct: 0,     label: "E" },
+                      { pct: 0.125, label: "1/8" },
+                      { pct: 0.25,  label: "1/4" },
+                      { pct: 0.375, label: "3/8" },
+                      { pct: 0.5,   label: "1/2" },
+                      { pct: 0.625, label: "5/8" },
+                      { pct: 0.75,  label: "3/4" },
+                      { pct: 0.875, label: "7/8" },
+                      { pct: 1,     label: "F" },
+                    ];
+                    const toRad = (deg) => deg * Math.PI / 180;
+                    const pctToAngle = (pct) => toRad(START_DEG + pct * (END_DEG - START_DEG));
+                    const pctToXY = (pct, radius) => {
+                      const a = pctToAngle(pct);
+                      return { x: CX + radius * Math.cos(a), y: CY + radius * Math.sin(a) };
+                    };
+                    const arcPath = (pct0, pct1, r) => {
+                      const s = pctToXY(pct0, r);
+                      const e = pctToXY(pct1, r);
+                      const span = (pct1 - pct0) * toRad(END_DEG - START_DEG);
+                      return `M ${s.x} ${s.y} A ${r} ${r} 0 ${span > Math.PI ? 1 : 0} 1 ${e.x} ${e.y}`;
+                    };
+                    const currentNivel = NIVELES.find(n => n.label === form.nivelGasolina);
+                    const currentPct = currentNivel ? currentNivel.pct : null;
+                    const needleColor =
+                      currentPct === null ? "#888" :
+                      currentPct <= 0.25 ? "#E24B4A" :
+                      currentPct <= 0.5  ? "#BA7517" : "#1D9E75";
+                    const needleAngle = currentPct !== null ? pctToAngle(currentPct) : toRad(210);
+                    const nx = CX + 58 * Math.cos(needleAngle);
+                    const ny = CY + 58 * Math.sin(needleAngle);
+                    return (
+                      <>
+                        <path d={arcPath(0, 1, R)} fill="none" stroke="#ddd" strokeWidth="4" strokeLinecap="round" />
+                        {currentPct !== null && currentPct > 0 && (
+                          <path d={arcPath(0, currentPct, R)} fill="none" stroke={needleColor} strokeWidth="4" strokeLinecap="round" />
+                        )}
+                        {NIVELES.map((n) => {
+                          const pos = pctToXY(n.pct, R);
+                          const isActive = form.nivelGasolina === n.label;
+                          return (
+                            <circle key={n.label} cx={pos.x} cy={pos.y} r={isActive ? 5 : 3} fill={isActive ? needleColor : "#bbb"} />
+                          );
+                        })}
+                        <line x1={CX} y1={CY} x2={nx} y2={ny} stroke={needleColor} strokeWidth="2.5" strokeLinecap="round" />
+                        <circle cx={CX} cy={CY} r="5" fill={needleColor} />
+                        <text x="18" y="112" fontSize="12" fontWeight="500" fill="#888" textAnchor="middle">E</text>
+                        <text x="182" y="112" fontSize="12" fontWeight="500" fill="#888" textAnchor="middle">F</text>
+                      </>
+                    );
+                  })()}
+                </svg>
+
+                <div className="mt-1 text-center">
+                  {form.nivelGasolina ? (
+                    <span className="badge bg-secondary fs-6 px-3">{form.nivelGasolina}</span>
+                  ) : (
+                    <span className="text-muted small">Sin capturar</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+
           </div>
 
           {/* ====== INDICADORES TABLERO / MECÁNICOS ====== */}

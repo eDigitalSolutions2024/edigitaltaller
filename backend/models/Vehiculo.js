@@ -109,6 +109,7 @@ const vehiculoSchema = new Schema(
     tapetesTraserosDer: Boolean,
     gato: Boolean,
     bateria: Boolean,
+    nivelGasolina: { type: String, default: null },
 
     // ----- Indicadores tablero / mecánicos -----
     checkEngine: String,
