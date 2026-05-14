@@ -110,6 +110,7 @@ const vehiculoSchema = new Schema(
     gato: Boolean,
     bateria: Boolean,
     nivelGasolina: { type: String, default: null },
+    danoVehiculo: { type: String, default: null },
 
     // ----- Indicadores tablero / mecánicos -----
     checkEngine: String,
