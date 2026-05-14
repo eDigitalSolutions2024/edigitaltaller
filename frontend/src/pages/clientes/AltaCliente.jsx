@@ -253,7 +253,7 @@ export default function AltaCliente() {
   useEffect(() => {
     const loadEmpleados = async () => {
       try {
-        const data = await listarEmpleados({ activo: true }); // solo activos
+        const data = await listarEmpleados({ activo: true, puesto: "asesor" }); // solo activos
         setEmpleados(Array.isArray(data) ? data : []);
       } catch (e) {
         console.error("Error cargando empleados", e);
@@ -1021,7 +1021,6 @@ export default function AltaCliente() {
             {empleados.map((emp) => (
               <option key={emp._id} value={emp.nombre}>
                 {emp.nombre}
-                {emp.puesto ? ` (${emp.puesto})` : ""}
               </option>
             ))}
           </select>
