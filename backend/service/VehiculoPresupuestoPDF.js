@@ -1,185 +1,434 @@
 const puppeteer = require('puppeteer');
 const dayjs = require('dayjs');
+const path = require('path');
+const fs = require('fs');
+
+const assetPath = (...parts) =>
+  path.join(__dirname, '..', 'assets', 'pdf', ...parts);
+
+const imageBase64 = (filename) => {
+  const filePath = assetPath(filename);
+  if (!fs.existsSync(filePath)) return "";
+  const ext = path.extname(filename).replace(".", "").toLowerCase();
+  const mime = ext === "png" ? "image/png" : "image/jpeg";
+  const data = fs.readFileSync(filePath).toString("base64");
+  return `data:${mime};base64,${data}`;
+};
+
+const money = (value) =>
+  new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    minimumFractionDigits: 2,
+  }).format(Number(value) || 0);
+
+const escapeHtml = (value = '') =>
+  String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+
+const nombreCliente = (orden) => {
+  if (orden.nombreGobierno) return orden.nombreGobierno;
+  const nombre = [orden.nombreCliente, orden.apellidoPaterno, orden.apellidoMaterno]
+    .filter(Boolean)
+    .join(' ');
+  return nombre || orden.cliente?.nombre || 'N/A';
+};
+
+const telefono = (orden) => {
+  const fijo = [orden.telefonoFijoLada, orden.telefonoFijo].filter(Boolean).join('');
+  const cel = [orden.celularLada, orden.celular].filter(Boolean).join('');
+  return fijo || cel || 'N/A';
+};
 
 exports.generarPresupuestoPDF = async (res, orden) => {
+  let browser;
+
   try {
-    const browser = await puppeteer.launch({ 
-      headless: "new",
-      args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
+
     const page = await browser.newPage();
 
-    // 1. Formatear Fechas y Datos Generales
     const fechaActual = dayjs().format('DD/MM/YYYY');
-    const horaActual = dayjs().format('hh:mm a');
+    const horaRecepcion = orden.horaRecepcion || '';
+    const fechaRecepcion = orden.fechaRecepcion
+      ? dayjs(orden.fechaRecepcion).format('DD/MM/YYYY')
+      : fechaActual;
 
-    // 2. Consolidar Conceptos (Refacciones + Mano de Obra) para la tabla principal
-    // Mapeamos ambos arreglos a un formato uniforme para la tabla del PDF
-    const itemsRefacciones = (orden.presupuesto || []).map(r => ({
-      cant: r.cant,
-      desc: `${r.concepto} ${r.refaccion ? '- ' + r.refaccion : ''}`,
-      precio: Number(r.precioVenta || 0),
-      total: Number(r.cant || 0) * Number(r.precioVenta || 0)
-    }));
+    const items = (orden.presupuesto || []).map((item) => {
+      const cant = Number(item.cant || 0);
+      const precio = Number(item.precioVenta || 0);
+      const subtotal = cant * precio;
+      const iva = subtotal * 0.08;
 
-    const itemsManoObra = (orden.manoObra || []).map(m => ({
-      cant: 1, // Por defecto 1 servicio
-      desc: m.concepto,
-      precio: Number(m.precioVenta || 0),
-      total: Number(m.precioVenta || 0)
-    }));
-
-    const todosLosServicios = [...itemsRefacciones, ...itemsManoObra];
-
-    // 3. Cálculos de Totales
-    const subtotal = todosLosServicios.reduce((acc, item) => acc + item.total, 0);
-    const iva = subtotal * 0.08; // Ajustar al 0.16 o 0.08 según tu zona (Juárez suele ser 8%)
-    const totalFinal = subtotal + iva;
-
-    const htmlContent = `
-    <html>
-      <head>
-        <style>
-          @page { size: Letter; margin: 10mm; }
-          body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 10px; color: #333; margin: 0; padding: 0; }
-          
-          /* Encabezado Estilo L18 */
-          .header-container { display: flex; justify-content: space-between; margin-bottom: 10px; }
-          .brand-box { width: 30%; }
-          .brand-name { color: #0047ba; font-size: 22px; font-weight: bold; margin: 0; }
-          .brand-sub { font-size: 9px; font-style: italic; }
-          
-          .info-box { width: 40%; text-align: center; font-size: 9px; }
-          .os-box { width: 25%; text-align: right; }
-          .os-label { color: #0047ba; font-size: 16px; font-weight: bold; }
-          .os-folio { color: red; font-size: 18px; font-weight: bold; }
-
-          /* Tablas de Datos del Cliente */
-          .data-table { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
-          .data-table td { border: 1px solid #000; padding: 4px; vertical-align: top; }
-          .label { background-color: #f2f2f2; font-weight: bold; width: 15%; }
-          .value { width: 35%; }
-
-          /* Tabla de Presupuesto Principal */
-          .main-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          .main-table th { background-color: #444; color: white; padding: 6px; border: 1px solid #000; }
-          .main-table td { border: 1px solid #ccc; padding: 6px; text-align: center; }
-          .text-left { text-align: left !important; }
-          .text-right { text-align: right !important; }
-
-          /* Bloque de Totales y Observaciones */
-          .footer-flex { display: flex; justify-content: space-between; margin-top: 15px; }
-          .obs-area { width: 65%; border: 1px solid #000; padding: 8px; min-height: 60px; }
-          .totals-area { width: 30%; }
-          .total-row { display: flex; justify-content: space-between; padding: 4px; border-bottom: 1px solid #eee; }
-          .grand-total { font-size: 14px; font-weight: bold; background: #eee; padding: 5px; }
-
-          /* Legales L18 */
-          .legal-text { font-size: 8px; margin-top: 15px; line-height: 1.2; }
-          .brands-footer { margin-top: 20px; text-align: center; border-top: 1px solid #eee; padding-top: 10px; opacity: 0.7; }
-        </style>
-      </head>
-      <body>
-        <div class="header-container">
-          <div class="brand-box">
-            <p class="brand-name">Servillantero</p>
-            <p class="brand-sub">Profesionales al servicio de su automóvil</p>
-          </div>
-          <div class="info-box">
-            Paseo Triunfo de la República No. 322-B, Col. San Lorenzo<br>
-            Cd. Juárez, Chihuahua. CP 32320<br>
-            Tels: (656) 623 56 51 al 54
-          </div>
-          <div class="os-box">
-            <div class="os-label">PRESUPUESTO</div>
-            <div class="os-folio">L-${orden._id.toString().slice(-4).toUpperCase()}</div>
-          </div>
-        </div>
-
-        <table class="data-table">
-          <tr>
-            <td class="label">CLIENTE:</td>
-            <td class="value">${orden.clienteNombre || 'PRUEBA'}</td>
-            <td class="label">RECEPCIÓN:</td>
-            <td class="value">${fechaActual} A LAS ${horaActual}</td>
-          </tr>
-          <tr>
-            <td class="label">DIRIGIDO A:</td>
-            <td class="value">${orden.dirigidoA || 'N/A'}</td>
-            <td class="label">DEPARTAMENTO:</td>
-            <td class="value">${orden.departamento || 'N/A'}</td>
-          </tr>
-          <tr>
-            <td class="label">VEHÍCULO:</td>
-            <td class="value">${orden.marca} ${orden.modelo} ${orden.anio}</td>
-            <td class="label">PLACAS / SERIE:</td>
-            <td class="value">${orden.placas || 'N/A'} / ${orden.serie || 'N/A'}</td>
-          </tr>
-        </table>
-
-        <table class="main-table">
-          <thead>
-            <tr>
-              <th style="width: 8%;">Cant.</th>
-              <th class="text-left">Descripción del Servicio y/o Reparación</th>
-              <th style="width: 12%;">Precio</th>
-              <th style="width: 10%;">IVA</th>
-              <th style="width: 12%;">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${todosLosServicios.map(item => `
-              <tr>
-                <td>${item.cant}</td>
-                <td class="text-left">${item.desc}</td>
-                <td class="text-right">$${item.precio.toFixed(2)}</td>
-                <td class="text-right">$${(item.total * 0.08).toFixed(2)}</td>
-                <td class="text-right">$${(item.total * 1.08).toFixed(2)}</td>
-              </tr>
-            `).join('')}
-            ${todosLosServicios.length < 8 ? Array(8 - todosLosServicios.length).fill(0).map(() => `
-              <tr><td style="color:white">.</td><td></td><td></td><td></td><td></td></tr>
-            `).join('') : ''}
-          </tbody>
-        </table>
-
-        <div class="footer-flex">
-          <div class="obs-area">
-            <strong>Observaciones:</strong><br>
-            ${orden.servicioReparacion?.revisionFallas || 'Sin observaciones adicionales.'}
-          </div>
-          <div class="totals-area">
-            <div class="total-row"><span>Subtotal:</span> <span>$${subtotal.toFixed(2)}</span></div>
-            <div class="total-row"><span>I.V.A.:</span> <span>$${iva.toFixed(2)}</span></div>
-            <div class="total-row grand-total"><span>Total:</span> <span>$${totalFinal.toFixed(2)}</span></div>
-          </div>
-        </div>
-
-        <div class="legal-text">
-          <p><strong>TODOS NUESTROS SERVICIOS INCLUYEN MANO DE OBRA Y REFACCIONES</strong></p>
-          <p>Importante: La presente cotización tiene una vigencia de 15 días a partir de esta fecha y está sujeta a cambios sin previo aviso, así mismo a la variación del dólar.</p>
-          <p>Garantía: Nuestras reparaciones están garantizadas por noventa (90) días en condiciones de uso normal y que no hayan sido intervenidas por terceros. No hay garantía en partes eléctricas y/o usadas, ni en bombas de gasolina.</p>
-        </div>
-
-        <div class="brands-footer">
-          MICHELIN • BFGOODRICH • PIRELLI • GOODYEAR • CONTINENTAL • DUNLOP • EUZKADI
-        </div>
-      </body>
-    </html>`;
-
-    await page.setContent(htmlContent);
-    const pdfBuffer = await page.pdf({ 
-      format: 'Letter', 
-      printBackground: true,
-      margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' }
+      return {
+        cant,
+        desc: item.concepto || '',
+        precio,
+        iva,
+        total: subtotal + iva,
+      };
     });
 
-    await browser.close();
-    res.contentType("application/pdf");
-    res.send(pdfBuffer);
+    const subtotal = items.reduce((acc, item) => acc + Number(item.cant || 0) * Number(item.precio || 0), 0);
+    const iva = subtotal * 0.08;
+    const totalFinal = subtotal + iva;
 
+    const direccion = [orden.direccion, orden.numeroExt, orden.numeroInt, orden.colonia]
+      .filter(Boolean)
+      .join(' ');
+
+    const logoSrc = imageBase64('logo_servicompactos.png');
+    const engomadoSrc = imageBase64('engomado_ecologico.jpg');
+    const marcasSrc = imageBase64('marcas_llantas.jpg');
+
+    const htmlContent = `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    @page { size: Legal; margin: 10mm; }
+    body {
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      color: #000;
+      margin: 0;
+      padding: 0;
+    }
+
+    .top {
+      display: grid;
+      grid-template-columns: 78px 1fr 210px;
+      align-items: start;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .qr {
+      width: 54px;
+      height: 54px;
+      border: 8px solid #111;
+      box-sizing: border-box;
+      margin-left: 8px;
+      margin-top: 2px;
+    }
+
+    .brand {
+      text-align: center;
+      color: #214190;
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1;
+      padding-top: 8px;
+    }
+
+    .brand span { color: #ef6b21; }
+
+    .advisor {
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1.5;
+      padding-top: 8px;
+    }
+
+    .title {
+      text-align: center;
+      font-size: 17px;
+      font-weight: 700;
+      margin: 6px 0 2px;
+    }
+
+    .address {
+      text-align: center;
+      font-size: 16px;
+      margin-bottom: 4px;
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 14px;
+      font-size: 16px;
+    }
+
+    .data-table td {
+      border: 1px solid #000;
+      padding: 2px 3px;
+      vertical-align: top;
+    }
+
+    .label { font-weight: 700; }
+
+    .os-label {
+      background: #214190;
+      color: #fff;
+      font-weight: 700;
+    }
+
+    .os-number {
+      color: red;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .items {
+      width: 92%;
+      margin: 0 auto 8px;
+      border-collapse: collapse;
+      font-size: 16px;
+    }
+
+    .items th {
+      border-bottom: 1px solid #000;
+      padding: 4px 3px;
+      text-align: center;
+      font-weight: 700;
+    }
+
+    .items td {
+      padding: 3px;
+      text-align: center;
+    }
+
+    .items .desc { text-align: center; }
+    .items .money { text-align: right; white-space: nowrap; }
+
+    .obs {
+      width: 92%;
+      margin: 8px auto 0;
+      border-top: 1px solid #000;
+      padding-top: 4px;
+      font-size: 16px;
+      min-height: 18px;
+    }
+
+    .included {
+      width: 92%;
+      margin: 8px auto;
+      text-align: center;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .legal {
+      width: 92%;
+      margin: 0 auto;
+      font-size: 16px;
+      line-height: 1.7;
+      text-align: justify;
+    }
+
+    .green-banner {
+      width: 82%;
+      margin: 10px auto;
+      background: #8bd045;
+      color: #fff;
+      text-align: center;
+      font-size: 16px;
+      font-weight: 700;
+      padding: 8px 10px;
+      line-height: 1.5;
+    }
+
+    .tires-title {
+      text-align: center;
+      font-size: 16px;
+      font-weight: 700;
+      margin-top: 10px;
+    }
+
+    .tires-sub {
+      text-align: center;
+      font-size: 16px;
+      margin-bottom: 6px;
+    }
+
+    .brand-grid {
+      width: 80%;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 7px;
+      align-items: center;
+      text-align: center;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .brand-grid div {
+      border: 1px solid #ddd;
+      padding: 3px;
+      min-height: 16px;
+    }
+
+    .logo {
+      max-width: 500px;
+      max-height: 70px;
+      object-fit: contain;
+    }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div class="qr"></div>
+    <div class="brand">
+      ${logoSrc ? `<img src="${logoSrc}" class="logo" />` : `Servi<span>compactos</span>`}
+    </div>
+    <div class="advisor">
+      ASESOR: ${escapeHtml(orden.asesor || 'admin')}<br>
+      Tel: ${escapeHtml(orden.telefonoAsesor || '')}<br>
+      Correo: ${escapeHtml(orden.correoAsesor || '')}<br>
+      Fecha: ${fechaActual}
+    </div>
+  </div>
+
+  <div class="title">PRESUPUESTO</div>
+  <div class="address">
+    Paseo Triunfo de la República No. 322-B, Cd. Juárez Chihuahua, Col. San Lorenzo, CP. 32320
+    Tels: (656) 6 23 56 51 al 54
+  </div>
+
+  <table class="data-table">
+    <tr>
+      <td class="label" style="width: 20%;">NOMBRE DEL CLIENTE:</td>
+      <td colspan="3">${escapeHtml(nombreCliente(orden))}</td>
+      <td class="os-label" style="width: 18%;">ORDEN DE SERVICIO:</td>
+      <td class="os-number" style="width: 14%;">${escapeHtml(orden.ordenServicio || '')}</td>
+    </tr>
+    <tr>
+      <td class="label">FECHA DE RECEPCION:</td>
+      <td colspan="2">${fechaRecepcion}${horaRecepcion ? ` A LAS ${escapeHtml(horaRecepcion)}` : ''}</td>
+      <td class="label">CORREO</td>
+      <td colspan="2">${escapeHtml(orden.correo || '')}</td>
+    </tr>
+    <tr>
+      <td class="label">RFC:</td>
+      <td>${escapeHtml(orden.rfc || '')}</td>
+      <td class="label">TELEFONO</td>
+      <td>${escapeHtml(telefono(orden))}</td>
+      <td class="label">CELULAR</td>
+      <td>${escapeHtml(orden.celular || '')}</td>
+    </tr>
+    <tr>
+      <td class="label">DIRECCION:</td>
+      <td colspan="5">${escapeHtml(direccion)}</td>
+    </tr>
+    <tr>
+      <td align="center"><b>MARCA</b><br>${escapeHtml(orden.marca || '')}</td>
+      <td align="center"><b>MODELO</b><br>${escapeHtml(orden.modelo || '')}</td>
+      <td align="center"><b>AÑO</b><br>${escapeHtml(orden.anio || '')}</td>
+      <td align="center"><b>COLOR</b><br>${escapeHtml(orden.color || '')}</td>
+      <td align="center"><b>NACIONALIDAD</b><br>${escapeHtml(orden.nacionalidad || '')}</td>
+      <td align="center"><b>SERIE</b><br>${escapeHtml(orden.serie || '')}</td>
+    </tr>
+    <tr>
+      <td align="center"><b>PLACAS</b><br>${escapeHtml(orden.placas || '')}</td>
+      <td align="center"><b>MOTOR</b><br>${escapeHtml(orden.motor || '')}</td>
+      <td align="center"><b>KMS/MILLAS</b><br>${escapeHtml(orden.kmsMillas || '')}</td>
+      <td align="center"><b>DIRIGIDO A:</b><br>${escapeHtml(orden.dirigidoA || '')}</td>
+      <td align="center"><b>NUMERO ECONOMICO:</b><br>${escapeHtml(orden.numeroEconomico || '')}</td>
+      <td></td>
+    </tr>
+  </table>
+
+  <table class="items">
+    <thead>
+      <tr>
+        <th style="width: 10%;">Cantidad</th>
+        <th style="width: 68%;">Concepto, Servicio y/o Reparación</th>
+        <th style="width: 22%;">Precio Venta</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${
+        items.length
+          ? items.map((item) => `
+        <tr>
+          <td>${item.cant}</td>
+          <td class="desc">${escapeHtml(item.desc)}</td>
+          <td class="money">${money(item.precio)}</td>
+        </tr>`).join('')
+          : `<tr><td colspan="3">Sin partidas de presupuesto.</td></tr>`
+      }
+      <tr>
+        <td></td>
+        <td style="text-align:right;"><b>Total Presupuesto:</b></td>
+        <td class="money"><b>${money(subtotal)}</b></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="obs">
+    <b>Observaciones:</b> ${escapeHtml(orden.observCotizacion || orden.observacionesExternas || '')}
+  </div>
+
+  <div class="included">
+    TODOS NUESTROS SERVICIOS INCLUYEN MANO DE OBRA Y REFACCIONES
+  </div>
+
+  <div class="legal">
+    <p><b>Importante:</b> La presente cotización tiene una vigencia de 15 días a partir de esta fecha y está sujeta a cambios sin previo aviso, así mismo a la variación del dólar.</p>
+    <p><b>Garantía:</b> Nuestras reparaciones están garantizadas por noventa (90) días en condiciones de uso normal y que no hayan sido intervenidas por terceros. No hay garantía en partes eléctricas y/o usadas, ni en bombas de gasolina.</p>
+  </div>
+
+  ${
+    engomadoSrc
+      ? `<div class="engomado" style="text-align:center;"><img src="${engomadoSrc}" /></div>`
+      : `<div class="green-banner">
+          "Solicite su engomado ecológico y juntos cuidemos el medio ambiente"<br>
+          (Precio 3 UMA's IVA incluido)
+        </div>`
+  }
+
+  <div class="tires-title">CENTRO LLANTERO MULTIMARCAS</div>
+  <div class="tires-sub">
+    Venta e instalación de llantas nuevas en las marcas de mayor prestigio al mejor precio !
+  </div>
+
+  ${
+    marcasSrc
+      ? `<div class="marcas"><img src="${marcasSrc}" /></div>`
+      : `<div class="brand-grid">
+          <div>MICHELIN</div>
+          <div>GOODYEAR</div>
+          <div>Continental</div>
+          <div>NEXEN</div>
+          <div>BFGoodrich</div>
+          <div>DUNLOP</div>
+          <div>Euzkadi</div>
+          <div>NITTO</div>
+          <div>PIRELLI</div>
+          <div>HANKOOK</div>
+          <div>BRIDGESTONE</div>
+          <div>Y muchas más!!!</div>
+        </div>`
+  }
+</body>
+</html>`;
+
+    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+
+    const pdfBuffer = await page.pdf({
+      format: 'Legal',
+      printBackground: true,
+      margin: { top: '8mm', bottom: '10mm', left: '10mm', right: '10mm' },
+    });
+
+    res.contentType('application/pdf');
+    res.send(pdfBuffer);
   } catch (error) {
-    console.error('Error Generar PDF:', error);
-    res.status(500).send('Error al generar el documento PDF');
+    console.error('Error generando PDF de presupuesto:', error);
+    res.status(500).send('Error al generar el PDF de presupuesto');
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
   }
 };
