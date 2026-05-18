@@ -53,6 +53,12 @@ import Usuarios from "./pages/admin/Usuarios";
 //Configuracion
 import Configuracion from "./pages/configuration/Configuracion";
 
+// Facturación
+import FacturacionLayout from "./pages/facturacion/FacturacionLayout";
+import FacturacionPanel from "./pages/facturacion/FacturacionPanel";
+import NuevaFactura from "./pages/facturacion/NuevaFactura";
+import ConsultarFacturas from "./pages/facturacion/ConsultarFacturas";
+import ConfiguracionFiscal from "./pages/facturacion/ConfiguracionFiscal";
 
 
 const PrivateRoute = ({ children }) => {
@@ -146,6 +152,17 @@ export default function App() {
 
           {/* Configuración */}
           <Route path="configuracion" element={<Configuracion />} />
+
+
+          {/* Facturación */}
+          <Route path="facturacion/*" element={<FacturacionLayout />}>
+            <Route index element={<FacturacionPanel />} />
+            <Route path="nueva" element={<NuevaFactura />} />
+            <Route path="consultar" element={<ConsultarFacturas />} />
+            <Route path="configuracion-fiscal" element={<ConfiguracionFiscal />} />
+          </Route>
+
+
         </Route>
 
         {/* Fallback */}

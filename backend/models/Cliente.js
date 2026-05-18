@@ -98,6 +98,19 @@ const ClienteSchema = new Schema(
     // Fiscal/ubicación comunes
     requiereFacturacion: { type: Boolean, default: false },
     rfc: { type: String, trim: true, uppercase: true },
+    rfc: { type: String, trim: true, uppercase: true },
+
+    // 👇 NUEVOS — necesarios para facturación CFDI 4.0
+    regimenFiscal: {
+      type: String,
+      trim: true,
+      enum: [
+        "601","603","605","606","607","608","610","611",
+        "612","614","615","616","620","621","622","623",
+        "624","625","626"
+      ]
+    },
+    codigoPostalFiscal: { type: String, trim: true, default: "" },
     direccion: { type: DireccionSchema, default: undefined },
     facturacion: { type: FacturacionSchema, default: undefined },
 

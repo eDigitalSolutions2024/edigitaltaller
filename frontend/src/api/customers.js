@@ -16,3 +16,7 @@ export const getCustomer = (id) =>
 // 👇 NUEVA: actualizar cliente
 export const updateCustomer = (id, payload) =>
   http.put(`/clientes/${id}`, payload);
+
+// 👇 NUEVA: buscar clientes para facturación (por nombre, RFC, email)
+export const buscarClientesFacturacion = (q) =>
+  http.get("/clientes", { params: { search: q, limit: 20 } });
