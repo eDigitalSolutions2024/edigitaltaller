@@ -8,6 +8,7 @@ const empleadoSchema = new mongoose.Schema(
     puesto: {
       type: String,
       enum: [
+        'asesor',
         'mecanico',
         'ayudante',
         'recepcion',

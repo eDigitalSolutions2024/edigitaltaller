@@ -8,7 +8,8 @@ const app = express();
 connectDB();
 
 app.use(cors({ origin: process.env.CORS_ORIGIN, credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 
 const empleadosRoutes = require('./routes/empleados');
@@ -51,6 +52,11 @@ app.use('/api/ordenes-compra', ordenesCompraRoutes);
 
 // index.js / app.js del backend
 app.use('/api', require('./routes/facturas')); // ahora existe GET /api/facturas-proveedor
+
+// 👇 NUEVAS rutas de facturación
+app.use('/api/facturacion', require('./routes/facturacion'));
+app.use('/api/fiscal-config', require('./routes/fiscal_config'));
+app.use('/api/generar-xml', require('./routes/generar_xml'));
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`🚀 Server en http://localhost:${PORT}`));

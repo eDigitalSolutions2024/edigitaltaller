@@ -9,6 +9,7 @@ import {
 import "../styles/Empleados.css";
 
 const puestos = [
+  { value: "asesor", label: "Asesor" },
   { value: "mecanico", label: "Mecánico" },
   { value: "ayudante", label: "Ayudante" },
   { value: "recepcion", label: "Recepción" },
