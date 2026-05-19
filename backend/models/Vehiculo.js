@@ -7,6 +7,8 @@ const ESTADOS_ORDEN = [
   'PENDIENTE_CAPTURA',
   'PENDIENTE_REFACCIONARIA',
   'PENDIENTE_AUTORIZACION_CLIENTE',
+  'PENDIENTE_SURTIR',
+  'PENDIENTE_CIERRE',
   'REPARACION_EN_CURSO',
   'CALIDAD',
   'PENDIENTE_CERRAR',
@@ -32,6 +34,7 @@ const vehiculoSchema = new Schema(
 
     fechaSolicitudRefacciones: { type: Date, default: null },
     fechaRespuestaRefaccionaria: { type: Date, default: null },
+    fechaEnvioSurtir: { type: Date, default: null },
 
     // ----- Datos de Orden / cabecera -----
     ordenServicio: String,
@@ -398,6 +401,8 @@ const vehiculoSchema = new Schema(
           ],
           default: "COTIZADA",
         },
+        autorizado: { type: Boolean, default: false }, // ← asesor marcó ✓
+        surtida: { type: Boolean, default: false },     // ← refaccionaria surtió
       },
     ],
 
