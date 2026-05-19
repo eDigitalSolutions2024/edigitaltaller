@@ -28,7 +28,14 @@ export default function SolicitudesTaller() {
 
   useEffect(() => {
     cargarSolicitudes();
-  }, []);
+
+    // 👇 NUEVO: refresca la lista cada 15 seg automáticamente
+    const interval = setInterval(() => {
+      cargarSolicitudes();
+    }, 15000);
+
+    return () => clearInterval(interval); // limpia al desmontar
+}, []);
 
   useEffect(() => {
     const timer = setInterval(() => {

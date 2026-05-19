@@ -33,7 +33,6 @@ export default function VehiculoOrdenDetalle() {
         const res = await getVehiculoById(id);
         const v = res.data.vehiculo;
         setOrden(v);
-        //setOrdenIniciada(!!v.ordenIniciada);
       } catch (err) {
         console.error(err);
         setError("No se pudo cargar la orden.");
@@ -43,6 +42,23 @@ export default function VehiculoOrdenDetalle() {
     };
     load();
   }, [id]);
+
+  // 👇 NUEVO: Polling — refresca la orden cada 8 seg solo cuando el asesor
+  // está en el tab de Requisición y Diagnóstico.
+  useEffect(() => {
+    if (tab !== "req") return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await getVehiculoById(id);
+        setOrden(res.data.vehiculo);
+      } catch (err) {
+        console.error("Error al refrescar la orden:", err);
+      }
+    }, 8000);
+
+    return () => clearInterval(interval); // limpia al salir del tab
+  }, [tab, id]);
 
   // cuando guardas en "Servicio o Reparación"
   const handleServicioSaved = (vehiculoActualizado) => {
