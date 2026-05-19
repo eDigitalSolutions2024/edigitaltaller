@@ -67,3 +67,6 @@ export const openVentaClientePdf = (id) => {
   window.open(url, "_blank", "noopener");
 };
 
+export const marcarSurtidas = (id, presupuesto) =>
+  http.put(`/vehiculos/${id}/surtir`, { presupuesto });
+

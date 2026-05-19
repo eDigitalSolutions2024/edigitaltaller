@@ -249,7 +249,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
   };
 
   // ===== ENVIAR A VENTA — corazón del nuevo flujo =====
-  const handleEnviarAVenta = () => {
+  const handleEnviarAVenta = async () => {
     const autorizadas = presRows.filter((r) => r.autorizado);
 
     if (autorizadas.length === 0) {
@@ -257,7 +257,6 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
       return;
     }
 
-    // Pre-llenar venta con las autorizadas (editables después)
     const nuevasVentas = autorizadas.map((r) => ({
       cant: r.cant,
       concepto: r.concepto || r.refaccion || "",
@@ -270,7 +269,23 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
     }));
 
     setVentaRows(nuevasVentas);
-    alert(`${autorizadas.length} partida(s) enviada(s) a Venta al Cliente. Puedes editarlas antes de imprimir.`);
+
+    // 👇 guarda y cambia estado a PENDIENTE_SURTIR
+    try {
+      const res = await savePresupuestoVenta(
+        orden._id,
+        buildPayload({
+          presupuesto: presRows,
+          ventaCliente: nuevasVentas,
+          estadoOrden: "PENDIENTE_SURTIR",
+        })
+      );
+      if (onSaved) onSaved(res.data.vehiculo);
+      alert(`${autorizadas.length} partida(s) enviada(s) a Venta al Cliente.`);
+    } catch (err) {
+      console.error(err);
+      alert("Error al enviar a venta.");
+    }
   };
 
   // ===== VENTA AL CLIENTE — HANDLERS =====
