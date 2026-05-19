@@ -21,7 +21,7 @@ import ConsultarFacturaProveedor from "./pages/refaccionaria/ConsultarFacturaPro
 import BDCodigos from "./pages/refaccionaria/BDCodigos";
 import SolicitudesTaller from "./pages/refaccionaria/SolicitudesTaller";
 import SolicitudTallerDetalle from "./pages/refaccionaria/SolicitudTallerDetalle";
-
+import PorSurtir from "./pages/refaccionaria/PorSurtir";
 
 
 // Proveedores
@@ -123,6 +123,7 @@ export default function App() {
             <Route path="salida" element={<SalidaRefaccion />} />
             <Route path="solicitudes-taller" element={<SolicitudesTaller />} />
             <Route path="solicitudes-taller/:id" element={<SolicitudTallerDetalle />} />
+            <Route path="por-surtir" element={<PorSurtir />} />
 
 
 

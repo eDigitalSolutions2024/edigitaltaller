@@ -301,6 +301,10 @@ router.put('/:id/presupuesto-venta', async (req, res) => {
 
     if (estadoOrden) {
       vehiculo.estadoOrden = estadoOrden;
+
+      if (estadoOrden === 'PENDIENTE_SURTIR') {
+        vehiculo.fechaEnvioSurtir = new Date(); // ← NUEVO
+      }
     }
     
     if (
@@ -444,8 +448,6 @@ router.put('/:id/presupuesto-venta', async (req, res) => {
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });
-
-
 
 // 💥 Generar Orden de Compra para una refacción
 // POST /api/vehiculos/:id/orden-compra
@@ -654,6 +656,37 @@ router.get('/:id/presupuesto-pdf', async (req, res) => {
       success: false,
       message: 'Error al generar PDF'
     });
+  }
+});
+
+// PUT /api/vehiculos/:id/surtir
+router.put('/:id/surtir', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { presupuesto } = req.body;
+
+    const vehiculo = await Vehiculo.findById(id);
+    if (!vehiculo) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+
+    if (Array.isArray(presupuesto)) {
+      vehiculo.presupuesto = presupuesto;
+    }
+
+    // Si todas las partidas autorizadas ya están surtidas → PENDIENTE_CIERRE
+    const autorizadas = vehiculo.presupuesto.filter(p => p.autorizado);
+    const todasSurtidas = autorizadas.length > 0 && autorizadas.every(p => p.surtida);
+
+    if (todasSurtidas) {
+      vehiculo.estadoOrden = 'PENDIENTE_CIERRE';
+    }
+
+    await vehiculo.save();
+    return res.json({ ok: true, vehiculo });
+  } catch (err) {
+    console.error('Error marcando surtidas:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });
 
