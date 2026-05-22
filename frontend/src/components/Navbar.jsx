@@ -2,6 +2,7 @@ import { getUser, logout } from '../auth';
 import { useNavigate, NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import '../styles/Navbar.css';
+import { canSeeModule } from '../utils/roles';
 
 export default function Navbar({ collapsed, onToggle }) {
   const user = getUser();
@@ -165,12 +166,14 @@ useEffect(() => {
               </NavLink>
             )}
 
-        <NavLink to="/ordenes-compra" className="sidebar__link" title="Órdenes">
-          <span className="emoji">📋</span><span className="label">Órdenes de compra</span>
-        </NavLink>
+        {canSeeModule(user?.role, 'ordenes') && (
+          <NavLink to="/ordenes-compra" className="sidebar__link" title="Órdenes">
+            <span className="emoji">📋</span><span className="label">Órdenes de compra</span>
+          </NavLink>
+        )}
 
-      
         {/* === GRUPO: CLIENTES === */}
+        {canSeeModule(user?.role, 'clientes') && (
         <div className={`sidebar__group ${clientesOpen ? 'open' : ''}`}>
           <button
             type="button"
@@ -200,10 +203,11 @@ useEffect(() => {
             </NavLink>
           </div>
         </div>
+        )}
         {/* === FIN GRUPO CLIENTES === */}
-        
 
         {/* === GRUPO: PROVEEDORES === */}
+        {canSeeModule(user?.role, 'proveedores') && (
           <div className={`sidebar__group ${provOpen ? 'open' : ''}`}>
             <button
               type="button"
@@ -233,10 +237,11 @@ useEffect(() => {
               </NavLink>
             </div>
           </div>
-          {/* === FIN GRUPO PROVEEDORES === */}
+        )}
+        {/* === FIN GRUPO PROVEEDORES === */}
 
-
-         {/* === NUEVO GRUPO: VEHÍCULO === */}
+        {/* === NUEVO GRUPO: VEHÍCULO === */}
+        {canSeeModule(user?.role, 'vehiculo') && (
         <div className={`sidebar__group ${vehiculoOpen ? 'open' : ''}`}>
           <button
             type="button"
@@ -281,9 +286,11 @@ useEffect(() => {
             </NavLink>
           </div>
         </div>
+        )}
         {/* === FIN GRUPO VEHÍCULO === */}
 
         {/* === GRUPO: FACTURACIÓN === */}
+        {canSeeModule(user?.role, 'facturacion') && (
         <div className={`sidebar__group ${factOpen ? 'open' : ''}`}>
           <button
             type="button"
@@ -326,13 +333,12 @@ useEffect(() => {
             </NavLink>
           </div>
         </div>
+        )}
         {/* === FIN GRUPO FACTURACIÓN === */}
 
 
-
-
-
         {/* === GRUPO: REFACCIONARIA === */}
+        {canSeeModule(user?.role, 'refaccionaria') && (
         <div className={`sidebar__group ${refaOpen ? 'open' : ''}`}>
           <button
             type="button"
@@ -451,6 +457,7 @@ useEffect(() => {
             </NavLink>
           </div>
         </div>
+        )}
         {/* === FIN GRUPO REFACCIONARIA === */}
                 {/* Empleados (solo admin) */}
                   {user?.role === 'admin' && (
@@ -466,9 +473,11 @@ useEffect(() => {
 
                   
 
-            <NavLink to="/reportes" className="sidebar__link" title="Reportes">
-              <span className="emoji">📈</span><span className="label">Reportes</span>
-            </NavLink>
+            {canSeeModule(user?.role, 'reportes') && (
+              <NavLink to="/reportes" className="sidebar__link" title="Reportes">
+                <span className="emoji">📈</span><span className="label">Reportes</span>
+              </NavLink>
+            )}
           </nav>
 
       {/* Bottom */}

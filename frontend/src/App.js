@@ -1,6 +1,7 @@
 import React from "react";
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { canSeeModule, defaultRouteForRole } from "./utils/roles";
 
 import LoginPage from "./pages/LoginPage";
 import AppLayout from "./layouts/AppLayout";
@@ -66,6 +67,23 @@ const PrivateRoute = ({ children }) => {
   return token ? children : <Navigate to="/login" replace />;
 };
 
+/** Redirige al módulo correcto según el rol al entrar a la app */
+const RoleRedirect = () => {
+  const raw = localStorage.getItem("user");
+  const user = raw ? JSON.parse(raw) : null;
+  return <Navigate to={defaultRouteForRole(user?.role)} replace />;
+};
+
+/** Protege una ruta: si el rol no tiene acceso al módulo lo manda a su ruta por defecto */
+const RoleRoute = ({ children, module }) => {
+  const raw = localStorage.getItem("user");
+  const user = raw ? JSON.parse(raw) : null;
+  if (!canSeeModule(user?.role, module)) {
+    return <Navigate to={defaultRouteForRole(user?.role)} replace />;
+  }
+  return children;
+};
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -82,14 +100,14 @@ export default function App() {
             </PrivateRoute>
           }
         >
-          {/* index → /dashboard */}
-          <Route index element={<Navigate to="dashboard" replace />} />
+          {/* index → ruta según rol */}
+          <Route index element={<RoleRedirect />} />
 
           {/* Dashboard */}
           <Route path="dashboard" element={<Dashboard />} />
 
           {/* Clientes */}
-          <Route path="clientes/*" element={<ClientesLayout />}>
+          <Route path="clientes/*" element={<RoleRoute module="clientes"><ClientesLayout /></RoleRoute>}>
             <Route index element={<Navigate to="consulta" replace />} />
             <Route path="alta" element={<AltaCliente />} />
             {/* misma pantalla para editar cliente */}
@@ -107,7 +125,7 @@ export default function App() {
           </Route>
 
           {/* Vehículo */}
-          <Route path="vehiculo/*" element={<VehiculosLayout />}>
+          <Route path="vehiculo/*" element={<RoleRoute module="vehiculo"><VehiculosLayout /></RoleRoute>}>
             <Route index element={<Navigate to="entrada" replace />} />
             <Route path="entrada" element={<VehiculoEntrada />} />
             <Route path="consulta-ordenes" element={<VehiculoConsultaOrdenes />} />
@@ -117,7 +135,7 @@ export default function App() {
           </Route>
 
           {/* Refaccionaria */}
-          <Route path="refaccionaria/*" element={<RefaccionariaLayout />}>
+          <Route path="refaccionaria/*" element={<RoleRoute module="refaccionaria"><RefaccionariaLayout /></RoleRoute>}>
             <Route index element={<Navigate to="entrada" replace />} />
             <Route path="entrada" element={<EntradaInventario />} />
             <Route path="salida" element={<SalidaRefaccion />} />
