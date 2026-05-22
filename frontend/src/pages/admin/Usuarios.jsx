@@ -60,7 +60,7 @@ export default function Usuarios() {
       username: '',
       email: '',
       password: '',
-      role: 'staff'
+      role: 'captura'
     });
   }
 
@@ -230,6 +230,8 @@ export default function Usuarios() {
                     <option value="auditoria">Auditoría</option>
                     <option value="cuentas_por_cobrar">Cuentas por cobrar</option>
                     <option value="recursos_humanos">Recursos Humanos</option>
+                    <option value="coordinador">Coordinador</option>
+                    <option value="finanzas">Finanzas</option>
                 </select>
               </div>
             </div>
