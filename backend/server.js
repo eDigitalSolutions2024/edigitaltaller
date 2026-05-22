@@ -7,7 +7,13 @@ console.log('JWT_SECRET cargado:', !!process.env.JWT_SECRET);
 const app = express();
 connectDB();
 
-app.use(cors({ origin: process.env.CORS_ORIGIN, credentials: true }));
+app.use(cors({
+    origin: [
+        'http://localhost:3000',
+        process.env.CORS_ORIGIN
+    ],
+    credentials: true
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
