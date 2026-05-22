@@ -17,7 +17,6 @@ const userSchema = new mongoose.Schema(
     email: {
       type: String,
       required: true,
-      unique: true,
       lowercase: true,
       trim: true
     },
@@ -37,7 +36,9 @@ const userSchema = new mongoose.Schema(
         'cuentas_por_pagar',
         'auditoria',
         'cuentas_por_cobrar',
-        'recursos_humanos'
+        'recursos_humanos',
+        'coordinador',
+        'finanzas'
       ],
       default: 'captura'
     },

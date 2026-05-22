@@ -37,12 +37,11 @@ router.post('/', proteger, requiereRol('admin'), async (req, res) => {
       return res.status(400).json({ message: 'Nombre, usuario, correo y contraseña son obligatorios' });
     }
 
-    const exists = await User.findOne({
-      $or: [{ email: email.toLowerCase() }, { username: username.toLowerCase() }]
-    });
+    // ✅ Después
+    const exists = await User.findOne({ username: username.toLowerCase() });
 
     if (exists) {
-      return res.status(400).json({ message: 'Ya existe un usuario con ese correo o usuario' });
+      return res.status(400).json({ message: 'Ya existe un usuario con ese nombre de usuario' });
     }
 
     const user = await User.create({
@@ -88,17 +87,15 @@ router.put('/:id', proteger, requiereRol('admin'), async (req, res) => {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    if (email || username) {
+    // ✅ Después
+    if (username) {
       const exists = await User.findOne({
         _id: { $ne: user._id },
-        $or: [
-          ...(email ? [{ email: email.toLowerCase() }] : []),
-          ...(username ? [{ username: username.toLowerCase() }] : [])
-        ]
+        username: username.toLowerCase()
       });
 
       if (exists) {
-        return res.status(400).json({ message: 'Ya existe otro usuario con ese correo o usuario' });
+        return res.status(400).json({ message: 'Ya existe otro usuario con ese nombre de usuario' });
       }
     }
 
