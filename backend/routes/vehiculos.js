@@ -65,9 +65,18 @@ router.post('/', async (req, res) => {
       ...data,
     };
 
-    // 👇 Si no viene ordenServicio desde el frontend, la generamos aquí
+    // 👇 Si no viene ordenServicio, la generamos aquí
     if (!payload.ordenServicio) {
       payload.ordenServicio = await generarOrdenServicio();
+    }
+
+    // 👇 Verificar que el número de orden no esté duplicado
+    const duplicado = await Vehiculo.findOne({ ordenServicio: payload.ordenServicio });
+    if (duplicado) {
+      return res.status(400).json({
+        ok: false,
+        msg: `Ya existe una orden con el número "${payload.ordenServicio}". Usa un número diferente.`
+      });
     }
 
     const vehiculo = new Vehiculo(payload);

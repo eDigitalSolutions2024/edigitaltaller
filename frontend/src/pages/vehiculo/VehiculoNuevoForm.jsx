@@ -279,6 +279,11 @@ export default function VehiculoNuevoForm({
       return;
     }
 
+    if (!form.ordenServicio.trim()) {
+      alert("El número de Orden de Servicio es obligatorio.");
+      return;
+    }
+
     try {
       setGuardando(true);
 
@@ -304,7 +309,8 @@ export default function VehiculoNuevoForm({
 
     } catch (err) {
       console.error("Error guardando vehiculo:", err);
-      alert("Error al guardar el vehículo. Revisa la consola.");
+      const msg = err?.response?.data?.msg || "Error al guardar el vehículo. Revisa la consola.";
+      alert(msg);
       setGuardando(false);
     }
   };
@@ -412,7 +418,9 @@ export default function VehiculoNuevoForm({
                 className="form-control"
                 name="ordenServicio"
                 value={form.ordenServicio}
-                readOnly // 🔒 solo visualizar
+                onChange={handleChange}
+                placeholder="Ej. OS-00123"
+                required
               />
             </div>
             <div className="col-md-4">
