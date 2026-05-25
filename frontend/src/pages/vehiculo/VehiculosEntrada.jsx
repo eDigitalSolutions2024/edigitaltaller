@@ -55,31 +55,30 @@ export default function VehiculoEntrada() {
       return;
     }
 
-    const resultado = clientes.filter((c) =>
-      (c.nombre || c.nombre_cliente || "").toLowerCase().includes(term)
-    );
+    const resultado = clientes.filter((c) => {
+      const nombreFiltro = c.gobierno?.nombreGobierno || c.empresa?.razonSocial || c.nombre || "";
+      return nombreFiltro.toLowerCase().includes(term);
+    });
     setFiltrados(resultado);
   }, [q, clientes]);
 
   const handleSeleccion = async (cliente) => {
     setClienteSeleccionado(cliente);
 
-    // mostrar acciones automáticamente
     setMostrarAcciones(true);
 
-    // reset
     setMostrarFormNuevoCarro(false);
     setVehiculosCliente([]);
     setErrorVehiculos("");
 
     const nombre =
-      cliente.nombre ||
-      cliente.nombre_cliente ||
-      `${cliente.nombre_cliente} ${cliente.apellidos || ""}`.trim();
+      cliente.gobierno?.nombreGobierno ||
+      cliente.empresa?.razonSocial ||
+      [cliente.nombre, cliente.apellidoPaterno, cliente.apellidoMaterno].filter(Boolean).join(" ") ||
+      "Sin nombre";
 
     setQ(nombre);
 
-    // cargar vehículos automáticamente
     await cargarVehiculosCliente(cliente._id);
   };
 
@@ -179,9 +178,10 @@ export default function VehiculoEntrada() {
               >
                 {filtrados.map((c) => {
                   const nombre =
-                    c.nombre ||
-                    c.nombre_cliente ||
-                    `${c.nombre_cliente} ${c.apellidos || ""}`.trim();
+                    c.gobierno?.nombreGobierno ||
+                    c.empresa?.razonSocial ||
+                    [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") ||
+                    "Sin nombre";
 
                   const isActive =
                     clienteSeleccionado &&
@@ -260,7 +260,10 @@ export default function VehiculoEntrada() {
               {/* Cliente seleccionado + botones de acción */}
               <p className="mb-2">
                 <strong>Cliente Seleccionado: </strong>
-                {clienteSeleccionado.nombre || clienteSeleccionado.nombre_cliente}
+                {clienteSeleccionado.gobierno?.nombreGobierno ||
+                  clienteSeleccionado.empresa?.razonSocial ||
+                  [clienteSeleccionado.nombre, clienteSeleccionado.apellidoPaterno].filter(Boolean).join(" ") ||
+                  "Sin nombre"}
               </p>
 
               <button
