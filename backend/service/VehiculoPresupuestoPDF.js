@@ -38,10 +38,18 @@ const nombreCliente = (orden) => {
   return nombre || orden.cliente?.nombre || 'N/A';
 };
 
+
 const telefono = (orden) => {
   const fijo = [orden.telefonoFijoLada, orden.telefonoFijo].filter(Boolean).join('');
   const cel = [orden.celularLada, orden.celular].filter(Boolean).join('');
   return fijo || cel || 'N/A';
+};
+
+const correos = (orden) => {
+  if (Array.isArray(orden.correos) && orden.correos.length) {
+    return orden.correos.filter(Boolean).join(', ');
+  }
+  return orden.correo || ''; // compatibilidad con órdenes antiguas
 };
 
 exports.generarPresupuestoPDF = async (res, orden) => {
@@ -306,7 +314,7 @@ exports.generarPresupuestoPDF = async (res, orden) => {
       <td class="label">FECHA DE RECEPCION:</td>
       <td colspan="2">${fechaRecepcion}${horaRecepcion ? ` A LAS ${escapeHtml(horaRecepcion)}` : ''}</td>
       <td class="label">CORREO</td>
-      <td colspan="2">${escapeHtml(orden.correo || '')}</td>
+      <td colspan="2">${escapeHtml(correos(orden))}</td>
     </tr>
     <tr>
       <td class="label">RFC:</td>

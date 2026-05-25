@@ -1,5 +1,8 @@
-export const saveSession = ({ token, user }) => {
-  localStorage.setItem('token', token);
+import { clearAccessToken } from './api/http';
+
+/** Guarda solo el usuario en localStorage (el token va en memoria) */
+export const saveSession = ({ user }) => {
+  localStorage.removeItem('token'); // limpiar token legacy si existía
   localStorage.setItem('user', JSON.stringify(user));
 };
 
@@ -8,9 +11,9 @@ export const getUser = () => {
   try { return raw ? JSON.parse(raw) : null; } catch { return null; }
 };
 
-export const isAuthenticated = () => !!localStorage.getItem('token');
-
+/** Limpia la sesión del cliente (el backend revoca el refresh token por separado) */
 export const logout = () => {
-  localStorage.removeItem('token');
   localStorage.removeItem('user');
+  localStorage.removeItem('token'); // limpiar token legacy si existía
+  clearAccessToken();
 };

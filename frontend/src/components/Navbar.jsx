@@ -3,6 +3,7 @@ import { useNavigate, NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import '../styles/Navbar.css';
 import { canSeeModule } from '../utils/roles';
+import http from '../api/http';
 
 export default function Navbar({ collapsed, onToggle }) {
   const user = getUser();
@@ -94,7 +95,15 @@ useEffect(() => {
 }, [location.pathname]);
 
 
-  const handleLogout = () => { logout(); navigate("/login"); };
+  const handleLogout = async () => {
+    try {
+      await http.post('/auth/logout'); // revoca el refresh token en BD
+    } catch (_) {
+      // aunque falle, cerramos sesión en el cliente
+    }
+    logout();
+    navigate("/login");
+  };
 
   return (
     <aside className={`sidebar ${collapsed ? "is-collapsed" : ""}`}>

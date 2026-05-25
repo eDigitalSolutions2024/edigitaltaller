@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { loginApi } from "../api/auth";
 import { saveSession } from "../auth";
+import { setAccessToken } from "../api/http";
+import { defaultRouteForRole } from "../utils/roles";
 import "../styles/login.css";
 
 export default function LoginForm() {
@@ -23,8 +25,9 @@ export default function LoginForm() {
         password,
       });
 
-      saveSession(data);
-      navigate("/dashboard");
+      setAccessToken(data.accessToken);   // token en memoria
+      saveSession({ user: data.user });   // solo usuario en localStorage
+      navigate(defaultRouteForRole(data.user?.role));
     } catch (err) {
       const msg =
         err?.response?.data?.message ||

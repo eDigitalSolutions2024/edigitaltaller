@@ -42,7 +42,7 @@ const initial = {
   nombre: "",
   apellidoPaterno: "",
   apellidoMaterno: "",
-  email: "",
+  emails: [""],
   telefono: { lada: "", numero: "", extension: "" },
   celular: { lada: "", numero: "" },
   rfc: "",
@@ -165,6 +165,7 @@ export default function AltaCliente() {
         const merged = {
           ...initial,
           ...c,
+          emails: Array.isArray(c.emails) && c.emails.length ? c.emails : [""],
           requiereFacturacion: Boolean(
             c.rfc ||
             c.direccion?.calle ||
@@ -368,30 +369,45 @@ export default function AltaCliente() {
               onChange={(e) => upd("apellidoMaterno", e.target.value)}
             />
           </div>
-          <div className="form-row">
-            <label>Correo Electrónico</label>
-            <input
-              type="email"
-              value={form.email ?? ""}
-              onChange={(e) => upd("email", e.target.value)}
-            />
+          <div className="form-row col-12">
+            <label>Correos Electrónicos</label>
+            {(form.emails ?? [""]).map((mail, i) => (
+              <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "6px", alignItems: "center" }}>
+                <input
+                  type="email"
+                  placeholder={i === 0 ? "Principal" : `Correo ${i + 1}`}
+                  value={mail}
+                  onChange={(e) => {
+                    const arr = [...(form.emails ?? [""])];
+                    arr[i] = e.target.value;
+                    upd("emails", arr);
+                  }}
+                  style={{ flex: 1 }}
+                />
+                {i === 0 ? (
+                  <span style={{ fontSize: "12px", color: "var(--color-text-info)", whiteSpace: "nowrap" }}>
+                    Principal
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const arr = (form.emails ?? [""]).filter((_, idx) => idx !== i);
+                      upd("emails", arr);
+                    }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "red" }}
+                  >✕</button>
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => upd("emails", [...(form.emails ?? [""]), ""])}
+              style={{ fontSize: "13px", background: "none", border: "1px dashed #aaa", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", marginTop: "2px" }}
+            >
+              + Agregar correo
+            </button>
           </div>
-
-          {/*<div className="form-row">
-            <label>Teléfono Fijo</label>
-            <div className="phone-inline">
-              <input
-                placeholder="LADA"
-                value={form.telefono?.lada ?? ""}
-                onChange={(e) => upd("telefono.lada", e.target.value)}
-              />
-              <input
-                placeholder="Número"
-                value={form.telefono?.numero ?? ""}
-                onChange={(e) => upd("telefono.numero", e.target.value)}
-              />
-            </div>
-          </div>*/}
 
           <div className="form-row">
             <label>Celular *</label>
@@ -494,13 +510,44 @@ export default function AltaCliente() {
                 onChange={(e) => upd("apellidoPaterno", e.target.value)}
               />
             </div>
-            <div className="form-row">
-              <label>Correo Electrónico</label>
-              <input
-                type="email"
-                value={form.email ?? ""}
-                onChange={(e) => upd("email", e.target.value)}
-              />
+            <div className="form-row col-12">
+              <label>Correos Electrónicos</label>
+              {(form.emails ?? [""]).map((mail, i) => (
+                <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "6px", alignItems: "center" }}>
+                  <input
+                    type="email"
+                    placeholder={i === 0 ? "Principal" : `Correo ${i + 1}`}
+                    value={mail}
+                    onChange={(e) => {
+                      const arr = [...(form.emails ?? [""])];
+                      arr[i] = e.target.value;
+                      upd("emails", arr);
+                    }}
+                    style={{ flex: 1 }}
+                  />
+                  {i === 0 ? (
+                    <span style={{ fontSize: "12px", color: "var(--color-text-info)", whiteSpace: "nowrap" }}>
+                      Principal
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const arr = (form.emails ?? [""]).filter((_, idx) => idx !== i);
+                        upd("emails", arr);
+                      }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "red" }}
+                    >✕</button>
+                  )}
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => upd("emails", [...(form.emails ?? [""]), ""])}
+                style={{ fontSize: "13px", background: "none", border: "1px dashed #aaa", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", marginTop: "2px" }}
+              >
+                + Agregar correo
+              </button>
             </div>
 
             <div className="form-row">
@@ -556,13 +603,44 @@ export default function AltaCliente() {
                 onChange={(e) => upd("apellidoPaterno", e.target.value)}
               />
             </div>
-            <div className="form-row">
-              <label>Correo Electrónico</label>
-              <input
-                type="email"
-                value={form.email ?? ""}
-                onChange={(e) => upd("email", e.target.value)}
-              />
+            <div className="form-row col-12">
+              <label>Correos Electrónicos</label>
+              {(form.emails ?? [""]).map((mail, i) => (
+                <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "6px", alignItems: "center" }}>
+                  <input
+                    type="email"
+                    placeholder={i === 0 ? "Principal" : `Correo ${i + 1}`}
+                    value={mail}
+                    onChange={(e) => {
+                      const arr = [...(form.emails ?? [""])];
+                      arr[i] = e.target.value;
+                      upd("emails", arr);
+                    }}
+                    style={{ flex: 1 }}
+                  />
+                  {i === 0 ? (
+                    <span style={{ fontSize: "12px", color: "var(--color-text-info)", whiteSpace: "nowrap" }}>
+                      Principal
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const arr = (form.emails ?? [""]).filter((_, idx) => idx !== i);
+                        upd("emails", arr);
+                      }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "red" }}
+                    >✕</button>
+                  )}
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => upd("emails", [...(form.emails ?? [""]), ""])}
+                style={{ fontSize: "13px", background: "none", border: "1px dashed #aaa", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", marginTop: "2px" }}
+              >
+                + Agregar correo
+              </button>
             </div>
 
             <div className="form-row">
@@ -651,13 +729,44 @@ export default function AltaCliente() {
                 }
               />
             </div>
-            <div className="form-row">
-              <label>Correo Electrónico</label>
-              <input
-                type="email"
-                value={form.email ?? ""}
-                onChange={(e) => upd("email", e.target.value)}
-              />
+            <div className="form-row col-12">
+              <label>Correos Electrónicos</label>
+              {(form.emails ?? [""]).map((mail, i) => (
+                <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "6px", alignItems: "center" }}>
+                  <input
+                    type="email"
+                    placeholder={i === 0 ? "Principal" : `Correo ${i + 1}`}
+                    value={mail}
+                    onChange={(e) => {
+                      const arr = [...(form.emails ?? [""])];
+                      arr[i] = e.target.value;
+                      upd("emails", arr);
+                    }}
+                    style={{ flex: 1 }}
+                  />
+                  {i === 0 ? (
+                    <span style={{ fontSize: "12px", color: "var(--color-text-info)", whiteSpace: "nowrap" }}>
+                      Principal
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const arr = (form.emails ?? [""]).filter((_, idx) => idx !== i);
+                        upd("emails", arr);
+                      }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "red" }}
+                    >✕</button>
+                  )}
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => upd("emails", [...(form.emails ?? [""]), ""])}
+                style={{ fontSize: "13px", background: "none", border: "1px dashed #aaa", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", marginTop: "2px" }}
+              >
+                + Agregar correo
+              </button>
             </div>
 
             <div className="form-row">

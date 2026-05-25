@@ -86,6 +86,7 @@ const vehiculoSchema = new Schema(
     motor: String,
     numeroEconomico: String,
     correo: String,
+    correos: [{ type: String, trim: true, lowercase: true }],
     traccion: String,
 
     // ----- Accesorios / checkboxes -----
