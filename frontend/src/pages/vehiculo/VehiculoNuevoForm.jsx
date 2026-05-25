@@ -110,7 +110,7 @@ export default function VehiculoNuevoForm({
     nacionalidad: "",
     motor: "",
     numeroEconomico: "",
-    correo: "",
+    correos: [],
     traccion: "",
 
     // ----- Checkboxes de accesorios / daños -----
@@ -239,11 +239,9 @@ export default function VehiculoNuevoForm({
       rfc: cliente.rfc || "",
       regimenFiscal: cliente.facturacion?.regimenFiscal || "",
       usoCFDI: cliente.facturacion?.usoCFDI || "",
-      correo:
-        cliente.email ||
-        contactoGob.correo ||
-        contactoDep.correo ||
-        "",
+      correos: Array.isArray(cliente.emails) && cliente.emails.length
+        ? cliente.emails
+        : [contactoGob.correo || contactoDep.correo || ""].filter(Boolean),
     }));
   }, [cliente]);
 
@@ -290,6 +288,7 @@ export default function VehiculoNuevoForm({
       const payload = {
         ...form,
         precioGrua: form.grua === "SI" ? Number(form.precioGrua || 0) : 0,
+        correos: form.correos || [], 
       };
 
       const res = await createVehiculo(cliente._id, payload);
@@ -897,15 +896,23 @@ export default function VehiculoNuevoForm({
                   />
                 </div>
 
+                {/* Correos del cliente (solo lectura, tomados del alta) */}
                 <div className="col-md-6">
-                  <label className="form-label">Correo</label>
-                  <input
-                    type="email"
-                    className="form-control"
-                    name="correo"
-                    value={form.correo}
-                    onChange={handleChange}
-                  />
+                  <label className="form-label">Correo(s)</label>
+                  {form.correos && form.correos.length > 0 ? (
+                    form.correos.map((c, i) => (
+                      <input
+                        key={i}
+                        type="email"
+                        className={`form-control${i > 0 ? " mt-1" : ""}`}
+                        value={c}
+                        readOnly
+                        placeholder="Sin correo"
+                      />
+                    ))
+                  ) : (
+                    <input type="email" className="form-control" value="" readOnly placeholder="Sin correo" />
+                  )}
                 </div>
 
                 <div className="col-12">

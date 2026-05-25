@@ -90,7 +90,7 @@ export default function ConsultaClientes() {
                 .filter(Boolean)
                 .join(" ")}
             </div>
-            <div>{c.email || "—"}</div>
+            <div>{Array.isArray(c.emails) && c.emails.length ? c.emails[0] : "—"}</div>
             <div>{c.rfc || "—"}</div>
             <div>
               {c.celular?.lada

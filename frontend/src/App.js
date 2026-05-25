@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
+import axios from "axios";
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { canSeeModule, defaultRouteForRole } from "./utils/roles";
+import { setAccessToken, getAccessToken } from "./api/http";
 
 import LoginPage from "./pages/LoginPage";
 import AppLayout from "./layouts/AppLayout";
@@ -62,9 +64,50 @@ import ConsultarFacturas from "./pages/facturacion/ConsultarFacturas";
 import ConfiguracionFiscal from "./pages/facturacion/ConfiguracionFiscal";
 
 
+/**
+ * PrivateRoute — verifica sesión al montar.
+ * Si hay usuario en localStorage pero no hay access token en memoria
+ * (ej. el usuario recargó la página), intenta un refresh silencioso.
+ */
 const PrivateRoute = ({ children }) => {
-  const token = localStorage.getItem("token");
-  return token ? children : <Navigate to="/login" replace />;
+  const [status, setStatus] = useState('loading'); // 'loading' | 'ok' | 'unauth'
+
+  useEffect(() => {
+    const user = localStorage.getItem('user');
+
+    if (!user) {
+      setStatus('unauth');
+      return;
+    }
+
+    if (getAccessToken()) {
+      setStatus('ok');
+      return;
+    }
+
+    // Refresh silencioso: el navegador envía la cookie automáticamente
+    const BASE = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+    axios.post(`${BASE}/auth/refresh`, {}, { withCredentials: true })
+      .then(({ data }) => {
+        setAccessToken(data.accessToken);
+        if (data.user) localStorage.setItem('user', JSON.stringify(data.user));
+        setStatus('ok');
+      })
+      .catch(() => {
+        localStorage.removeItem('user');
+        setStatus('unauth');
+      });
+  }, []);
+
+  if (status === 'loading') {
+    return (
+      <div className="d-flex justify-content-center align-items-center vh-100">
+        <div className="spinner-border text-danger" role="status" />
+      </div>
+    );
+  }
+
+  return status === 'ok' ? children : <Navigate to="/login" replace />;
 };
 
 /** Redirige al módulo correcto según el rol al entrar a la app */

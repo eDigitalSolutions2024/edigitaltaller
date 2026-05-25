@@ -58,6 +58,13 @@ const telefono = (orden) => {
   return fijo || cel || 'N/A';
 };
 
+const correos = (orden) => {
+  if (Array.isArray(orden.correos) && orden.correos.length) {
+    return orden.correos.filter(Boolean).join(', ');
+  }
+  return orden.correo || ''; // compatibilidad con órdenes antiguas
+};
+
 exports.generarVentaClientePDF = async (res, orden) => {
   let browser;
 
@@ -347,7 +354,7 @@ exports.generarVentaClientePDF = async (res, orden) => {
       <td class="label">FECHA DE RECEPCION:</td>
       <td colspan="2">${fechaRecepcion}${horaRecepcion ? ` A LAS ${escapeHtml(horaRecepcion)}` : ''}</td>
       <td class="label">CORREO</td>
-      <td colspan="2">${escapeHtml(orden.correo || '')}</td>
+      <td colspan="2">${escapeHtml(correos(orden))}</td>
     </tr>
     <tr>
       <td class="label">RFC:</td>

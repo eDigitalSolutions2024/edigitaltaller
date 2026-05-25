@@ -1,7 +1,8 @@
 require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const connectDB = require('./config/db');
+const express    = require('express');
+const cors       = require('cors');
+const cookieParser = require('cookie-parser');
+const connectDB  = require('./config/db');
 console.log('JWT_SECRET cargado:', !!process.env.JWT_SECRET);
 
 const app = express();
@@ -14,6 +15,7 @@ app.use(cors({
     ],
     credentials: true
 }));
+app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 

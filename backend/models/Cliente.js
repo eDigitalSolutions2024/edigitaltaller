@@ -91,13 +91,12 @@ const ClienteSchema = new Schema(
     nombre: { type: String, trim: true },
     apellidoPaterno: { type: String, trim: true },
     apellidoMaterno: { type: String, trim: true },
-    email: { type: String, trim: true, lowercase: true },
+    emails: [{ type: String, trim: true, lowercase: true }],
     telefono: { type: TelefonoSchema, default: undefined },
     celular: { type: TelefonoSchema, default: undefined },
 
     // Fiscal/ubicación comunes
     requiereFacturacion: { type: Boolean, default: false },
-    rfc: { type: String, trim: true, uppercase: true },
     rfc: { type: String, trim: true, uppercase: true },
 
     // 👇 NUEVOS — necesarios para facturación CFDI 4.0
@@ -132,7 +131,7 @@ ClienteSchema.index({
   nombre: "text",
   apellidoPaterno: "text",
   apellidoMaterno: "text",
-  email: "text",
+  emails: "text",
   rfc: "text",
   "empresa.razonSocial": "text",
   "gobierno.nombreGobierno": "text",
@@ -144,7 +143,9 @@ ClienteSchema.index({
 // Asegura mayúsculas en RFC y minúsculas en email (por si llegan sin normalizar)
 ClienteSchema.pre("save", function (next) {
   if (this.rfc) this.rfc = String(this.rfc).toUpperCase().trim();
-  if (this.email) this.email = String(this.email).toLowerCase().trim();
+  if (this.emails?.length) {
+    this.emails = this.emails.map(e => String(e).toLowerCase().trim());
+  }
 
   // Si facturación “mismaQueDireccion” y no hay dirección copiada, duplica
   if (
