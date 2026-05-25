@@ -86,11 +86,21 @@ export default function ConsultaClientes() {
         {rows.map((c) => (
           <div className="trow" key={c._id}>
             <div>
-              {[c.nombre, c.apellidoPaterno, c.apellidoMaterno]
-                .filter(Boolean)
-                .join(" ")}
+              {c.tipoCliente === "Empresa Gobierno"
+                ? c.gobierno?.nombreGobierno || "—"
+                : c.tipoCliente === "Empresa Privada" || c.tipoCliente === "Empresa Arrendadora"
+                ? [c.nombre, c.apellidoPaterno].filter(Boolean).join(" ") || "—"
+                : [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") || "—"}
             </div>
-            <div>{Array.isArray(c.emails) && c.emails.length ? c.emails[0] : "—"}</div>
+            <div>
+              {Array.isArray(c.emails) && c.emails.length
+                ? c.emails.filter(Boolean).map((mail, i) => (
+                    <span key={i} style={{ display: "block" }}>
+                      {mail}
+                    </span>
+                  ))
+                : "—"}
+            </div>
             <div>{c.rfc || "—"}</div>
             <div>
               {c.celular?.lada

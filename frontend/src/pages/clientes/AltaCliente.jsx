@@ -464,9 +464,9 @@ export default function AltaCliente() {
           </div>
 
           <div className="form-row">
-            <label>Código Postal *</label>
+            <label>Código Postal</label>
             <input
-              required={form.tipoCliente === "Particular"}
+              //required={form.tipoCliente === "Particular"}
               value={form.direccion?.codigoPostal ?? ""}
               onChange={(e) => upd("direccion.codigoPostal", e.target.value)}
             />
