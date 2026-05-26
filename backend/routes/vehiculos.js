@@ -617,6 +617,49 @@ router.get('/:id/orden-pdf', async (req, res) => {
   }
 });
 
+// PUT /api/vehiculos/:id/datos  -> admin actualiza datos del cliente / vehículo
+router.put('/:id/datos', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const camposPermitidos = [
+      'fechaRecepcion', 'horaRecepcion',
+      'nombreCliente', 'apellidoPaterno', 'apellidoMaterno',
+      'nombreGobierno', 'nombreContactoGobierno', 'nombreDependencia', 'nombreContactoDependencia',
+      'telefonoFijoLada', 'telefonoFijo', 'celularLada', 'celular',
+      'direccion', 'numeroExt', 'numeroInt', 'colonia', 'rfc',
+      'regimenFiscal', 'usoCFDI', 'codigoPostal', 'ciudad', 'estado',
+      'correo', 'correos',
+      'nombreUsuarioDejaVehiculo', 'marca', 'modelo', 'anio', 'color',
+      'serie', 'placas', 'kmsMillas', 'nacionalidad', 'motor', 'numeroEconomico', 'traccion',
+      'grua', 'precioGrua',
+      'espejoLateralIzq', 'espejoLateralDer', 'copasDelanterasIzq', 'copasDelanterasDer',
+      'parabrisas', 'focosDel', 'focosTras', 'espejoInt',
+      'tapetesDelanterosIzq', 'tapetesDelanterosDer', 'estereo', 'extra',
+      'copasTraserasIzq', 'copasTraserasDer', 'micas', 'antena', 'encendedor',
+      'tapetesTraserosIzq', 'tapetesTraserosDer', 'gato', 'bateria',
+      'nivelGasolina', 'danoVehiculo',
+      'checkEngine', 'abs', 'airBag', 'frenos', 'aceite', 'alternador',
+      'indicadoresTablero', 'otros', 'observaciones',
+    ];
+
+    const update = {};
+    camposPermitidos.forEach((campo) => {
+      if (req.body[campo] !== undefined) update[campo] = req.body[campo];
+    });
+
+    const vehiculo = await Vehiculo.findByIdAndUpdate(id, update, { new: true });
+    if (!vehiculo) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+
+    return res.json({ ok: true, vehiculo });
+  } catch (err) {
+    console.error('Error actualizando datos de orden:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
 // PUT /api/vehiculos/:id/cerrar  -> cerrar orden de servicio
 router.put('/:id/cerrar', async (req, res) => {
   try {

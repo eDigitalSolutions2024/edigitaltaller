@@ -1,7 +1,8 @@
 // src/pages/vehiculo/VehiculoNuevoForm.jsx
 import React, { useEffect, useState } from "react";
-import { createVehiculo } from "../../api/vehiculos";
+import { createVehiculo, updateDatosOrden } from "../../api/vehiculos";
 import VehicleDamageCanvas from "../../components/VehicleDamageCanvas";
+import { getUser } from "../../auth";
 
 // 🔹 Helper para generar el folio igual que en el backend
 function generateOrdenServicio() {
@@ -158,6 +159,12 @@ export default function VehiculoNuevoForm({
   const [guardando, setGuardando] = useState(false);
   const [guardado, setGuardado] = useState(false);
 
+  // ── Admin edit ──────────────────────────────────────────
+  const isAdmin = getUser()?.role === "admin";
+  const [editandoAdmin, setEditandoAdmin] = useState(false);
+  // Si es admin y activó edición, el form se desbloquea aunque venga readOnly=true
+  const efectivoReadOnly = readOnly && !(isAdmin && editandoAdmin);
+
   // 🔹 Al montar, si es ALTA (sin initialData), generamos folio de OS
   useEffect(() => {
     if (!initialData) {
@@ -257,7 +264,7 @@ export default function VehiculoNuevoForm({
   }, [initialData]);
 
   const handleChange = (e) => {
-    if (readOnly) return; // no permitir editar en detalle
+    if (efectivoReadOnly) return; // no permitir editar en detalle
 
     const { name, value, type, checked } = e.target;
     setForm((prev) => ({
@@ -269,9 +276,35 @@ export default function VehiculoNuevoForm({
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (readOnly) return;
+    if (efectivoReadOnly) return;
     if (guardando || guardado) return;
 
+    const payload = {
+      ...form,
+      precioGrua: form.grua === "SI" ? Number(form.precioGrua || 0) : 0,
+      correos: form.correos || [],
+    };
+
+    // ── Modo edición admin (orden ya existente) ──────────
+    if (initialData?._id) {
+      try {
+        setGuardando(true);
+        const res = await updateDatosOrden(initialData._id, payload);
+        const vehiculoActualizado = res.data?.vehiculo || res.data;
+        if (onCreated) onCreated(vehiculoActualizado);
+        setEditandoAdmin(false);
+        alert("Datos actualizados correctamente.");
+      } catch (err) {
+        console.error("Error actualizando datos:", err);
+        const msg = err?.response?.data?.msg || "Error al actualizar. Revisa la consola.";
+        alert(msg);
+      } finally {
+        setGuardando(false);
+      }
+      return;
+    }
+
+    // ── Modo creación normal ─────────────────────────────
     if (!cliente || !cliente._id) {
       alert("No hay cliente seleccionado.");
       return;
@@ -284,28 +317,14 @@ export default function VehiculoNuevoForm({
 
     try {
       setGuardando(true);
-
-      const payload = {
-        ...form,
-        precioGrua: form.grua === "SI" ? Number(form.precioGrua || 0) : 0,
-        correos: form.correos || [], 
-      };
-
       const res = await createVehiculo(cliente._id, payload);
-
       setGuardado(true);
-
       const vehiculoCreado = res.data?.vehiculo || res.data;
-
-      if (onCreated) {
-        onCreated(vehiculoCreado);
-      }
-
+      if (onCreated) onCreated(vehiculoCreado);
       console.log("Vehiculo guardado:", res.data || res);
       alert(
         `Vehículo / orden guardada correctamente.\nOrden de Servicio: ${payload.ordenServicio}`
       );
-
     } catch (err) {
       console.error("Error guardando vehiculo:", err);
       const msg = err?.response?.data?.msg || "Error al guardar el vehículo. Revisa la consola.";
@@ -332,7 +351,7 @@ export default function VehiculoNuevoForm({
   );
 
   const handleTodoOkAccesorios = () => {
-    if (readOnly) return;
+    if (efectivoReadOnly) return;
 
     setForm((prev) => ({
       ...prev,
@@ -361,7 +380,7 @@ export default function VehiculoNuevoForm({
   };
 
   const handleLimpiarAccesorios = () => {
-    if (readOnly) return;
+    if (efectivoReadOnly) return;
 
     setForm((prev) => ({
       ...prev,
@@ -390,7 +409,7 @@ export default function VehiculoNuevoForm({
   };
 
   const handleIndicadoresNo = () => {
-    if (readOnly) return;
+    if (efectivoReadOnly) return;
 
     setForm((prev) => ({
       ...prev,
@@ -935,7 +954,7 @@ export default function VehiculoNuevoForm({
 
           {/* ====== ACCESORIOS / CHECKBOXES ====== */}
           <hr className="my-3" />
-          {!readOnly && (
+          {!efectivoReadOnly && (
           <div className="d-flex justify-content-start align-items-center gap-3 mb-3">
             <p className="text-muted small mb-0 me-auto">
               Los elementos marcados indican que el vehículo cuenta con dichos accesorios
@@ -1250,7 +1269,7 @@ export default function VehiculoNuevoForm({
               <VehicleDamageCanvas
                 value={form.danoVehiculo}
                 onChange={(data) => setForm((prev) => ({ ...prev, danoVehiculo: data }))}
-                readOnly={readOnly}
+                readOnly={efectivoReadOnly}
               />
             </div>
 
@@ -1266,9 +1285,9 @@ export default function VehiculoNuevoForm({
                     width="200"
                     height="130"
                     viewBox="0 0 200 130"
-                    style={{ cursor: readOnly ? "default" : "pointer" }}
+                    style={{ cursor: efectivoReadOnly ? "default" : "pointer" }}
                     onClick={(e) => {
-                      if (readOnly) return;
+                      if (efectivoReadOnly) return;
                       const rect = e.currentTarget.getBoundingClientRect();
                       const scaleX = 200 / rect.width;
                       const scaleY = 130 / rect.height;
@@ -1465,6 +1484,7 @@ export default function VehiculoNuevoForm({
             </div>
           </div>
 
+          {/* Modo creación normal */}
           {!readOnly && (
             <button
               type="submit"
@@ -1473,6 +1493,38 @@ export default function VehiculoNuevoForm({
             >
               {guardando ? "Guardando..." : guardado ? "Guardado" : "Guardar"}
             </button>
+          )}
+
+          {/* Admin sobre orden existente — botón Editar */}
+          {readOnly && isAdmin && !editandoAdmin && (
+            <button
+              type="button"
+              className="btn btn-warning px-5"
+              onClick={() => setEditandoAdmin(true)}
+            >
+              Editar
+            </button>
+          )}
+
+          {/* Admin sobre orden existente — Guardar cambios / Cancelar */}
+          {readOnly && isAdmin && editandoAdmin && (
+            <div className="d-flex gap-2">
+              <button
+                type="submit"
+                className="btn btn-success px-5"
+                disabled={guardando}
+              >
+                {guardando ? "Guardando..." : "Guardar cambios"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary px-4"
+                disabled={guardando}
+                onClick={() => setEditandoAdmin(false)}
+              >
+                Cancelar
+              </button>
+            </div>
           )}
         </form>
       </div>
