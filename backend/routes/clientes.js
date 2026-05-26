@@ -8,8 +8,56 @@ router.post("/", async (req, res) => {
   try {
     const body = { ...req.body };
 
-    // 🔴 Por ahora NO usamos facturación
-    //delete body.facturacion;
+    // 👇 Validación de nombre duplicado
+    const { nombre, apellidoPaterno, apellidoMaterno, tipoCliente } = body;
+
+    if (tipoCliente === "Particular" && nombre) {
+      const query = {
+        nombre: { $regex: new RegExp(`^${nombre.trim()}$`, "i") },
+        apellidoPaterno: { $regex: new RegExp(`^${(apellidoPaterno || "").trim()}$`, "i") },
+        apellidoMaterno: { $regex: new RegExp(`^${(apellidoMaterno || "").trim()}$`, "i") },
+      };
+
+      const existe = await Cliente.findOne(query);
+      if (existe) {
+        return res.status(409).json({
+          ok: false,
+          error: `Ya existe un cliente con el nombre "${nombre} ${apellidoPaterno || ""} ${apellidoMaterno || ""}".`.trim(),
+        });
+      }
+    }
+
+    // Para empresa/gobierno checa razón social o nombre gobierno
+    if (tipoCliente === "Empresa Privada" || tipoCliente === "Empresa Arrendadora") {
+      if (body.nombre) {
+        const existe = await Cliente.findOne({
+          tipoCliente,
+          nombre: { $regex: new RegExp(`^${body.nombre.trim()}$`, "i") },
+        });
+        if (existe) {
+          return res.status(409).json({
+            ok: false,
+            error: `Ya existe una empresa con el nombre "${body.nombre}".`,
+          });
+        }
+      }
+    }
+
+    if (tipoCliente === "Empresa Gobierno") {
+      const nombreGob = body.gobierno?.nombreGobierno;
+      if (nombreGob) {
+        const existe = await Cliente.findOne({
+          "gobierno.nombreGobierno": { $regex: new RegExp(`^${nombreGob.trim()}$`, "i") },
+        });
+        if (existe) {
+          return res.status(409).json({
+            ok: false,
+            error: `Ya existe un gobierno con el nombre "${nombreGob}".`,
+          });
+        }
+      }
+    }
+    // 👆 fin validación
 
     const cliente = await Cliente.create(body);
     res.status(201).json({ ok: true, data: cliente });
