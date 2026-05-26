@@ -107,7 +107,14 @@ export default function ConsultaClientes() {
                 ? `(${c.celular.lada}) ${c.celular.numero}`
                 : c.telefono?.numero || "—"}
             </div>
-            <div>{c.direccion?.ciudad || "—"}</div>
+            <div>
+              {(() => {
+                const ciudad = c.direccion?.ciudad || c.facturacion?.direccion?.ciudad;
+                const estado = c.direccion?.estado || c.facturacion?.direccion?.estado;
+                if (ciudad && estado) return `${ciudad}, ${estado}`;
+                return ciudad || estado || "—";
+              })()}
+            </div>
             <div>
               <button
                 className="btn btn-sm btn-primary"
