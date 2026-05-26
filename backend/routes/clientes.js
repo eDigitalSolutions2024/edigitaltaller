@@ -67,30 +67,30 @@ router.post("/", async (req, res) => {
   }
 });
 
-// GET /api/clientes  (listar + búsqueda paginada)
+// routes/clientes.js — GET /
 router.get("/", async (req, res) => {
   try {
     const { q = "", page = 1, limit = 10 } = req.query;
-
-    // ✅ Si hay texto, usa $text; si no, trae todos
-    const find = q.trim() ? { $text: { $search: q.trim() } } : {};
-
-    // ✅ Cuando hay búsqueda, ordena por relevancia; si no, por fecha
-    const sort = q.trim()
-      ? { score: { $meta: "textScore" } }
-      : { createdAt: -1 };
-
-    const projection = q.trim()
-      ? { score: { $meta: "textScore" } }
-      : {};
-
     const skip = (Number(page) - 1) * Number(limit);
 
+    // 👇 Reemplaza el $text por $regex — busca parcial, insensible a mayúsculas
+    const find = q.trim()
+      ? {
+          $or: [
+            { nombre: { $regex: q.trim(), $options: "i" } },
+            { apellidoPaterno: { $regex: q.trim(), $options: "i" } },
+            { apellidoMaterno: { $regex: q.trim(), $options: "i" } },
+            { emails: { $regex: q.trim(), $options: "i" } },
+            { rfc: { $regex: q.trim(), $options: "i" } },
+            { "empresa.razonSocial": { $regex: q.trim(), $options: "i" } },
+            { "gobierno.nombreGobierno": { $regex: q.trim(), $options: "i" } },
+            { "gobierno.dependencia.nombre": { $regex: q.trim(), $options: "i" } },
+          ],
+        }
+      : {};
+
     const [items, total] = await Promise.all([
-      Cliente.find(find, projection)
-        .sort(sort)
-        .skip(skip)
-        .limit(Number(limit)),
+      Cliente.find(find).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
       Cliente.countDocuments(find),
     ]);
 
