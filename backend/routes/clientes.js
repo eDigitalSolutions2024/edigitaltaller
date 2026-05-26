@@ -23,24 +23,30 @@ router.post("/", async (req, res) => {
 router.get("/", async (req, res) => {
   try {
     const { q = "", page = 1, limit = 10 } = req.query;
-    const find = q ? { $text: { $search: q } } : {};
+
+    // ✅ Si hay texto, usa $text; si no, trae todos
+    const find = q.trim() ? { $text: { $search: q.trim() } } : {};
+
+    // ✅ Cuando hay búsqueda, ordena por relevancia; si no, por fecha
+    const sort = q.trim()
+      ? { score: { $meta: "textScore" } }
+      : { createdAt: -1 };
+
+    const projection = q.trim()
+      ? { score: { $meta: "textScore" } }
+      : {};
+
     const skip = (Number(page) - 1) * Number(limit);
 
     const [items, total] = await Promise.all([
-      Cliente.find(find)
-        .sort({ createdAt: -1 })
+      Cliente.find(find, projection)
+        .sort(sort)
         .skip(skip)
         .limit(Number(limit)),
       Cliente.countDocuments(find),
     ]);
 
-    res.json({
-      ok: true,
-      data: items,
-      total,
-      page: Number(page),
-      limit: Number(limit),
-    });
+    res.json({ ok: true, data: items, total, page: Number(page), limit: Number(limit) });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

@@ -4,6 +4,7 @@ import { getClientes } from "../../api/customers"; // 👈 obtiene clientes del 
 import VehiculoNuevoForm from "./VehiculoNuevoForm";
 import { listVehiculosByCliente } from "../../api/vehiculos"; // 👈 vehículos por cliente
 import { useNavigate } from "react-router-dom";
+import ModalAltaCliente from "../../components/ModalAltaCliente";
 
 export default function VehiculoEntrada() {
   const [q, setQ] = useState("");
@@ -11,6 +12,8 @@ export default function VehiculoEntrada() {
   const [filtrados, setFiltrados] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const [mostrarModalAlta, setMostrarModalAlta] = useState(false);
 
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
   const [mostrarAcciones, setMostrarAcciones] = useState(false);
@@ -206,10 +209,19 @@ export default function VehiculoEntrada() {
             </div>
           )}
 
-          {!loading && !error && filtrados.length === 0 && (
-            <p className="text-muted mt-3 mb-0">
-              No se encontraron clientes con ese nombre.
-            </p>
+          {!loading && !error && q.trim().length > 0 && filtrados.length === 0 && (
+            <div className="mt-3 d-flex align-items-center gap-3">
+              <p className="text-muted mb-0">
+                No se encontraron clientes con ese nombre.
+              </p>
+              <button
+                type="button"
+                className="btn btn-outline-primary btn-sm"
+                onClick={() => setMostrarModalAlta(true)}
+              >
+                + Crear nuevo cliente
+              </button>
+            </div>
           )}
 
           {/* 4) Después de dar Buscar → mostrar vehículos del cliente + acciones */}
@@ -297,6 +309,23 @@ export default function VehiculoEntrada() {
         * Selecciona un cliente de la lista para continuar.
         para continuar con el registro del vehículo o de la orden sin carro.
       </small>
+
+      {mostrarModalAlta && (
+        <ModalAltaCliente
+          nombreInicial={q}
+          onCerrar={() => setMostrarModalAlta(false)}
+          onClienteCreado={(clienteNuevo) => {
+            // 1. Cerrar modal
+            setMostrarModalAlta(false);
+
+            // 2. Agregar el cliente nuevo a la lista local y seleccionarlo
+            if (clienteNuevo?._id) {
+              setClientes((prev) => [clienteNuevo, ...prev]);
+              handleSeleccion(clienteNuevo);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

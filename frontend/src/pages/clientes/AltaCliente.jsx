@@ -110,12 +110,18 @@ const initial = {
   },
 };
 
-export default function AltaCliente() {
-  const { id } = useParams();
+export default function AltaCliente({ modoModal = false, nombreInicial = "", onClienteCreado }) {
+  const params = useParams();
+  const id = modoModal ? undefined : params.id;
   const isEdit = Boolean(id);
   const navigate = useNavigate();
 
   const [form, setForm] = useState(initial);
+  useEffect(() => {
+    if (modoModal && nombreInicial) {
+      setForm((prev) => ({ ...prev, nombre: nombreInicial }));
+    }
+  }, [modoModal, nombreInicial]);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [loadingData, setLoadingData] = useState(false);
@@ -304,12 +310,17 @@ export default function AltaCliente() {
         await updateCustomer(id, payload);
         setMsg("✅ Cliente actualizado correctamente.");
       } else {
-        await createCustomer(payload);
+        const res = await createCustomer(payload);
+        const clienteNuevo = res?.data?.data;
         setMsg("✅ Cliente creado correctamente.");
         setForm(initial);
-      }
 
-      navigate("/clientes/consulta");
+        if (modoModal && onClienteCreado) {
+          onClienteCreado(clienteNuevo); // 👈 avisa al padre y cierra el modal
+          return;                        // no navega
+        }
+      }
+      if (!modoModal) navigate("/clientes/consulta");
     } catch (err) {
       setMsg("❌ " + (err?.response?.data?.error || err.message));
     } finally {
