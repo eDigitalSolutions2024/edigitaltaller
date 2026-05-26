@@ -70,3 +70,6 @@ export const openVentaClientePdf = (id) => {
 export const marcarSurtidas = (id, presupuesto) =>
   http.put(`/vehiculos/${id}/surtir`, { presupuesto });
 
+export const saveCalidad = (id, payload) =>
+  http.put(`/vehiculos/${id}/calidad`, payload);
+

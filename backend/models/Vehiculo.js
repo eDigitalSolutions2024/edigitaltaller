@@ -440,6 +440,11 @@ manoObra: [
 // ===== Observaciones finales =====
 observacionesExternas: { type: String, default: "" },
 observacionesInternas: { type: String, default: "" },
+
+// ===== Calidad =====
+observacionesCalidad: { type: String, default: "" },
+resultadoCalidad: { type: String, enum: ['ACEPTADO', 'RECHAZADO', null], default: null },
+fechaCalidad: { type: Date, default: null },
   },
   {
     timestamps: true, // createdAt, updatedAt

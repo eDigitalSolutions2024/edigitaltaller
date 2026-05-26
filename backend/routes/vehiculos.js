@@ -617,6 +617,34 @@ router.get('/:id/orden-pdf', async (req, res) => {
   }
 });
 
+// PUT /api/vehiculos/:id/calidad  -> registrar revisión de calidad
+router.put('/:id/calidad', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { resultado, observacionesCalidad } = req.body;
+
+    if (!['ACEPTADO', 'RECHAZADO'].includes(resultado)) {
+      return res.status(400).json({ ok: false, msg: 'Resultado inválido. Debe ser ACEPTADO o RECHAZADO.' });
+    }
+
+    const vehiculo = await Vehiculo.findById(id);
+    if (!vehiculo) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+
+    vehiculo.resultadoCalidad = resultado;
+    vehiculo.observacionesCalidad = observacionesCalidad || '';
+    vehiculo.fechaCalidad = new Date();
+    vehiculo.estadoOrden = resultado === 'ACEPTADO' ? 'PENDIENTE_CERRAR' : 'REPARACION_EN_CURSO';
+
+    await vehiculo.save();
+    return res.json({ ok: true, vehiculo });
+  } catch (err) {
+    console.error('Error guardando calidad:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
 // PUT /api/vehiculos/:id/cerrar  -> cerrar orden de servicio
 router.put('/:id/cerrar', async (req, res) => {
   try {

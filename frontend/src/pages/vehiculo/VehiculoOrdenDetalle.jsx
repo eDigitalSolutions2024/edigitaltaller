@@ -11,6 +11,7 @@ import ServicioReparacionTab from "./ServicioReparacionTab";
 import VehiculoRequisicionDiagnostico from "./VehiculoRequisicionDiagnostico";
 import VehiculoPresupuestoVenta from "./VehiculoPresupuestoVenta"; // 👈 NUEVO
 import VehiculoOrdenGeneral from "./VehiculoOrdenGeneral";
+import VehiculoCalidad from "./VehiculoCalidad";
 
 
 
@@ -135,7 +136,20 @@ export default function VehiculoOrdenDetalle() {
           </li>
         )}
 
-        {/* General: habilitada, Calidad escondida */}
+        {/* Calidad: visible una vez iniciada */}
+        {ordenIniciada && (
+          <li className="nav-item">
+            <button
+              className={"nav-link" + (tab === "calidad" ? " active" : "")}
+              type="button"
+              onClick={() => setTab("calidad")}
+            >
+              Calidad
+            </button>
+          </li>
+        )}
+
+        {/* General */}
         {ordenIniciada && (
           <li className="nav-item">
             <button
@@ -177,7 +191,13 @@ export default function VehiculoOrdenDetalle() {
           />
         )}
 
-      {/* Tab General (por ahora solo placeholder, luego lo llenamos) */}
+      {tab === "calidad" && ordenIniciada && (
+        <VehiculoCalidad
+          orden={orden}
+          onSaved={(vActualizado) => setOrden(vActualizado)}
+        />
+      )}
+
       {tab === "general" && ordenIniciada && (
         <VehiculoOrdenGeneral orden={orden} />
       )}
