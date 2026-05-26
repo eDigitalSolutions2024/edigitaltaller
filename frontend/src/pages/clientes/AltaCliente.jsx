@@ -337,7 +337,7 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
   }
 
   return (
-    <form className="form-card" onSubmit={onSubmit}>
+    <form className="form-card" onSubmit={onSubmit} autoComplete="off">
       <h2>{isEdit ? "Editar Cliente" : "Alta de Clientes"}</h2>
 
       {/* Tipo */}

@@ -8,8 +8,56 @@ router.post("/", async (req, res) => {
   try {
     const body = { ...req.body };
 
-    // 🔴 Por ahora NO usamos facturación
-    //delete body.facturacion;
+    // 👇 Validación de nombre duplicado
+    const { nombre, apellidoPaterno, apellidoMaterno, tipoCliente } = body;
+
+    if (tipoCliente === "Particular" && nombre) {
+      const query = {
+        nombre: { $regex: new RegExp(`^${nombre.trim()}$`, "i") },
+        apellidoPaterno: { $regex: new RegExp(`^${(apellidoPaterno || "").trim()}$`, "i") },
+        apellidoMaterno: { $regex: new RegExp(`^${(apellidoMaterno || "").trim()}$`, "i") },
+      };
+
+      const existe = await Cliente.findOne(query);
+      if (existe) {
+        return res.status(409).json({
+          ok: false,
+          error: `Ya existe un cliente con el nombre "${nombre} ${apellidoPaterno || ""} ${apellidoMaterno || ""}".`.trim(),
+        });
+      }
+    }
+
+    // Para empresa/gobierno checa razón social o nombre gobierno
+    if (tipoCliente === "Empresa Privada" || tipoCliente === "Empresa Arrendadora") {
+      if (body.nombre) {
+        const existe = await Cliente.findOne({
+          tipoCliente,
+          nombre: { $regex: new RegExp(`^${body.nombre.trim()}$`, "i") },
+        });
+        if (existe) {
+          return res.status(409).json({
+            ok: false,
+            error: `Ya existe una empresa con el nombre "${body.nombre}".`,
+          });
+        }
+      }
+    }
+
+    if (tipoCliente === "Empresa Gobierno") {
+      const nombreGob = body.gobierno?.nombreGobierno;
+      if (nombreGob) {
+        const existe = await Cliente.findOne({
+          "gobierno.nombreGobierno": { $regex: new RegExp(`^${nombreGob.trim()}$`, "i") },
+        });
+        if (existe) {
+          return res.status(409).json({
+            ok: false,
+            error: `Ya existe un gobierno con el nombre "${nombreGob}".`,
+          });
+        }
+      }
+    }
+    // 👆 fin validación
 
     const cliente = await Cliente.create(body);
     res.status(201).json({ ok: true, data: cliente });
@@ -19,30 +67,30 @@ router.post("/", async (req, res) => {
   }
 });
 
-// GET /api/clientes  (listar + búsqueda paginada)
+// routes/clientes.js — GET /
 router.get("/", async (req, res) => {
   try {
     const { q = "", page = 1, limit = 10 } = req.query;
-
-    // ✅ Si hay texto, usa $text; si no, trae todos
-    const find = q.trim() ? { $text: { $search: q.trim() } } : {};
-
-    // ✅ Cuando hay búsqueda, ordena por relevancia; si no, por fecha
-    const sort = q.trim()
-      ? { score: { $meta: "textScore" } }
-      : { createdAt: -1 };
-
-    const projection = q.trim()
-      ? { score: { $meta: "textScore" } }
-      : {};
-
     const skip = (Number(page) - 1) * Number(limit);
 
+    // 👇 Reemplaza el $text por $regex — busca parcial, insensible a mayúsculas
+    const find = q.trim()
+      ? {
+          $or: [
+            { nombre: { $regex: q.trim(), $options: "i" } },
+            { apellidoPaterno: { $regex: q.trim(), $options: "i" } },
+            { apellidoMaterno: { $regex: q.trim(), $options: "i" } },
+            { emails: { $regex: q.trim(), $options: "i" } },
+            { rfc: { $regex: q.trim(), $options: "i" } },
+            { "empresa.razonSocial": { $regex: q.trim(), $options: "i" } },
+            { "gobierno.nombreGobierno": { $regex: q.trim(), $options: "i" } },
+            { "gobierno.dependencia.nombre": { $regex: q.trim(), $options: "i" } },
+          ],
+        }
+      : {};
+
     const [items, total] = await Promise.all([
-      Cliente.find(find, projection)
-        .sort(sort)
-        .skip(skip)
-        .limit(Number(limit)),
+      Cliente.find(find).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
       Cliente.countDocuments(find),
     ]);
 
