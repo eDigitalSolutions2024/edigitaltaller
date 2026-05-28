@@ -72,6 +72,7 @@ const initial = {
   condicionesPago: "",
   observaciones: "",
   requiereFacturacion: false, 
+  pais: "México",
 
   // EMPRESA (Privada/Arrendadora)
   empresa: {
@@ -500,6 +501,18 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
               onChange={(e) => upd("direccion.estado", e.target.value)}
             />
           </div>
+
+          <div className="form-row">
+            <label>País</label>
+            <select
+              value={form.pais ?? "México"}
+              onChange={(e) => upd("pais", e.target.value)}
+            >
+              <option value="México">México</option>
+              <option value="Estados Unidos">Estados Unidos</option>
+            </select>
+          </div>
+
         </div>
       )}
 
@@ -592,6 +605,18 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
                 />
               </div>
             </div>
+
+            <div className="form-row">
+              <label>País</label>
+              <select
+                value={form.pais ?? "México"}
+                onChange={(e) => upd("pais", e.target.value)}
+              >
+                <option value="México">México</option>
+                <option value="Estados Unidos">Estados Unidos</option>
+              </select>
+            </div>
+
           </div>
         </>
       )}
@@ -712,6 +737,19 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
                 }
               />
             </div>
+
+            <div className="form-row">
+              <label>País</label>
+              <select
+                value={form.pais ?? "México"}
+                onChange={(e) => upd("pais", e.target.value)}
+              >
+                <option value="México">México</option>
+                <option value="Estados Unidos">Estados Unidos</option>
+              </select>
+            </div>
+
+            
           </div>
         </>
       )}
@@ -861,6 +899,18 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
                 }
               />
             </div>
+
+            <div className="form-row">
+              <label>País</label>
+              <select
+                value={form.pais ?? "México"}
+                onChange={(e) => upd("pais", e.target.value)}
+              >
+                <option value="México">México</option>
+                <option value="Estados Unidos">Estados Unidos</option>
+              </select>
+            </div>
+
           </div>
 
           <h3>Dependencia</h3>
