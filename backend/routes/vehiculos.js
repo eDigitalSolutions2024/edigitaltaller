@@ -568,6 +568,48 @@ router.post(
   }
 );
 
+// GET /api/vehiculos/stats/dashboard
+router.get('/stats/dashboard', async (req, res) => {
+  try {
+    const hoy = new Date();
+    const inicioDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+    const finDia = new Date(inicioDia);
+    finDia.setDate(finDia.getDate() + 1);
+
+    const [ordenesHoy, enProceso, entregadas] = await Promise.all([
+      // Órdenes creadas hoy
+      Vehiculo.countDocuments({
+        createdAt: { $gte: inicioDia, $lt: finDia },
+      }),
+      // En proceso: todos los estados activos excepto CERRADA
+      Vehiculo.countDocuments({
+        estadoOrden: {
+          $in: [
+            'PENDIENTE_CAPTURA',
+            'PENDIENTE_REFACCIONARIA',
+            'PENDIENTE_AUTORIZACION_CLIENTE',
+            'PENDIENTE_SURTIR',
+            'PENDIENTE_CIERRE',
+            'REPARACION_EN_CURSO',
+            'CALIDAD',
+            'PENDIENTE_CERRAR',
+          ],
+        },
+      }),
+      // Entregadas: cerradas hoy
+      Vehiculo.countDocuments({
+        estadoOrden: 'CERRADA',
+        updatedAt: { $gte: inicioDia, $lt: finDia },
+      }),
+    ]);
+
+    res.json({ ok: true, data: { ordenesHoy, enProceso, entregadas } });
+  } catch (err) {
+    console.error('Error obteniendo stats:', err);
+    res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
 // GET /api/vehiculos/:id  -> detalle de una orden
 router.get('/:id', async (req, res) => {
   try {
