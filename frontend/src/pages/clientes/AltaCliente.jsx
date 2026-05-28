@@ -43,8 +43,8 @@ const initial = {
   apellidoPaterno: "",
   apellidoMaterno: "",
   emails: [""],
-  telefono: { lada: "", numero: "", extension: "" },
-  celular: { lada: "", numero: "" },
+  telefonos: [{ lada: "", numero: "" }],
+  celulares: [{ lada: "", numero: "" }],
   rfc: "",
   direccion: {
     calle: "",
@@ -56,8 +56,8 @@ const initial = {
     estado: "",
   },
   facturacion: {
-     regimenFiscal: "",
-     usoCFDI: "",
+    regimenFiscal: "",
+    usoCFDI: "",
     direccion: {
       calle: "",
       numeroExterior: "",
@@ -71,7 +71,7 @@ const initial = {
   asesorResponsable: "",
   condicionesPago: "",
   observaciones: "",
-  requiereFacturacion: false, 
+  requiereFacturacion: false,
   pais: "México",
 
   // EMPRESA (Privada/Arrendadora)
@@ -79,8 +79,8 @@ const initial = {
     contacto: {
       nombre: "",
       correo: "",
-      telefono: { lada: "", numero: "", extension: "" },
-      celular: { lada: "", numero: "" },
+      telefonos: [{ lada: "", numero: "" }], // 👈 array
+      celulares: [{ lada: "", numero: "" }], // 👈 array
       departamento: "",
       puesto: "",
     },
@@ -92,8 +92,8 @@ const initial = {
     contactoGobierno: {
       nombre: "",
       correo: "",
-      telefono: { lada: "", numero: "", extension: "" },
-      celular: { lada: "", numero: "" },
+      telefonos: [{ lada: "", numero: "" }], // 👈 array
+      celulares: [{ lada: "", numero: "" }], // 👈 array
       departamento: "",
       puesto: "",
     },
@@ -102,14 +102,67 @@ const initial = {
       contacto: {
         nombre: "",
         correo: "",
-        telefono: { lada: "", numero: "", extension: "" },
-        celular: { lada: "", numero: "" },
+        telefonos: [{ lada: "", numero: "" }], // 👈 array
+        celulares: [{ lada: "", numero: "" }], // 👈 array
         departamento: "",
         puesto: "",
       },
     },
   },
 };
+
+
+function TelefonoList({ label, valores, onChange }) {
+  const handleChange = (i, field, value) => {
+    const arr = [...valores];
+    arr[i] = { ...arr[i], [field]: value };
+    onChange(arr);
+  };
+
+  const handleAdd = () => onChange([...valores, { lada: "", numero: "" }]);
+
+  const handleRemove = (i) => onChange(valores.filter((_, idx) => idx !== i));
+
+  return (
+    <div className="form-row col-12">
+      <label>{label}</label>
+      {valores.map((tel, i) => (
+        <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "6px", alignItems: "center" }}>
+          <input
+            placeholder="LADA"
+            value={tel.lada ?? ""}
+            onChange={(e) => handleChange(i, "lada", e.target.value)}
+            style={{ width: "80px" }}
+          />
+          <input
+            placeholder="Número"
+            value={tel.numero ?? ""}
+            onChange={(e) => handleChange(i, "numero", e.target.value)}
+            style={{ flex: 1 }}
+          />
+          {i === 0 ? (
+            <span style={{ fontSize: "12px", color: "var(--color-text-info)", whiteSpace: "nowrap" }}>
+              Principal
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => handleRemove(i)}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "red" }}
+            >✕</button>
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={handleAdd}
+        style={{ fontSize: "13px", background: "none", border: "1px dashed #aaa", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", marginTop: "2px" }}
+      >
+        + Agregar {label.toLowerCase()}
+      </button>
+    </div>
+  );
+}
 
 export default function AltaCliente({ modoModal = false, nombreInicial = "", onClienteCreado }) {
   const params = useParams();
@@ -157,105 +210,96 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
 
   // Cargar datos cuando es edición
   useEffect(() => {
-    if (!isEdit) return;
+  if (!isEdit) return;
 
-    const fetchCustomer = async () => {
-      try {
-        setLoadingData(true);
-        setMsg("");
-        const { data } = await getCustomer(id);
-        if (!data?.data) throw new Error(data?.error || "Error al cargar cliente");
+  const fetchCustomer = async () => {
+    try {
+      setLoadingData(true);
+      setMsg("");
+      const { data } = await getCustomer(id);
+      if (!data?.data) throw new Error(data?.error || "Error al cargar cliente");
 
-        const c = data.data;
+      const c = data.data;
 
-        // Mezclamos sobre el initial para no perder ramas
-        const merged = {
-          ...initial,
-          ...c,
-          emails: Array.isArray(c.emails) && c.emails.length ? c.emails : [""],
-          requiereFacturacion: Boolean(
-            c.rfc ||
-            c.direccion?.calle ||
-            c.direccion?.codigoPostal ||
-            c.facturacion?.direccion?.calle ||
-            c.facturacion?.direccion?.codigoPostal
-          ),
-          telefono: { ...initial.telefono, ...(c.telefono || {}) },
-          celular: { ...initial.celular, ...(c.celular || {}) },
-          direccion: { ...initial.direccion, ...(c.direccion || {}) },
-          facturacion: {
-            ...initial.facturacion,
-            ...(c.facturacion || {}),
-            direccion: {
-              ...initial.facturacion.direccion,
-              ...(c.facturacion?.direccion || {}),
-            },
+      // Helper: migra telefono/celular singular a array si viene en formato viejo
+      const migarTels = (arr, obj) => {
+        if (Array.isArray(arr) && arr.length) return arr;
+        if (obj?.numero) return [{ lada: obj.lada || "", numero: obj.numero }];
+        return [{ lada: "", numero: "" }];
+      };
+
+      const merged = {
+        ...initial,
+        ...c,
+        pais: c.pais || "México",
+        emails: Array.isArray(c.emails) && c.emails.length ? c.emails : [""],
+
+        // Migrar telefonos/celulares raíz
+        telefonos: migarTels(c.telefonos, c.telefono),
+        celulares: migarTels(c.celulares, c.celular),
+
+        requiereFacturacion: Boolean(
+          c.rfc ||
+          c.direccion?.calle ||
+          c.direccion?.codigoPostal ||
+          c.facturacion?.direccion?.calle ||
+          c.facturacion?.direccion?.codigoPostal
+        ),
+        direccion: { ...initial.direccion, ...(c.direccion || {}) },
+        facturacion: {
+          ...initial.facturacion,
+          ...(c.facturacion || {}),
+          direccion: {
+            ...initial.facturacion.direccion,
+            ...(c.facturacion?.direccion || {}),
           },
-          empresa: {
-            ...initial.empresa,
-            ...(c.empresa || {}),
+        },
+        empresa: {
+          ...initial.empresa,
+          ...(c.empresa || {}),
+          contacto: {
+            ...initial.empresa.contacto,
+            ...(c.empresa?.contacto || {}),
+            // Migrar contacto empresa
+            telefonos: migarTels(c.empresa?.contacto?.telefonos, c.empresa?.contacto?.telefono),
+            celulares: migarTels(c.empresa?.contacto?.celulares, c.empresa?.contacto?.celular),
+          },
+        },
+        gobierno: {
+          ...initial.gobierno,
+          ...(c.gobierno || {}),
+          contactoGobierno: {
+            ...initial.gobierno.contactoGobierno,
+            ...(c.gobierno?.contactoGobierno || {}),
+            // Migrar contacto gobierno
+            telefonos: migarTels(c.gobierno?.contactoGobierno?.telefonos, c.gobierno?.contactoGobierno?.telefono),
+            celulares: migarTels(c.gobierno?.contactoGobierno?.celulares, c.gobierno?.contactoGobierno?.celular),
+          },
+          dependencia: {
+            ...initial.gobierno.dependencia,
+            ...(c.gobierno?.dependencia || {}),
             contacto: {
-              ...initial.empresa.contacto,
-              ...(c.empresa?.contacto || {}),
-              telefono: {
-                ...initial.empresa.contacto.telefono,
-                ...(c.empresa?.contacto?.telefono || {}),
-              },
-              celular: {
-                ...initial.empresa.contacto.celular,
-                ...(c.empresa?.contacto?.celular || {}),
-              },
+              ...initial.gobierno.dependencia.contacto,
+              ...(c.gobierno?.dependencia?.contacto || {}),
+              // Migrar contacto dependencia
+              telefonos: migarTels(c.gobierno?.dependencia?.contacto?.telefonos, c.gobierno?.dependencia?.contacto?.telefono),
+              celulares: migarTels(c.gobierno?.dependencia?.contacto?.celulares, c.gobierno?.dependencia?.contacto?.celular),
             },
           },
-          gobierno: {
-            ...initial.gobierno,
-            ...(c.gobierno || {}),
-            contactoGobierno: {
-              ...initial.gobierno.contactoGobierno,
-              ...(c.gobierno?.contactoGobierno || {}),
-              telefono: {
-                ...initial.gobierno.contactoGobierno.telefono,
-                ...(c.gobierno?.contactoGobierno?.telefono || {}),
-              },
-              celular: {
-                ...initial.gobierno.contactoGobierno.celular,
-                ...(c.gobierno?.contactoGobierno?.celular || {}),
-              },
-            },
-            dependencia: {
-              ...initial.gobierno.dependencia,
-              ...(c.gobierno?.dependencia || {}),
-              contacto: {
-                ...initial.gobierno.dependencia.contacto,
-                ...(c.gobierno?.dependencia?.contacto || {}),
-                telefono: {
-                  ...initial.gobierno.dependencia.contacto.telefono,
-                  ...(c.gobierno?.dependencia?.contacto?.telefono || {}),
-                },
-                celular: {
-                  ...initial.gobierno.dependencia.contacto.celular,
-                  ...(c.gobierno?.dependencia?.contacto?.celular || {}),
-                },
-              },
-            },
-          },
-        };
+        },
+      };
 
-        const finalForm = normalizeForType(
-          merged,
-          merged.tipoCliente || "Particular"
-        );
+      const finalForm = normalizeForType(merged, merged.tipoCliente || "Particular");
+      setForm(finalForm);
+    } catch (err) {
+      setMsg("❌ " + (err?.response?.data?.error || err.message));
+    } finally {
+      setLoadingData(false);
+    }
+  };
 
-        setForm(finalForm);
-      } catch (err) {
-        setMsg("❌ " + (err?.response?.data?.error || err.message));
-      } finally {
-        setLoadingData(false);
-      }
-    };
-
-    fetchCustomer();
-  }, [id, isEdit]);
+  fetchCustomer();
+}, [id, isEdit]);
 
   // 👉 Cargar empleados para el combo de Asesor Responsable
   useEffect(() => {
@@ -421,23 +465,11 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
             </button>
           </div>
 
-          <div className="form-row">
-            <label>Celular *</label>
-            <div className="phone-inline">
-              <input
-                placeholder="LADA"
-                required={form.tipoCliente === "Particular"}
-                value={form.celular?.lada ?? ""}
-                onChange={(e) => upd("celular.lada", e.target.value)}
-              />
-              <input
-                placeholder="Número"
-                required={form.tipoCliente === "Particular"}
-                value={form.celular?.numero ?? ""}
-                onChange={(e) => upd("celular.numero", e.target.value)}
-              />
-            </div>
-          </div>
+          <TelefonoList
+            label="Celular *"
+            valores={form.celulares ?? [{ lada: "", numero: "" }]}
+            onChange={(arr) => upd("celulares", arr)}
+          />
 
           {/* Dirección del cliente particular */}
           <div className="form-row">
@@ -574,37 +606,17 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
               </button>
             </div>
 
-            <div className="form-row">
-              <label>Teléfono Fijo</label>
-              <div className="phone-inline">
-                <input
-                  placeholder="LADA"
-                  value={form.telefono?.lada ?? ""}
-                  onChange={(e) => upd("telefono.lada", e.target.value)}
-                />
-                <input
-                  placeholder="Número"
-                  value={form.telefono?.numero ?? ""}
-                  onChange={(e) => upd("telefono.numero", e.target.value)}
-                />
-              </div>
-            </div>
+            <TelefonoList
+              label="Teléfono Fijo"
+              valores={form.telefonos ?? [{ lada: "", numero: "" }]}
+              onChange={(arr) => upd("telefonos", arr)}
+            />
 
-            <div className="form-row">
-              <label>Celular</label>
-              <div className="phone-inline">
-                <input
-                  placeholder="LADA"
-                  value={form.celular?.lada ?? ""}
-                  onChange={(e) => upd("celular.lada", e.target.value)}
-                />
-                <input
-                  placeholder="Número"
-                  value={form.celular?.numero ?? ""}
-                  onChange={(e) => upd("celular.numero", e.target.value)}
-                />
-              </div>
-            </div>
+            <TelefonoList
+              label="Celular"
+              valores={form.celulares ?? [{ lada: "", numero: "" }]}
+              onChange={(arr) => upd("celulares", arr)}
+            />
 
             <div className="form-row">
               <label>País</label>
@@ -679,44 +691,17 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
               </button>
             </div>
 
-            <div className="form-row">
-              <label>Teléfono Fijo</label>
-              <div className="phone-inline">
-                <input
-                  placeholder="LADA"
-                  value={form.telefono?.lada ?? ""}
-                  onChange={(e) => upd("telefono.lada", e.target.value)}
-                />
-                <input
-                  placeholder="Número"
-                  value={form.telefono?.numero ?? ""}
-                  onChange={(e) => upd("telefono.numero", e.target.value)}
-                />
-              </div>
-              <input
-                placeholder="Extensión"
-                value={form.empresa?.contacto?.telefono?.extension ?? ""}
-                onChange={(e) =>
-                  upd("empresa.contacto.telefono.extension", e.target.value)
-                }
-              />
-            </div>
+            <TelefonoList
+              label="Teléfono Fijo"
+              valores={form.telefonos ?? [{ lada: "", numero: "" }]}
+              onChange={(arr) => upd("telefonos", arr)}
+            />
 
-            <div className="form-row">
-              <label>Celular</label>
-              <div className="phone-inline">
-                <input
-                  placeholder="LADA"
-                  value={form.celular?.lada ?? ""}
-                  onChange={(e) => upd("celular.lada", e.target.value)}
-                />
-                <input
-                  placeholder="Número"
-                  value={form.celular?.numero ?? ""}
-                  onChange={(e) => upd("celular.numero", e.target.value)}
-                />
-              </div>
-            </div>
+            <TelefonoList
+              label="Celular"
+              valores={form.celulares ?? [{ lada: "", numero: "" }]}
+              onChange={(arr) => upd("celulares", arr)}
+            />
 
             <div className="form-row">
               <label>Departamento</label>
@@ -818,63 +803,17 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
               </button>
             </div>
 
-            <div className="form-row">
-              <label>Celular</label>
-              <div className="phone-inline">
-                <input
-                  placeholder="LADA"
-                  value={form.celular?.lada ?? ""}
-                  onChange={(e) => upd("celular.lada", e.target.value)}
-                />
-                <input
-                  placeholder="Número"
-                  value={form.celular?.numero ?? ""}
-                  onChange={(e) => upd("celular.numero", e.target.value)}
-                />
-              </div>
-            </div>
+            <TelefonoList
+              label="Celular"
+              valores={form.celulares ?? [{ lada: "", numero: "" }]}
+              onChange={(arr) => upd("celulares", arr)}
+            />
 
-            <div className="form-row">
-              <label>Teléfono Gobierno (LADA /Número/Ext.)</label>
-              <div className="phone-inline">
-                <input
-                  placeholder="LADA"
-                  value={
-                    form.gobierno?.contactoGobierno?.telefono?.lada ?? ""
-                  }
-                  onChange={(e) =>
-                    upd(
-                      "gobierno.contactoGobierno.telefono.lada",
-                      e.target.value
-                    )
-                  }
-                />
-                <input
-                  placeholder="Número"
-                  value={
-                    form.gobierno?.contactoGobierno?.telefono?.numero ?? ""
-                  }
-                  onChange={(e) =>
-                    upd(
-                      "gobierno.contactoGobierno.telefono.numero",
-                      e.target.value
-                    )
-                  }
-                />
-              </div>
-              <input
-                placeholder="Extensión"
-                value={
-                  form.gobierno?.contactoGobierno?.telefono?.extension ?? ""
-                }
-                onChange={(e) =>
-                  upd(
-                    "gobierno.contactoGobierno.telefono.extension",
-                    e.target.value
-                  )
-                }
-              />
-            </div>
+            <TelefonoList
+              label="Teléfono Gobierno"
+              valores={form.gobierno?.contactoGobierno?.telefonos ?? [{ lada: "", numero: "" }]}
+              onChange={(arr) => upd("gobierno.contactoGobierno.telefonos", arr)}
+            />
 
             <div className="form-row">
               <label>Departamento</label>
@@ -949,65 +888,19 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
               />
             </div>
 
-            <div className="form-row">
-              <label>Teléfono Dependencia (LADA/Número/Ext.)</label>
-              <div className="phone-inline">
-                <input
-                  placeholder="LADA"
-                  value={
-                    form.gobierno?.dependencia?.contacto?.telefono?.lada ??
-                    ""
-                  }
-                  onChange={(e) =>
-                    upd(
-                      "gobierno.dependencia.contacto.telefono.lada",
-                      e.target.value
-                    )
-                  }
-                />
-                <input
-                  placeholder="Número"
-                  value={
-                    form.gobierno?.dependencia?.contacto?.telefono
-                      ?.numero ?? ""
-                  }
-                  onChange={(e) =>
-                    upd(
-                      "gobierno.dependencia.contacto.telefono.numero",
-                      e.target.value
-                    )
-                  }
-                />
-              </div>
-              <input
-                placeholder="Extensión"
-                value={
-                  form.gobierno?.dependencia?.contacto?.telefono
-                    ?.extension ?? ""
-                }
-                onChange={(e) =>
-                  upd(
-                    "gobierno.dependencia.contacto.telefono.extension",
-                    e.target.value
-                  )
-                }
-              />
-            </div>
-            <div className="form-row">
-              <label>Celular</label>
-              <div className="phone-inline">
-                <input
-                  placeholder="LADA"
-                  value={form.celular?.lada ?? ""}
-                  onChange={(e) => upd("celular.lada", e.target.value)}
-                />
-                <input
-                  placeholder="Número"
-                  value={form.celular?.numero ?? ""}
-                  onChange={(e) => upd("celular.numero", e.target.value)}
-                />
-              </div>
-            </div>
+
+            <TelefonoList
+              label="Teléfono Dependencia"
+              valores={form.gobierno?.dependencia?.contacto?.telefonos ?? [{ lada: "", numero: "" }]}
+              onChange={(arr) => upd("gobierno.dependencia.contacto.telefonos", arr)}
+            />
+
+
+            <TelefonoList
+              label="Celular"
+              valores={form.gobierno?.dependencia?.contacto?.celulares ?? [{ lada: "", numero: "" }]}
+              onChange={(arr) => upd("gobierno.dependencia.contacto.celulares", arr)}
+            />
 
             <div className="form-row">
               <label>Departamento</label>

@@ -30,8 +30,8 @@ const ContactoSchema = new Schema(
   {
     nombre: { type: String, trim: true },
     correo: { type: String, trim: true, lowercase: true },
-    telefono: { type: TelefonoSchema, default: undefined },
-    celular: { type: TelefonoSchema, default: undefined },
+    telefonos: { type: [TelefonoSchema], default: [] },
+    celulares: { type: [TelefonoSchema], default: [] },
     departamento: { type: String, trim: true },
     puesto: { type: String, trim: true },
   },
@@ -92,8 +92,8 @@ const ClienteSchema = new Schema(
     apellidoPaterno: { type: String, trim: true },
     apellidoMaterno: { type: String, trim: true },
     emails: [{ type: String, trim: true, lowercase: true }],
-    telefono: { type: TelefonoSchema, default: undefined },
-    celular: { type: TelefonoSchema, default: undefined },
+    telefonos: { type: [TelefonoSchema], default: [] },
+    celulares: { type: [TelefonoSchema], default: [] },
 
     // Fiscal/ubicación comunes
     requiereFacturacion: { type: Boolean, default: false },
