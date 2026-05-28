@@ -117,6 +117,8 @@ const ClienteSchema = new Schema(
     asesorResponsable: { type: String, trim: true },
     condicionesPago: { type: String, trim: true },
     observaciones: { type: String, trim: true },
+    pais: { type: String, trim: true, default: "México" },
+
 
     // Ramas por tipo
     empresa: { type: EmpresaSchema, default: undefined },   // Privada / Arrendadora
