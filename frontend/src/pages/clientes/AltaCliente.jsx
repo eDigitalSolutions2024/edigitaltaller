@@ -1074,12 +1074,31 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
                 onChange={(e) => upd("facturacion.regimenFiscal", e.target.value)}
               >
                 <option value="">-- Seleccionar --</option>
-                <option value="601">601 - General de Ley Personas Morales</option>
+                <option value="601">601 - Régimen General de Ley Personas Morales</option>
+                <option value="602">602 - Régimen Simplificado de Ley Personas Morales</option>
                 <option value="603">603 - Personas Morales con Fines no Lucrativos</option>
-                <option value="605">605 - Sueldos y Salarios</option>
-                <option value="606">606 - Arrendamiento</option>
-                <option value="612">612 - Personas Físicas con Actividades Empresariales</option>
-                <option value="616">616 - Sin obligaciones fiscales</option>
+                <option value="604">604 - Régimen de Pequeños Contribuyentes</option>
+                <option value="605">605 - Régimen de Sueldos y Salarios e Ingresos Asimilados a Salarios</option>
+                <option value="606">606 - Régimen de Arrendamiento</option>
+                <option value="607">607 - Régimen de Enajenación o Adquisición de Bienes</option>
+                <option value="608">608 - Régimen de los Demás Ingresos</option>
+                <option value="609">609 - Régimen de Consolidación</option>
+                <option value="610">610 - Régimen Residentes en el Extranjero sin Establecimiento Permanente en México</option>
+                <option value="611">611 - Régimen de Ingresos por Dividendos (Socios y Accionistas)</option>
+                <option value="612">612 - Régimen de las Personas Físicas con Actividades Empresariales y Profesionales</option>
+                <option value="613">613 - Régimen Intermedio de las Personas Físicas con Actividades Empresariales</option>
+                <option value="614">614 - Régimen de los Ingresos por Intereses</option>
+                <option value="615">615 - Régimen de los Ingresos por Obtención de Premios</option>
+                <option value="616">616 - Sin Obligaciones Fiscales</option>
+                <option value="617">617 - PEMEX</option>
+                <option value="618">618 - Régimen Simplificado de Ley Personas Físicas</option>
+                <option value="619">619 - Ingresos por la Obtención de Préstamos</option>
+                <option value="620">620 - Sociedades Cooperativas de Producción que Optan por Diferir sus Ingresos</option>
+                <option value="621">621 - Régimen de Incorporación Fiscal</option>
+                <option value="622">622 - Régimen de Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras PM</option>
+                <option value="623">623 - Régimen Opcional para Grupos de Sociedades</option>
+                <option value="624">624 - Régimen de los Coordinados</option>
+                <option value="625">625 - Régimen de las Actividades Empresariales con Ingresos a través de Plataformas Tecnológicas</option>
                 <option value="626">626 - Régimen Simplificado de Confianza</option>
               </select>
             </div>
