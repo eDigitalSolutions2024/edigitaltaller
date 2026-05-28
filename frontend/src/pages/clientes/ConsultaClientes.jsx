@@ -89,7 +89,7 @@ export default function ConsultaClientes() {
               {c.tipoCliente === "Empresa Gobierno"
                 ? c.gobierno?.nombreGobierno || "—"
                 : c.tipoCliente === "Empresa Privada" || c.tipoCliente === "Empresa Arrendadora"
-                ? [c.nombre, c.apellidoPaterno].filter(Boolean).join(" ") || "—"
+                ? c.nombre || "—"
                 : [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") || "—"}
             </div>
             <div>
@@ -103,10 +103,22 @@ export default function ConsultaClientes() {
             </div>
             <div>{c.rfc || "—"}</div>
             <div>
-              {c.celular?.lada
-                ? `(${c.celular.lada}) ${c.celular.numero}`
-                : c.telefono?.numero || "—"}
+              {(() => {
+                const todos = [
+                  ...(c.celulares?.length ? c.celulares : c.celular?.numero ? [c.celular] : []),
+                  ...(c.telefonos?.length ? c.telefonos : c.telefono?.numero ? [c.telefono] : []),
+                ].filter(t => t?.numero);
+
+                if (!todos.length) return "—";
+
+                return todos.map((t, i) => (
+                  <span key={i} style={{ display: "block" }}>
+                    {t.lada ? `(${t.lada}) ${t.numero}` : t.numero}
+                  </span>
+                ));
+              })()}
             </div>
+            
             <div>
               {(() => {
                 const ciudad = c.direccion?.ciudad || c.facturacion?.direccion?.ciudad;
