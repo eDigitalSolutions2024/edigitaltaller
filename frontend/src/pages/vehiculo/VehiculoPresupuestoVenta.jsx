@@ -260,7 +260,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
     const nuevasVentas = autorizadas.map((r) => ({
       cant: r.cant,
       concepto: r.concepto || r.refaccion || "",
-      precioVenta: Number(r.precioVenta) || 0,
+      precioVenta: "",
       observaciones: "",
       codigoServicio: "",
       descripcionServicio: "",
