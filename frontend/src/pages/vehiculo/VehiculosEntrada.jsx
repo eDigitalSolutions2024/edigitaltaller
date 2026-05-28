@@ -33,7 +33,7 @@ export default function VehiculoEntrada() {
         setLoading(true);
         setError("");
 
-        const res = await getClientes();
+        const res = await getClientes({ limit: 9999 });
         console.log("BACKEND RESPUESTA:", res.data);
         const data = Array.isArray(res.data?.data) ? res.data.data : [];
 
@@ -52,14 +52,25 @@ export default function VehiculoEntrada() {
 
   // 2) Filtrar lista mientras escribes
   useEffect(() => {
-    const term = q.toLowerCase();
+    const term = q.toLowerCase().trim();
     if (!term) {
       setFiltrados(clientes);
       return;
     }
 
     const resultado = clientes.filter((c) => {
-      const nombreFiltro = c.gobierno?.nombreGobierno || c.empresa?.razonSocial || c.nombre || "";
+      const nombreCompleto = [
+        c.nombre,
+        c.apellidoPaterno,
+        c.apellidoMaterno,
+      ].filter(Boolean).join(" ");
+
+      const nombreFiltro =
+        c.gobierno?.nombreGobierno ||
+        c.empresa?.razonSocial ||
+        nombreCompleto ||
+        "";
+
       return nombreFiltro.toLowerCase().includes(term);
     });
     setFiltrados(resultado);

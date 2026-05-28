@@ -7,7 +7,7 @@ export const listCustomers = (params) =>
   http.get("/clientes", { params });
 
 // opcional: obtener todos sin filtros
-export const getClientes = () => http.get("/clientes");
+export const getClientes = (params) => http.get("/clientes", { params });
 
 // 👇 NUEVA: obtener un cliente por id
 export const getCustomer = (id) =>
