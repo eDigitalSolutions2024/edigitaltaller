@@ -262,9 +262,11 @@ export default function VehiculoEntrada() {
                             key={v._id}
                             type="button"
                             className="btn btn-outline-primary btn-sm"
-                            onClick={() => navigate(`/vehiculo/orden/${v._id}`)} // 👈 ir al detalle
+                            onClick={() => navigate(`/vehiculo/orden/${v._id}`)}
                           >
                             {label}
+                            {v.ordenServicio && ` · ${v.ordenServicio}`}
+                            {v.creadoPor && ` · ${v.creadoPor}`}
                           </button>
                         );
                       })}

@@ -66,9 +66,9 @@ router.post('/', async (req, res) => {
     };
 
     // 👇 Si no viene ordenServicio, la generamos aquí
-    if (!payload.ordenServicio) {
+    {/*if (!payload.ordenServicio) {
       payload.ordenServicio = await generarOrdenServicio();
-    }
+    }*/}
 
     // 👇 Verificar que el número de orden no esté duplicado
     const duplicado = await Vehiculo.findOne({ ordenServicio: payload.ordenServicio });
@@ -668,7 +668,7 @@ router.put('/:id/datos', async (req, res) => {
     const { id } = req.params;
 
     const camposPermitidos = [
-      'fechaRecepcion', 'horaRecepcion',
+      'fechaRecepcion', 'horaRecepcion', 'ordenServicio',
       'nombreCliente', 'apellidoPaterno', 'apellidoMaterno',
       'nombreGobierno', 'nombreContactoGobierno', 'nombreDependencia', 'nombreContactoDependencia',
       'telefonoFijoLada', 'telefonoFijo', 'celularLada', 'celular',
