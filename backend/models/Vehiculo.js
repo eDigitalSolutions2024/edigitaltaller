@@ -17,6 +17,7 @@ const ESTADOS_ORDEN = [
 
 const vehiculoSchema = new Schema(
   {
+    
     // Referencia al cliente dueño del vehículo
     cliente: {
       type: Schema.Types.ObjectId,
@@ -35,11 +36,13 @@ const vehiculoSchema = new Schema(
     fechaSolicitudRefacciones: { type: Date, default: null },
     fechaRespuestaRefaccionaria: { type: Date, default: null },
     fechaEnvioSurtir: { type: Date, default: null },
+    creadoPor: { type: String, default: "" },
 
     // ----- Datos de Orden / cabecera -----
     ordenServicio: String,
     fechaRecepcion: Date,
     horaRecepcion: String,
+    
 
     // Presupuesto
     dirigidoA: { type: String, default: "" },

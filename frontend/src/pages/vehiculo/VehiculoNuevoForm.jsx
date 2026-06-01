@@ -5,7 +5,7 @@ import VehicleDamageCanvas from "../../components/VehicleDamageCanvas";
 import { getUser } from "../../auth";
 
 // 🔹 Helper para generar el folio igual que en el backend
-function generateOrdenServicio() {
+{/*function generateOrdenServicio() {
   const ahora = new Date();
   const yyyy = ahora.getFullYear();
   const mm = String(ahora.getMonth() + 1).padStart(2, "0");
@@ -14,7 +14,7 @@ function generateOrdenServicio() {
   const mi = String(ahora.getMinutes()).padStart(2, "0");
   const ss = String(ahora.getSeconds()).padStart(2, "0");
   return `OS-${yyyy}${mm}${dd}-${hh}${mi}${ss}`;
-}
+}*/}
 
 function getTodayInputDate() {
   const ahora = new Date();
@@ -170,7 +170,7 @@ export default function VehiculoNuevoForm({
     if (!initialData) {
       setForm((prev) => ({
         ...prev,
-        ordenServicio: generateOrdenServicio(),
+        ordenServicio: "",
         fechaRecepcion: getTodayInputDate(),
         horaRecepcion: getCurrentInputTime(),
       }));
@@ -279,11 +279,18 @@ export default function VehiculoNuevoForm({
     if (efectivoReadOnly) return;
     if (guardando || guardado) return;
 
+    const usuario = getUser();
+
     const payload = {
       ...form,
       precioGrua: form.grua === "SI" ? Number(form.precioGrua || 0) : 0,
       correos: form.correos || [],
+      creadoPor: usuario?.name || usuario?.username || "Sin usuario", // ← nuevo
     };
+
+    console.log("PAYLOAD creadoPor:", payload.creadoPor);
+
+    console.log(getUser())
 
     // ── Modo edición admin (orden ya existente) ──────────
     if (initialData?._id) {
