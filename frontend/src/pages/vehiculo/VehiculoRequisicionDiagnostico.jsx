@@ -11,12 +11,17 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
   const [rows, setRows] = useState([]); // refaccionesSolicitadas
   const [cargos, setCargos] = useState([]); // cargosEnOrden
   const [moRows, setMoRows] = useState([]);
+  const [mecanicos, setMecanicos] = useState([]);
+  const [carroceros, setCarroceros] = useState([]);
   const [moLine, setMoLine] = useState({
     concepto: "",
     mecanico: "",
     horas: "",
     fechaPago: "",
     observaciones: "",
+    esCarroceria: false,   // ← nuevo
+    carrocero: "",         // ← nuevo
+    precioCarroceria: "",
   });
 
   const [line, setLine] = useState({
@@ -80,6 +85,22 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
     setMoRows(orden.manoObra || []);
   }, [orden]);
 
+  useEffect(() => {
+    const cargarEmpleados = async () => {
+      try {
+        const [resMec, resCar] = await Promise.all([
+          http.get("/empleados?puesto=mecanico&activo=true"),
+          http.get("/empleados?puesto=carrocero&activo=true"),
+        ]);
+        setMecanicos(resMec.data || []);
+        setCarroceros(resCar.data || []);
+      } catch (err) {
+        console.error("Error cargando empleados:", err);
+      }
+    };
+    cargarEmpleados();
+  }, []);
+
   const handleLineChange = (e) => {
     const { name, value } = e.target;
     setLine((prev) => ({
@@ -89,8 +110,11 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
   };
 
   const handleMoLineChange = (e) => {
-    const { name, value } = e.target;
-    setMoLine((prev) => ({ ...prev, [name]: value }));
+    const { name, value, type, checked } = e.target;
+    setMoLine((prev) => ({
+      ...prev,
+      [name]: type === "checkbox" ? checked : value,
+    }));
   };
 
   const addMoRow = async () => {
@@ -108,6 +132,9 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
       horas: "",
       fechaPago: "",
       observaciones: "",
+      esCarroceria: false,
+      carrocero: "",
+      precioCarroceria: "",
     });
 
     try {
@@ -825,11 +852,15 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
                 <th>Horas</th>
                 <th>Fecha de Pago</th>
                 <th>Observaciones</th>
+                <th>¿Carrocería?</th>
+                <th>Carrocero</th>
+                <th>Precio Carrocería</th>
                 <th style={{ width: "70px" }}>Acción</th>
               </tr>
             </thead>
 
             <tbody>
+              {/* Fila de captura */}
               <tr className="table-info">
                 <td>
                   <input
@@ -841,14 +872,21 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
                   />
                 </td>
 
+                {/* Mecánico → select */}
                 <td style={{ width: "160px" }}>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
+                  <select
+                    className="form-select form-select-sm"
                     name="mecanico"
                     value={moLine.mecanico}
                     onChange={handleMoLineChange}
-                  />
+                  >
+                    <option value="">-- Mecánico --</option>
+                    {mecanicos.map((m) => (
+                      <option key={m._id} value={m._id}>
+                        {m.nombre}
+                      </option>
+                    ))}
+                  </select>
                 </td>
 
                 <td style={{ width: "80px" }}>
@@ -882,6 +920,55 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
                   />
                 </td>
 
+                {/* Checkbox carrocería */}
+                <td className="text-center" style={{ width: "90px" }}>
+                  <input
+                    type="checkbox"
+                    className="form-check-input"
+                    name="esCarroceria"
+                    checked={moLine.esCarroceria}
+                    onChange={handleMoLineChange}
+                  />
+                </td>
+
+                {/* Select carrocero — solo si esCarroceria */}
+                <td style={{ width: "160px" }}>
+                  {moLine.esCarroceria ? (
+                    <select
+                      className="form-select form-select-sm"
+                      name="carrocero"
+                      value={moLine.carrocero}
+                      onChange={handleMoLineChange}
+                    >
+                      <option value="">-- Carrocero --</option>
+                      {carroceros.map((c) => (
+                        <option key={c._id} value={c._id}>
+                          {c.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-muted small">—</span>
+                  )}
+                </td>
+
+                {/* Precio carrocería — solo si esCarroceria */}
+                <td style={{ width: "120px" }}>
+                  {moLine.esCarroceria ? (
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="form-control form-control-sm"
+                      name="precioCarroceria"
+                      value={moLine.precioCarroceria}
+                      onChange={handleMoLineChange}
+                      placeholder="$0.00"
+                    />
+                  ) : (
+                    <span className="text-muted small">—</span>
+                  )}
+                </td>
+
                 <td className="text-center">
                   <button
                     type="button"
@@ -895,19 +982,40 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
 
               {moRows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center text-muted">
+                  <td colSpan={9} className="text-center text-muted">
                     No hay registros de mano de obra.
                   </td>
                 </tr>
               )}
 
+              {/* Filas guardadas */}
               {moRows.map((m, idx) => (
                 <tr key={idx}>
                   <td>{m.concepto}</td>
-                  <td className="text-center">{m.mecanico}</td>
+                  <td className="text-center">
+                    {/* Mostramos nombre si tenemos el objeto, o buscamos en la lista */}
+                    {mecanicos.find((x) => x._id === m.mecanico)?.nombre || m.mecanico || "—"}
+                  </td>
                   <td className="text-center">{m.horas}</td>
                   <td className="text-center">{formatFecha(m.fechaPago)}</td>
                   <td>{m.observaciones}</td>
+                  <td className="text-center">
+                    {m.esCarroceria ? (
+                      <span className="badge bg-warning text-dark">Sí</span>
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
+                  </td>
+                  <td className="text-center">
+                    {m.esCarroceria
+                      ? carroceros.find((x) => x._id === m.carrocero)?.nombre || m.carrocero || "—"
+                      : "—"}
+                  </td>
+                  <td className="text-end">
+                    {m.esCarroceria && m.precioCarroceria
+                      ? formatMoney(m.precioCarroceria)
+                      : "—"}
+                  </td>
                   <td className="text-center">
                     <button
                       type="button"

@@ -1,5 +1,6 @@
 // src/pages/vehiculo/VehiculoPresupuestoVenta.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
+
 import { useNavigate } from "react-router-dom";
 import {
   savePresupuestoVenta,
@@ -7,6 +8,7 @@ import {
   openVentaClientePdf,
 } from "../../api/vehiculos";
 import { fetchServiciosTaller } from "../../api/codigos";
+import http from "../../api/http";
 
 export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
   const navigate = useNavigate();
@@ -18,6 +20,10 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
 
   // Factura
   const [requiereFactura, setRequiereFactura] = useState(false);
+
+  //Mano de obra
+  const [mecanicos, setMecanicos] = useState([]);
+  const [carroceros, setCarroceros] = useState([]);
 
   // Servicios SAT (para factura)
   const [serviciosTaller, setServiciosTaller] = useState([]);
@@ -138,6 +144,22 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
       .catch(() => setServiciosTaller([]));
   }, []);
 
+  useEffect(() => {
+    const cargarEmpleados = async () => {
+      try {
+        const [resMec, resCar] = await Promise.all([
+          http.get("/empleados?puesto=mecanico&activo=true"),
+          http.get("/empleados?puesto=carrocero&activo=true"),
+        ]);
+        setMecanicos(resMec.data || []);
+        setCarroceros(resCar.data || []);
+      } catch (err) {
+        console.error("Error cargando empleados:", err);
+      }
+    };
+    cargarEmpleados();
+  }, []);
+
   // Cerrar dropdown al hacer click fuera
   useEffect(() => {
     const handler = (e) => {
@@ -152,6 +174,11 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
   }, []);
 
   // ===== HELPERS =====
+  const hayCarroceria = useMemo(
+    () => moRows.some((m) => m.esCarroceria),
+    [moRows]
+  );
+
   const formatMoney = (n) =>
     new Intl.NumberFormat("es-MX", {
       style: "currency",
@@ -1015,12 +1042,15 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
                 <th>Horas</th>
                 <th>Fecha de Pago</th>
                 <th>Observaciones</th>
+                {hayCarroceria && <th>¿Carrocería?</th>}
+                {hayCarroceria && <th>Carrocero</th>}
+                {hayCarroceria && <th>Precio Carrocería</th>}
               </tr>
             </thead>
             <tbody>
               {moRows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center text-muted">
+                  <td colSpan={hayCarroceria ? 8 : 5} className="text-center text-muted">
                     No hay registros de mano de obra.
                   </td>
                 </tr>
@@ -1028,10 +1058,33 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
                 moRows.map((m, idx) => (
                   <tr key={idx}>
                     <td>{m.concepto}</td>
-                    <td className="text-center">{m.mecanico}</td>
+                    <td className="text-center">
+                      {mecanicos.find((x) => x._id === m.mecanico)?.nombre || m.mecanico || "—"}
+                    </td>
                     <td className="text-center">{m.horas}</td>
                     <td className="text-center">{formatFecha(m.fechaPago)}</td>
                     <td>{m.observaciones}</td>
+                    {hayCarroceria && (
+                      <td className="text-center">
+                        {m.esCarroceria
+                          ? <span className="badge bg-warning text-dark">Sí</span>
+                          : <span className="text-muted">—</span>}
+                      </td>
+                    )}
+                    {hayCarroceria && (
+                      <td className="text-center">
+                        {m.esCarroceria
+                          ? carroceros.find((x) => x._id === m.carrocero)?.nombre || m.carrocero || "—"
+                          : "—"}
+                      </td>
+                    )}
+                    {hayCarroceria && (
+                      <td className="text-end">
+                        {m.esCarroceria && m.precioCarroceria
+                          ? formatMoney(m.precioCarroceria)
+                          : "—"}
+                      </td>
+                    )}
                   </tr>
                 ))
               )}
