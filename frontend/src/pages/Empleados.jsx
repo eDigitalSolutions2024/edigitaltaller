@@ -11,6 +11,7 @@ import "../styles/Empleados.css";
 const puestos = [
   { value: "asesor", label: "Asesor" },
   { value: "mecanico", label: "Mecánico" },
+  { value: "carrocero",    label: "Carrocero" },
   { value: "ayudante", label: "Ayudante" },
   { value: "recepcion", label: "Recepción" },
   { value: "contabilidad", label: "Contabilidad" },
@@ -116,6 +117,10 @@ function Empleados() {
       setError("No se pudo cambiar el estado del empleado");
     }
   }
+
+  // Justo antes del return, o fuera del componente:
+  const puestoLabel = (value) =>
+    puestos.find((p) => p.value === value)?.label ?? value;
 
   return (
     <div className="container-fluid empleados-page mt-3">

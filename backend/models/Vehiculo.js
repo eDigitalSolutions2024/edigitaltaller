@@ -427,15 +427,20 @@ const vehiculoSchema = new Schema(
     ],
 
     // ===== Mano de Obra =====
-manoObra: [
-  {
-    concepto: { type: String, default: "" },
-    mecanico: { type: String, default: "" },
-    horas: { type: Number, default: 0 },
-    fechaPago: { type: String, default: "" }, // o Date si quieres
-    observaciones: { type: String, default: "" },
-  },
-],
+    manoObra: [
+      {
+        concepto: { type: String, default: "" },
+        mecanico: { type: String, default: "" },
+        horas: { type: Number, default: 0 },
+        fechaPago: { type: String, default: "" },
+        observaciones: { type: String, default: "" },
+
+        // ← nuevos
+        esCarroceria:     { type: Boolean, default: false },
+        carrocero:        { type: String, default: "" },
+        precioCarroceria: { type: Number, default: 0 },
+      },
+    ],
 
 // ===== Observaciones finales =====
 observacionesExternas: { type: String, default: "" },

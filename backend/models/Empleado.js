@@ -11,6 +11,7 @@ const empleadoSchema = new mongoose.Schema(
         'asesor',
         'mecanico',
         'ayudante',
+        'carrocero',
         'recepcion',
         'contabilidad',
         'jefe_taller',
