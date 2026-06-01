@@ -445,6 +445,8 @@ const vehiculoSchema = new Schema(
 // ===== Observaciones finales =====
 observacionesExternas: { type: String, default: "" },
 observacionesInternas: { type: String, default: "" },
+// ===== Control de cierre =====
+pendienteCierre: { type: Boolean, default: false },
   },
   {
     timestamps: true, // createdAt, updatedAt
