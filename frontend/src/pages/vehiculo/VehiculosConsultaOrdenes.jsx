@@ -4,12 +4,12 @@ import { useNavigate } from "react-router-dom";
 
 
 const TABS = [
-  { key: "PENDIENTE_CAPTURA", label: "PENDIENTE CAPTURA" },
-  { key: "PENDIENTE_REFACCIONARIA", label: "PENDIENTE REFACCIONARIA" },
+  { key: "PENDIENTE_CAPTURA",              label: "PENDIENTE CAPTURA" },
+  { key: "PENDIENTE_REFACCIONARIA",        label: "PENDIENTE REFACCIONARIA" },
   { key: "PENDIENTE_AUTORIZACION_CLIENTE", label: "PENDIENTE AUTORIZACION CLIENTE" },
-  { key: "REPARACION_EN_CURSO", label: "REPARACIÓN EN CURSO" },
-  { key: "CALIDAD", label: "CALIDAD" },
-  { key: "PENDIENTE_CERRAR", label: "PENDIENTE DE CERRAR" },
+  { key: "PENDIENTE_SURTIR",              label: "PENDIENTE SURTIR" },
+  { key: "REPARACION_EN_CURSO",           label: "REPARACIÓN EN CURSO" },
+  { key: "PENDIENTE_CIERRE",              label: "PENDIENTE DE CIERRE" },
 ];
 
 export default function VehiculosConsultaOrdenes() {
@@ -31,13 +31,13 @@ export default function VehiculosConsultaOrdenes() {
     try {
       setLoading(true);
       setError("");
-      const res = await listOrdenesServicio({
-        estado: tab,
-        searchOs,
-        search,
-        page,
-        limit,
-      });
+
+      const params =
+        tab === "PENDIENTE_CIERRE"
+          ? { pendienteCierre: true, searchOs, search, page, limit }
+          : { estado: tab, searchOs, search, page, limit };
+
+      const res = await listOrdenesServicio(params);
 
       setRows(res.data.data || []);
       setTotal(res.data.total || 0);

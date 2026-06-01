@@ -108,7 +108,8 @@ router.get('/cliente/:clienteId', async (req, res) => {
 router.get('/ordenes', async (req, res) => {
   try {
     const {
-      estado = 'PENDIENTE_CAPTURA',
+      estado = '',
+      pendienteCierre,
       searchOs = '',
       search = '',
       page = 1,
@@ -117,7 +118,9 @@ router.get('/ordenes', async (req, res) => {
 
     const q = {};
 
-    if (estado) {
+    if (pendienteCierre === 'true') {
+      q.pendienteCierre = true;
+    } else if (estado) {
       q.estadoOrden = estado;
     }
 
@@ -714,6 +717,7 @@ router.put('/:id/cerrar', async (req, res) => {
 
     // marcar como cerrada
     vehiculo.estadoOrden = 'CERRADA';
+    vehiculo.pendienteCierre = false; 
 
     // si quieres guardar fecha de cierre, puedes agregar el campo en el schema
     // y descomentar esto:
@@ -773,7 +777,8 @@ router.put('/:id/surtir', async (req, res) => {
     const todasSurtidas = autorizadas.length > 0 && autorizadas.every(p => p.surtida);
 
     if (todasSurtidas) {
-      vehiculo.estadoOrden = 'PENDIENTE_CIERRE';
+      vehiculo.estadoOrden = 'REPARACION_EN_CURSO';
+      vehiculo.pendienteCierre = true;
     }
 
     await vehiculo.save();
