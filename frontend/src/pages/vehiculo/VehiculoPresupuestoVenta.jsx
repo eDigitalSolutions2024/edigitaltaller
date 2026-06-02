@@ -487,9 +487,9 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
                 <th>Refacción</th>
                 <th>Tipo</th>
                 <th>Marca</th>
-                <th>Código</th>        {/* ← subió */}
-                <th>Proveedor</th>     {/* ← bajó */}
-                <th>TE</th>            {/* ← subió */}
+                <th>Código</th>        
+                <th>Proveedor</th>     
+                <th>TE</th>            
                 <th>Precio Compra</th>
                 <th>Moneda</th>
                 <th>TC</th>
@@ -534,9 +534,9 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
                   <td>{r.refaccion}</td>
                   <td className="text-center">{r.tipo}</td>
                   <td>{r.marca}</td>
-                  <td>{r.codigo}</td>        {/* ← subió */}
-                  <td>{r.proveedor}</td>     {/* ← bajó */}
-                  <td>{r.tiempoEntrega}</td> {/* ← subió */}
+                  <td>{r.codigo}</td>        
+                  <td>{r.proveedor}</td>     
+                  <td>{r.tiempoEntrega}</td> 
                   <td className="text-end">{formatMoney(r.precioCompra)}</td>
                   <td className="text-center">{r.moneda || "MN"}</td>
                   <td className="text-end">
@@ -967,7 +967,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
                     <input
                       type="number"
                       className="form-control form-control-sm text-center"
-                      value={r.cant}
+                      value={r.cant ?? ""}
                       onChange={(e) => handleUpdateVentaRow(idx, "cant", e.target.value)}
                     />
                   </td>
@@ -975,7 +975,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
                     <input
                       type="text"
                       className="form-control form-control-sm"
-                      value={r.concepto}
+                      value={r.concepto ?? ""}
                       onChange={(e) => handleUpdateVentaRow(idx, "concepto", e.target.value)}
                     />
                   </td>
@@ -984,7 +984,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
                       type="number"
                       step="0.01"
                       className="form-control form-control-sm text-end"
-                      value={r.precioVenta}
+                      value={r.precioVenta ?? ""}
                       onChange={(e) => handleUpdateVentaRow(idx, "precioVenta", e.target.value)}
                     />
                   </td>

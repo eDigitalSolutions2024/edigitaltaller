@@ -131,6 +131,7 @@ export default function SolicitudesTaller() {
                     <th>Vehículo</th>
                     <th>Placas</th>
                     <th>Refacciones</th>
+                    <th>Solicitante</th> 
                     <th>Fecha Solicitud</th>
                     <th>Tiempo</th>
                     <th style={{ width: "120px" }}>Acción</th>
@@ -156,6 +157,7 @@ export default function SolicitudesTaller() {
                       <td>{descripcionVehiculo(orden)}</td>
                       <td>{orden.placas || "-"}</td>
                       <td>{orden.refaccionesSolicitadas?.length || 0}</td>
+                      <td>{orden.creadoPor || "-"}</td> 
                       <td>
                         {orden.fechaSolicitudRefacciones
                           ? new Date(orden.fechaSolicitudRefacciones).toLocaleString()
