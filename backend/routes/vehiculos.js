@@ -165,6 +165,25 @@ router.get('/ordenes', async (req, res) => {
   }
 });
 
+// GET /api/vehiculos/mis-ordenes — OS activas del asesor logueado (excluye CERRADA)
+router.get('/mis-ordenes', proteger, requiereRol('asesor_servicio', 'admin'), async (req, res) => {
+  try {
+    const nombreUsuario = req.user.name || req.user.username;
+    const ordenes = await Vehiculo.find({
+      creadoPor: nombreUsuario,
+      estadoOrden: { $ne: 'CERRADA' },
+    })
+      .select('ordenServicio estadoOrden nombreCliente apellidoPaterno apellidoMaterno nombreGobierno marca modelo anio color createdAt')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.json({ ok: true, data: ordenes });
+  } catch (err) {
+    console.error('Error listando mis-ordenes:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
 // PUT /api/vehiculos/:id/servicio  -> guarda servicio/reparación e inicia la orden
 router.put('/:id/servicio', async (req, res) => {
   try {

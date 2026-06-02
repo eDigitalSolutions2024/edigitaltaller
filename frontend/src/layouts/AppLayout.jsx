@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom";
 import { useEffect, useState } from "react";
 import Sidebar from "../components/Navbar";
+import OSFlotante from "../components/OSFlotante";
 import "../styles/Navbar.css";
 
 export default function AppLayout() {
@@ -30,6 +31,8 @@ export default function AppLayout() {
         {/* Puedes abrir/cerrar desde páginas con useOutletContext si quieres */}
         <Outlet context={{ collapsed, toggleCollapse, showSidebar, hideSidebar }} />
       </main>
+
+      <OSFlotante />
     </div>
   );
 }
