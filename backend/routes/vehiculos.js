@@ -9,7 +9,7 @@ const { proteger, requiereRol } = require('../middleware/auth');   // 👈 NUEVO
 const { streamVehiculoOperativoPdf } = require('../service/VehiculoOperativoPdf');
 const { streamVehiculoOrdenPdf } = require('../service/vehiculoOrdenPdf');
 
-const { generarPresupuestoPDF } = require('../service/vehiculoPresupuestoPDF');
+const { generarPresupuestoPDF } = require('../service/VehiculoPresupuestoPDF');
 const { generarVentaClientePDF } = require('../service/VehiculoVentaClientePDF');
 
 
