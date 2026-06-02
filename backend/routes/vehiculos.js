@@ -220,6 +220,7 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
       cargosEnOrden,    // opcional, para después
       manoObra,         // opcional, para después
       estadoOrden,      // opcional, si quieres avanzar el flujo
+      devueltoPor,
     } = req.body;
 
     const vehiculo = await Vehiculo.findById(id);
@@ -259,6 +260,7 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
 
       if (estadoOrden === 'PENDIENTE_AUTORIZACION_CLIENTE') {
         vehiculo.fechaRespuestaRefaccionaria = new Date();
+        if (devueltoPor) vehiculo.devueltoPor = devueltoPor;
       }
     }
 

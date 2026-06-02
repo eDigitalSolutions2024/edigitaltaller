@@ -37,6 +37,8 @@ const vehiculoSchema = new Schema(
     fechaRespuestaRefaccionaria: { type: Date, default: null },
     fechaEnvioSurtir: { type: Date, default: null },
     creadoPor: { type: String, default: "" },
+    devueltoPor: { type: String, default: "" },
+
 
     // ----- Datos de Orden / cabecera -----
     ordenServicio: String,

@@ -140,6 +140,15 @@ export default function SolicitudTallerDetalle() {
   };
 
 
+  // Obtenemos el nombre del usuario actual para registrar quién hizo las modificaciones
+  const usuarioActual = (() => {
+    try {
+      const raw = localStorage.getItem("user");
+      return raw ? JSON.parse(raw).name : "Desconocido";
+    } catch {
+      return "Desconocido";
+    }
+  })();
 
   const agregarOpcion = (index) => {
     setRefacciones((prev) =>
@@ -263,6 +272,7 @@ export default function SolicitudTallerDetalle() {
 
       if (nuevoEstadoOrden) {
         payload.estadoOrden = nuevoEstadoOrden;
+        payload.devueltoPor = usuarioActual;
       }
 
       const res = await saveRequisicionDiagnostico(id, payload);
@@ -378,8 +388,6 @@ export default function SolicitudTallerDetalle() {
                     <th>Observaciones</th>
                 </tr>
               </thead>
-
-
               <tbody>
                 {refacciones.length === 0 && (
                   <tr>
@@ -392,7 +400,7 @@ export default function SolicitudTallerDetalle() {
                 {refacciones.map((item, index) => (
                   <React.Fragment key={item._id || index}>
                     <tr className="table-secondary">
-                      <td colSpan={14}>
+                      <td colSpan={15}>
                         <strong>Solicitud:</strong> {item.refaccion} |
                         <strong className="ms-2">Cantidad:</strong> {item.cant}
                       </td>

@@ -87,7 +87,7 @@ export default function PorSurtir() {
 
   return (
     <div className="container-fluid py-3">
-        <div className="card">
+        <div className="card">  
         <div className="card-header fw-bold text-center">
             REFACCIONES POR SURTIR
         </div>
@@ -125,6 +125,12 @@ export default function PorSurtir() {
                         <span className={`ms-3 ${tiempo.className}`}>
                         ⏱ {tiempo.texto}
                         </span>
+
+                        {orden.devueltoPor && (
+                        <span className="ms-3 badge bg-info text-dark">
+                            👤 Devuelto por: {orden.devueltoPor}
+                        </span>
+                        )}
                     </div>
                     <button
                         type="button"
