@@ -4,6 +4,7 @@ import {
   getVehiculoById,
   saveRequisicionDiagnostico,
 } from "../../api/vehiculos";
+import { getUnidadesMedida } from "../../api/configuracion";
 
 export default function SolicitudTallerDetalle() {
   const { id } = useParams();
@@ -13,6 +14,13 @@ export default function SolicitudTallerDetalle() {
   const [refacciones, setRefacciones] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [unidades, setUnidades] = useState([]);
+
+  useEffect(() => {
+    getUnidadesMedida()
+      .then(data => setUnidades((data || []).filter(u => u.activo)))
+      .catch(() => setUnidades([]));
+  }, []);
 
   const cargarOrden = async () => {
     try {
@@ -445,11 +453,22 @@ export default function SolicitudTallerDetalle() {
                     <tr className="table-info">
                       <td>{item.cant}</td>
                       <td>
-                        <input
-                          className="form-control form-control-sm"
+                        <select
+                          className="form-select form-select-sm"
                           value={item.nuevaOpcion?.unidad || ""}
                           onChange={(e) => cambiarNuevaOpcion(index, "unidad", e.target.value)}
-                        />
+                          disabled={unidades.length === 0}
+                        >
+                          {unidades.length === 0
+                            ? <option value="">Sin unidades</option>
+                            : <>
+                                <option value="">-</option>
+                                {unidades.map(u => (
+                                  <option key={u._id} value={u.nombre}>{u.nombre}</option>
+                                ))}
+                              </>
+                          }
+                        </select>
                       </td>
                       <td>{item.refaccion}</td>
                       <td>

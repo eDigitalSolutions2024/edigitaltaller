@@ -60,10 +60,15 @@ router.post('/tipo-cambio', proteger, requiereRol('admin'), async (req, res) => 
 // ===============================
 
 // GET /api/configuracion/unidades-medida
-router.get('/unidades-medida', proteger, requiereRol('admin'), async (req, res) => {
+router.get('/unidades-medida', proteger, async (req, res) => {
   try {
-    const unidades = await UnidadMedida.find().sort({ nombre: 1 });
-    res.json(unidades);
+    const unidades = await UnidadMedida.find().sort({ nombre: 1 }).lean();
+    // Normalizar docs viejos que no tienen el campo activo (undefined → true)
+    const normalizadas = unidades.map(u => ({
+      ...u,
+      activo: u.activo !== false,
+    }));
+    res.json(normalizadas);
   } catch (error) {
     res.status(500).json({ message: 'Error al obtener unidades de medida', error: error.message });
   }
@@ -87,7 +92,8 @@ router.post('/unidades-medida', proteger, requiereRol('admin'), async (req, res)
     }
 
     const unidad = await UnidadMedida.create({
-      nombre: nombre.trim()
+      nombre: nombre.trim(),
+      activo: true,
     });
 
     res.status(201).json(unidad);
@@ -121,7 +127,7 @@ router.patch('/unidades-medida/:id/status', proteger, requiereRol('admin'), asyn
 // ===============================
 
 // GET /api/configuracion/mecanicos
-router.get('/mecanicos', proteger, requiereRol('admin'), async (req, res) => {
+router.get('/mecanicos', proteger, async (req, res) => {
   try {
     const mecanicos = await Mecanico.find().sort({ nombre: 1 });
     res.json(mecanicos);
