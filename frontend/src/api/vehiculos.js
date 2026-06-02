@@ -73,3 +73,6 @@ export const marcarSurtidas = (id, presupuesto) =>
 export const updateDatosOrden = (id, payload) =>
   http.put(`/vehiculos/${id}/datos`, payload);
 
+export const getMisOrdenes = () =>
+  http.get('/vehiculos/mis-ordenes');
+
