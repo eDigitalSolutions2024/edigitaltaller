@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { getUnidadesMedida } from "../../../api/configuracion";
 
 /**
  * Tabla de captura para la Entrada de Inventario.
@@ -11,8 +12,14 @@ export default function TablaCapturaEntrada({ entradaId }) {
   const [codigos, setCodigos] = useState([]);
   const [rows, setRows] = useState([nuevaFila()]);
   const [guardando, setGuardando] = useState(false);
+  const [unidades, setUnidades] = useState([]);
 
-  const unidades = ["Pieza", "Caja", "Juego", "Litro", "Kilogramo"];
+  // Cargar unidades de medida activas desde Configuración
+  useEffect(() => {
+    getUnidadesMedida()
+      .then(data => setUnidades((data || []).filter(u => u.activo)))
+      .catch(() => setUnidades([]));
+  }, []);
   const tipos = ["Refacción", "Insumo", "Servicio"];
   const ivaCatalog = [
     { label: "0%", value: 0 },
@@ -221,9 +228,17 @@ export default function TablaCapturaEntrada({ entradaId }) {
                     className="form-select"
                     value={r.unidad}
                     onChange={(e) => handleChange(i, "unidad", e.target.value)}
+                    disabled={unidades.length === 0}
                   >
-                    <option value="">Select an Option</option>
-                    {unidades.map(u => <option key={u} value={u}>{u}</option>)}
+                    {unidades.length === 0
+                      ? <option value="">No hay unidades capturadas</option>
+                      : <>
+                          <option value="">Selecciona unidad</option>
+                          {unidades.map(u => (
+                            <option key={u._id} value={u.nombre}>{u.nombre}</option>
+                          ))}
+                        </>
+                    }
                   </select>
                 </td>
 

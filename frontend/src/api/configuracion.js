@@ -1,60 +1,25 @@
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
+import http from './http';
 
-function getToken() {
-  return localStorage.getItem("token");
-}
-
-async function request(path, options = {}) {
-  const res = await fetch(`${API_URL}/configuracion${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${getToken()}`,
-      ...(options.headers || {}),
-    },
-  });
-
-  const data = await res.json().catch(() => null);
-
-  if (!res.ok) {
-    throw new Error(data?.message || "Error en la petición");
-  }
-
-  return data;
-}
-
-export const getTiposCambio = () => request("/tipo-cambio");
+export const getTiposCambio = () =>
+  http.get('/configuracion/tipo-cambio').then(r => r.data);
 
 export const crearTipoCambio = (payload) =>
-  request("/tipo-cambio", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  http.post('/configuracion/tipo-cambio', payload).then(r => r.data);
 
-export const getUnidadesMedida = () => request("/unidades-medida");
+export const getUnidadesMedida = () =>
+  http.get('/configuracion/unidades-medida').then(r => r.data);
 
 export const crearUnidadMedida = (payload) =>
-  request("/unidades-medida", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  http.post('/configuracion/unidades-medida', payload).then(r => r.data);
 
 export const cambiarEstadoUnidad = (id, activo) =>
-  request(`/unidades-medida/${id}/status`, {
-    method: "PATCH",
-    body: JSON.stringify({ activo }),
-  });
+  http.patch(`/configuracion/unidades-medida/${id}/status`, { activo }).then(r => r.data);
 
-export const getMecanicos = () => request("/mecanicos");
+export const getMecanicos = () =>
+  http.get('/configuracion/mecanicos').then(r => r.data);
 
 export const crearMecanico = (payload) =>
-  request("/mecanicos", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  http.post('/configuracion/mecanicos', payload).then(r => r.data);
 
 export const cambiarEstadoMecanico = (id, activo) =>
-  request(`/mecanicos/${id}/status`, {
-    method: "PATCH",
-    body: JSON.stringify({ activo }),
-  });
+  http.patch(`/configuracion/mecanicos/${id}/status`, { activo }).then(r => r.data);
