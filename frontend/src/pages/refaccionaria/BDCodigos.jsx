@@ -552,7 +552,7 @@ export default function BDCodigos() {
                     {tipo === "servicio" && <th>Código SAT</th>}
                     {tipo === "servicio" && <th>Descripción SAT</th>}
                     <th style={{ width: 50 }} className="text-center">
-                      X
+                      Acciones
                     </th>
                   </tr>
                 </thead>
