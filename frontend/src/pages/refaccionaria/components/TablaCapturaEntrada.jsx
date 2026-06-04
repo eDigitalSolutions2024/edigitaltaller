@@ -120,16 +120,16 @@
     }
 
     const handleCodigoCreado = (nuevoCodigo) => {
-      // Agrega el nuevo código a la lista con el mismo formato que /codigos/options
+      // ✅ Mapea al mismo formato que el fetch de /codigos
       const nuevoItem = {
         _id: nuevoCodigo._id,
-        label: nuevoCodigo.numeroParte || nuevoCodigo.codigo || "",
+        numeroParte: nuevoCodigo.numeroParte || nuevoCodigo.codigo || "",
         descripcion: nuevoCodigo.descripcion || "",
+        proveedor: nuevoCodigo.proveedor || "",
         tipo: nuevoCodigo.tipo || "refaccion",
       };
       setCodigos((prev) => [...prev, nuevoItem]);
 
-      // Lo selecciona automáticamente en la fila que abrió el modal
       if (filaModalCodigo !== null) {
         onSelectProducto(filaModalCodigo, nuevoCodigo._id);
       }
