@@ -24,6 +24,10 @@ export default function PorSurtir() {
   };
 
     useEffect(() => {
+    cargar();
+    }, []);
+
+    useEffect(() => {
     const interval = setInterval(() => {
         if (!hayPendientes) cargar();
     }, 15000);

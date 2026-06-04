@@ -1,6 +1,7 @@
 // frontend/src/pages/refaccionaria/EntradaInventario.jsx
 import { useEffect, useRef, useState } from "react";
 import TablaCapturaEntrada from "./components/TablaCapturaEntrada";
+import ModalAltaProveedor from "./components/ModalAltaProveedor";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 
@@ -12,6 +13,8 @@ export default function EntradaInventario() {
   const [entradaId, setEntradaId] = useState(null);
   const [entradaInfo, setEntradaInfo] = useState(null);
   const tablaRef = useRef(null);
+
+  const [showModalProveedor, setShowModalProveedor] = useState(false);
 
   const [form, setForm] = useState({
     comprobante: "Factura",
@@ -44,9 +47,20 @@ export default function EntradaInventario() {
 
   const onChange = (e) => {
     const { name, value, files } = e.target;
+    if (name === "proveedorId" && value === "__nuevo__") {
+      setShowModalProveedor(true);
+      return; // no actualiza el form con "__nuevo__"
+    }
     if (files) setForm((f) => ({ ...f, [name]: files[0] || null }));
     else setForm((f) => ({ ...f, [name]: value }));
   };
+
+
+const handleProveedorCreado = (nuevoProveedor) => {
+  setProveedores((prev) => [...prev, nuevoProveedor]); // agrega a la lista
+  setForm((f) => ({ ...f, proveedorId: nuevoProveedor._id })); // lo selecciona automáticamente
+  setShowModalProveedor(false);
+};  
 
 const onSubmit = async (e) => {
   e.preventDefault();
@@ -172,6 +186,7 @@ const onSubmit = async (e) => {
                           {p.nombreProveedor || p.nombre || p.aliasProveedor || p.rfc}
                         </option>
                       ))}
+                      <option value="__nuevo__">➕ Dar de alta nuevo proveedor...</option>
                     </select>
                   </div>
 
@@ -231,6 +246,12 @@ const onSubmit = async (e) => {
           )}
         </div>
       </div>
+      {showModalProveedor && (
+        <ModalAltaProveedor
+          onProveedorCreado={handleProveedorCreado}
+          onClose={() => setShowModalProveedor(false)}
+        />
+      )}
     </div>
   );
 }
