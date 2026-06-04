@@ -2,12 +2,16 @@
 import { useEffect, useRef, useState } from "react";
 import TablaCapturaEntrada from "./components/TablaCapturaEntrada";
 import ModalAltaProveedor from "./components/ModalAltaProveedor";
+import ModalAltaCodigo from "./components/ModalAltaCodigo";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 
 export default function EntradaInventario() {
   const [loading, setLoading] = useState(false);
   const [proveedores, setProveedores] = useState([]);
+
+  const [codigos, setCodigos] = useState([]);
+  const [showModalCodigo, setShowModalCodigo] = useState(false);
 
   // 👇 se llena tras crear la entrada; controla mostrar la tabla
   const [entradaId, setEntradaId] = useState(null);
@@ -22,7 +26,7 @@ export default function EntradaInventario() {
     moneda: "MXN",
     formaPago: "Crédito",
     proveedorId: "",
-    fecha: "",
+    fecha: new Date().toISOString().split("T")[0],
     foto: null,
   });
 
@@ -42,7 +46,10 @@ export default function EntradaInventario() {
         if (!abort) setProveedores([]);
       }
     })();
+
+    fetch(`${API}/codigos`, { credentials: "include" }).then((r) => r.json()).then((j) => setCodigos(j?.data || j || [])).catch(() => setCodigos([]));
     return () => { abort = true; };
+ 
   }, []);
 
   const onChange = (e) => {
@@ -61,6 +68,12 @@ const handleProveedorCreado = (nuevoProveedor) => {
   setForm((f) => ({ ...f, proveedorId: nuevoProveedor._id })); // lo selecciona automáticamente
   setShowModalProveedor(false);
 };  
+
+const handleCodigoCreado = (nuevoCodigo) => {
+  setCodigos((prev) => [...prev, nuevoCodigo]);
+  setForm((f) => ({ ...f, codigoId: nuevoCodigo._id, codigoLabel: nuevoCodigo.numeroParte }));
+  setShowModalCodigo(false);
+};
 
 const onSubmit = async (e) => {
   e.preventDefault();

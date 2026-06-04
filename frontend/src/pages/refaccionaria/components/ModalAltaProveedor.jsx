@@ -51,7 +51,7 @@ export default function ModalAltaProveedor({ onProveedorCreado, onClose }) {
     <div
       style={{
         position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)",
-        zIndex: 1050, display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 1060, display: "flex", alignItems: "center", justifyContent: "center",
       }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >

@@ -1,5 +1,6 @@
 // src/pages/refaccionaria/BDCodigos.jsx
 import { useEffect, useMemo, useState } from "react";
+import ModalAltaProveedor from "./components/ModalAltaProveedor";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 const PAGE_SIZES = [10, 25, 50, 100];
@@ -25,6 +26,8 @@ export default function BDCodigos() {
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState({ key: "codigo", dir: "asc" });
+  const [proveedores, setProveedores] = useState([]);
+  const [showModalProveedor, setShowModalProveedor] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -56,6 +59,22 @@ export default function BDCodigos() {
         console.error(e);
       }
     })();
+
+    let abort = false;
+    (async () => {
+      try {
+        const r = await fetch(`${API}/proveedores?limit=200&soloActivos=true`, {
+          credentials: "include",
+        });
+        const json = await r.json().catch(() => ({}));
+        if (!abort) setProveedores(json?.data || []);
+      } catch {
+        if (!abort) setProveedores([]);
+      }
+    })();
+    return () => { abort = true; };
+
+
   }, []);
 
   const nextCode = useMemo(() => {
@@ -134,6 +153,12 @@ export default function BDCodigos() {
         nuevoTipo === "servicio" ? f.grupoServicio || "motor" : "otros",
     }));
     setPage(1);
+  };
+
+  const handleProveedorCreado = (nuevoProveedor) => {
+    setProveedores((prev) => [...prev, nuevoProveedor]);
+    setForm((f) => ({ ...f, proveedor: nuevoProveedor.nombreProveedor || nuevoProveedor.nombre || "" }));
+    setShowModalProveedor(false);
   };
 
   async function guardar() {
@@ -331,12 +356,26 @@ export default function BDCodigos() {
                 {tipo === "refaccion" && (
                   <div className="col-md-4">
                     <label className="form-label">Proveedor:</label>
-                    <input
-                      className="form-control"
+                    <select
+                      className="form-select"
                       name="proveedor"
                       value={form.proveedor}
-                      onChange={onChange}
-                    />
+                      onChange={(e) => {
+                        if (e.target.value === "__nuevo__") {
+                          setShowModalProveedor(true);
+                          return;
+                        }
+                        setForm((f) => ({ ...f, proveedor: e.target.value }));
+                      }}
+                    >
+                      <option value="">— Selecciona —</option>
+                      {proveedores.map((p) => (
+                        <option key={p._id} value={p.nombreProveedor || p.nombre || p.aliasProveedor}>
+                          {p.nombreProveedor || p.nombre || p.aliasProveedor || p.rfc}
+                        </option>
+                      ))}
+                      <option value="__nuevo__">➕ Dar de alta nuevo proveedor...</option>
+                    </select>
                   </div>
                 )}
 
@@ -603,6 +642,14 @@ export default function BDCodigos() {
           </div>
         </div>
       </div>
+      
+      {showModalProveedor && (
+        <ModalAltaProveedor
+          onProveedorCreado={handleProveedorCreado}
+          onClose={() => setShowModalProveedor(false)}
+        />
+      )}
+
     </div>
   );
 }
@@ -611,3 +658,4 @@ function chev(sort, key) {
   if (sort.key !== key) return <span className="text-muted">▲▼</span>;
   return sort.dir === "asc" ? <span>▲</span> : <span>▼</span>;
 }
+
