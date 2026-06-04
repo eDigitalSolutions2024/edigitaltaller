@@ -44,7 +44,18 @@ export default function ConsultarFacturaProveedor() {
     }
   };
 
-  useEffect(() => { fetchData(1, limit); /* carga inicial */ }, []); // eslint-disable-line
+  useEffect(() => { 
+    fetchData(1, limit); /* carga inicial */ 
+  },[]); // eslint-disable-line
+
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchData(1, limit);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [f.numero, f.proveedor, f.q, f.desde, f.hasta]); // eslint-disable-line
+
 
   const reset = () => {
     setF({ numero:"", q:"", proveedor:"", desde:"", hasta:"" });
@@ -63,9 +74,9 @@ export default function ConsultarFacturaProveedor() {
               <label className="form-label">Buscar Número de Factura</label>
               <div className="input-group">
                 <input className="form-control" name="numero" value={f.numero} onChange={onF} />
-                <button className="btn btn-primary" onClick={() => fetchData(1, limit)}>
+                {/* <button className="btn btn-primary" onClick={() => fetchData(1, limit)}>
                   {loading ? "Buscando..." : "Buscar"}
-                </button>
+                </button> */}
               </div>
             </div>
 

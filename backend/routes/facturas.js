@@ -11,32 +11,51 @@ router.get('/facturas-proveedor', async (req, res) => {
 
     const rx = (s) => new RegExp(String(s).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
 
-    const match = { factura: { $nin: [null, ''] } };
-    if (numero)    match.factura   = rx(numero);
-    if (proveedor) match.proveedor = rx(proveedor);
+    const match = { numero: { $nin: [null, ''] } }; // ← era "factura"
+    if (numero)    match.numero     = rx(numero);    // ← era "factura"
     if (desde || hasta) {
-      match.fecha = {};
-      if (desde) match.fecha.$gte = desde;
-      if (hasta) match.fecha.$lte = hasta;
+      match.fechaFactura = {};
+      if (desde) match.fechaFactura.$gte = new Date(desde);  // ✅ convierte a Date
+      if (hasta) {
+        const hastaDate = new Date(hasta);
+        hastaDate.setHours(23, 59, 59, 999);                 // ✅ incluye todo el día
+        match.fechaFactura.$lte = hastaDate;
+      }
     }
     if (q) {
       match.$or = [
-        { factura: rx(q) },
-        { proveedor: rx(q) },
-        { folioRelacionado: rx(q) }
+        { numero: rx(q) },                           // ← era "factura"
+        { proveedorId: rx(q) },                      // ← era "proveedor"
       ];
     }
 
+
+
     const sortStage = sort.startsWith('-') ? { fecha: -1 } : { fecha: 1 };
 
+    
     const pipeline = [
       { $match: match },
       { $group: {
-          _id: { factura: "$factura", proveedor: "$proveedor" },
-          fecha: { $max: "$fecha" },   // última fecha en que se registró esa factura
-        }
-      },
+          _id: { factura: "$numero", proveedor: "$proveedorId" },
+          fecha: { $max: "$fechaFactura" },
+      }},
       { $sort: sortStage },
+      { $lookup: {
+          from: "proveedors",
+          localField: "_id.proveedor",  // ← ya es ObjectId, sin conversión
+          foreignField: "_id",
+          as: "provInfo"
+      }},
+      { $addFields: {
+          proveedorNombre: {
+            $ifNull: [
+              { $arrayElemAt: ["$provInfo.nombreProveedor", 0] },
+              "Sin nombre"
+            ]
+          }
+      }},
+      ...(proveedor ? [{ $match: { proveedorNombre: rx(proveedor) } }] : []),
       { $facet: {
           docs: [
             { $skip: (page-1)*limit },
@@ -44,7 +63,7 @@ router.get('/facturas-proveedor', async (req, res) => {
             { $project: {
                 _id: 0,
                 factura: "$_id.factura",
-                proveedor: "$_id.proveedor",
+                proveedor: "$proveedorNombre",
                 fecha: 1
             }}
           ],
