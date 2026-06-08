@@ -33,6 +33,12 @@ const EntradaInventarioSchema = new mongoose.Schema({
     url: String,
   },
 
+  estado: {
+    type: String,
+    enum: ['borrador', 'finalizada'],
+    default: 'borrador'
+  },
+
   // === Arreglo con los renglones de la tabla ===
   captura: { type: [CapturaSchema], default: [] },
 }, { timestamps: true });
