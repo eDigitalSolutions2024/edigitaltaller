@@ -98,4 +98,19 @@ router.patch('/:entradaId/foto', uploadFactura.single('fotoFactura'), async (req
   }
 });
 
+// 6) Eliminar borrador
+router.delete('/:entradaId', async (req, res) => {
+  try {
+    const entrada = await EntradaInventario.findById(req.params.entradaId);
+    if (!entrada) return res.status(404).json({ success: false, message: 'Entrada no encontrada' });
+    if (entrada.estado !== 'borrador') {
+      return res.status(400).json({ success: false, message: 'Solo se pueden eliminar borradores' });
+    }
+    await entrada.deleteOne();
+    res.json({ success: true, message: 'Borrador eliminado correctamente' });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
 module.exports = router;

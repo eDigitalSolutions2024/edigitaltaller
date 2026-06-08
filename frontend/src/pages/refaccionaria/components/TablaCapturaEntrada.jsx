@@ -1,4 +1,5 @@
   import { useEffect, useMemo, useState } from "react";
+  import { useNavigate } from "react-router-dom";
   import { getUnidadesMedida } from "../../../api/configuracion";
   import ModalAltaCodigo from "./ModalAltaCodigo";
 
@@ -10,6 +11,7 @@
    */
   export default function TablaCapturaEntrada({ entradaId }) {
     const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
+    const navigate = useNavigate();
 
     const [codigos, setCodigos] = useState([]);
     const [rows, setRows] = useState([nuevaFila()]);
@@ -218,9 +220,7 @@
         );
 
         alert("¡Captura guardada correctamente!");
-        window.location.reload();
-        
-        setRows([nuevaFila()]);
+        navigate("/refaccionaria/factura-proveedor");
       } catch (e) {
         console.error(e);
         alert(e.message || "Error al guardar la captura.");

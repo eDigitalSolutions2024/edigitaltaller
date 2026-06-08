@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import http from "../../api/http";
 
-const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
-const fmt = new Intl.DateTimeFormat("es-MX");
+const API    = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
+const SERVER = API.replace(/\/api$/, "");
+const fmt    = new Intl.DateTimeFormat("es-MX");
 
 // ─── Modal para subir foto a una entrada sin fotografía ───────────────────────
 function ModalSubirFoto({ entrada, onClose, onFotoGuardada }) {
@@ -179,6 +180,168 @@ function ModalSubirFoto({ entrada, onClose, onFotoGuardada }) {
   );
 }
 
+function formatCurrency(n) {
+  try { return n.toLocaleString("es-MX", { style: "currency", currency: "MXN" }); }
+  catch { return `$${(n || 0).toFixed(2)}`; }
+}
+
+// ─── Modal ver detalle (solo lectura) ────────────────────────────────────────
+function ModalVerDetalle({ entrada, onClose }) {
+  const proveedor =
+    entrada.proveedorId?.nombreProveedor ||
+    entrada.proveedorId?.nombre ||
+    entrada.proveedorId?.aliasProveedor ||
+    "—";
+
+  function calcTotal(r) {
+    const base = (r.cantidad || 0) * (r.costoUnitario || 0);
+    const conDesc = base * (1 - (r.descuentoPct || 0) / 100);
+    return conDesc * (1 + (r.ivaPct || 0) / 100);
+  }
+
+  const totalGeneral = (entrada.captura || []).reduce((sum, r) => sum + calcTotal(r), 0);
+
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1040 }}
+      />
+      <div
+        style={{
+          position: "fixed", top: "50%", left: "50%",
+          transform: "translate(-50%,-50%)",
+          zIndex: 1050, width: "95%", maxWidth: 1050, maxHeight: "90vh",
+          background: "white", borderRadius: 8,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+          display: "flex", flexDirection: "column", overflow: "hidden",
+        }}
+      >
+        {/* Encabezado del modal */}
+        <div className="d-flex justify-content-between align-items-center p-3 border-bottom">
+          <h5 className="mb-0">Detalle de Factura</h5>
+          <button
+            onClick={onClose}
+            style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", lineHeight: 1 }}
+          >×</button>
+        </div>
+
+        <div style={{ overflowY: "auto", padding: 24 }}>
+          {/* Datos generales */}
+          <div className="row g-3 mb-4">
+            <div className="col-6 col-md-4">
+              <small className="text-muted d-block">Tipo de Comprobante</small>
+              <strong>{entrada.tipoComprobante || "—"}</strong>
+            </div>
+            <div className="col-6 col-md-4">
+              <small className="text-muted d-block">Número de Factura</small>
+              <strong>{entrada.numero || "—"}</strong>
+            </div>
+            <div className="col-6 col-md-4">
+              <small className="text-muted d-block">Fecha</small>
+              <strong>{entrada.fechaFactura ? fmt.format(new Date(entrada.fechaFactura)) : "—"}</strong>
+            </div>
+            <div className="col-6 col-md-4">
+              <small className="text-muted d-block">Proveedor</small>
+              <strong>{proveedor}</strong>
+            </div>
+            <div className="col-6 col-md-4">
+              <small className="text-muted d-block">Moneda</small>
+              <strong>{entrada.moneda || "—"}</strong>
+            </div>
+            <div className="col-6 col-md-4">
+              <small className="text-muted d-block">Forma de Pago</small>
+              <strong>{entrada.formaPago || "—"}</strong>
+            </div>
+            <div className="col-6 col-md-4">
+              <small className="text-muted d-block">Estado</small>
+              <strong>{entrada.estado === "finalizada" ? "🟢 Finalizada" : "🟡 Borrador"}</strong>
+            </div>
+          </div>
+
+          {/* Fotografía de la factura */}
+          {entrada.fotoFactura?.url && (
+            <div className="mb-4">
+              <h6 className="text-uppercase text-muted mb-2">Fotografía de Factura</h6>
+              {entrada.fotoFactura.mimetype === "application/pdf" ? (
+                <iframe
+                  src={`${SERVER}${entrada.fotoFactura.url}`}
+                  title="Factura PDF"
+                  width="100%"
+                  height="400px"
+                  style={{ border: "1px solid #dee2e6", borderRadius: 4 }}
+                />
+              ) : (
+                <img
+                  src={`${SERVER}${entrada.fotoFactura.url}`}
+                  alt="Fotografía de factura"
+                  style={{
+                    maxWidth: "100%",
+                    maxHeight: 400,
+                    objectFit: "contain",
+                    border: "1px solid #dee2e6",
+                    borderRadius: 4,
+                    display: "block",
+                  }}
+                />
+              )}
+            </div>
+          )}
+
+          {/* Tabla de captura */}
+          <h6 className="text-uppercase text-muted mb-2">Detalle de Captura</h6>
+          {(!entrada.captura || entrada.captura.length === 0) ? (
+            <p className="text-muted">Sin renglones de captura registrados.</p>
+          ) : (
+            <div className="table-responsive">
+              <table className="table table-bordered table-sm align-middle">
+                <thead className="table-light">
+                  <tr>
+                    <th>#</th>
+                    <th>Descripción</th>
+                    <th>Tipo</th>
+                    <th>Unidad</th>
+                    <th>Cantidad</th>
+                    <th>Costo Unitario</th>
+                    <th>IVA</th>
+                    <th>Descuento ($)</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entrada.captura.map((c, i) => (
+                    <tr key={c._id || i}>
+                      <td>{i + 1}</td>
+                      <td>{c.descripcion || "—"}</td>
+                      <td>{c.tipo || "—"}</td>
+                      <td>{c.unidad || "—"}</td>
+                      <td>{c.cantidad}</td>
+                      <td>{formatCurrency(c.costoUnitario || 0)}</td>
+                      <td>{c.ivaPct || 0}%</td>
+                      <td>{formatCurrency((c.cantidad || 0) * (c.costoUnitario || 0) * ((c.descuentoPct || 0) / 100))}</td>
+                      <td>{formatCurrency(calcTotal(c))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={8} className="text-end fw-semibold">Total General:</td>
+                    <td className="fw-bold">{formatCurrency(totalGeneral)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="p-3 border-top d-flex justify-content-end">
+          <button className="btn btn-outline-secondary" onClick={onClose}>Cerrar</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function ConsultarFacturaProveedor() {
   const navigate = useNavigate();
@@ -189,7 +352,8 @@ export default function ConsultarFacturaProveedor() {
   const [limit, setLimit]           = useState(10);
   const [totalPages, setTotalPages] = useState(1);
   const [totalDocs, setTotalDocs]   = useState(0);
-  const [entradaFoto, setEntradaFoto] = useState(null);
+  const [entradaFoto, setEntradaFoto]       = useState(null);
+  const [entradaDetalle, setEntradaDetalle] = useState(null);
 
   const [f, setF] = useState({
     numero: "", q: "", proveedor: "", estado: "todos", desde: "", hasta: "",
@@ -233,6 +397,33 @@ export default function ConsultarFacturaProveedor() {
 
   const continuar = (row) => navigate(`/refaccionaria/entrada?id=${row._id}`);
 
+  const verDetalle = async (row) => {
+    try {
+      const r = await fetch(`${API}/entradas/${row._id}`, { credentials: "include" });
+      const json = await r.json().catch(() => ({}));
+      if (!r.ok || !json.success) throw new Error(json?.message || "Error al cargar detalle");
+      setEntradaDetalle(json.data);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const eliminarBorrador = async (row) => {
+    if (!window.confirm(`¿Eliminar el borrador de factura "${row.factura}"?\nEsta acción no se puede deshacer.`)) return;
+    try {
+      const r = await fetch(`${API}/entradas/${row._id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const json = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(json?.message || "Error al eliminar");
+      setRows((prev) => prev.filter((x) => x._id !== row._id));
+      setTotalDocs((prev) => prev - 1);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   const onFotoGuardada = (id) => {
     setRows((prev) =>
       prev.map((r) =>
@@ -258,7 +449,7 @@ export default function ConsultarFacturaProveedor() {
               <input className="form-control" name="proveedor" value={f.proveedor} onChange={onF} />
             </div>
             <div className="col-md-3">
-              <label className="form-label">Estado</label>
+              <label className="form-label">Estado</label>,
               <select className="form-select" name="estado" value={f.estado} onChange={onF}>
                 <option value="todos">Todos</option>
                 <option value="borrador">Borradores</option>
@@ -340,13 +531,24 @@ export default function ConsultarFacturaProveedor() {
                       {r.estado === "finalizada" ? "🟢 Finalizada" : "🟡 Borrador"}
                     </td>
                     <td>
-                      {r.estado === "borrador" ? (
-                        <button className="btn btn-warning btn-sm" onClick={() => continuar(r)}>
-                          Continuar captura
+                      <div className="d-flex flex-wrap gap-1">
+                        {r.estado === "borrador" && (
+                          <button className="btn btn-warning btn-sm" onClick={() => continuar(r)}>
+                            Continuar
+                          </button>
+                        )}
+                        <button className="btn btn-outline-info btn-sm" onClick={() => verDetalle(r)}>
+                          Ver info
                         </button>
-                      ) : (
-                        <span className="text-success fw-semibold">Completada</span>
-                      )}
+                        {r.estado === "borrador" && (
+                          <button className="btn btn-outline-danger btn-sm" onClick={() => eliminarBorrador(r)}>
+                            Eliminar
+                          </button>
+                        )}
+                        {r.estado === "finalizada" && (
+                          <span className="text-success fw-semibold align-self-center small">Completada</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -378,6 +580,14 @@ export default function ConsultarFacturaProveedor() {
           entrada={entradaFoto}
           onClose={() => setEntradaFoto(null)}
           onFotoGuardada={onFotoGuardada}
+        />
+      )}
+
+      {/* Modal ver detalle */}
+      {entradaDetalle && (
+        <ModalVerDetalle
+          entrada={entradaDetalle}
+          onClose={() => setEntradaDetalle(null)}
         />
       )}
     </div>
