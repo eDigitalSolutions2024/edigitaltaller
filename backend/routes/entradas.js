@@ -1,41 +1,100 @@
 const router = require('express').Router();
 const EntradaInventario = require('../models/EntradaInventario');
+const uploadFactura = require('./middleware/uploadFactura');
 
-// 1) Crear SOLO el encabezado (con los campos del formulario)
-router.post('/', async (req, res) => {
+// 1) Crear encabezado de entrada
+router.post('/', uploadFactura.single('fotoFactura'), async (req, res) => {
   try {
-    const {
-      tipoComprobante, numero, moneda, formaPago,
-      proveedorId, fechaFactura, fotoFactura // si lo mandas en JSON
-    } = req.body;
+    const { tipoComprobante, numero, moneda, formaPago, proveedorId, fechaFactura } = req.body;
+
+    let fotoFactura = null;
+    if (req.file) {
+      fotoFactura = {
+        filename: req.file.filename,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        url: `/uploads/facturas/${req.file.filename}`
+      };
+    }
+
+    console.log("Archivo recibido:", req.file);
 
     const entrada = await EntradaInventario.create({
-      tipoComprobante, numero, moneda, formaPago,
-      proveedorId, fechaFactura, fotoFactura
+      tipoComprobante, numero, moneda, formaPago, proveedorId, fechaFactura, fotoFactura
     });
 
-    // Devuelves el _id para usarlo como entradaId en la tabla
     res.status(201).json({ success: true, entradaId: entrada._id });
   } catch (e) {
     res.status(400).json({ success: false, message: e.message });
   }
 });
 
-// 2) Agregar renglón a `captura` (la tabla) usando el id de la entrada
+// 2) Obtener una entrada por _id (para continuar captura de borradores)
+router.get('/:entradaId', async (req, res) => {
+  try {
+    const entrada = await EntradaInventario
+      .findById(req.params.entradaId)
+      .populate('proveedorId', 'nombreProveedor nombre aliasProveedor rfc')
+      .lean();
+
+    if (!entrada) return res.status(404).json({ success: false, message: 'Entrada no encontrada' });
+
+    res.json({ success: true, data: entrada });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
+// 3) Agregar renglón a captura
 router.post('/:entradaId/captura', async (req, res) => {
   try {
-    const { entradaId } = req.params;
-    const renglon = req.body; // {codigoInterno, descripcion, tipo, unidad, cantidad, costoUnitario, ...}
+    const entrada = await EntradaInventario.findById(req.params.entradaId);
+    if (!entrada) return res.status(404).json({ success: false, message: 'Entrada no encontrada' });
 
-    const entrada = await EntradaInventario.findById(entradaId);
-    if (!entrada) return res.status(404).json({ success:false, message:'Entrada no encontrada' });
-
-    entrada.captura.push(renglon);
+    entrada.captura.push(req.body);
     await entrada.save();
 
-    res.status(201).json({ success:true, captura: entrada.captura });
+    res.status(201).json({ success: true, captura: entrada.captura });
   } catch (e) {
-    res.status(400).json({ success:false, message: e.message });
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
+// 4) Finalizar entrada
+router.patch('/:entradaId/finalizar', async (req, res) => {
+  try {
+    const entrada = await EntradaInventario.findById(req.params.entradaId);
+    if (!entrada) return res.status(404).json({ success: false, message: 'Entrada no encontrada' });
+
+    entrada.estado = 'finalizada';
+    await entrada.save();
+
+    res.json({ success: true, message: 'Entrada finalizada' });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
+// ✅ 5) Subir o reemplazar foto de factura en una entrada existente
+router.patch('/:entradaId/foto', uploadFactura.single('fotoFactura'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No se recibió archivo' });
+
+    const entrada = await EntradaInventario.findById(req.params.entradaId);
+    if (!entrada) return res.status(404).json({ success: false, message: 'Entrada no encontrada' });
+
+    entrada.fotoFactura = {
+      filename: req.file.filename,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+      url: `/uploads/facturas/${req.file.filename}`
+    };
+
+    await entrada.save();
+
+    res.json({ success: true, fotoFactura: entrada.fotoFactura });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
   }
 });
 

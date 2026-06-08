@@ -85,15 +85,28 @@
       const unit  = toNum(r.subtotalUnitario);
       const iva   = Number(r.iva) || 0;
       const desc  = toNum(r.costoDescuento);
-      const bruto = qty * unit;
-      const conIva = bruto * (1 + iva);
-      const total = conIva - desc;
+
+      const subtotal = qty * unit;
+      const subtotalConDescuento = subtotal - desc;
+
+      const total = subtotalConDescuento * (1 + iva);
+
       return total > 0 ? total : 0;
     }
 
     function toNum(v) {
       const n = parseFloat(String(v ?? "").replace(/,/g, "."));
       return Number.isFinite(n) ? n : 0;
+    }
+
+    function calcTotalSinIva(r) {
+      const qty  = toNum(r.cantidad);
+      const unit = toNum(r.subtotalUnitario);
+      const desc = toNum(r.costoDescuento);
+
+      const total = (qty * unit) - desc;
+
+      return total > 0 ? total : 0;
     }
 
     function addRow() {
@@ -196,7 +209,17 @@
           }
         }
 
+        await fetch(
+          `${API}/entradas/${entradaId}/finalizar`,
+          {
+            method: "PATCH",
+            credentials: "include"
+          }
+        );
+
         alert("¡Captura guardada correctamente!");
+        window.location.reload();
+        
         setRows([nuevaFila()]);
       } catch (e) {
         console.error(e);
@@ -204,6 +227,9 @@
       } finally {
         setGuardando(false);
       }
+
+      
+      
     }
 
     return (
@@ -220,7 +246,8 @@
                 <th style={{minWidth:140}}>Marca</th>
                 <th style={{minWidth:150}}>SubTotal Unitario</th>
                 <th style={{minWidth:100}}>IVA</th>
-                <th style={{minWidth:150}}>Total</th>
+                <th style={{minWidth:150}}>Total sin IVA</th>
+                <th style={{minWidth:150}}>Total con IVA</th>
                 <th style={{minWidth:150}}>Costo Descuento</th>
                 {/* <th style={{minWidth:170}}>P.Venta Refa Unitario</th>  ❌ */}
                 {/* <th style={{minWidth:170}}>P.Venta Refa Pesos</th>    ❌ */}
@@ -325,7 +352,21 @@
                   </td>
 
                   <td>
-                    <input type="text" className="form-control" value={formatCurrency(calcTotalLinea(r))} readOnly />
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={formatCurrency(calcTotalSinIva(r))}
+                      readOnly
+                    />
+                  </td>
+
+                  <td>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={formatCurrency(calcTotalLinea(r))}
+                      readOnly
+                    />
                   </td>
 
                   <td>
@@ -357,7 +398,7 @@
             <tfoot>
               <tr>
                 {/* Antes era 8; ahora hay 7 columnas antes del Total */}
-                <td colSpan={7} />
+                <td colSpan={8} />
                 <td><div className="fw-semibold">{formatCurrency(totalGeneral)}</div></td>
                 {/* Después del Total quedan 3 columnas (Costo desc, OS, Acción) */}
                 <td colSpan={3} />
