@@ -23,6 +23,7 @@ const CodigoSchema = new mongoose.Schema({
   numeroParte:  { type: String, required: true, trim: true },
   descripcion:  { type: String, trim: true },
   marca:        { type: String, trim: true },
+  proveedor:    { type: String, trim: true, default: "" },
 
   
   // Datos SAT para facturación
@@ -44,6 +45,7 @@ CodigoSchema.index({
   descripcion: 'text',
   numeroParte: 'text',
   marca: 'text',
+  proveedor: 'text',
   codigoSat: 'text',
   descripcionSat: 'text',
 });

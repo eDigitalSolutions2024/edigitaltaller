@@ -44,7 +44,7 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
 
   const [editingRefIdx, setEditingRefIdx] = useState(null);
 
-  // Carga inicial desde la orden
+  // Carga inicial desde la orden — solo cuando cambia el ID de la orden, no en cada re-render
   useEffect(() => {
     if (!orden) return;
 
@@ -83,7 +83,7 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
     // Cargos en orden (lo que ya viene del backend)
     setCargos(orden.cargosEnOrden || []);
     setMoRows(orden.manoObra || []);
-  }, [orden]);
+  }, [orden?._id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const cargarEmpleados = async () => {

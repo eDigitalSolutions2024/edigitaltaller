@@ -6,6 +6,105 @@ import {
 } from "../../api/vehiculos";
 import { getUnidadesMedida } from "../../api/configuracion";
 
+const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
+
+// ─── Modal selección de código ────────────────────────────────────────────────
+function ModalSeleccionarCodigo({ onSelect, onClose }) {
+  const [codigos, setCodigos]   = useState([]);
+  const [busqueda, setBusqueda] = useState("");
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    // Migración silenciosa: rellena proveedores de códigos usando historial de entradas
+    fetch(`${API}/entradas/migrate-codigos-proveedor`, { method: "POST", credentials: "include" })
+      .catch(() => {})
+      .finally(() => {
+        fetch(`${API}/codigos`, { credentials: "include" })
+          .then((r) => r.json())
+          .then((j) => setCodigos(j?.data || j || []))
+          .catch(() => setCodigos([]))
+          .finally(() => setCargando(false));
+      });
+  }, []);
+
+  const filtrados = codigos.filter((c) => {
+    const q = busqueda.toLowerCase();
+    return (
+      (c.numeroParte || c.codigo || "").toLowerCase().includes(q) ||
+      (c.descripcion || "").toLowerCase().includes(q) ||
+      (c.proveedor    || "").toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1040 }}
+      />
+      <div
+        style={{
+          position: "fixed", top: "50%", left: "50%",
+          transform: "translate(-50%,-50%)",
+          zIndex: 1050, width: "90%", maxWidth: 720, maxHeight: "80vh",
+          background: "white", borderRadius: 8,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+          display: "flex", flexDirection: "column", overflow: "hidden",
+        }}
+      >
+        <div className="d-flex justify-content-between align-items-center p-3 border-bottom">
+          <h5 className="mb-0">Seleccionar Código</h5>
+          <button
+            onClick={onClose}
+            style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", lineHeight: 1 }}
+          >×</button>
+        </div>
+
+        <div className="p-3 border-bottom">
+          <input
+            autoFocus
+            className="form-control"
+            placeholder="Buscar por número de parte, descripción o proveedor..."
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+          />
+        </div>
+
+        <div style={{ overflowY: "auto", flex: 1 }}>
+          {cargando ? (
+            <div className="text-center py-4 text-muted">Cargando códigos...</div>
+          ) : filtrados.length === 0 ? (
+            <div className="text-center py-4 text-muted">Sin resultados</div>
+          ) : (
+            <table className="table table-hover table-sm mb-0">
+              <thead className="table-light" style={{ position: "sticky", top: 0 }}>
+                <tr>
+                  <th>Número de Parte</th>
+                  <th>Descripción</th>
+                  <th>Proveedor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtrados.map((c) => (
+                  <tr key={c._id} style={{ cursor: "pointer" }} onClick={() => onSelect(c)}>
+                    <td>{c.numeroParte || c.codigo || "—"}</td>
+                    <td>{c.descripcion || "—"}</td>
+                    <td>{c.proveedor   || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="p-3 border-top d-flex justify-content-end">
+          <button className="btn btn-outline-secondary" onClick={onClose}>Cancelar</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function SolicitudTallerDetalle() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -14,7 +113,8 @@ export default function SolicitudTallerDetalle() {
   const [refacciones, setRefacciones] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [unidades, setUnidades] = useState([]);
+  const [unidades, setUnidades]               = useState([]);
+  const [modalCodigoIndex, setModalCodigoIndex] = useState(null);
 
   useEffect(() => {
     getUnidadesMedida()
@@ -119,6 +219,24 @@ export default function SolicitudTallerDetalle() {
         i === index ? { ...item, [field]: value } : item
       )
     );
+  };
+
+  const seleccionarCodigo = (codigo) => {
+    const idx = modalCodigoIndex;
+    setRefacciones((prev) =>
+      prev.map((item, i) => {
+        if (i !== idx) return item;
+        return {
+          ...item,
+          nuevaOpcion: {
+            ...item.nuevaOpcion,
+            codigo:    codigo.numeroParte || codigo.codigo || "",
+            proveedor: codigo.proveedor   || item.nuevaOpcion?.proveedor || "",
+          },
+        };
+      })
+    );
+    setModalCodigoIndex(null);
   };
 
   const cambiarNuevaOpcion = (index, field, value) => {
@@ -502,7 +620,10 @@ export default function SolicitudTallerDetalle() {
                         <input
                           className="form-control form-control-sm"
                           value={item.nuevaOpcion?.codigo || ""}
-                          onChange={(e) => cambiarNuevaOpcion(index, "codigo", e.target.value)}
+                          readOnly
+                          placeholder="Clic para seleccionar..."
+                          style={{ cursor: "pointer", backgroundColor: "#fff" }}
+                          onClick={() => setModalCodigoIndex(index)}
                         />
                       </td>
                       <td>
@@ -649,6 +770,12 @@ export default function SolicitudTallerDetalle() {
           </div>
         </div>
       </div>
+      {modalCodigoIndex !== null && (
+        <ModalSeleccionarCodigo
+          onSelect={seleccionarCodigo}
+          onClose={() => setModalCodigoIndex(null)}
+        />
+      )}
     </div>
   );
 }

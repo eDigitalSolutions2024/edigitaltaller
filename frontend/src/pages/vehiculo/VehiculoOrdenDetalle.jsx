@@ -25,6 +25,15 @@ export default function VehiculoOrdenDetalle() {
   const [tab, setTab] = useState(initialTab); // 'datos' | 'servicio' | 'req' | 'presupuesto' | 'general'
   const ordenIniciada = !!orden?.ordenIniciada;
 
+  const ESTADOS_PRESUPUESTO = [
+    "PENDIENTE_AUTORIZACION_CLIENTE",
+    "PENDIENTE_SURTIR",
+    "PENDIENTE_CIERRE",
+    "PENDIENTE_CERRAR",
+  ];
+  const presupuestoHabilitado =
+    ordenIniciada && ESTADOS_PRESUPUESTO.includes(orden?.estadoOrden);
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -122,8 +131,8 @@ export default function VehiculoOrdenDetalle() {
           </li>
         )}
 
-        {/* Presupuesto y Venta al Cliente: también solo si está iniciada */}
-        {ordenIniciada && (
+        {/* Presupuesto y Venta al Cliente: solo después de pulsar "Continuar a Presupuesto" */}
+        {presupuestoHabilitado && (
           <li className="nav-item">
             <button
               className={"nav-link" + (tab === "presupuesto" ? " active" : "")}
@@ -135,9 +144,9 @@ export default function VehiculoOrdenDetalle() {
           </li>
         )}
 
-        {/* General: habilitada, Calidad escondida */}
+        {/* General: separado a la derecha para no confundir con los pasos */}
         {ordenIniciada && (
-          <li className="nav-item">
+          <li className="nav-item ms-auto">
             <button
               className={"nav-link" + (tab === "general" ? " active" : "")}
               type="button"
