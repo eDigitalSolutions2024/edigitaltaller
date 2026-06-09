@@ -1,40 +1,19 @@
 // src/pages/refaccionaria/components/ModalAltaCodigo.jsx
-import { useEffect, useState } from "react";
-import ModalAltaProveedor from "./ModalAltaProveedor";
+import { useState } from "react";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 
 export default function ModalAltaCodigo({ onCodigoCreado, onClose }) {
   const [tipo, setTipo] = useState("refaccion");
   const [loading, setLoading] = useState(false);
-  const [proveedores, setProveedores] = useState([]);
-  const [showModalProveedor, setShowModalProveedor] = useState(false);
 
   const [form, setForm] = useState({
     numeroParte: "",
     descripcion: "",
-    proveedor: "",
     grupoServicio: "otros",
     codigoSat: "",
     descripcionSat: "",
   });
-
-  // Cargar proveedores
-  useEffect(() => {
-    let abort = false;
-    (async () => {
-      try {
-        const r = await fetch(`${API}/proveedores?limit=200&soloActivos=true`, {
-          credentials: "include",
-        });
-        const json = await r.json().catch(() => ({}));
-        if (!abort) setProveedores(json?.data || []);
-      } catch {
-        if (!abort) setProveedores([]);
-      }
-    })();
-    return () => { abort = true; };
-  }, []);
 
   const onChange = (e) => {
     const { name, value } = e.target;
@@ -46,14 +25,7 @@ export default function ModalAltaCodigo({ onCodigoCreado, onClose }) {
     setForm((f) => ({
       ...f,
       grupoServicio: nuevoTipo === "servicio" ? "motor" : "otros",
-      proveedor: "",
     }));
-  };
-
-  const handleProveedorCreado = (nuevoProveedor) => {
-    setProveedores((prev) => [...prev, nuevoProveedor]);
-    setForm((f) => ({ ...f, proveedor: nuevoProveedor.nombreProveedor || nuevoProveedor.nombre || "" }));
-    setShowModalProveedor(false);
   };
 
   const guardar = async () => {
@@ -68,7 +40,6 @@ export default function ModalAltaCodigo({ onCodigoCreado, onClose }) {
         codigo: form.numeroParte.trim(),
         numeroParte: form.numeroParte.trim(),
         descripcion: form.descripcion.trim(),
-        proveedor: tipo === "servicio" ? "" : form.proveedor.trim(),
         codigoSat: form.codigoSat.trim(),
         descripcionSat: form.descripcionSat.trim(),
         ...(tipo === "servicio" && { grupoServicio: form.grupoServicio || "otros" }),
@@ -174,33 +145,6 @@ export default function ModalAltaCodigo({ onCodigoCreado, onClose }) {
                   />
                 </div>
 
-                {/* Proveedor — solo refacciones */}
-                {tipo === "refaccion" && (
-                  <div className="col-md-6">
-                    <label className="form-label">Proveedor</label>
-                    <select
-                      className="form-select"
-                      name="proveedor"
-                      value={form.proveedor}
-                      onChange={(e) => {
-                        if (e.target.value === "__nuevo__") {
-                          setShowModalProveedor(true);
-                          return;
-                        }
-                        setForm((f) => ({ ...f, proveedor: e.target.value }));
-                      }}
-                    >
-                      <option value="">— Selecciona —</option>
-                      {proveedores.map((p) => (
-                        <option key={p._id} value={p.nombreProveedor || p.nombre || p.aliasProveedor}>
-                          {p.nombreProveedor || p.nombre || p.aliasProveedor || p.rfc}
-                        </option>
-                      ))}
-                      <option value="__nuevo__">➕ Dar de alta nuevo proveedor...</option>
-                    </select>
-                  </div>
-                )}
-
                 {/* Grupo de servicio — solo servicios */}
                 {tipo === "servicio" && (
                   <div className="col-md-6">
@@ -276,13 +220,6 @@ export default function ModalAltaCodigo({ onCodigoCreado, onClose }) {
           </div>
         </div>
       </div>
-
-      {showModalProveedor && (
-        <ModalAltaProveedor
-          onProveedorCreado={handleProveedorCreado}
-          onClose={() => setShowModalProveedor(false)}
-        />
-      )}
 
     </>
   );

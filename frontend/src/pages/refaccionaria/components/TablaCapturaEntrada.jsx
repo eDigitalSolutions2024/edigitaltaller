@@ -135,7 +135,6 @@
     }
 
     const handleCodigoCreado = (nuevoCodigo) => {
-      // ✅ Mapea al mismo formato que el fetch de /codigos
       const nuevoItem = {
         _id: nuevoCodigo._id,
         numeroParte: nuevoCodigo.numeroParte || nuevoCodigo.codigo || "",
@@ -145,8 +144,20 @@
       };
       setCodigos((prev) => [...prev, nuevoItem]);
 
+      // Actualiza la fila directamente con los datos del código recién creado
+      // (no llamamos onSelectProducto porque codigos aún no tiene el nuevo item en este render)
       if (filaModalCodigo !== null) {
-        onSelectProducto(filaModalCodigo, nuevoCodigo._id);
+        const i = filaModalCodigo;
+        setRows((prev) => {
+          const copia = [...prev];
+          copia[i] = {
+            ...copia[i],
+            codigoInterno: nuevoCodigo._id,
+            descripcion: nuevoCodigo.descripcion || "",
+            marca: nuevoCodigo.proveedor || "",
+          };
+          return copia;
+        });
       }
       setShowModalCodigo(false);
       setFilaModalCodigo(null);

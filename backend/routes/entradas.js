@@ -1,6 +1,48 @@
 const router = require('express').Router();
+const mongoose = require('mongoose');
 const EntradaInventario = require('../models/EntradaInventario');
+const CodigoRefaccion  = require('../models/CodigoRefaccion');
 const uploadFactura = require('./middleware/uploadFactura');
+
+// 0) Migración retroactiva: rellena proveedor en BDCodigos a partir de entradas finalizadas
+router.post('/migrate-codigos-proveedor', async (req, res) => {
+  try {
+    const entradas = await EntradaInventario
+      .find({ estado: 'finalizada' })
+      .populate('proveedorId', 'nombreProveedor nombre aliasProveedor')
+      .lean();
+
+    let actualizados = 0;
+
+    for (const entrada of entradas) {
+      const nombreProveedor =
+        entrada.proveedorId?.nombreProveedor ||
+        entrada.proveedorId?.nombre         ||
+        entrada.proveedorId?.aliasProveedor  || '';
+
+      if (!nombreProveedor) continue;
+
+      const ids = [...new Set(
+        (entrada.captura || [])
+          .map(c => c.codigoInterno)
+          .filter(id => id && mongoose.isValidObjectId(id))
+      )];
+
+      if (!ids.length) continue;
+
+      const result = await CodigoRefaccion.updateMany(
+        { _id: { $in: ids }, $or: [{ proveedor: '' }, { proveedor: { $exists: false } }] },
+        { $set: { proveedor: nombreProveedor } }
+      );
+
+      actualizados += result.modifiedCount || 0;
+    }
+
+    res.json({ success: true, actualizados });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
 
 // 1) Crear encabezado de entrada
 router.post('/', uploadFactura.single('fotoFactura'), async (req, res) => {
@@ -39,6 +81,24 @@ router.get('/:entradaId', async (req, res) => {
 
     if (!entrada) return res.status(404).json({ success: false, message: 'Entrada no encontrada' });
 
+    // Rellenar descripcion vacía desde BDCodigos usando codigoInterno
+    const sinDesc = (entrada.captura || []).filter(
+      c => c.codigoInterno && !c.descripcion && mongoose.isValidObjectId(c.codigoInterno)
+    );
+
+    if (sinDesc.length > 0) {
+      const ids = [...new Set(sinDesc.map(c => c.codigoInterno))];
+      const codigos = await CodigoRefaccion.find({ _id: { $in: ids } }).lean();
+      const mapa = Object.fromEntries(codigos.map(c => [c._id.toString(), c]));
+
+      entrada.captura = entrada.captura.map(c => {
+        if (c.codigoInterno && !c.descripcion && mapa[c.codigoInterno]) {
+          return { ...c, descripcion: mapa[c.codigoInterno].descripcion || '' };
+        }
+        return c;
+      });
+    }
+
     res.json({ success: true, data: entrada });
   } catch (e) {
     res.status(400).json({ success: false, message: e.message });
@@ -63,11 +123,36 @@ router.post('/:entradaId/captura', async (req, res) => {
 // 4) Finalizar entrada
 router.patch('/:entradaId/finalizar', async (req, res) => {
   try {
-    const entrada = await EntradaInventario.findById(req.params.entradaId);
+    const entrada = await EntradaInventario
+      .findById(req.params.entradaId)
+      .populate('proveedorId', 'nombreProveedor nombre aliasProveedor');
+
     if (!entrada) return res.status(404).json({ success: false, message: 'Entrada no encontrada' });
 
     entrada.estado = 'finalizada';
     await entrada.save();
+
+    // Auto-asignar proveedor en BDCodigos usando el proveedor de esta entrada
+    const nombreProveedor =
+      entrada.proveedorId?.nombreProveedor ||
+      entrada.proveedorId?.nombre ||
+      entrada.proveedorId?.aliasProveedor || '';
+
+    if (nombreProveedor) {
+      const ids = [...new Set(
+        (entrada.captura || [])
+          .map(c => c.codigoInterno)
+          .filter(id => id && mongoose.isValidObjectId(id))
+      )];
+
+      if (ids.length > 0) {
+        // Solo actualiza los que aún no tienen proveedor asignado
+        await CodigoRefaccion.updateMany(
+          { _id: { $in: ids }, $or: [{ proveedor: '' }, { proveedor: { $exists: false } }] },
+          { $set: { proveedor: nombreProveedor } }
+        );
+      }
+    }
 
     res.json({ success: true, message: 'Entrada finalizada' });
   } catch (e) {
