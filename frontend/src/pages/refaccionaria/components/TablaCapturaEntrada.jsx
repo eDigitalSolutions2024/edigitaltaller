@@ -61,7 +61,7 @@
         // codigoProveedor:  // ❌ eliminado
         marca: "",
         subtotalUnitario: "",
-        iva: 0.16,
+        iva: 0.08,
         total: 0,
         costoDescuento: "",
         // pvUnitario: "",   // ❌ eliminado
@@ -231,7 +231,7 @@
         );
 
         alert("¡Captura guardada correctamente!");
-        navigate("/refaccionaria/factura-proveedor");
+        navigate(0);
       } catch (e) {
         console.error(e);
         alert(e.message || "Error al guardar la captura.");
@@ -263,7 +263,6 @@
                 {/* <th style={{minWidth:170}}>P.Venta Refa Unitario</th>  ❌ */}
                 {/* <th style={{minWidth:170}}>P.Venta Refa Pesos</th>    ❌ */}
                 {/*<th style={{minWidth:160}}>Orden Servicio</th>❌ */}
-                <th style={{minWidth:110}}>Acción</th>
               </tr>
             </thead>
 
@@ -398,27 +397,29 @@
                     />
                   </td>*/}
 
-                  <td className="text-nowrap">
-                    <button type="button" className="btn btn-outline-primary btn-sm me-2" onClick={addRow}>＋</button>
-                    <button type="button" className="btn btn-outline-danger btn-sm" onClick={() => removeRow(i)}>—</button>
-                  </td>
                 </tr>
               ))}
             </tbody>
 
             <tfoot>
               <tr>
-                {/* Antes era 8; ahora hay 7 columnas antes del Total */}
                 <td colSpan={8} />
                 <td><div className="fw-semibold">{formatCurrency(totalGeneral)}</div></td>
-                {/* Después del Total quedan 3 columnas (Costo desc, OS, Acción) */}
-                <td colSpan={3} />
+                <td />
               </tr>
             </tfoot>
           </table>
         </div>
 
-        <div className="card-footer bg-white d-flex justify-content-end gap-2">
+        <div className="card-footer bg-white d-flex justify-content-between align-items-center gap-2">
+          <div className="d-flex gap-2">
+            <button type="button" className="btn btn-success" onClick={addRow} title="Agregar fila">
+              ＋ Agregar fila
+            </button>
+            <button type="button" className="btn btn-outline-danger" onClick={() => removeRow(rows.length - 1)} title="Eliminar última fila" disabled={rows.length <= 1}>
+              — Eliminar última
+            </button>
+          </div>
           <button type="button" className="btn btn-primary" disabled={guardando} onClick={guardar}>
             {guardando ? "Guardando..." : "Finalizar Captura"}
           </button>
