@@ -481,9 +481,43 @@ router.put('/:id/presupuesto-venta', async (req, res) => {
         inventarioResult = { autoSurtidas, pendientesSurtir };
       } else {
         vehiculo.estadoOrden = estadoOrden;
+
+        // Al pasar a REPARACION_EN_CURSO directamente (p.ej. desde "Imprimir Venta Cliente"),
+        // descontar del inventario las partidas autorizadas que aún no fueron surtidas.
+        if (estadoOrden === 'REPARACION_EN_CURSO') {
+          const noSurtidas = (vehiculo.presupuesto || []).filter(
+            p => p.autorizado && p.codigo && !p.surtida
+          );
+
+          if (noSurtidas.length > 0) {
+            // Guardar codigoInterno como STRING (igual que EntradaInventario y salidas.js)
+            // para que el $group del aggregate los una correctamente.
+            const partidas = noSurtidas.map(p => ({
+              codigoInterno: String(p.codigo),
+              descripcion:   (p.refaccion || p.concepto || '').trim(),
+              marca:         (p.marca || '').trim(),
+              unidad:        'Pieza',
+              cantidad:      Number(p.cant) || 1,
+            }));
+
+            await SalidaInventario.create({
+              fechaSalida:   new Date(),
+              ordenServicio: vehiculo.ordenServicio || '',
+              partidas,
+              estatus:       'cerrada',
+            });
+
+            // Marcar como surtidas para evitar doble descuento
+            for (const p of vehiculo.presupuesto) {
+              if (p.autorizado && p.codigo && !p.surtida) {
+                p.surtida = true;
+              }
+            }
+          }
+        }
       }
     }
-    
+
     if (
       accionCotizacion === 'ENVIAR_COTIZACION' &&
       Array.isArray(presupuesto) &&

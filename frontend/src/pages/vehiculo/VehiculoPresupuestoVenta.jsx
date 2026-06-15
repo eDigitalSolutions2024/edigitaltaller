@@ -10,7 +10,7 @@ import {
 import { fetchServiciosTaller } from "../../api/codigos";
 import http from "../../api/http";
 
-export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
+export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparacion }) {
   const navigate = useNavigate();
 
   // Encabezado
@@ -436,9 +436,13 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
 
   const handleImprimirVentaCliente = async () => {
     try {
-      const res = await savePresupuestoVenta(orden._id, buildPayload());
+      const res = await savePresupuestoVenta(
+        orden._id,
+        buildPayload({ estadoOrden: "REPARACION_EN_CURSO" })
+      );
       if (onSaved) onSaved(res.data.vehiculo);
       openVentaClientePdf(orden._id);
+      if (onGoPreparacion) onGoPreparacion();
     } catch (err) {
       console.error(err);
       alert("Error al preparar el PDF de venta al cliente.");

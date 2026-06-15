@@ -195,8 +195,8 @@ export default function VehiculoNuevoForm({
     const esParticular = cliente.tipoCliente === "Particular";
     const requiereFactura = cliente.requiereFacturacion === true;
 
-    const tel = cliente.telefono || {};
-    const cel = cliente.celular || {};
+    const tel = (cliente.telefonos || [])[0] || {};
+    const cel = (cliente.celulares || [])[0] || {};
     const dir = cliente?.requiereFacturacion
     ? cliente.facturacion?.direccion || {}
     : cliente.direccion || {};
