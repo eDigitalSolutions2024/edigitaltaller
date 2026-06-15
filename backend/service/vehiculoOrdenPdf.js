@@ -79,18 +79,6 @@ function buildList(items = []) {
 function buildOrdenHtml(vehiculo, serviciosDocs = []) {
   const {
     ordenServicio,
-    nombreGobierno,
-    rfc,
-    telefonoFijo,
-    celular,
-    direccion,
-    numeroExt,
-    numeroInt,
-    colonia,
-    ciudad,
-    estado,
-    correo,
-    grua,
     marca,
     modelo,
     anio,
@@ -101,6 +89,11 @@ function buildOrdenHtml(vehiculo, serviciosDocs = []) {
     nacionalidad,
     motor,
     numeroEconomico,
+    diagnosticoTecnico,
+  } = vehiculo;
+
+  const {
+    grua,
     checkEngine,
     abs,
     airBag,
@@ -110,8 +103,24 @@ function buildOrdenHtml(vehiculo, serviciosDocs = []) {
     observaciones,
     indicadoresTablero,
     otros,
-    diagnosticoTecnico,
-  } = vehiculo;
+  } = vehiculo.inspeccionFisica || {};
+
+  const c = vehiculo.cliente || {};
+  const gob = c.gobierno || {};
+  const tel = (c.telefonos || [])[0] || {};
+  const cel = (c.celulares || [])[0] || {};
+  const dir = c.direccion || {};
+  const nombreGobierno = gob.nombreGobierno || [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ') || '';
+  const rfc = c.rfc || '';
+  const telefonoFijo = [tel.lada, tel.numero].filter(Boolean).join(' ');
+  const celular = [cel.lada, cel.numero].filter(Boolean).join(' ');
+  const direccion = dir.calle || '';
+  const numeroExt = dir.numeroExterior || '';
+  const numeroInt = dir.numeroInterior || '';
+  const colonia = dir.colonia || '';
+  const ciudad = dir.ciudad || '';
+  const estado = dir.estado || '';
+  const correo = (c.emails || [])[0] || '';
 
   const servicioReparacion = vehiculo.servicioReparacion || {};
   const infoLlantas = servicioReparacion.infoLlantas || '';

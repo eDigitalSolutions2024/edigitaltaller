@@ -31,25 +31,24 @@ const escapeHtml = (value = '') =>
     .replaceAll("'", '&#039;');
 
 const nombreCliente = (orden) => {
-  if (orden.nombreGobierno) return orden.nombreGobierno;
-  const nombre = [orden.nombreCliente, orden.apellidoPaterno, orden.apellidoMaterno]
-    .filter(Boolean)
-    .join(' ');
-  return nombre || orden.cliente?.nombre || 'N/A';
+  const c = orden.cliente || {};
+  if (c.gobierno?.nombreGobierno) return c.gobierno.nombreGobierno;
+  const nombre = [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ');
+  return nombre || 'N/A';
 };
 
-
 const telefono = (orden) => {
-  const fijo = [orden.telefonoFijoLada, orden.telefonoFijo].filter(Boolean).join('');
-  const cel = [orden.celularLada, orden.celular].filter(Boolean).join('');
-  return fijo || cel || 'N/A';
+  const c = orden.cliente || {};
+  const tel = (c.telefonos || [])[0] || {};
+  const cel = (c.celulares || [])[0] || {};
+  const fijo = [tel.lada, tel.numero].filter(Boolean).join('');
+  const celular = [cel.lada, cel.numero].filter(Boolean).join('');
+  return fijo || celular || 'N/A';
 };
 
 const correos = (orden) => {
-  if (Array.isArray(orden.correos) && orden.correos.length) {
-    return orden.correos.filter(Boolean).join(', ');
-  }
-  return orden.correo || ''; // compatibilidad con órdenes antiguas
+  const c = orden.cliente || {};
+  return (c.emails || []).filter(Boolean).join(', ');
 };
 
 exports.generarPresupuestoPDF = async (res, orden) => {
@@ -88,7 +87,8 @@ exports.generarPresupuestoPDF = async (res, orden) => {
     const iva = subtotal * 0.08;
     const totalFinal = subtotal + iva;
 
-    const direccion = [orden.direccion, orden.numeroExt, orden.numeroInt, orden.colonia]
+    const dir = (orden.cliente || {}).direccion || {};
+    const direccion = [dir.calle, dir.numeroExterior, dir.numeroInterior, dir.colonia]
       .filter(Boolean)
       .join(' ');
 
@@ -318,11 +318,11 @@ exports.generarPresupuestoPDF = async (res, orden) => {
     </tr>
     <tr>
       <td class="label">RFC:</td>
-      <td>${escapeHtml(orden.rfc || '')}</td>
+      <td>${escapeHtml((orden.cliente || {}).rfc || '')}</td>
       <td class="label">TELEFONO</td>
       <td>${escapeHtml(telefono(orden))}</td>
       <td class="label">CELULAR</td>
-      <td>${escapeHtml(orden.celular || '')}</td>
+      <td>${escapeHtml(((orden.cliente || {}).celulares || [])[0]?.numero || '')}</td>
     </tr>
     <tr>
       <td class="label">DIRECCION:</td>

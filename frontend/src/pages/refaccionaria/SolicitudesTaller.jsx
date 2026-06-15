@@ -47,19 +47,9 @@ export default function SolicitudesTaller() {
 
 
   const nombreCliente = (orden) => {
-    if (orden.cliente?.nombre) return orden.cliente.nombre;
-
-    return (
-      [
-        orden.nombreCliente,
-        orden.apellidoPaterno,
-        orden.apellidoMaterno,
-      ]
-        .filter(Boolean)
-        .join(" ") ||
-      orden.nombreGobierno ||
-      "Sin cliente"
-    );
+    const c = orden.cliente || {};
+    if (c.gobierno?.nombreGobierno) return c.gobierno.nombreGobierno;
+    return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") || "Sin cliente";
   };
 
   const descripcionVehiculo = (orden) =>

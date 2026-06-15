@@ -94,39 +94,44 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
     } else {
       // Construir desde refacciones aprobadas
       const refParaPresupuesto = (orden.refaccionesSolicitadas || []).filter(
-        (r) =>
-          r.estatus === "APROBADA" &&
-          r.opcionSeleccionada !== null &&
-          r.opcionSeleccionada !== undefined &&
-          Number(r.precioUnitario || 0) > 0
+        (r) => {
+          const op = r.opciones?.[r.opcionSeleccionada] || {};
+          return (
+            r.estatus === "APROBADA" &&
+            r.opcionSeleccionada !== null &&
+            r.opcionSeleccionada !== undefined &&
+            Number(op.precioUnitario || 0) > 0
+          );
+        }
       );
 
       setPresRows(
         refParaPresupuesto.map((r) => {
+          const op = r.opciones?.[r.opcionSeleccionada] || {};
           const cant = Number(r.cant || 0);
-          const precioUnitario = Number(r.precioUnitario || 0);
-          const importeTotal = Number(r.importeTotal || 0);
-          const moneda = r.moneda || "MN";
-          const tipoCambio = moneda === "USD" ? Number(r.tipoCambio || 0) : 0;
+          const precioUnitario = Number(op.precioUnitario || 0);
+          const importeTotal = Number(op.importeTotal || 0);
+          const moneda = op.moneda || "MN";
+          const tipoCambio = moneda === "USD" ? Number(op.tipoCambio || 0) : 0;
           const precioCompraMXN =
             moneda === "USD" ? importeTotal / (cant || 1) : precioUnitario;
 
           return {
             cant,
-            concepto: r.concepto || r.refaccion || r.descripcion || "",
+            concepto: r.refaccion || "",
             refaccion: r.refaccion || "",
-            tipo: r.tipo || "",
-            marca: r.marca || "",
-            proveedor: r.proveedor || "",
-            codigo: r.codigo || "",
+            tipo: op.tipo || "",
+            marca: op.marca || "",
+            proveedor: op.proveedor || "",
+            codigo: op.codigo || "",
             precioOriginal: precioUnitario,
             moneda,
             tipoCambio,
             precioCompra: precioCompraMXN,
-            tiempoEntrega: r.tiempoEntrega ?? "",
+            tiempoEntrega: op.tiempoEntrega ?? "",
             horasMO: 0,
             precioVenta: precioCompraMXN,
-            observInt: r.observaciones ?? "",
+            observInt: op.observaciones ?? "",
             autorizado: false,
           };
         })
@@ -287,7 +292,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
     const nuevasVentas = autorizadas.map((r) => ({
       cant: r.cant,
       concepto: r.concepto || r.refaccion || "",
-      precioVenta: "",
+      precioVenta: r.precioVenta || "",
       observaciones: "",
       codigoServicio: "",
       descripcionServicio: "",
@@ -297,7 +302,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
 
     setVentaRows(nuevasVentas);
 
-    // 👇 guarda y cambia estado a PENDIENTE_SURTIR
+    // guarda, verifica inventario y cambia estado
     try {
       const res = await savePresupuestoVenta(
         orden._id,
@@ -308,7 +313,25 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved }) {
         })
       );
       if (onSaved) onSaved(res.data.vehiculo);
-      alert(`${autorizadas.length} partida(s) enviada(s) a Venta al Cliente.`);
+
+      const inv = res.data.inventario;
+      if (inv) {
+        if (inv.pendientesSurtir === 0 && inv.autoSurtidas > 0) {
+          alert(
+            `${autorizadas.length} partida(s) enviada(s) a Venta al Cliente.\n` +
+            `✅ ${inv.autoSurtidas} partida(s) cubiertas desde inventario. La orden avanzó a Reparación en Curso.`
+          );
+        } else if (inv.autoSurtidas > 0) {
+          alert(
+            `${autorizadas.length} partida(s) enviada(s) a Venta al Cliente.\n` +
+            `✅ ${inv.autoSurtidas} cubiertas desde inventario. ⏳ ${inv.pendientesSurtir} pendiente(s) de surtir manualmente.`
+          );
+        } else {
+          alert(`${autorizadas.length} partida(s) enviada(s) a Venta al Cliente. Pendientes de surtir.`);
+        }
+      } else {
+        alert(`${autorizadas.length} partida(s) enviada(s) a Venta al Cliente.`);
+      }
     } catch (err) {
       console.error(err);
       alert("Error al enviar a venta.");

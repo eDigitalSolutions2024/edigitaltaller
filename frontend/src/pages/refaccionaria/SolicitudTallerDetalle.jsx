@@ -133,16 +133,14 @@ export default function SolicitudTallerDetalle() {
         (vehiculo?.refaccionesSolicitadas || []).map((item) => ({
           ...item,
           cant: Number(item.cant || 0),
-          unidad: item.unidad || "",
           refaccion: item.refaccion || "",
-          observaciones: item.observaciones || "",
           estatus: item.estatus || "PENDIENTE",
           opcionSeleccionada:
             item.opcionSeleccionada === undefined ? null : item.opcionSeleccionada,
           opciones: Array.isArray(item.opciones)
             ? item.opciones.map((op) => ({
                 ...op,
-                unidad: op.unidad || item.unidad || "",
+                unidad: op.unidad || "",
                 tipo: op.tipo || "",
                 marca: op.marca || "",
                 proveedor: op.proveedor || "",
@@ -159,12 +157,11 @@ export default function SolicitudTallerDetalle() {
                 core: op.core || "",
                 precioCore: Number(op.precioCore || 0),
                 observaciones: op.observaciones || "",
-                seleccionada: !!op.seleccionada,
               }))
             : [],
 
           nuevaOpcion: {
-            unidad: item.unidad || "",
+            unidad: "",
             tipo: "",
             marca: "",
             proveedor: "",
@@ -194,19 +191,9 @@ export default function SolicitudTallerDetalle() {
   }, [id]);
 
   const nombreCliente = () => {
-    if (orden?.cliente?.nombre) return orden.cliente.nombre;
-
-    return (
-      [
-        orden?.nombreCliente,
-        orden?.apellidoPaterno,
-        orden?.apellidoMaterno,
-      ]
-        .filter(Boolean)
-        .join(" ") ||
-      orden?.nombreGobierno ||
-      "Sin cliente"
-    );
+    const c = orden?.cliente || {};
+    if (c.gobierno?.nombreGobierno) return c.gobierno.nombreGobierno;
+    return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") || "Sin cliente";
   };
 
   const descripcionVehiculo = () =>
@@ -230,8 +217,13 @@ export default function SolicitudTallerDetalle() {
           ...item,
           nuevaOpcion: {
             ...item.nuevaOpcion,
-            codigo:    codigo.numeroParte || codigo.codigo || "",
-            proveedor: codigo.proveedor   || item.nuevaOpcion?.proveedor || "",
+            codigo:         codigo.numeroParte || codigo.codigo || "",
+            proveedor:      codigo.proveedor   || item.nuevaOpcion?.proveedor || "",
+            marca:          codigo.marca        || item.nuevaOpcion?.marca     || "",
+            unidad:         codigo.unidad       || item.nuevaOpcion?.unidad    || "",
+            precioUnitario: codigo.precioUnitario != null && codigo.precioUnitario !== ""
+                              ? String(codigo.precioUnitario)
+                              : item.nuevaOpcion?.precioUnitario || "",
           },
         };
       })
@@ -302,7 +294,7 @@ export default function SolicitudTallerDetalle() {
           opciones: [
             ...(item.opciones || []),
             {
-              unidad: op.unidad || item.unidad || "",
+              unidad: op.unidad || "",
               tipo: op.tipo || "",
               marca: op.marca || "",
               proveedor: op.proveedor || "",
@@ -315,11 +307,10 @@ export default function SolicitudTallerDetalle() {
               core: op.core || "",
               precioCore: op.core === "SI" ? Number(op.precioCore || 0) : 0,
               observaciones: op.observaciones || "",
-              seleccionada: false,
             },
           ],
           nuevaOpcion: {
-            unidad: item.unidad || "",
+            unidad: "",
             tipo: "",
             marca: "",
             proveedor: "",
@@ -390,7 +381,6 @@ export default function SolicitudTallerDetalle() {
               (op.moneda === "USD" ? Number(op.tipoCambio || 0) : 1),
             precioCore: op.core === "SI" ? Number(op.precioCore || 0) : 0,
             moneda: op.moneda || "MN",
-            seleccionada: !!op.seleccionada,
           })),
           estatus: item.estatus || "PENDIENTE",
         })),

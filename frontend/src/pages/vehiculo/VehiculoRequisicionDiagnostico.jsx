@@ -176,19 +176,44 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
   const handleAddLine = async () => {
     const cantNum = Number(line.cant) || 0;
     const puNum = Number(line.precioUnitario) || 0;
-    const importe = cantNum * puNum;
+    const moneda = line.moneda || "MN";
+    const tipoCambio = moneda === "USD" ? Number(line.tipoCambio || 0) : 0;
+    const importe = cantNum * puNum * (moneda === "USD" ? tipoCambio : 1);
 
     if (!cantNum || !line.refaccion.trim()) {
       alert("Captura al menos Cantidad y Refacción.");
       return;
     }
 
+    // Si el asesor ingresó datos de precio, se guardan como opciones[0]
+    const tieneOpcionInicial =
+      puNum > 0 || line.proveedor.trim() || line.codigo.trim() || line.marca.trim();
+
+    const opciones = tieneOpcionInicial
+      ? [
+          {
+            unidad: line.unidad || "",
+            tipo: line.tipo || "",
+            marca: line.marca || "",
+            proveedor: line.proveedor || "",
+            codigo: line.codigo || "",
+            precioUnitario: puNum,
+            importeTotal: importe,
+            moneda,
+            tipoCambio,
+            tiempoEntrega: line.tiempoEntrega || "",
+            core: line.core || "",
+            precioCore: line.core === "NO" ? Number(line.precioCore) || 0 : 0,
+            observaciones: line.observaciones || "",
+          },
+        ]
+      : [];
+
     const nueva = {
-      ...line,
       cant: cantNum,
-      precioUnitario: puNum,
-      importeTotal: importe,
-      precioCore: line.core === "NO" ? Number(line.precioCore) || 0 : 0,
+      refaccion: line.refaccion.trim(),
+      opciones,
+      opcionSeleccionada: tieneOpcionInicial ? 0 : null,
       estatus: "PENDIENTE",
       requiereOC: false,
       ocGenerada: false,
@@ -280,40 +305,13 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
 
   const handleSeleccionarOpcion = async (refIdx, opIdx) => {
     const ref = rows[refIdx];
-    const opcion = ref?.opciones?.[opIdx];
-
-    if (!opcion) return;
-
-    const cant = Number(ref.cant || 0);
-    const precio = Number(opcion.precioUnitario || 0);
-    const moneda = opcion.moneda || "MN";
-    const tipoCambio = moneda === "USD" ? Number(opcion.tipoCambio || 0) : 0;
-    const importe = cant * precio * (moneda === "USD" ? tipoCambio : 1);
-
+    if (!ref?.opciones?.[opIdx]) return;
 
     const nuevasFilas = rows.map((r, i) => {
       if (i !== refIdx) return r;
-
       return {
         ...r,
-        unidad: opcion.unidad || r.unidad || "",
-        tipo: opcion.tipo || "",
-        marca: opcion.marca || "",
-        proveedor: opcion.proveedor || "",
-        codigo: opcion.codigo || "",
-        precioUnitario: precio,
-        tipoCambio,
-        importeTotal: importe,
-        moneda,
-        tiempoEntrega: opcion.tiempoEntrega || "",
-        core: opcion.core || "",
-        precioCore: Number(opcion.precioCore || 0),
-        observaciones: opcion.observaciones || "",
         opcionSeleccionada: opIdx,
-        opciones: (r.opciones || []).map((op, idx) => ({
-          ...op,
-          seleccionada: idx === opIdx,
-        })),
         estatus: "APROBADA",
       };
     });
@@ -335,24 +333,9 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
   const handleQuitarSeleccion = async (refIdx) => {
     const nuevasFilas = rows.map((r, i) => {
       if (i !== refIdx) return r;
-
       return {
         ...r,
-        tipo: "",
-        marca: "",
-        proveedor: "",
-        codigo: "",
-        precioUnitario: 0,
-        importeTotal: 0,
-        tiempoEntrega: "",
-        core: "",
-        precioCore: 0,
-        observaciones: "",
         opcionSeleccionada: null,
-        opciones: (r.opciones || []).map((op) => ({
-          ...op,
-          seleccionada: false,
-        })),
         estatus: "PENDIENTE",
       };
     });
@@ -474,15 +457,17 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
     }
   };
 
+  const getOpcion = (r) => r.opciones?.[r.opcionSeleccionada] || {};
+
   const totalGeneral = useMemo(
-    () => rows.reduce((acc, r) => acc + (Number(r.importeTotal) || 0), 0),
+    () => rows.reduce((acc, r) => acc + (Number(getOpcion(r).importeTotal) || 0), 0),
     [rows]
   );
 
   const totalSeleccionadas = useMemo(
     () =>
       getSeleccionadas().reduce(
-        (acc, r) => acc + (Number(r.importeTotal) || 0),
+        (acc, r) => acc + (Number(getOpcion(r).importeTotal) || 0),
         0
       ),
     [rows]
@@ -793,25 +778,26 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
                   return null;
                 }
 
+                const op = getOpcion(r);
                 return (
                   <tr key={idx}>
                     <td className="text-center">{r.cant}</td>
-                    <td className="text-center">{r.unidad}</td>
+                    <td className="text-center">{op.unidad}</td>
                     <td>{r.refaccion}</td>
-                    <td className="text-center">{r.tipo}</td>
-                    <td>{r.marca}</td>
-                    <td>{r.proveedor}</td>
-                    <td>{r.codigo}</td>
-                    <td className="text-end">{formatMoney(r.precioUnitario)}</td>
-                    <td className="text-end fw-bold">{formatMoney(r.importeTotal)}</td>
-                    <td className="text-center">{r.moneda}</td>
+                    <td className="text-center">{op.tipo}</td>
+                    <td>{op.marca}</td>
+                    <td>{op.proveedor}</td>
+                    <td>{op.codigo}</td>
+                    <td className="text-end">{formatMoney(op.precioUnitario)}</td>
+                    <td className="text-end fw-bold">{formatMoney(op.importeTotal)}</td>
+                    <td className="text-center">{op.moneda}</td>
                     <td className="text-end">
-                      {(r.moneda || "MN") === "USD"
-                        ? Number(r.tipoCambio || 0).toFixed(4)
+                      {(op.moneda || "MN") === "USD"
+                        ? Number(op.tipoCambio || 0).toFixed(4)
                         : "-"}
                     </td>
-                    <td>{r.tiempoEntrega}</td>
-                    <td>{r.observaciones}</td>
+                    <td>{op.tiempoEntrega}</td>
+                    <td>{op.observaciones}</td>
                     <td className="text-center">
                       <button
                         type="button"

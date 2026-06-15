@@ -2,6 +2,7 @@ const router = require('express').Router();
 const mongoose = require('mongoose');
 const EntradaInventario = require('../models/EntradaInventario');
 const SalidaInventario  = require('../models/SalidaInventario');
+const AjusteInventario  = require('../models/AjusteInventario');
 const Vehiculo          = require('../models/Vehiculo');
 
 
@@ -26,36 +27,32 @@ function expandIds(codigos) {
   return out;
 }
 
-/** Obtiene stock actual de una lista de códigos (entradas - salidas) */
+/** Obtiene stock actual de una lista de códigos (entradas - salidas + ajustes) */
 async function getStockMap(codigos) {
   const ids = expandIds(codigos);
+  const strIds = [...new Set(codigos.map(String))];
 
-  // 1) Entradas (positivas)
-  const entradas = await EntradaInventario.aggregate([
-    { $unwind: '$captura' },
-    { $match: { 'captura.codigoInterno': { $in: ids } } },
-    { $group: {
-        _id: '$captura.codigoInterno',
-        cant: { $sum: { $ifNull: ['$captura.cantidad', 0] } }
-    } },
+  const [entradas, salidas, ajustes] = await Promise.all([
+    EntradaInventario.aggregate([
+      { $unwind: '$captura' },
+      { $match: { 'captura.codigoInterno': { $in: ids } } },
+      { $group: { _id: '$captura.codigoInterno', cant: { $sum: { $ifNull: ['$captura.cantidad', 0] } } } },
+    ]),
+    SalidaInventario.aggregate([
+      { $unwind: '$partidas' },
+      { $match: { 'partidas.codigoInterno': { $in: ids } } },
+      { $group: { _id: '$partidas.codigoInterno', cant: { $sum: { $ifNull: ['$partidas.cantidad', 0] } } } },
+    ]),
+    AjusteInventario.aggregate([
+      { $match: { codigoInterno: { $in: strIds } } },
+      { $group: { _id: '$codigoInterno', cant: { $sum: { $ifNull: ['$cantidad', 0] } } } },
+    ]),
   ]);
 
-  // 2) Salidas (negativas)
-  const salidas = await SalidaInventario.aggregate([
-    { $unwind: '$partidas' },
-    { $match: { 'partidas.codigoInterno': { $in: ids } } },
-    { $group: {
-        _id: '$partidas.codigoInterno',
-        cant: { $sum: { $multiply: [ { $ifNull: ['$partidas.cantidad', 0] }, -1 ] } }
-    } },
-  ]);
-
-  // 3) Merge
   const map = new Map();
-  for (const d of [...entradas, ...salidas]) {
-    const k = String(d._id);
-    map.set(k, (map.get(k) || 0) + (d.cant || 0));
-  }
+  for (const d of entradas) map.set(String(d._id), (map.get(String(d._id)) || 0) + d.cant);
+  for (const d of salidas)  map.set(String(d._id), (map.get(String(d._id)) || 0) - d.cant);
+  for (const d of ajustes)  map.set(String(d._id), (map.get(String(d._id)) || 0) + d.cant);
   return map; // Map<string, number>
 }
 
@@ -215,20 +212,14 @@ router.get('/ordenes', async (req, res) => {
     const docs = await Vehiculo.find(q)
       .sort({ createdAt: -1 })
       .limit(parseInt(limit, 10) || 100)
-      .select({
-        ordenServicio: 1,
-        nombreGobierno: 1,
-        marca: 1,
-        modelo: 1,
-        placas: 1,
-        fechaRecepcion: 1,
-        estadoOrden: 1,
-      });
+      .select({ ordenServicio: 1, marca: 1, modelo: 1, placas: 1, fechaRecepcion: 1, estadoOrden: 1, cliente: 1 })
+      .populate('cliente', 'nombre apellidoPaterno apellidoMaterno gobierno');
 
     console.log('GET /salidas/ordenes -> encontrados =', docs.length);
 
     const data = docs.map(v => {
-      const cliente = v.nombreGobierno || '';
+      const c = v.cliente || {};
+      const cliente = c.gobierno?.nombreGobierno || [c.nombre, c.apellidoPaterno].filter(Boolean).join(' ') || '';
       const descVeh = [v.marca, v.modelo].filter(Boolean).join(' / ');
       const placas  = v.placas ? ` - ${v.placas}` : '';
       return {

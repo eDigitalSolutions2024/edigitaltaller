@@ -34,27 +34,29 @@ router.post(
       const numero = await OrdenCompra.generarConsecutivo();
 
       // 2) crear la OC con una sola línea (la refacción marcada)
+      const op = linea.opciones?.[linea.opcionSeleccionada] || {};
+
       const importe =
-        linea.importeTotal ??
-        (Number(linea.cant || 0) * Number(linea.precioUnitario || 0));
+        op.importeTotal ??
+        (Number(linea.cant || 0) * Number(op.precioUnitario || 0));
 
       const oc = new OrdenCompra({
         numero,
         orden: vehiculo._id,
-        proveedor: linea.proveedor || '',
+        proveedor: op.proveedor || '',
         lineas: [
           {
             cant: linea.cant,
-            unidad: linea.unidad,
+            unidad: op.unidad || '',
             refaccion: linea.refaccion,
-            tipo: linea.tipo,
-            marca: linea.marca,
-            proveedor: linea.proveedor,
-            codigo: linea.codigo,
-            precioUnitario: linea.precioUnitario,
+            tipo: op.tipo || '',
+            marca: op.marca || '',
+            proveedor: op.proveedor || '',
+            codigo: op.codigo || '',
+            precioUnitario: op.precioUnitario || 0,
             importeTotal: importe,
-            moneda: linea.moneda || 'MN',
-            observaciones: linea.observaciones || '',
+            moneda: op.moneda || 'MN',
+            observaciones: op.observaciones || '',
           },
         ],
         creadoPor: req.user?._id || null,
