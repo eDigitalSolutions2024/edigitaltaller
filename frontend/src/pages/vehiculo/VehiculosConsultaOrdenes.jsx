@@ -175,7 +175,7 @@ export default function VehiculosConsultaOrdenes() {
   // 👈
     >
       <td className="text-center">{r.ordenServicio || "-"}</td>
-      <td>{r.nombreGobierno || r.cliente?.nombre || "-"}</td>
+      <td>{r.cliente?.gobierno?.nombreGobierno || r.cliente?.nombre || "-"}</td>
       <td>
         {(r.marca || "") + (r.modelo ? " / " + r.modelo : "") || "-"}
       </td>
@@ -186,7 +186,7 @@ export default function VehiculosConsultaOrdenes() {
           ? new Date(r.fechaRecepcion).toLocaleDateString()
           : "-"}
       </td>
-      <td className="text-center">{r.telefonoFijo || "-"}</td>
+      <td className="text-center">{(r.cliente?.telefonos?.[0]?.numero) || "-"}</td>
       <td className="text-center">{r.asesor || "admin"}</td>
     </tr>
   ))}

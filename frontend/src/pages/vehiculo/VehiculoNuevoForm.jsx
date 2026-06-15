@@ -56,6 +56,17 @@ function formatDateForInput(value) {
 
 
 
+const INSPECCION_FIELDS = [
+  'grua', 'precioGrua', 'espejoLateralIzq', 'espejoLateralDer',
+  'copasDelanterasIzq', 'copasDelanterasDer', 'parabrisas', 'focosDel', 'focosTras',
+  'espejoInt', 'tapetesDelanterosIzq', 'tapetesDelanterosDer', 'estereo', 'extra',
+  'copasTraserasIzq', 'copasTraserasDer', 'micas', 'antena', 'encendedor',
+  'tapetesTraserosIzq', 'tapetesTraserosDer', 'gato', 'bateria',
+  'nivelGasolina', 'danoVehiculo',
+  'checkEngine', 'abs', 'airBag', 'frenos', 'aceite', 'alternador',
+  'indicadoresTablero', 'otros', 'observaciones',
+];
+
 export default function VehiculoNuevoForm({
   cliente,
   initialData,
@@ -255,11 +266,59 @@ export default function VehiculoNuevoForm({
   // cuando viene una orden completa para detalle
   useEffect(() => {
     if (!initialData) return;
+
+    // Extraer datos del cliente desde populate
+    const c = initialData.cliente || {};
+    const esParticular = c.tipoCliente === "Particular";
+    const gob = c.gobierno || {};
+    const dep = gob.dependencia || {};
+    const contactoGob = gob.contactoGobierno || {};
+    const contactoDep = dep.contacto || {};
+    const tel = (c.telefonos || [])[0] || {};
+    const cel = (c.celulares || [])[0] || {};
+    const dir = c.direccion || {};
+
     setForm((prev) => ({
       ...prev,
       ...initialData,
+      ...(initialData.inspeccionFisica || {}),
       fechaRecepcion: formatDateForInput(initialData.fechaRecepcion),
       horaRecepcion: initialData.horaRecepcion || "",
+      // Datos del cliente extraídos del populate
+      ...(esParticular
+        ? {
+            nombreCliente: c.nombre || "",
+            apellidoPaterno: c.apellidoPaterno || "",
+            apellidoMaterno: c.apellidoMaterno || "",
+            nombreGobierno: "",
+            nombreContactoGobierno: "",
+            nombreDependencia: "",
+            nombreContactoDependencia: "",
+          }
+        : {
+            nombreGobierno: gob.nombreGobierno || "",
+            nombreContactoGobierno: contactoGob.nombre || "",
+            nombreDependencia: dep.nombre || "",
+            nombreContactoDependencia: contactoDep.nombre || "",
+            nombreCliente: "",
+            apellidoPaterno: "",
+            apellidoMaterno: "",
+          }),
+      telefonoFijoLada: tel.lada || "",
+      telefonoFijo: tel.numero || "",
+      celularLada: cel.lada || "",
+      celular: cel.numero || "",
+      direccion: dir.calle || "",
+      numeroExt: dir.numeroExterior || "",
+      numeroInt: dir.numeroInterior || "",
+      colonia: dir.colonia || "",
+      codigoPostal: dir.codigoPostal || "",
+      ciudad: dir.ciudad || "",
+      estado: dir.estado || "",
+      rfc: c.rfc || "",
+      correos: Array.isArray(c.emails) && c.emails.length
+        ? c.emails
+        : [contactoGob.correo || ""].filter(Boolean),
     }));
   }, [initialData]);
 
@@ -281,11 +340,16 @@ export default function VehiculoNuevoForm({
 
     const usuario = getUser();
 
+    const inspeccionFisica = Object.fromEntries(
+      INSPECCION_FIELDS.map((k) => [k, form[k]])
+    );
+    inspeccionFisica.precioGrua = form.grua === "SI" ? Number(form.precioGrua || 0) : 0;
+
     const payload = {
       ...form,
-      precioGrua: form.grua === "SI" ? Number(form.precioGrua || 0) : 0,
+      inspeccionFisica,
       correos: form.correos || [],
-      creadoPor: usuario?.name || usuario?.username || "Sin usuario", // ← nuevo
+      creadoPor: usuario?.name || usuario?.username || "Sin usuario",
     };
 
     console.log("PAYLOAD creadoPor:", payload.creadoPor);

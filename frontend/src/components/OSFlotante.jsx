@@ -39,8 +39,9 @@ function tiempoTranscurrido(fechaCreacion) {
 }
 
 function nombreCliente(orden) {
-  if (orden.nombreGobierno) return orden.nombreGobierno;
-  const partes = [orden.nombreCliente, orden.apellidoPaterno, orden.apellidoMaterno].filter(Boolean);
+  const c = orden.cliente || {};
+  if (c.gobierno?.nombreGobierno) return c.gobierno.nombreGobierno;
+  const partes = [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean);
   return partes.join(' ') || '—';
 }
 

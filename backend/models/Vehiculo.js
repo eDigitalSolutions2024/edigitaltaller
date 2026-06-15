@@ -44,39 +44,13 @@ const vehiculoSchema = new Schema(
     ordenServicio: String,
     fechaRecepcion: Date,
     horaRecepcion: String,
-    
+
 
     // Presupuesto
     dirigidoA: { type: String, default: "" },
     departamento: { type: String, default: "" },
     observCotizacion: { type: String, default: "" },
     requiereFactura: { type: Boolean, default: false },
-
-
-    // ----- Datos de cliente / gobierno (snapshot en la orden) -----
-    // Particular
-    nombreCliente: String,
-    apellidoPaterno: String,
-    apellidoMaterno: String,
-    
-    nombreGobierno: String,
-    nombreContactoGobierno: String,
-    nombreDependencia: String,
-    nombreContactoDependencia: String,
-
-    telefonoFijoLada: String,
-    telefonoFijo: String,
-    celularLada: String,
-    celular: String,
-
-    direccion: String,
-    numeroExt: String,
-    numeroInt: String,
-    colonia: String,
-    rfc: String,
-    codigoPostal: String,
-    ciudad: String,
-    estado: String,
 
     // ----- Datos de vehículo -----
     nombreUsuarioDejaVehiculo: String,
@@ -90,48 +64,47 @@ const vehiculoSchema = new Schema(
     nacionalidad: String,
     motor: String,
     numeroEconomico: String,
-    correo: String,
-    correos: [{ type: String, trim: true, lowercase: true }],
     traccion: String,
 
-    // ----- Accesorios / checkboxes -----
-    grua: String,
-    precioGrua: { type: Number, default: 0 },   
-    espejoLateralIzq: Boolean,
-    espejoLateralDer: Boolean,
-    copasDelanterasIzq: Boolean,
-    copasDelanterasDer: Boolean,
-    parabrisas: String,
-    focosDel: Boolean,
-    focosTras: Boolean,
-    espejoInt: Boolean,
-    tapetesDelanterosIzq: Boolean,
-    tapetesDelanterosDer: Boolean,
-    estereo: Boolean,
-    extra: Boolean,
-    copasTraserasIzq: Boolean,
-    copasTraserasDer: Boolean,
-    micas: Boolean,
-    antena: Boolean,
-    encendedor: Boolean,
-    tapetesTraserosIzq: Boolean,
-    tapetesTraserosDer: Boolean,
-    gato: Boolean,
-    bateria: Boolean,
-    nivelGasolina: { type: String, default: null },
-    danoVehiculo: { type: String, default: null },
-
-    // ----- Indicadores tablero / mecánicos -----
-    checkEngine: String,
-    abs: String,
-    airBag: String,
-    frenos: String,
-    aceite: String,
-    alternador: String,
-
-    indicadoresTablero: String,
-    otros: String,
-    observaciones: String,
+    // ----- Inspección física al recibir el vehículo -----
+    inspeccionFisica: {
+      // Accesorios / checkboxes
+      grua: { type: String, default: "" },
+      precioGrua: { type: Number, default: 0 },
+      espejoLateralIzq: { type: Boolean, default: false },
+      espejoLateralDer: { type: Boolean, default: false },
+      copasDelanterasIzq: { type: Boolean, default: false },
+      copasDelanterasDer: { type: Boolean, default: false },
+      parabrisas: { type: String, default: "" },
+      focosDel: { type: Boolean, default: false },
+      focosTras: { type: Boolean, default: false },
+      espejoInt: { type: Boolean, default: false },
+      tapetesDelanterosIzq: { type: Boolean, default: false },
+      tapetesDelanterosDer: { type: Boolean, default: false },
+      estereo: { type: Boolean, default: false },
+      extra: { type: Boolean, default: false },
+      copasTraserasIzq: { type: Boolean, default: false },
+      copasTraserasDer: { type: Boolean, default: false },
+      micas: { type: Boolean, default: false },
+      antena: { type: Boolean, default: false },
+      encendedor: { type: Boolean, default: false },
+      tapetesTraserosIzq: { type: Boolean, default: false },
+      tapetesTraserosDer: { type: Boolean, default: false },
+      gato: { type: Boolean, default: false },
+      bateria: { type: Boolean, default: false },
+      nivelGasolina: { type: String, default: null },
+      danoVehiculo: { type: String, default: null },
+      // Indicadores tablero / mecánicos
+      checkEngine: { type: String, default: "" },
+      abs: { type: String, default: "" },
+      airBag: { type: String, default: "" },
+      frenos: { type: String, default: "" },
+      aceite: { type: String, default: "" },
+      alternador: { type: String, default: "" },
+      indicadoresTablero: { type: String, default: "" },
+      otros: { type: String, default: "" },
+      observaciones: { type: String, default: "" },
+    },
 
    // ===== Servicio o Reparación =====
   servicioReparacion: {
@@ -205,36 +178,16 @@ const vehiculoSchema = new Schema(
     // ===== Requisición y diagnóstico =====
     diagnosticoTecnico: { type: String, default: "" },
 
-    historialDiagnosticos: [
-      {
-        texto: { type: String, default: "" },
-        fecha: { type: Date, default: Date.now },
-        usuario: { type: String, default: "" },
-      }
-    ],
-
     refaccionesSolicitadas: [
       {
+        // Campos propios de la solicitud (no se duplican en opciones)
         cant: { type: Number, default: 0 },
-        unidad: { type: String, default: "" },
         refaccion: { type: String, default: "" },
-        tipo: { type: String, default: "" }, // ej. SERVICIO / REFACCIÓN
-        marca: { type: String, default: "" },
-        proveedor: { type: String, default: "" },
-        codigo: { type: String, default: "" },
-        precioUnitario: { type: Number, default: 0 },
-        importeTotal: { type: Number, default: 0 },
-        moneda: { type: String, default: "MN" },
-        tipoCambio: { type: Number, default: 0 },
-        tiempoEntrega: { type: String, default: "" },
-        core: { type: String, default: "" },
-        precioCore: { type: Number, default: 0 },
-        observaciones: { type: String, default: "" },
 
-        // Opción elegida por el asesor entre las opciones que dio refaccionaria
+        // Índice de la opción elegida por el asesor (null = sin selección)
         opcionSeleccionada: { type: Number, default: null },
 
-        // Opciones cotizadas por refaccionaria para esta refacción solicitada
+        // Cotizaciones de refaccionaria para esta refacción
         opciones: [
           {
             unidad: { type: String, default: "" },
@@ -250,7 +203,6 @@ const vehiculoSchema = new Schema(
             core: { type: String, default: "" },
             precioCore: { type: Number, default: 0 },
             observaciones: { type: String, default: "" },
-            seleccionada: { type: Boolean, default: false },
           },
         ],
 

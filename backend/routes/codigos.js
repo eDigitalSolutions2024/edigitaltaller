@@ -27,6 +27,7 @@ function sanitizeGrupoServicio(value) {
   return allowed.includes(v) ? v : 'otros';
 }
 
+
 // Listado + búsqueda + paginación
 router.get('/', async (req, res) => {
   try {
@@ -138,13 +139,14 @@ router.post('/', async (req, res) => {
         tipo === 'servicio'
           ? ''
           : (req.body.proveedor || '').trim(),
+      marca: (req.body.marca || '').trim(),
       codigoSat: (req.body.codigoSat || '').trim(),
       descripcionSat: (req.body.descripcionSat || '').trim(),
+      unidad: (req.body.unidad || '').trim(),
+      precioUnitario: req.body.precioUnitario !== undefined && req.body.precioUnitario !== ''
+        ? Number(req.body.precioUnitario) : null,
     };
 
-
-
-    // 👇 SOLO servicios: guardamos grupoServicio
     if (tipo === 'servicio') {
       payload.grupoServicio = sanitizeGrupoServicio(req.body.grupoServicio);
     }
@@ -168,19 +170,18 @@ router.put('/:id', async (req, res) => {
       numeroParte: codigo,
       descripcion: (req.body.descripcion || '').trim(),
       proveedor: (req.body.proveedor || '').trim(),
+      marca: (req.body.marca || '').trim(),
       codigoSat: (req.body.codigoSat || '').trim(),
       descripcionSat: (req.body.descripcionSat || '').trim(),
+      unidad: (req.body.unidad || '').trim(),
+      precioUnitario: req.body.precioUnitario !== undefined && req.body.precioUnitario !== ''
+        ? Number(req.body.precioUnitario) : null,
     };
 
-
-
-    // si quieres permitir cambiar tipo:
     if (req.body.tipo === 'servicio' || req.body.tipo === 'refaccion') {
       payload.tipo = req.body.tipo;
-      // ojo: aquí NO cambiamos codigo, se queda R.. o S.. como se creó
     }
 
-    // 👇 si el registro (o el nuevo tipo) es servicio, permitimos actualizar grupoServicio
     if ((req.body.tipo || '').toString() === 'servicio' || req.body.grupoServicio) {
       payload.grupoServicio = sanitizeGrupoServicio(req.body.grupoServicio);
     }

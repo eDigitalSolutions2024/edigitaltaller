@@ -1,22 +1,45 @@
 // src/pages/refaccionaria/BDCodigos.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ModalAltaProveedor from "./components/ModalAltaProveedor";
+import { getUnidadesMedida } from "../../api/configuracion";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 const PAGE_SIZES = [10, 25, 50, 100];
 
-export default function BDCodigos() {
-  const [form, setForm] = useState({
-    _id: "",
-    tipo: "refaccion",
-    numeroParte: "",
-    descripcion: "",
-    proveedor: "",
-    grupoServicio: "otros",
-    codigoSat: "",
-    descripcionSat: "",
-  });
+const FORM_VACÍO = (tipo = "refaccion") => ({
+  _id: "",
+  tipo,
+  numeroParte: "",
+  descripcion: "",
+  proveedor: "",
+  marca: "",
+  grupoServicio: tipo === "servicio" ? "motor" : "otros",
+  codigoSat: "",
+  descripcionSat: "",
+  unidad: "",
+  precioUnitario: "",
+});
 
+function mapItem(x) {
+  return {
+    _id: x._id || x.id,
+    codigo: x.codigo || "",
+    tipo: x.tipo || "refaccion",
+    numeroParte: x.numeroParte || "",
+    proveedor: x.proveedor || "",
+    marca: x.marca || "",
+    descripcion: x.descripcion || "",
+    grupoServicio: x.grupoServicio || "otros",
+    codigoSat: x.codigoSat || "",
+    descripcionSat: x.descripcionSat || "",
+    unidad: x.unidad || "",
+    precioUnitario: x.precioUnitario ?? "",
+  };
+}
+
+export default function BDCodigos() {
+  const formRef = useRef(null);
+  const [form, setForm] = useState(FORM_VACÍO());
   const [tipo, setTipo] = useState("refaccion");
   const [options, setOptions] = useState([]);
   const [refSel, setRefSel] = useState("");
@@ -28,6 +51,7 @@ export default function BDCodigos() {
   const [sort, setSort] = useState({ key: "codigo", dir: "asc" });
   const [proveedores, setProveedores] = useState([]);
   const [showModalProveedor, setShowModalProveedor] = useState(false);
+  const [unidades, setUnidades] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -40,21 +64,8 @@ export default function BDCodigos() {
             .then((r) => r.json())
             .catch(() => ({})),
         ]);
-
         setOptions(o?.data || []);
-
-        const data = (t?.data || t || []).map((x) => ({
-          _id: x._id || x.id,
-          codigo: x.codigo || "",
-          tipo: x.tipo || "refaccion",
-          numeroParte: x.numeroParte || "",
-          proveedor: x.proveedor || "",
-          descripcion: x.descripcion || "",
-          grupoServicio: x.grupoServicio || "otros",
-          codigoSat: x.codigoSat || "",
-          descripcionSat: x.descripcionSat || "",
-        }));
-        setItems(data);
+        setItems((t?.data || t || []).map(mapItem));
       } catch (e) {
         console.error(e);
       }
@@ -72,9 +83,12 @@ export default function BDCodigos() {
         if (!abort) setProveedores([]);
       }
     })();
+
+    getUnidadesMedida()
+      .then((data) => setUnidades((data || []).filter((u) => u.activo)))
+      .catch(() => setUnidades([]));
+
     return () => { abort = true; };
-
-
   }, []);
 
   const nextCode = useMemo(() => {
@@ -161,26 +175,52 @@ export default function BDCodigos() {
     setShowModalProveedor(false);
   };
 
+  function editarItem(x) {
+    setTipo(x.tipo || "refaccion");
+    setForm({
+      _id: x._id,
+      tipo: x.tipo || "refaccion",
+      numeroParte: x.numeroParte || "",
+      descripcion: x.descripcion || "",
+      proveedor: x.proveedor || "",
+      marca: x.marca || "",
+      grupoServicio: x.grupoServicio || "otros",
+      codigoSat: x.codigoSat || "",
+      descripcionSat: x.descripcionSat || "",
+      unidad: x.unidad || "",
+      precioUnitario: x.precioUnitario ?? "",
+    });
+    setRefSel("");
+    formRef.current?.scrollIntoView({ behavior: "smooth" });
+  }
+
   async function guardar() {
     try {
       setLoading(true);
+      const esRefaccion = (form.tipo || tipo) === "refaccion";
       const payload = {
         tipo: form.tipo || tipo,
         codigo: (form.numeroParte || "").trim(),
         numeroParte: (form.numeroParte || "").trim(),
         descripcion: form.descripcion.trim(),
-        proveedor:
-          (form.tipo || tipo) === "servicio" ? "" : form.proveedor.trim(),
+        proveedor: esRefaccion ? form.proveedor.trim() : "",
+        marca: form.marca.trim(),
         codigoSat: form.codigoSat.trim(),
         descripcionSat: form.descripcionSat.trim(),
+        unidad: form.unidad,
+        precioUnitario: form.precioUnitario !== "" ? Number(form.precioUnitario) : null,
       };
 
-      if ((form.tipo || tipo) === "servicio") {
+      if (!esRefaccion) {
         payload.grupoServicio = form.grupoServicio || "otros";
       }
 
       if (!payload.numeroParte)
-        throw new Error("Número de parte / código es obligatorio.");
+        throw new Error("El código interno es obligatorio.");
+      if (!payload.descripcion)
+        throw new Error("La descripción es obligatoria.");
+      if (esRefaccion && !payload.proveedor)
+        throw new Error("El proveedor es obligatorio.");
 
       const method = form._id ? "PUT" : "POST";
       const url = form._id
@@ -210,18 +250,7 @@ export default function BDCodigos() {
     const t = await fetch(`${API}/codigos`, { credentials: "include" })
       .then((r) => r.json())
       .catch(() => ({}));
-    const data = (t?.data || t || []).map((x) => ({
-      _id: x._id || x.id,
-      codigo: x.codigo || "",
-      tipo: x.tipo || "refaccion",
-      numeroParte: x.numeroParte || "",
-      proveedor: x.proveedor || "",
-      descripcion: x.descripcion || "",
-      grupoServicio: x.grupoServicio || "otros",
-      codigoSat: x.codigoSat || "",
-      descripcionSat: x.descripcionSat || "",
-    }));
-    setItems(data);
+    setItems((t?.data || t || []).map(mapItem));
   }
 
   async function recargarOptions() {
@@ -232,16 +261,7 @@ export default function BDCodigos() {
   }
 
   function limpiar() {
-    setForm({
-      _id: "",
-      tipo: tipo,
-      numeroParte: "",
-      descripcion: "",
-      proveedor: "",
-      grupoServicio: tipo === "servicio" ? "motor" : "otros",
-      codigoSat: "",
-      descripcionSat: "",
-    });
+    setForm(FORM_VACÍO(tipo));
     setRefSel("");
   }
 
@@ -252,19 +272,7 @@ export default function BDCodigos() {
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) return alert(j?.message || "No encontrado");
-    const x = j.data;
-    const t = x.tipo || "refaccion";
-    setTipo(t);
-    setForm({
-      _id: x._id,
-      tipo: t,
-      numeroParte: x.numeroParte || "",
-      descripcion: x.descripcion || "",
-      proveedor: x.proveedor || "",
-      grupoServicio: x.grupoServicio || "otros",
-      codigoSat: x.codigoSat || "",
-      descripcionSat: x.descripcionSat || "",
-    });
+    editarItem(j.data);
   }
 
   async function eliminar(id) {
@@ -285,13 +293,17 @@ export default function BDCodigos() {
     otros: "Otros servicios",
   };
 
+  const esEdicion = !!form._id;
+
   return (
     <div className="container-fluid py-3">
       <div className="row justify-content-center">
         <div className="col-12 col-xxl-10">
           <div className="card shadow-sm border-0">
             <div className="card-header bg-white border-0 d-flex justify-content-between align-items-center">
-              <h2 className="h4 mb-0">ALTA DE CÓDIGOS</h2>
+              <h2 className="h4 mb-0">
+                {esEdicion ? "EDITAR CÓDIGO" : "ALTA DE CÓDIGOS"}
+              </h2>
               <div className="btn-group" role="group">
                 <button
                   type="button"
@@ -316,7 +328,7 @@ export default function BDCodigos() {
               </div>
             </div>
 
-            <div className="card-body">
+            <div className="card-body" ref={formRef}>
               <div className="row g-3">
                 <div className="col-12">
                   <small className="text-muted">
@@ -324,6 +336,11 @@ export default function BDCodigos() {
                     <strong>
                       {tipo === "servicio" ? "SERVICIO" : "REFACCIÓN"}
                     </strong>
+                    {esEdicion && (
+                      <span className="ms-3 badge bg-warning text-dark">
+                        Editando: {form.numeroParte}
+                      </span>
+                    )}
                   </small>
                 </div>
 
@@ -334,7 +351,9 @@ export default function BDCodigos() {
                 </div>
 
                 <div className="col-md-4">
-                  <label className="form-label">Código interno:</label>
+                  <label className="form-label">
+                    Código interno: <span className="text-danger">*</span>
+                  </label>
                   <input
                     className="form-control"
                     name="numeroParte"
@@ -344,7 +363,9 @@ export default function BDCodigos() {
                 </div>
 
                 <div className="col-md-8">
-                  <label className="form-label">Descripción:</label>
+                  <label className="form-label">
+                    Descripción: <span className="text-danger">*</span>
+                  </label>
                   <input
                     className="form-control"
                     name="descripcion"
@@ -355,7 +376,9 @@ export default function BDCodigos() {
 
                 {tipo === "refaccion" && (
                   <div className="col-md-4">
-                    <label className="form-label">Proveedor:</label>
+                    <label className="form-label">
+                      Proveedor: <span className="text-danger">*</span>
+                    </label>
                     <select
                       className="form-select"
                       name="proveedor"
@@ -379,7 +402,6 @@ export default function BDCodigos() {
                   </div>
                 )}
 
-                {/* ✅ grupoServicio ahora visible para servicios */}
                 {tipo === "servicio" && (
                   <div className="col-md-4">
                     <label className="form-label">Grupo de servicio:</label>
@@ -429,16 +451,70 @@ export default function BDCodigos() {
                     </div>
                   </>
                 )}
+
+                {/* Marca, Unidad y Precio — solo refacciones, todos opcionales */}
+                {tipo === "refaccion" && (
+                  <>
+                    <div className="col-md-4">
+                      <label className="form-label">Marca:</label>
+                      <input
+                        className="form-control"
+                        name="marca"
+                        value={form.marca}
+                        onChange={onChange}
+                      />
+                    </div>
+
+                    <div className="col-md-4">
+                      <label className="form-label">Unidad:</label>
+                      <select
+                        className="form-select"
+                        name="unidad"
+                        value={form.unidad}
+                        onChange={onChange}
+                      >
+                        <option value="">— Selecciona —</option>
+                        {unidades.map((u) => (
+                          <option key={u._id} value={u.nombre}>
+                            {u.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="col-md-4">
+                      <label className="form-label">Precio unitario:</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="form-control"
+                        name="precioUnitario"
+                        value={form.precioUnitario}
+                        onChange={onChange}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
-              <div className="d-flex justify-content-end mt-3">
+              <div className="d-flex justify-content-end gap-2 mt-3">
+                {esEdicion && (
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    onClick={limpiar}
+                  >
+                    Cancelar
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-primary px-4"
                   onClick={guardar}
                   disabled={loading}
                 >
-                  {loading ? "Guardando..." : "Guardar"}
+                  {loading ? "Guardando..." : esEdicion ? "Actualizar" : "Guardar"}
                 </button>
               </div>
 
@@ -544,6 +620,9 @@ export default function BDCodigos() {
                       Código {chev(sort, "codigo")}
                     </th>
                     <th>Descripción</th>
+                    {tipo === "refaccion" && <th>Marca</th>}
+                    {tipo === "refaccion" && <th>Unidad</th>}
+                    {tipo === "refaccion" && <th>Precio</th>}
                     {tipo === "servicio" && (
                       <th role="button" onClick={() => changeSort("grupoServicio")}>
                         Grupo {chev(sort, "grupoServicio")}
@@ -551,7 +630,7 @@ export default function BDCodigos() {
                     )}
                     {tipo === "servicio" && <th>Código SAT</th>}
                     {tipo === "servicio" && <th>Descripción SAT</th>}
-                    <th style={{ width: 50 }} className="text-center">
+                    <th style={{ width: 80 }} className="text-center">
                       Acciones
                     </th>
                   </tr>
@@ -560,7 +639,7 @@ export default function BDCodigos() {
                   {pageData.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={tipo === "servicio" ? 7 : 4}
+                        colSpan={tipo === "servicio" ? 7 : 6}
                         className="text-center py-4"
                       >
                         Sin registros
@@ -572,6 +651,19 @@ export default function BDCodigos() {
                         <td>{x.codigo || String(x._id).slice(-4)}</td>
                         <td>{x.codigo || x.numeroParte}</td>
                         <td>{x.descripcion}</td>
+                        {tipo === "refaccion" && (
+                          <td>{x.marca || "—"}</td>
+                        )}
+                        {tipo === "refaccion" && (
+                          <td>{x.unidad || "—"}</td>
+                        )}
+                        {tipo === "refaccion" && (
+                          <td>
+                            {x.precioUnitario != null && x.precioUnitario !== ""
+                              ? `$${Number(x.precioUnitario).toFixed(2)}`
+                              : "—"}
+                          </td>
+                        )}
                         {tipo === "servicio" && (
                           <td>
                             <span className="badge bg-secondary">
@@ -587,10 +679,18 @@ export default function BDCodigos() {
                         )}
                         <td className="text-center">
                           <button
+                            className="btn btn-link text-primary p-0 me-2"
+                            title="Editar"
+                            onClick={() => editarItem(x)}
+                          >
+                            ✏️
+                          </button>
+                          <button
                             className="btn btn-link text-danger p-0"
+                            title="Eliminar"
                             onClick={() => eliminar(x._id)}
                           >
-                            X
+                            ✕
                           </button>
                         </td>
                       </tr>
@@ -642,14 +742,13 @@ export default function BDCodigos() {
           </div>
         </div>
       </div>
-      
+
       {showModalProveedor && (
         <ModalAltaProveedor
           onProveedorCreado={handleProveedorCreado}
           onClose={() => setShowModalProveedor(false)}
         />
       )}
-
     </div>
   );
 }
@@ -658,4 +757,3 @@ function chev(sort, key) {
   if (sort.key !== key) return <span className="text-muted">▲▼</span>;
   return sort.dir === "asc" ? <span>▲</span> : <span>▼</span>;
 }
-

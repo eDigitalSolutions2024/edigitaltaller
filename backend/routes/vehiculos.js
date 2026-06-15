@@ -3,8 +3,15 @@ const express = require('express');
 const router = express.Router();
 
 const Vehiculo = require('../models/Vehiculo');
-const OrdenCompra = require('../models/OrdenCompra');              // 👈 NUEVO
-const { proteger, requiereRol } = require('../middleware/auth');   // 👈 NUEVO
+const Cliente = require('../models/Cliente');
+const OrdenCompra = require('../models/OrdenCompra');
+const { proteger, requiereRol } = require('../middleware/auth');
+const EntradaInventario = require('../models/EntradaInventario');
+const SalidaInventario  = require('../models/SalidaInventario');
+const AjusteInventario  = require('../models/AjusteInventario');
+const CodigoRefaccion   = require('../models/CodigoRefaccion');
+
+const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente gobierno telefonos celulares emails rfc direccion';
 
 const { streamVehiculoOperativoPdf } = require('../service/VehiculoOperativoPdf');
 const { streamVehiculoOrdenPdf } = require('../service/vehiculoOrdenPdf');
@@ -25,6 +32,83 @@ function generarNumeroOC() {
   const ss = String(ahora.getSeconds()).padStart(2, '0');
   // Ejemplo: OC-20241208-143015
   return `OC-${yyyy}${mm}${dd}-${hh}${mi}${ss}`;
+}
+
+/**
+ * Calcula stock actual keyed by numeroParte.
+ * EntradaInventario guarda codigoInterno como ObjectId del CodigoRefaccion,
+ * así que primero resolvemos numeroParte → ObjectId y luego consultamos por ObjectId.
+ * SalidaInventario creada desde el flujo de venta/surtir puede guardar tanto
+ * el ObjectId como el numeroParte, por eso buscamos por ambos.
+ */
+async function getStockMapLocal(numerosParteLista) {
+  const strList = [...new Set(numerosParteLista.map(String))];
+
+  // 1) Resolver numeroParte → CodigoRefaccion._id (ObjectId)
+  const codigoDocs = await CodigoRefaccion.find(
+    { $or: [{ numeroParte: { $in: strList } }, { codigo: { $in: strList } }] },
+    { _id: 1, numeroParte: 1, codigo: 1 }
+  ).lean();
+
+  // oidStr → numeroParte para mapear de vuelta al final
+  const oidToNP = new Map();
+  const objIds  = [];
+  for (const c of codigoDocs) {
+    const np = c.numeroParte || c.codigo || '';
+    oidToNP.set(String(c._id), np);
+    objIds.push(c._id);
+  }
+
+  // Ids para buscar en EntradaInventario/SalidaInventario: ObjectIds + strings originales
+  const allMatchIds = [...objIds, ...strList];
+
+  const [entradas, salidas, ajustes] = await Promise.all([
+    EntradaInventario.aggregate([
+      { $unwind: '$captura' },
+      { $match: { 'captura.codigoInterno': { $in: allMatchIds } } },
+      { $group: { _id: '$captura.codigoInterno', cant: { $sum: { $ifNull: ['$captura.cantidad', 0] } } } },
+    ]),
+    SalidaInventario.aggregate([
+      { $unwind: '$partidas' },
+      { $match: { 'partidas.codigoInterno': { $in: allMatchIds } } },
+      { $group: { _id: '$partidas.codigoInterno', cant: { $sum: { $ifNull: ['$partidas.cantidad', 0] } } } },
+    ]),
+    AjusteInventario.aggregate([
+      { $match: { codigoInterno: { $in: strList } } },
+      { $group: { _id: '$codigoInterno', cant: { $sum: { $ifNull: ['$cantidad', 0] } } } },
+    ]),
+  ]);
+
+  // 2) Acumular stock por rawId
+  const rawMap = new Map();
+  for (const d of entradas) rawMap.set(String(d._id), (rawMap.get(String(d._id)) || 0) + d.cant);
+  for (const d of salidas)  rawMap.set(String(d._id), (rawMap.get(String(d._id)) || 0) - d.cant);
+  for (const d of ajustes)  rawMap.set(String(d._id), (rawMap.get(String(d._id)) || 0) + d.cant);
+
+  // 3) Mapear rawId → numeroParte para que el caller pueda hacer stockMap.get(p.codigo)
+  const result = new Map(); // numeroParte → stock
+  for (const [rawId, stock] of rawMap) {
+    const np = oidToNP.get(rawId) || rawId; // si es ObjectId, resuelve a NP; si ya es string, lo usa
+    result.set(np, (result.get(np) || 0) + stock);
+  }
+  return result;
+}
+
+/**
+ * Dado un array de numeroParte, devuelve un mapa: numeroParte → ObjectId del CodigoRefaccion.
+ * Útil para guardar codigoInterno correcto en SalidaInventario.
+ */
+async function resolveNPtoOid(numerosParteLista) {
+  const docs = await CodigoRefaccion.find(
+    { $or: [{ numeroParte: { $in: numerosParteLista } }, { codigo: { $in: numerosParteLista } }] },
+    { _id: 1, numeroParte: 1, codigo: 1 }
+  ).lean();
+  const map = new Map();
+  for (const c of docs) {
+    const np = c.numeroParte || c.codigo || '';
+    map.set(np, c._id); // ObjectId
+  }
+  return map;
 }
 
 // 👇 Helper para generar número de Orden de Servicio
@@ -129,10 +213,9 @@ router.get('/ordenes', async (req, res) => {
       q.ordenServicio = { $regex: searchOs, $options: 'i' };
     }
 
-    // Búsqueda general (cliente, placas, marca/modelo, etc.)
+    // Búsqueda general (placas, marca/modelo)
     if (search) {
       q.$or = [
-        { nombreGobierno: { $regex: search, $options: 'i' } }, // cliente (para gobierno)
         { placas: { $regex: search, $options: 'i' } },
         { marca: { $regex: search, $options: 'i' } },
         { modelo: { $regex: search, $options: 'i' } },
@@ -148,7 +231,7 @@ router.get('/ordenes', async (req, res) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum)
-        .populate('cliente', 'nombre'), // si quieres traer nombre del cliente
+        .populate('cliente', POPULATE_CLIENTE),
       Vehiculo.countDocuments(q),
     ]);
 
@@ -173,7 +256,8 @@ router.get('/mis-ordenes', proteger, requiereRol('asesor_servicio', 'admin'), as
       creadoPor: nombreUsuario,
       estadoOrden: { $ne: 'CERRADA' },
     })
-      .select('ordenServicio estadoOrden nombreCliente apellidoPaterno apellidoMaterno nombreGobierno marca modelo anio color createdAt')
+      .select('ordenServicio estadoOrden marca modelo anio color createdAt cliente')
+      .populate('cliente', POPULATE_CLIENTE)
       .sort({ createdAt: -1 })
       .lean();
 
@@ -332,11 +416,71 @@ router.put('/:id/presupuesto-venta', async (req, res) => {
       vehiculo.observCotizacion = observCotizacion;
     }
 
-    if (estadoOrden) {
-      vehiculo.estadoOrden = estadoOrden;
+    let inventarioResult = null;
 
+    if (estadoOrden) {
       if (estadoOrden === 'PENDIENTE_SURTIR') {
-        vehiculo.fechaEnvioSurtir = new Date(); // ← NUEVO
+        // Verificar inventario por cada partida autorizada que tenga código
+        const autorizadas = (vehiculo.presupuesto || []).filter(p => p.autorizado && p.codigo);
+        let autoSurtidas = 0;
+
+        if (autorizadas.length > 0) {
+          const codigos = [...new Set(autorizadas.map(p => String(p.codigo)))];
+          const stockMap = await getStockMapLocal(codigos);
+          const partidasSalida = [];
+
+          for (const p of vehiculo.presupuesto) {
+            if (!p.autorizado || !p.codigo) continue;
+            const stock = stockMap.get(String(p.codigo)) || 0;
+            const qty   = Number(p.cant) || 1;
+            if (stock >= qty) {
+              p.surtida = true;
+              autoSurtidas++;
+              partidasSalida.push({
+                codigoInterno: String(p.codigo),
+                descripcion:   (p.refaccion || p.concepto || '').trim(),
+                marca:         (p.marca || '').trim(),
+                unidad:        'Pieza',
+                cantidad:      qty,
+              });
+            }
+          }
+
+          if (partidasSalida.length > 0) {
+            // Resolver numeroParte → ObjectId para guardar codigoInterno correcto
+            const oidMap = await resolveNPtoOid(partidasSalida.map(p => String(p.codigoInterno)));
+            const partidasConOid = partidasSalida.map(p => ({
+              ...p,
+              codigoInterno: oidMap.get(String(p.codigoInterno)) || p.codigoInterno,
+            }));
+            await SalidaInventario.create({
+              fechaSalida:   new Date(),
+              ordenServicio: vehiculo.ordenServicio || '',
+              partidas:      partidasConOid,
+              estatus:       'cerrada',
+            });
+          }
+        }
+
+        // Si TODAS las partidas autorizadas ya están surtidas → saltar a reparación
+        const todasSurtidas = (vehiculo.presupuesto || [])
+          .filter(p => p.autorizado)
+          .every(p => p.surtida);
+
+        if (todasSurtidas && autorizadas.length > 0) {
+          vehiculo.estadoOrden   = 'REPARACION_EN_CURSO';
+          vehiculo.pendienteCierre = true;
+        } else {
+          vehiculo.estadoOrden     = 'PENDIENTE_SURTIR';
+          vehiculo.fechaEnvioSurtir = new Date();
+        }
+
+        const pendientesSurtir = (vehiculo.presupuesto || [])
+          .filter(p => p.autorizado && !p.surtida).length;
+
+        inventarioResult = { autoSurtidas, pendientesSurtir };
+      } else {
+        vehiculo.estadoOrden = estadoOrden;
       }
     }
     
@@ -475,7 +619,7 @@ router.put('/:id/presupuesto-venta', async (req, res) => {
     }
     await vehiculo.save();
 
-    return res.json({ ok: true, vehiculo });
+    return res.json({ ok: true, vehiculo, inventario: inventarioResult });
   } catch (err) {
     console.error('Error guardando presupuesto/venta/manoObra:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
@@ -508,12 +652,13 @@ router.post(
 
       // Buscar una línea compatible dentro de refaccionesSolicitadas
       const idx = (vehiculo.refaccionesSolicitadas || []).findIndex((r) => {
+        const rOp = r.opciones?.[r.opcionSeleccionada] || {};
+        const refOp = refaccion.opciones?.[refaccion.opcionSeleccionada] || {};
         return (
           String(r.refaccion || '') === String(refaccion.refaccion || '') &&
-          String(r.codigo || '') === String(refaccion.codigo || '') &&
+          String(rOp.codigo || '') === String(refOp.codigo || refaccion.codigo || '') &&
           Number(r.cant || 0) === Number(refaccion.cant || 0) &&
-          Number(r.precioUnitario || 0) ===
-            Number(refaccion.precioUnitario || 0)
+          Number(rOp.precioUnitario || 0) === Number(refOp.precioUnitario || refaccion.precioUnitario || 0)
         );
       });
 
@@ -545,24 +690,27 @@ router.post(
       // Crear número de OC
       const numeroOC = generarNumeroOC();
 
+      // Extraer datos de la opción seleccionada
+      const op = linea.opciones?.[linea.opcionSeleccionada] || {};
+
       // Crear OrdenCompra
       const oc = await OrdenCompra.create({
         numero: numeroOC,
         orden: vehiculo._id,
-        proveedor: linea.proveedor || refaccion.proveedor || '',
+        proveedor: op.proveedor || '',
         lineas: [
           {
             cant: linea.cant,
-            unidad: linea.unidad,
+            unidad: op.unidad || '',
             refaccion: linea.refaccion,
-            tipo: linea.tipo,
-            marca: linea.marca,
-            proveedor: linea.proveedor,
-            codigo: linea.codigo,
-            precioUnitario: linea.precioUnitario,
-            importeTotal: linea.importeTotal,
-            moneda: linea.moneda || 'MN',
-            observaciones: linea.observaciones,
+            tipo: op.tipo || '',
+            marca: op.marca || '',
+            proveedor: op.proveedor || '',
+            codigo: op.codigo || '',
+            precioUnitario: op.precioUnitario || 0,
+            importeTotal: op.importeTotal || (linea.cant * (op.precioUnitario || 0)),
+            moneda: op.moneda || 'MN',
+            observaciones: op.observaciones || '',
           },
         ],
         estatus: 'PENDIENTE',
@@ -637,7 +785,7 @@ router.get('/stats/dashboard', async (req, res) => {
 // GET /api/vehiculos/:id  -> detalle de una orden
 router.get('/:id', async (req, res) => {
   try {
-    const vehiculo = await Vehiculo.findById(req.params.id);
+    const vehiculo = await Vehiculo.findById(req.params.id).populate('cliente', POPULATE_CLIENTE);
     if (!vehiculo) {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     }
@@ -652,7 +800,7 @@ router.get('/:id', async (req, res) => {
 router.get('/:id/operativo-pdf', async (req, res) => {
   try {
     const { id } = req.params;
-    const vehiculo = await Vehiculo.findById(id);
+    const vehiculo = await Vehiculo.findById(id).populate('cliente', POPULATE_CLIENTE);
 
     if (!vehiculo) {
       return res
@@ -672,7 +820,7 @@ router.get('/:id/operativo-pdf', async (req, res) => {
 // PDF para "Imprimir" / contrato
 router.get('/:id/orden-pdf', async (req, res) => {
   try {
-    const vehiculo = await Vehiculo.findById(req.params.id);
+    const vehiculo = await Vehiculo.findById(req.params.id).populate('cliente', POPULATE_CLIENTE);
     if (!vehiculo) {
       return res.status(404).json({ success: false, message: 'Orden no encontrada' });
     }
@@ -688,38 +836,84 @@ router.put('/:id/datos', async (req, res) => {
   try {
     const { id } = req.params;
 
-    const camposPermitidos = [
+    // Campos que viven en el documento Vehiculo
+    const camposVehiculo = [
       'fechaRecepcion', 'horaRecepcion', 'ordenServicio',
-      'nombreCliente', 'apellidoPaterno', 'apellidoMaterno',
-      'nombreGobierno', 'nombreContactoGobierno', 'nombreDependencia', 'nombreContactoDependencia',
-      'telefonoFijoLada', 'telefonoFijo', 'celularLada', 'celular',
-      'direccion', 'numeroExt', 'numeroInt', 'colonia', 'rfc',
-      'regimenFiscal', 'usoCFDI', 'codigoPostal', 'ciudad', 'estado',
-      'correo', 'correos',
       'nombreUsuarioDejaVehiculo', 'marca', 'modelo', 'anio', 'color',
       'serie', 'placas', 'kmsMillas', 'nacionalidad', 'motor', 'numeroEconomico', 'traccion',
-      'grua', 'precioGrua',
-      'espejoLateralIzq', 'espejoLateralDer', 'copasDelanterasIzq', 'copasDelanterasDer',
-      'parabrisas', 'focosDel', 'focosTras', 'espejoInt',
-      'tapetesDelanterosIzq', 'tapetesDelanterosDer', 'estereo', 'extra',
-      'copasTraserasIzq', 'copasTraserasDer', 'micas', 'antena', 'encendedor',
-      'tapetesTraserosIzq', 'tapetesTraserosDer', 'gato', 'bateria',
-      'nivelGasolina', 'danoVehiculo',
-      'checkEngine', 'abs', 'airBag', 'frenos', 'aceite', 'alternador',
-      'indicadoresTablero', 'otros', 'observaciones',
     ];
 
-    const update = {};
-    camposPermitidos.forEach((campo) => {
-      if (req.body[campo] !== undefined) update[campo] = req.body[campo];
+    const updateVehiculo = {};
+    camposVehiculo.forEach((campo) => {
+      if (req.body[campo] !== undefined) updateVehiculo[campo] = req.body[campo];
     });
 
-    const vehiculo = await Vehiculo.findByIdAndUpdate(id, update, { new: true });
+    if (req.body.inspeccionFisica !== undefined) {
+      updateVehiculo.inspeccionFisica = req.body.inspeccionFisica;
+    }
+
+    const vehiculo = await Vehiculo.findByIdAndUpdate(id, updateVehiculo, { new: true })
+      .populate('cliente', POPULATE_CLIENTE);
     if (!vehiculo) {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     }
 
-    return res.json({ ok: true, vehiculo });
+    // Actualizar datos del cliente en su propio documento
+    if (vehiculo.cliente?._id) {
+      const b = req.body;
+      const esParticular = vehiculo.cliente.tipoCliente === 'Particular';
+
+      const clienteUpdate = {};
+
+      if (esParticular) {
+        if (b.nombreCliente !== undefined) clienteUpdate.nombre = b.nombreCliente;
+        if (b.apellidoPaterno !== undefined) clienteUpdate.apellidoPaterno = b.apellidoPaterno;
+        if (b.apellidoMaterno !== undefined) clienteUpdate.apellidoMaterno = b.apellidoMaterno;
+      } else {
+        if (b.nombreGobierno !== undefined) {
+          clienteUpdate['gobierno.nombreGobierno'] = b.nombreGobierno;
+        }
+        if (b.nombreContactoGobierno !== undefined) {
+          clienteUpdate['gobierno.contactoGobierno.nombre'] = b.nombreContactoGobierno;
+        }
+        if (b.nombreDependencia !== undefined) {
+          clienteUpdate['gobierno.dependencia.nombre'] = b.nombreDependencia;
+        }
+        if (b.nombreContactoDependencia !== undefined) {
+          clienteUpdate['gobierno.dependencia.contacto.nombre'] = b.nombreContactoDependencia;
+        }
+      }
+
+      if (b.rfc !== undefined) clienteUpdate.rfc = b.rfc;
+
+      if (b.telefonoFijo !== undefined || b.telefonoFijoLada !== undefined) {
+        clienteUpdate['telefonos'] = [{ lada: b.telefonoFijoLada || '', numero: b.telefonoFijo || '' }];
+      }
+      if (b.celular !== undefined || b.celularLada !== undefined) {
+        clienteUpdate['celulares'] = [{ lada: b.celularLada || '', numero: b.celular || '' }];
+      }
+      if (b.correos !== undefined) clienteUpdate.emails = b.correos;
+
+      if (b.direccion !== undefined || b.ciudad !== undefined) {
+        clienteUpdate['direccion'] = {
+          calle: b.direccion || '',
+          numeroExterior: b.numeroExt || '',
+          numeroInterior: b.numeroInt || '',
+          colonia: b.colonia || '',
+          codigoPostal: b.codigoPostal || '',
+          ciudad: b.ciudad || '',
+          estado: b.estado || '',
+        };
+      }
+
+      if (Object.keys(clienteUpdate).length > 0) {
+        await Cliente.findByIdAndUpdate(vehiculo.cliente._id, { $set: clienteUpdate });
+      }
+    }
+
+    // Re-fetch con cliente actualizado
+    const vehiculoFinal = await Vehiculo.findById(id).populate('cliente', POPULATE_CLIENTE);
+    return res.json({ ok: true, vehiculo: vehiculoFinal });
   } catch (err) {
     console.error('Error actualizando datos de orden:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
@@ -757,7 +951,7 @@ router.put('/:id/cerrar', async (req, res) => {
 router.get('/:id/presupuesto-pdf', async (req, res) => {
   try {
     const { id } = req.params;
-    const vehiculo = await Vehiculo.findById(id);
+    const vehiculo = await Vehiculo.findById(id).populate('cliente', POPULATE_CLIENTE);
 
     if (!vehiculo) {
       return res.status(404).json({
@@ -789,11 +983,40 @@ router.put('/:id/surtir', async (req, res) => {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     }
 
+    // Detectar qué líneas pasan de surtida:false → surtida:true en este guardado
+    const prevSurtidasIds = new Set(
+      (vehiculo.presupuesto || [])
+        .filter(p => p.surtida)
+        .map((_, i) => i)
+    );
+
     if (Array.isArray(presupuesto)) {
       vehiculo.presupuesto = presupuesto;
     }
 
-    // Si todas las partidas autorizadas ya están surtidas → PENDIENTE_CIERRE
+    // Líneas recién surtidas que tienen código → crear SalidaInventario
+    const nuevamenteSurtidas = (vehiculo.presupuesto || []).filter(
+      (p, i) => p.surtida && p.codigo && !prevSurtidasIds.has(i)
+    );
+
+    if (nuevamenteSurtidas.length > 0) {
+      const nps = nuevamenteSurtidas.map(p => String(p.codigo));
+      const oidMap = await resolveNPtoOid(nps);
+      await SalidaInventario.create({
+        fechaSalida:   new Date(),
+        ordenServicio: vehiculo.ordenServicio || '',
+        partidas: nuevamenteSurtidas.map(p => ({
+          codigoInterno: oidMap.get(String(p.codigo)) || String(p.codigo),
+          descripcion:   (p.refaccion || p.concepto || '').trim(),
+          marca:         (p.marca || '').trim(),
+          unidad:        'Pieza',
+          cantidad:      Number(p.cant) || 1,
+        })),
+        estatus: 'cerrada',
+      });
+    }
+
+    // Si todas las partidas autorizadas ya están surtidas → Reparación en curso
     const autorizadas = vehiculo.presupuesto.filter(p => p.autorizado);
     const todasSurtidas = autorizadas.length > 0 && autorizadas.every(p => p.surtida);
 
@@ -814,7 +1037,7 @@ router.put('/:id/surtir', async (req, res) => {
 router.get('/:id/venta-cliente-pdf', async (req, res) => {
   try {
     const { id } = req.params;
-    const vehiculo = await Vehiculo.findById(id);
+    const vehiculo = await Vehiculo.findById(id).populate('cliente', POPULATE_CLIENTE);
 
     if (!vehiculo) {
       return res.status(404).json({

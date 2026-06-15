@@ -42,10 +42,11 @@ export default function PorSurtir() {
     }, []);
 
 
-  const nombreCliente = (orden) =>
-    [orden.cliente?.nombre, orden.apellidoPaterno, orden.apellidoMaterno]
-      .filter(Boolean)
-      .join(" ") || orden.nombreGobierno || "Sin cliente";
+  const nombreCliente = (orden) => {
+    const c = orden.cliente || {};
+    if (c.gobierno?.nombreGobierno) return c.gobierno.nombreGobierno;
+    return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") || "Sin cliente";
+  };
 
   const toggleSurtida = (ordenId, presIdx) => {
     setOrdenes((prev) =>

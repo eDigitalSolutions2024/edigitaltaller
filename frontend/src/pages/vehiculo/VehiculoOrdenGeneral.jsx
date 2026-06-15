@@ -50,45 +50,21 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
     }
   };
 
-  // --- TELÉFONOS ---
-  const telefonoFijo =
-    (orden.telefonoFijoLada ? orden.telefonoFijoLada + " " : "") +
-    (orden.telefonoFijo || "");
+  // --- DATOS DEL CLIENTE (desde populate) ---
+  const c = orden.cliente || {};
+  const gob = c.gobierno || {};
+  const tel = (c.telefonos || [])[0] || {};
+  const cel = (c.celulares || [])[0] || {};
+  const dir = c.direccion || {};
 
-  let celular = "";
-  if (typeof orden.celular === "string") {
-    celular = orden.celular;
-  } else if (orden.celular) {
-    celular = [orden.celular.lada, orden.celular.numero]
-      .filter(Boolean)
-      .join(" ");
-  }
-
-  // --- DIRECCIÓN ---
-  let direccionTexto = "";
-  if (typeof orden.direccion === "string") {
-    direccionTexto = orden.direccion;
-  } else if (orden.direccion && typeof orden.direccion === "object") {
-    direccionTexto = [
-      orden.direccion.calle,
-      orden.direccion.colonia,
-      orden.direccion.ciudad,
-      orden.direccion.estado,
-      orden.direccion.cp,
-    ]
-      .filter(Boolean)
-      .join(", ");
-  } else {
-    direccionTexto = [
-      orden.direccionCalle,
-      orden.colonia,
-      orden.ciudad,
-      orden.estado,
-      orden.codigoPostal,
-    ]
-      .filter(Boolean)
-      .join(", ");
-  }
+  const nombreEmpresaGob = gob.nombreGobierno || "";
+  const contactoGob = gob.contactoGobierno?.nombre || "";
+  const telefonoFijo = [tel.lada, tel.numero].filter(Boolean).join(" ");
+  const celular = [cel.lada, cel.numero].filter(Boolean).join(" ");
+  const direccionTexto = [dir.calle, dir.colonia, dir.ciudad, dir.estado, dir.codigoPostal]
+    .filter(Boolean)
+    .join(", ");
+  const rfc = c.rfc || "";
 
   // --- LISTAS (amarradas al modelo actual) ---
   const refacciones = orden.refaccionesSolicitadas || [];
@@ -148,11 +124,11 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
             {orden.ordenServicio || orden._id}
           </div>
           <div className="mb-1">
-            <strong>Nombre Empresa:</strong> {orden.nombreGobierno || ""}
+            <strong>Nombre Empresa:</strong> {nombreEmpresaGob}
           </div>
           <div className="mb-1">
             <strong>Nombre Contacto Empresa:</strong>{" "}
-            {orden.nombreContactoGobierno || ""}
+            {contactoGob}
           </div>
           <div className="mb-1">
             <strong>Teléfono fijo:</strong> {telefonoFijo}
@@ -164,7 +140,7 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
             <strong>Dirección:</strong> {direccionTexto}
           </div>
           <div className="mb-1">
-            <strong>RFC:</strong> {orden.rfc || ""}
+            <strong>RFC:</strong> {rfc}
           </div>
         </div>
 
@@ -242,21 +218,24 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
                 </td>
               </tr>
             )}
-            {refacciones.map((r, idx) => (
-              <tr key={idx}>
-                <td>{r.cant ?? r.cantidad}</td>
-                <td>{r.unidad}</td>
-                <td>{r.refaccion}</td>
-                <td>{r.marca}</td>
-                <td>{r.proveedor}</td>
-                <td>{r.codigo}</td>
-                <td>{formatMoney(r.precioUnitario)}</td>
-                <td>{formatMoney(r.importeTotal)}</td>
-                <td>{r.moneda}</td>
-                <td>{r.estatus || ""}</td>
-                <td>{r.observaciones}</td>
-              </tr>
-            ))}
+            {refacciones.map((r, idx) => {
+              const op = r.opciones?.[r.opcionSeleccionada] || {};
+              return (
+                <tr key={idx}>
+                  <td>{r.cant ?? r.cantidad}</td>
+                  <td>{op.unidad}</td>
+                  <td>{r.refaccion}</td>
+                  <td>{op.marca}</td>
+                  <td>{op.proveedor}</td>
+                  <td>{op.codigo}</td>
+                  <td>{formatMoney(op.precioUnitario)}</td>
+                  <td>{formatMoney(op.importeTotal)}</td>
+                  <td>{op.moneda}</td>
+                  <td>{r.estatus || ""}</td>
+                  <td>{op.observaciones}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

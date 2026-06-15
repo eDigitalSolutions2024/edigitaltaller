@@ -130,17 +130,17 @@ export default function VehiculoConsultaCerradas() {
             )}
 
             {rows.map((o) => {
+              const c = o.cliente || {};
               const clienteNombre =
-                o.nombreGobierno ||
-                o.cliente?.nombre ||
-                o.clienteNombre ||
+                c.gobierno?.nombreGobierno ||
+                [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") ||
                 "";
 
+              const tel = (c.telefonos || [])[0] || {};
+              const cel = (c.celulares || [])[0] || {};
               const telefono =
-                (o.telefonoFijoLada
-                  ? o.telefonoFijoLada + " " + (o.telefonoFijo || "")
-                  : o.telefonoFijo) ||
-                o.celular ||
+                [tel.lada, tel.numero].filter(Boolean).join(" ") ||
+                cel.numero ||
                 "";
 
               return (

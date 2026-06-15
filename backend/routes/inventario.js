@@ -2,6 +2,9 @@
 const router = require('express').Router();
 const mongoose = require('mongoose');
 const EntradaInventario = require('../models/EntradaInventario');
+const SalidaInventario  = require('../models/SalidaInventario');
+const AjusteInventario  = require('../models/AjusteInventario');
+const { proteger, requiereRol } = require('../middleware/auth');
 
 // (opcional) si tienes modelo Proveedor para mostrar nombre en historial
 let Proveedor = null;
@@ -59,7 +62,24 @@ router.get('/', async (req, res) => {
           ]
       }},
 
-      // === SUMA entradas - salidas
+      // === AJUSTES MANUALES (positivo = entrada, negativo = salida)
+      { $unionWith: {
+          coll: 'ajusteinventarios',
+          pipeline: [
+            { $match: { codigoInterno: { $nin: [null, ''] } } },
+            {
+              $project: {
+                _id: '$codigoInterno',
+                cantidad: { $ifNull: ['$cantidad', 0] },
+                descripcion: '$descripcion',
+                unidad: '$unidad',
+                fecha: '$fecha',
+              }
+            }
+          ]
+      }},
+
+      // === SUMA entradas - salidas + ajustes
       {
         $group: {
           _id: '$_id',
@@ -163,6 +183,101 @@ router.get('/:codigo/historial', async (req, res) => {
   } catch (err) {
     console.error('GET /inventario/:codigo/historial error:', err);
     res.status(500).json({ success: false, message: 'No se pudo obtener el historial', error: err.message });
+  }
+});
+
+/**
+ * GET /api/inventario/:codigo/historial-usos
+ * Devuelve salidas de OS + ajustes manuales para un producto.
+ * Respuesta: [{ fecha, tipo, cantidad, referencia, usuario }]
+ */
+router.get('/:codigo/historial-usos', async (req, res) => {
+  try {
+    const { codigo } = req.params;
+    const strCodigo = String(codigo);
+
+    // Construir el $in para salidas (puede ser ObjectId o string)
+    const idsParaSalidas = [strCodigo];
+    if (isObjId(strCodigo)) {
+      idsParaSalidas.push(new mongoose.Types.ObjectId(strCodigo));
+    }
+
+    const [salidas, ajustes] = await Promise.all([
+      // Salidas: cada partida que coincida con el código
+      SalidaInventario.aggregate([
+        { $unwind: '$partidas' },
+        { $match: { 'partidas.codigoInterno': { $in: idsParaSalidas } } },
+        {
+          $project: {
+            _id: 0,
+            fecha:      '$fechaSalida',
+            tipo:       { $literal: 'SALIDA' },
+            cantidad:   { $multiply: ['$partidas.cantidad', -1] },
+            referencia: { $ifNull: ['$ordenServicio', ''] },
+            usuario:    { $literal: '' },
+          }
+        },
+        { $sort: { fecha: -1 } },
+      ]),
+
+      // Ajustes manuales
+      AjusteInventario.find(
+        { codigoInterno: strCodigo },
+        { fecha: 1, cantidad: 1, motivo: 1, usuario: 1 }
+      )
+        .sort({ fecha: -1 })
+        .lean()
+        .then(rows => rows.map(r => ({
+          fecha:      r.fecha,
+          tipo:       r.cantidad >= 0 ? 'AJUSTE_ENTRADA' : 'AJUSTE_SALIDA',
+          cantidad:   r.cantidad,
+          referencia: r.motivo || '',
+          usuario:    r.usuario || '',
+        }))),
+    ]);
+
+    // Mezclar y ordenar por fecha desc
+    const data = [...salidas, ...ajustes].sort(
+      (a, b) => new Date(b.fecha) - new Date(a.fecha)
+    );
+
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('GET /inventario/:codigo/historial-usos error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/**
+ * POST /api/inventario/ajuste  (solo admin)
+ * Ajuste manual de inventario. cantidad positiva = entrada, negativa = salida.
+ */
+router.post('/ajuste', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { codigoInterno, cantidad, motivo, descripcion, unidad } = req.body;
+
+    if (!codigoInterno || String(codigoInterno).trim() === '') {
+      return res.status(400).json({ success: false, message: 'codigoInterno requerido' });
+    }
+    const qty = Number(cantidad);
+    if (!qty || qty === 0) {
+      return res.status(400).json({ success: false, message: 'La cantidad debe ser diferente de 0' });
+    }
+
+    const ajuste = await AjusteInventario.create({
+      codigoInterno: String(codigoInterno).trim(),
+      descripcion:   (descripcion || '').trim(),
+      unidad:        (unidad || '').trim(),
+      cantidad:      qty,
+      motivo:        (motivo || '').trim(),
+      usuario:       req.user?.email || req.user?.name || 'admin',
+      fecha:         new Date(),
+    });
+
+    res.status(201).json({ success: true, data: ajuste });
+  } catch (err) {
+    console.error('POST /inventario/ajuste error:', err);
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 

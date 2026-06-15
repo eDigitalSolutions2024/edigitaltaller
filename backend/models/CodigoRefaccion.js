@@ -30,13 +30,16 @@ const CodigoSchema = new mongoose.Schema({
   codigoSat: { type: String, trim: true, default: "" },
   descripcionSat: { type: String, trim: true, default: "" },
 
-
-   // 👇 NUEVO: para que el PDF sepa en qué columna va
+  // para que el PDF sepa en qué columna va (servicios)
   grupoServicio: {
     type: String,
     enum: ['motor', 'lubricacion', 'revision', 'otros'],
     default: 'otros',
   },
+
+  // Opcionales: pre-llenan solicitudes de refacciones al seleccionar el código
+  unidad:         { type: String, trim: true, default: "" },
+  precioUnitario: { type: Number, default: null },
 }, { timestamps: true });
 
 CodigoSchema.index({ numeroParte: 1 });
