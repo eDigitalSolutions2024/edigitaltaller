@@ -167,9 +167,15 @@ export default function VehiculosConsultaOrdenes() {
       key={r._id}
       style={{ cursor: "pointer" }}
       onClick={() => {
-        const targetTab =
-          tab === "PENDIENTE_AUTORIZACION_CLIENTE" ? "presupuesto" : "datos";
-
+        const TAB_MAP = {
+          PENDIENTE_CAPTURA:              "datos",
+          PENDIENTE_REFACCIONARIA:        "req",
+          PENDIENTE_AUTORIZACION_CLIENTE: "presupuesto",
+          PENDIENTE_SURTIR:               "presupuesto",
+          REPARACION_EN_CURSO:            "reparacion",
+          PENDIENTE_CIERRE:               "general",
+        };
+        const targetTab = TAB_MAP[tab] || "datos";
         navigate(`/vehiculo/orden/${r._id}?tab=${targetTab}`);
       }}
   // 👈

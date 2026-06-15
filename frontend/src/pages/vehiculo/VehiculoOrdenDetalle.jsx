@@ -1,28 +1,48 @@
 // src/pages/vehiculo/VehiculoOrdenDetalle.jsx
 import React, { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import {
-  getVehiculoById,
-  openOperativoPdf,
-  openImprimirPdf,
-} from "../../api/vehiculos";
+import { getVehiculoById } from "../../api/vehiculos";
 import VehiculoNuevoForm from "./VehiculoNuevoForm";
 import ServicioReparacionTab from "./ServicioReparacionTab";
 import VehiculoRequisicionDiagnostico from "./VehiculoRequisicionDiagnostico";
 import VehiculoPresupuestoVenta from "./VehiculoPresupuestoVenta"; // 👈 NUEVO
 import VehiculoOrdenGeneral from "./VehiculoOrdenGeneral";
+import VehiculoReparacionEnCurso from "./VehiculoReparacionEnCurso";
 
 
 
 
-export default function VehiculoOrdenDetalle() {  
+const ESTADO_TO_TAB = {
+  PENDIENTE_CAPTURA:              "datos",
+  PENDIENTE_REFACCIONARIA:        "req",
+  PENDIENTE_AUTORIZACION_CLIENTE: "presupuesto",
+  PENDIENTE_SURTIR:               "presupuesto",
+  REPARACION_EN_CURSO:            "reparacion",
+  PENDIENTE_CIERRE:               "general",
+  PENDIENTE_CERRAR:               "general",
+  CERRADA:                        "general",
+};
+
+const TAB_STEP = { datos: 0, servicio: 1, req: 2, presupuesto: 3, reparacion: 4, general: 5 };
+const ESTADO_STEP = {
+  PENDIENTE_CAPTURA:              0,
+  PENDIENTE_REFACCIONARIA:        2,
+  PENDIENTE_AUTORIZACION_CLIENTE: 3,
+  PENDIENTE_SURTIR:               3,
+  REPARACION_EN_CURSO:            4,
+  PENDIENTE_CIERRE:               5,
+  PENDIENTE_CERRAR:               5,
+  CERRADA:                        5,
+};
+
+export default function VehiculoOrdenDetalle() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const [orden, setOrden] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const initialTab = searchParams.get("tab") || "datos";
-  const [tab, setTab] = useState(initialTab); // 'datos' | 'servicio' | 'req' | 'presupuesto' | 'general'
+  const tabFromUrl = searchParams.get("tab");
+  const [tab, setTab] = useState(tabFromUrl || "datos"); // 'datos' | 'servicio' | 'req' | 'presupuesto' | 'general'
   const ordenIniciada = !!orden?.ordenIniciada;
 
   const ESTADOS_PRESUPUESTO = [
@@ -30,9 +50,16 @@ export default function VehiculoOrdenDetalle() {
     "PENDIENTE_SURTIR",
     "PENDIENTE_CIERRE",
     "PENDIENTE_CERRAR",
+    "REPARACION_EN_CURSO",
   ];
   const presupuestoHabilitado =
     ordenIniciada && ESTADOS_PRESUPUESTO.includes(orden?.estadoOrden);
+
+  const ESTADOS_PREPARACION = ["REPARACION_EN_CURSO", "PENDIENTE_CIERRE", "PENDIENTE_CERRAR", "CERRADA"];
+  const reparacionHabilitada = ESTADOS_PREPARACION.includes(orden?.estadoOrden);
+
+  const currentStep = ESTADO_STEP[orden?.estadoOrden] ?? 0;
+  const isPast = (tabKey) => !orden ? false : TAB_STEP[tabKey] < currentStep;
 
   useEffect(() => {
     const load = async () => {
@@ -42,6 +69,9 @@ export default function VehiculoOrdenDetalle() {
         const res = await getVehiculoById(id);
         const v = res.data.vehiculo;
         setOrden(v);
+        if (!tabFromUrl && v?.estadoOrden && ESTADO_TO_TAB[v.estadoOrden]) {
+          setTab(ESTADO_TO_TAB[v.estadoOrden]);
+        }
       } catch (err) {
         console.error(err);
         setError("No se pudo cargar la orden.");
@@ -50,6 +80,7 @@ export default function VehiculoOrdenDetalle() {
       }
     };
     load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   // 👇 NUEVO: Polling — refresca la orden cada 8 seg solo cuando el asesor
@@ -101,6 +132,7 @@ export default function VehiculoOrdenDetalle() {
         <li className="nav-item">
           <button
             className={"nav-link" + (tab === "datos" ? " active" : "")}
+            style={tab !== "datos" && isPast("datos") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
             type="button"
             onClick={() => setTab("datos")}
           >
@@ -111,6 +143,7 @@ export default function VehiculoOrdenDetalle() {
         <li className="nav-item">
           <button
             className={"nav-link" + (tab === "servicio" ? " active" : "")}
+            style={tab !== "servicio" && isPast("servicio") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
             type="button"
             onClick={() => setTab("servicio")}
           >
@@ -123,6 +156,7 @@ export default function VehiculoOrdenDetalle() {
           <li className="nav-item">
             <button
               className={"nav-link" + (tab === "req" ? " active" : "")}
+              style={tab !== "req" && isPast("req") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
               onClick={() => setTab("req")}
             >
@@ -136,10 +170,25 @@ export default function VehiculoOrdenDetalle() {
           <li className="nav-item">
             <button
               className={"nav-link" + (tab === "presupuesto" ? " active" : "")}
+              style={tab !== "presupuesto" && isPast("presupuesto") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
               onClick={() => setTab("presupuesto")}
             >
               Presupuesto y Venta al Cliente
+            </button>
+          </li>
+        )}
+
+        {/* Reparación en Curso: visible una vez impresa la venta al cliente */}
+        {reparacionHabilitada && (
+          <li className="nav-item">
+            <button
+              className={"nav-link" + (tab === "reparacion" ? " active" : "")}
+              style={tab !== "reparacion" && isPast("reparacion") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
+              type="button"
+              onClick={() => setTab("reparacion")}
+            >
+              Reparación en Curso
             </button>
           </li>
         )}
@@ -149,6 +198,7 @@ export default function VehiculoOrdenDetalle() {
           <li className="nav-item ms-auto">
             <button
               className={"nav-link" + (tab === "general" ? " active" : "")}
+              style={tab !== "general" && isPast("general") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
               onClick={() => setTab("general")}
             >
@@ -180,36 +230,26 @@ export default function VehiculoOrdenDetalle() {
       )}
 
       {tab === "presupuesto" && ordenIniciada && (
-          <VehiculoPresupuestoVenta
-            orden={orden}
-            onSaved={(vActualizado) => setOrden(vActualizado)}
-          />
-        )}
+        <VehiculoPresupuestoVenta
+          orden={orden}
+          onSaved={(vActualizado) => setOrden(vActualizado)}
+          onGoPreparacion={() => setTab("reparacion")}
+        />
+      )}
 
-      {/* Tab General (por ahora solo placeholder, luego lo llenamos) */}
+      {tab === "reparacion" && reparacionHabilitada && (
+        <VehiculoReparacionEnCurso
+          orden={orden}
+          onSaved={(vActualizado) => setOrden(vActualizado)}
+          onGoGeneral={() => setTab("general")}
+        />
+      )}
+
       {tab === "general" && ordenIniciada && (
         <VehiculoOrdenGeneral orden={orden} />
       )}
 
 
-      {/* Botones debajo: Imprimir y Operativo */}
-      <div className="text-center my-3">
-        <button
-          type="button"
-          className="btn btn-secondary me-2"
-          onClick={() => openImprimirPdf(orden._id)}
-        >
-          Imprimir
-        </button>
-
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => openOperativoPdf(orden._id)}
-        >
-          Operativo
-        </button>
-      </div>
     </div>
   );
 }
