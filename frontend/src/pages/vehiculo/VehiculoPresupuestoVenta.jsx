@@ -30,6 +30,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   const [servicioSearch, setServicioSearch] = useState("");
   const [showServiciosDropdown, setShowServiciosDropdown] = useState(false);
   const serviciosDropdownRef = useRef(null);
+  const ventaSectionRef = useRef(null);
 
   // ===== PRESUPUESTO =====
   const [presRows, setPresRows] = useState([]);
@@ -179,11 +180,6 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   }, []);
 
   // ===== HELPERS =====
-  const hayCarroceria = useMemo(
-    () => moRows.some((m) => m.esCarroceria),
-    [moRows]
-  );
-
   const formatMoney = (n) =>
     new Intl.NumberFormat("es-MX", {
       style: "currency",
@@ -292,7 +288,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     const nuevasVentas = autorizadas.map((r) => ({
       cant: r.cant,
       concepto: r.concepto || r.refaccion || "",
-      precioVenta: r.precioVenta || "",
+      precioVenta: 0,
       observaciones: "",
       codigoServicio: "",
       descripcionServicio: "",
@@ -313,6 +309,10 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         })
       );
       if (onSaved) onSaved(res.data.vehiculo);
+
+      setTimeout(() => {
+        ventaSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 150);
 
       const inv = res.data.inventario;
       if (inv) {
@@ -425,9 +425,12 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
   const handleGuardarOrdenServicio = async () => {
     try {
-      const res = await savePresupuestoVenta(orden._id, buildPayload());
+      const res = await savePresupuestoVenta(
+        orden._id,
+        buildPayload({ estadoOrden: "REPARACION_EN_CURSO" })
+      );
       if (onSaved) onSaved(res.data.vehiculo);
-      alert("Orden de servicio guardada correctamente.");
+      if (onGoPreparacion) onGoPreparacion();
     } catch (err) {
       console.error(err);
       alert("Error al guardar la orden de servicio.");
@@ -436,13 +439,9 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
   const handleImprimirVentaCliente = async () => {
     try {
-      const res = await savePresupuestoVenta(
-        orden._id,
-        buildPayload({ estadoOrden: "REPARACION_EN_CURSO" })
-      );
+      const res = await savePresupuestoVenta(orden._id, buildPayload());
       if (onSaved) onSaved(res.data.vehiculo);
       openVentaClientePdf(orden._id);
-      if (onGoPreparacion) onGoPreparacion();
     } catch (err) {
       console.error(err);
       alert("Error al preparar el PDF de venta al cliente.");
@@ -829,7 +828,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         </div>
 
         {/* ===== VENTA AL CLIENTE ===== */}
-        <h5 className="text-center mb-2 fw-bold">VENTA AL CLIENTE (CIERRE DE ORDEN)</h5>
+        <h5 ref={ventaSectionRef} className="text-center mb-2 fw-bold">VENTA AL CLIENTE (CIERRE DE ORDEN)</h5>
 
         <div className="form-check mb-3">
           <input
@@ -1065,19 +1064,16 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
             <thead className="table-light text-center">
               <tr>
                 <th>Reparación y/o Servicio</th>
-                <th>Mecánico</th>
+                <th>Mecánico / Carrocero</th>
                 <th>Horas</th>
                 <th>Fecha de Pago</th>
                 <th>Observaciones</th>
-                {hayCarroceria && <th>¿Carrocería?</th>}
-                {hayCarroceria && <th>Carrocero</th>}
-                {hayCarroceria && <th>Precio Carrocería</th>}
               </tr>
             </thead>
             <tbody>
               {moRows.length === 0 ? (
                 <tr>
-                  <td colSpan={hayCarroceria ? 8 : 5} className="text-center text-muted">
+                  <td colSpan={5} className="text-center text-muted">
                     No hay registros de mano de obra.
                   </td>
                 </tr>
@@ -1086,32 +1082,13 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                   <tr key={idx}>
                     <td>{m.concepto}</td>
                     <td className="text-center">
-                      {mecanicos.find((x) => x._id === m.mecanico)?.nombre || m.mecanico || "—"}
+                      {m.esCarroceria
+                        ? carroceros.find((x) => x._id === m.carrocero)?.nombre || m.carrocero || "—"
+                        : mecanicos.find((x) => x._id === m.mecanico)?.nombre || m.mecanico || "—"}
                     </td>
                     <td className="text-center">{m.horas}</td>
                     <td className="text-center">{formatFecha(m.fechaPago)}</td>
                     <td>{m.observaciones}</td>
-                    {hayCarroceria && (
-                      <td className="text-center">
-                        {m.esCarroceria
-                          ? <span className="badge bg-warning text-dark">Sí</span>
-                          : <span className="text-muted">—</span>}
-                      </td>
-                    )}
-                    {hayCarroceria && (
-                      <td className="text-center">
-                        {m.esCarroceria
-                          ? carroceros.find((x) => x._id === m.carrocero)?.nombre || m.carrocero || "—"
-                          : "—"}
-                      </td>
-                    )}
-                    {hayCarroceria && (
-                      <td className="text-end">
-                        {m.esCarroceria && m.precioCarroceria
-                          ? formatMoney(m.precioCarroceria)
-                          : "—"}
-                      </td>
-                    )}
                   </tr>
                 ))
               )}

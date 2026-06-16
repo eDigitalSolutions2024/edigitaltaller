@@ -1,21 +1,20 @@
 // src/pages/vehiculo/VehiculoOrdenDetalle.jsx
-import React, { useEffect, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import React, { useCallback, useEffect, useState } from "react";
+import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { getVehiculoById } from "../../api/vehiculos";
 import VehiculoNuevoForm from "./VehiculoNuevoForm";
 import ServicioReparacionTab from "./ServicioReparacionTab";
 import VehiculoRequisicionDiagnostico from "./VehiculoRequisicionDiagnostico";
-import VehiculoPresupuestoVenta from "./VehiculoPresupuestoVenta"; // 👈 NUEVO
+import VehiculoPresupuestoVenta from "./VehiculoPresupuestoVenta";
 import VehiculoOrdenGeneral from "./VehiculoOrdenGeneral";
 import VehiculoReparacionEnCurso from "./VehiculoReparacionEnCurso";
 
-
-
-
+// PENDIENTE_AUTORIZACION_CLIENTE va al tab req (el asesor selecciona opciones),
+// el tab de presupuesto solo se habilita al pulsar "Continuar a Presupuesto"
 const ESTADO_TO_TAB = {
   PENDIENTE_CAPTURA:              "datos",
   PENDIENTE_REFACCIONARIA:        "req",
-  PENDIENTE_AUTORIZACION_CLIENTE: "presupuesto",
+  PENDIENTE_AUTORIZACION_CLIENTE: "req",
   PENDIENTE_SURTIR:               "presupuesto",
   REPARACION_EN_CURSO:            "reparacion",
   PENDIENTE_CIERRE:               "general",
@@ -35,25 +34,39 @@ const ESTADO_STEP = {
   CERRADA:                        5,
 };
 
+// Estados donde el presupuesto siempre es accesible (sin necesitar el botón)
+const ESTADOS_PRESUPUESTO_SIEMPRE = [
+  "PENDIENTE_SURTIR",
+  "PENDIENTE_CIERRE",
+  "PENDIENTE_CERRAR",
+  "REPARACION_EN_CURSO",
+];
+
 export default function VehiculoOrdenDetalle() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [orden, setOrden] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const tabFromUrl = searchParams.get("tab");
-  const [tab, setTab] = useState(tabFromUrl || "datos"); // 'datos' | 'servicio' | 'req' | 'presupuesto' | 'general'
+  const [tab, setTab] = useState(tabFromUrl || "datos");
+
+  // Cambia el tab y persiste en la URL para que el refresh restaure el tab correcto
+  const changeTab = useCallback((newTab) => {
+    setTab(newTab);
+    navigate(`?tab=${newTab}`, { replace: true });
+  }, [navigate]);
+
+  // El tab de presupuesto se desbloquea cuando el asesor pulsa "Continuar a Presupuesto"
+  // o cuando el presupuesto ya fue guardado anteriormente (orden.presupuesto.length > 0)
+  const [presupuestoDesbloqueado, setPresupuestoDesbloqueado] = useState(false);
+
   const ordenIniciada = !!orden?.ordenIniciada;
 
-  const ESTADOS_PRESUPUESTO = [
-    "PENDIENTE_AUTORIZACION_CLIENTE",
-    "PENDIENTE_SURTIR",
-    "PENDIENTE_CIERRE",
-    "PENDIENTE_CERRAR",
-    "REPARACION_EN_CURSO",
-  ];
   const presupuestoHabilitado =
-    ordenIniciada && ESTADOS_PRESUPUESTO.includes(orden?.estadoOrden);
+    ordenIniciada &&
+    (ESTADOS_PRESUPUESTO_SIEMPRE.includes(orden?.estadoOrden) || presupuestoDesbloqueado);
 
   const ESTADOS_PREPARACION = ["REPARACION_EN_CURSO", "PENDIENTE_CIERRE", "PENDIENTE_CERRAR", "CERRADA"];
   const reparacionHabilitada = ESTADOS_PREPARACION.includes(orden?.estadoOrden);
@@ -69,8 +82,14 @@ export default function VehiculoOrdenDetalle() {
         const res = await getVehiculoById(id);
         const v = res.data.vehiculo;
         setOrden(v);
+
+        // Si el presupuesto ya fue guardado, desbloquear el tab
+        if ((v?.presupuesto?.length ?? 0) > 0) {
+          setPresupuestoDesbloqueado(true);
+        }
+
         if (!tabFromUrl && v?.estadoOrden && ESTADO_TO_TAB[v.estadoOrden]) {
-          setTab(ESTADO_TO_TAB[v.estadoOrden]);
+          changeTab(ESTADO_TO_TAB[v.estadoOrden]);
         }
       } catch (err) {
         console.error(err);
@@ -83,8 +102,7 @@ export default function VehiculoOrdenDetalle() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // 👇 NUEVO: Polling — refresca la orden cada 8 seg solo cuando el asesor
-  // está en el tab de Requisición y Diagnóstico.
+  // Polling — refresca la orden cada 8 seg solo cuando el asesor está en el tab req
   useEffect(() => {
     if (tab !== "req") return;
 
@@ -97,13 +115,26 @@ export default function VehiculoOrdenDetalle() {
       }
     }, 8000);
 
-    return () => clearInterval(interval); // limpia al salir del tab
+    return () => clearInterval(interval);
   }, [tab, id]);
 
-  // cuando guardas en "Servicio o Reparación"
   const handleServicioSaved = (vehiculoActualizado) => {
     setOrden(vehiculoActualizado);
-    setTab("req");
+    changeTab("req");
+  };
+
+  // Se llama desde VehiculoRequisicionDiagnostico al pulsar "Continuar a Presupuesto"
+  const handleGoPresupuesto = () => {
+    setPresupuestoDesbloqueado(true);
+    changeTab("presupuesto");
+  };
+
+  const handleOrdenSaved = (vActualizado) => {
+    setOrden(vActualizado);
+    // Si al guardar presupuesto ya tiene datos, mantener desbloqueado
+    if ((vActualizado?.presupuesto?.length ?? 0) > 0) {
+      setPresupuestoDesbloqueado(true);
+    }
   };
 
   if (loading) {
@@ -127,14 +158,14 @@ export default function VehiculoOrdenDetalle() {
         NUEVA ORDEN DE SERVICIO
       </h2>
 
-      {/* Tabs estilo clásico */}
+      {/* Tabs */}
       <ul className="nav nav-tabs mb-3">
         <li className="nav-item">
           <button
             className={"nav-link" + (tab === "datos" ? " active" : "")}
             style={tab !== "datos" && isPast("datos") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
             type="button"
-            onClick={() => setTab("datos")}
+            onClick={() => changeTab("datos")}
           >
             Datos del Cliente
           </button>
@@ -145,62 +176,59 @@ export default function VehiculoOrdenDetalle() {
             className={"nav-link" + (tab === "servicio" ? " active" : "")}
             style={tab !== "servicio" && isPast("servicio") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
             type="button"
-            onClick={() => setTab("servicio")}
+            onClick={() => changeTab("servicio")}
           >
             Servicio o Reparación
           </button>
         </li>
 
-        {/* Requisición y Diagnóstico: solo visible cuando ya está iniciada */}
         {ordenIniciada && (
           <li className="nav-item">
             <button
               className={"nav-link" + (tab === "req" ? " active" : "")}
-              style={tab !== "req" && isPast("req") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
+              style={tab !== "req" && isPast("req") && presupuestoDesbloqueado ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
-              onClick={() => setTab("req")}
+              onClick={() => changeTab("req")}
             >
               Requisición y Diagnóstico
             </button>
           </li>
         )}
 
-        {/* Presupuesto y Venta al Cliente: solo después de pulsar "Continuar a Presupuesto" */}
+        {/* Presupuesto: solo visible tras pulsar "Continuar a Presupuesto" o si ya fue guardado */}
         {presupuestoHabilitado && (
           <li className="nav-item">
             <button
               className={"nav-link" + (tab === "presupuesto" ? " active" : "")}
               style={tab !== "presupuesto" && isPast("presupuesto") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
-              onClick={() => setTab("presupuesto")}
+              onClick={() => changeTab("presupuesto")}
             >
               Presupuesto y Venta al Cliente
             </button>
           </li>
         )}
 
-        {/* Reparación en Curso: visible una vez impresa la venta al cliente */}
         {reparacionHabilitada && (
           <li className="nav-item">
             <button
               className={"nav-link" + (tab === "reparacion" ? " active" : "")}
               style={tab !== "reparacion" && isPast("reparacion") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
-              onClick={() => setTab("reparacion")}
+              onClick={() => changeTab("reparacion")}
             >
               Reparación en Curso
             </button>
           </li>
         )}
 
-        {/* General: separado a la derecha para no confundir con los pasos */}
         {ordenIniciada && (
           <li className="nav-item ms-auto">
             <button
               className={"nav-link" + (tab === "general" ? " active" : "")}
               style={tab !== "general" && isPast("general") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
-              onClick={() => setTab("general")}
+              onClick={() => changeTab("general")}
             >
               General
             </button>
@@ -222,18 +250,47 @@ export default function VehiculoOrdenDetalle() {
       )}
 
       {tab === "req" && ordenIniciada && (
-        <VehiculoRequisicionDiagnostico
-          orden={orden}
-          onSaved={(vActualizado) => setOrden(vActualizado)}
-          onGoPresupuesto={() => setTab("presupuesto")}
-        />
+        orden.estadoOrden === "PENDIENTE_REFACCIONARIA" ? (
+          <div className="card">
+            <div className="card-body text-center py-5">
+              <div className="spinner-border text-warning mb-3" role="status" style={{ width: "3rem", height: "3rem" }}>
+                <span className="visually-hidden">Espera...</span>
+              </div>
+              <h4 className="fw-bold text-warning">EN ESPERA DE OPCIONES</h4>
+              <p className="text-muted mb-1">
+                La solicitud fue enviada al refaccionario. En cuanto cotice las opciones, podrás seleccionarlas aquí.
+              </p>
+              <p className="text-muted small">Esta pantalla se actualiza automáticamente cada 8 segundos.</p>
+              <div className="mt-4">
+                <h6 className="fw-semibold mb-2">Refacciones solicitadas:</h6>
+                <ul className="list-group list-group-flush d-inline-block text-start" style={{ minWidth: 280 }}>
+                  {(orden.refaccionesSolicitadas || []).map((r, i) => (
+                    <li key={i} className="list-group-item d-flex justify-content-between align-items-center">
+                      <span>{r.refaccion}</span>
+                      <span className="badge bg-secondary ms-3">Cant: {r.cant}</span>
+                    </li>
+                  ))}
+                  {(orden.refaccionesSolicitadas || []).length === 0 && (
+                    <li className="list-group-item text-muted">Sin refacciones registradas.</li>
+                  )}
+                </ul>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <VehiculoRequisicionDiagnostico
+            orden={orden}
+            onSaved={(vActualizado) => setOrden(vActualizado)}
+            onGoPresupuesto={handleGoPresupuesto}
+          />
+        )
       )}
 
-      {tab === "presupuesto" && ordenIniciada && (
+      {tab === "presupuesto" && presupuestoHabilitado && (
         <VehiculoPresupuestoVenta
           orden={orden}
-          onSaved={(vActualizado) => setOrden(vActualizado)}
-          onGoPreparacion={() => setTab("reparacion")}
+          onSaved={handleOrdenSaved}
+          onGoPreparacion={() => changeTab("reparacion")}
         />
       )}
 
@@ -241,15 +298,13 @@ export default function VehiculoOrdenDetalle() {
         <VehiculoReparacionEnCurso
           orden={orden}
           onSaved={(vActualizado) => setOrden(vActualizado)}
-          onGoGeneral={() => setTab("general")}
+          onGoGeneral={() => changeTab("general")}
         />
       )}
 
       {tab === "general" && ordenIniciada && (
         <VehiculoOrdenGeneral orden={orden} />
       )}
-
-
     </div>
   );
 }
