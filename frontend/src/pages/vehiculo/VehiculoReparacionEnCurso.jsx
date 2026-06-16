@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { fetchServiciosTaller } from "../../api/codigos";
 import { saveRequisicionDiagnostico } from "../../api/vehiculos";
+import http from "../../api/http";
 
 function formatMoney(n) {
   if (n === "" || n === null || n === undefined) return "-";
@@ -15,6 +16,8 @@ function formatMoney(n) {
 export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral }) {
   const [catalogo, setCatalogo] = useState([]);
   const [completando, setCompletando] = useState(false);
+  const [mecanicos, setMecanicos] = useState([]);
+  const [carroceros, setCarroceros] = useState([]);
 
   const handleReparacionCompletada = async () => {
     if (!window.confirm("¿Confirmar que la reparación está completada?")) return;
@@ -39,6 +42,22 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral 
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    const cargarEmpleados = async () => {
+      try {
+        const [resMec, resCar] = await Promise.all([
+          http.get("/empleados?puesto=mecanico&activo=true"),
+          http.get("/empleados?puesto=carrocero&activo=true"),
+        ]);
+        setMecanicos(resMec.data || []);
+        setCarroceros(resCar.data || []);
+      } catch (err) {
+        console.error("Error cargando empleados:", err);
+      }
+    };
+    cargarEmpleados();
+  }, []);
+
   if (!orden) return null;
 
   const c = orden.cliente || {};
@@ -47,13 +66,29 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral 
       ? [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ")
       : c.gobierno?.nombreGobierno || c.empresa?.razonSocial || c.nombre || "-";
 
-  // Servicios seleccionados en "Servicio o Reparación" del grupo "otros"
   const codigosSeleccionados = orden.servicioReparacion?.serviciosSeleccionados || [];
   const otrosServicios = catalogo.filter(
     (s) => (s.grupoServicio || "otros") === "otros" && codigosSeleccionados.includes(s.codigo)
   );
 
   const refacciones = (orden.presupuesto || []).filter((p) => p.autorizado);
+  const todasSurtidas = refacciones.length === 0 || refacciones.every((p) => p.surtida);
+
+  const manoObra = orden.manoObra || [];
+
+  const getNombreMecanico = (id) =>
+    mecanicos.find((m) => m._id === id)?.nombre || id || "—";
+
+  const getNombreCarrocero = (id) =>
+    carroceros.find((c) => c._id === id)?.nombre || id || "—";
+
+  const personalRows = manoObra
+    .map((m) => ({
+      rol: m.esCarroceria ? "Carrocero" : "Mecánico",
+      nombre: m.esCarroceria ? getNombreCarrocero(m.carrocero) : getNombreMecanico(m.mecanico),
+      concepto: m.concepto || "—",
+    }))
+    .sort((a, b) => (a.rol === b.rol ? 0 : a.rol === "Mecánico" ? -1 : 1));
 
   return (
     <div className="card card-body mb-4">
@@ -115,22 +150,43 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral 
           <div className="card h-100">
             <div className="card-header fw-semibold bg-light">Personal Asignado</div>
             <div className="card-body p-0">
-              <table className="table table-sm table-bordered mb-0">
-                <tbody>
-                  <tr>
-                    <th className="ps-2" style={{ width: "40%" }}>Asesor</th>
-                    <td>{orden.asesorServicio || "-"}</td>
-                  </tr>
-                  <tr>
-                    <th className="ps-2">Mecánico</th>
-                    <td>{orden.mecanicoPrincipal || "-"}</td>
-                  </tr>
-                  <tr>
-                    <th className="ps-2">Refaccionario</th>
-                    <td>{orden.refaccionario || "-"}</td>
-                  </tr>
-                </tbody>
-              </table>
+              {personalRows.length > 0 ? (
+                <table className="table table-sm table-bordered mb-0">
+                  <thead className="table-light">
+                    <tr>
+                      <th className="ps-2">Rol</th>
+                      <th>Nombre</th>
+                      <th>Concepto / Servicio</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {personalRows.map((p, i) => (
+                      <tr key={i}>
+                        <td className="ps-2 fw-semibold">{p.rol}</td>
+                        <td>{p.nombre}</td>
+                        <td>{p.concepto}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="table table-sm table-bordered mb-0">
+                  <tbody>
+                    <tr>
+                      <th className="ps-2" style={{ width: "40%" }}>Asesor</th>
+                      <td>{orden.asesorServicio || "-"}</td>
+                    </tr>
+                    <tr>
+                      <th className="ps-2">Mecánico</th>
+                      <td>{orden.mecanicoPrincipal || "-"}</td>
+                    </tr>
+                    <tr>
+                      <th className="ps-2">Refaccionario</th>
+                      <td>{orden.refaccionario || "-"}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>
@@ -147,7 +203,7 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral 
           : <span className="text-muted">Sin diagnóstico registrado.</span>}
       </div>
 
-      {/* ── OTROS SERVICIOS SELECCIONADOS (solo si hay alguno) ── */}
+      {/* ── OTROS SERVICIOS SELECCIONADOS ── */}
       {otrosServicios.length > 0 && (
         <>
           <h5 className="fw-semibold mt-2 mb-2">Servicios a Realizar</h5>
@@ -185,18 +241,19 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral 
               <th>Código</th>
               <th>Proveedor</th>
               <th style={{ width: "120px" }}>Precio Compra</th>
+              <th style={{ width: "110px" }}>Surtida</th>
             </tr>
           </thead>
           <tbody>
             {refacciones.length === 0 && (
               <tr>
-                <td colSpan={7} className="text-center text-muted">
+                <td colSpan={8} className="text-center text-muted">
                   Sin refacciones autorizadas.
                 </td>
               </tr>
             )}
             {refacciones.map((p, i) => (
-              <tr key={i}>
+              <tr key={i} className={p.surtida ? "table-success" : ""}>
                 <td className="text-center">{p.cant ?? p.cantidad}</td>
                 <td>{p.concepto || p.refaccion || ""}</td>
                 <td>{p.tipo || ""}</td>
@@ -204,6 +261,12 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral 
                 <td>{p.codigo || ""}</td>
                 <td>{p.proveedor || ""}</td>
                 <td className="text-end">{formatMoney(p.precioCompra)}</td>
+                <td className="text-center">
+                  {p.surtida
+                    ? <span className="badge bg-success">Surtida</span>
+                    : <span className="badge bg-secondary">Pendiente</span>
+                  }
+                </td>
               </tr>
             ))}
           </tbody>
@@ -211,12 +274,17 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral 
       </div>
 
       {/* ── BOTÓN REPARACIÓN COMPLETADA ── */}
-      <div className="d-flex justify-content-end mb-4">
+      <div className="d-flex justify-content-end align-items-center gap-3 mb-4">
+        {!todasSurtidas && (
+          <span className="text-danger small fw-semibold">
+            Hay refacciones pendientes de surtir
+          </span>
+        )}
         <button
           type="button"
           className="btn btn-success px-4"
           onClick={handleReparacionCompletada}
-          disabled={completando}
+          disabled={completando || !todasSurtidas}
         >
           {completando ? "Actualizando..." : "Reparación Completada"}
         </button>

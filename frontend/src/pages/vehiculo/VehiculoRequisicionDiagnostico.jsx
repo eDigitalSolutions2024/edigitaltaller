@@ -111,10 +111,15 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
 
   const handleMoLineChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setMoLine((prev) => ({
-      ...prev,
-      [name]: type === "checkbox" ? checked : value,
-    }));
+    setMoLine((prev) => {
+      const updates = { [name]: type === "checkbox" ? checked : value };
+      // Al cambiar el tipo (carrocería/mecánico) limpiar el selector del otro
+      if (name === "esCarroceria") {
+        updates.mecanico = "";
+        updates.carrocero = "";
+      }
+      return { ...prev, ...updates };
+    });
   };
 
   const addMoRow = async () => {
@@ -599,48 +604,21 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
   return (
     <div className="card">
       <div className="card-body">
-        {/* Diagnóstico del técnico + botón */}
-        <div className="d-flex justify-content-between align-items-start mb-3">
-          <div className="flex-grow-1 me-3">
-            <label className="form-label">Diagnóstico del Técnico:</label>
+
+        {/* ── DIAGNÓSTICO DEL TÉCNICO ── */}
+        <div className="card mb-4 border-secondary">
+          <div className="card-header fw-bold bg-secondary text-white">
+            DIAGNÓSTICO DEL TÉCNICO
+          </div>
+          <div className="card-body">
             <textarea
               className="form-control"
-              rows={3}
+              rows={4}
+              placeholder="Describe el diagnóstico técnico del vehículo..."
               value={diagnostico}
               onChange={(e) => setDiagnostico(e.target.value)}
             />
           </div>
-
-          <div className="mt-4 d-flex flex-column gap-2 align-items-stretch">
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={handleGuardarSeleccion}
-              disabled={saving}
-            >
-              Guardar selección
-            </button>
-
-            <button
-              type="button"
-              className="btn btn-outline-secondary"
-              onClick={handleRegresarRefaccionaria}
-              disabled={saving}
-            >
-              Regresar a Refaccionaria
-            </button>
-
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleContinuarPresupuesto}
-              disabled={saving}
-            >
-              {saving ? "Guardando..." : "Continuar a Presupuesto"}
-            </button>
-          </div>
-
-
         </div>
 
         <h5 className="text-center mb-2 fw-bold">OPCIONES DE REFACCIONES</h5>
@@ -829,179 +807,38 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
 
         <h5 className="text-center mb-2 fw-bold">MANO DE OBRA</h5>
 
-        <div className="table-responsive mb-4">
+        {/* ── Tabla de registros guardados ── */}
+        <div className="table-responsive mb-3">
           <table className="table table-bordered table-sm align-middle">
             <thead className="table-light text-center">
               <tr>
                 <th>Reparación y/o Servicio</th>
-                <th>Mecánico</th>
+                <th>Mecánico / Carrocero</th>
                 <th>Horas</th>
                 <th>Fecha de Pago</th>
                 <th>Observaciones</th>
-                <th>¿Carrocería?</th>
-                <th>Carrocero</th>
-                <th>Precio Carrocería</th>
                 <th style={{ width: "70px" }}>Acción</th>
               </tr>
             </thead>
-
             <tbody>
-              {/* Fila de captura */}
-              <tr className="table-info">
-                <td>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
-                    name="concepto"
-                    value={moLine.concepto}
-                    onChange={handleMoLineChange}
-                  />
-                </td>
-
-                {/* Mecánico → select */}
-                <td style={{ width: "160px" }}>
-                  <select
-                    className="form-select form-select-sm"
-                    name="mecanico"
-                    value={moLine.mecanico}
-                    onChange={handleMoLineChange}
-                  >
-                    <option value="">-- Mecánico --</option>
-                    {mecanicos.map((m) => (
-                      <option key={m._id} value={m._id}>
-                        {m.nombre}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-
-                <td style={{ width: "80px" }}>
-                  <input
-                    type="number"
-                    step="0.1"
-                    className="form-control form-control-sm"
-                    name="horas"
-                    value={moLine.horas}
-                    onChange={handleMoLineChange}
-                  />
-                </td>
-
-                <td style={{ width: "150px" }}>
-                  <input
-                    type="date"
-                    className="form-control form-control-sm"
-                    name="fechaPago"
-                    value={moLine.fechaPago}
-                    onChange={handleMoLineChange}
-                  />
-                </td>
-
-                <td>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
-                    name="observaciones"
-                    value={moLine.observaciones}
-                    onChange={handleMoLineChange}
-                  />
-                </td>
-
-                {/* Checkbox carrocería */}
-                <td className="text-center" style={{ width: "90px" }}>
-                  <input
-                    type="checkbox"
-                    className="form-check-input"
-                    name="esCarroceria"
-                    checked={moLine.esCarroceria}
-                    onChange={handleMoLineChange}
-                  />
-                </td>
-
-                {/* Select carrocero — solo si esCarroceria */}
-                <td style={{ width: "160px" }}>
-                  {moLine.esCarroceria ? (
-                    <select
-                      className="form-select form-select-sm"
-                      name="carrocero"
-                      value={moLine.carrocero}
-                      onChange={handleMoLineChange}
-                    >
-                      <option value="">-- Carrocero --</option>
-                      {carroceros.map((c) => (
-                        <option key={c._id} value={c._id}>
-                          {c.nombre}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className="text-muted small">—</span>
-                  )}
-                </td>
-
-                {/* Precio carrocería — solo si esCarroceria */}
-                <td style={{ width: "120px" }}>
-                  {moLine.esCarroceria ? (
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="form-control form-control-sm"
-                      name="precioCarroceria"
-                      value={moLine.precioCarroceria}
-                      onChange={handleMoLineChange}
-                      placeholder="$0.00"
-                    />
-                  ) : (
-                    <span className="text-muted small">—</span>
-                  )}
-                </td>
-
-                <td className="text-center">
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-primary"
-                    onClick={addMoRow}
-                  >
-                    +
-                  </button>
-                </td>
-              </tr>
-
               {moRows.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="text-center text-muted">
+                  <td colSpan={6} className="text-center text-muted">
                     No hay registros de mano de obra.
                   </td>
                 </tr>
               )}
-
-              {/* Filas guardadas */}
               {moRows.map((m, idx) => (
                 <tr key={idx}>
                   <td>{m.concepto}</td>
                   <td className="text-center">
-                    {/* Mostramos nombre si tenemos el objeto, o buscamos en la lista */}
-                    {mecanicos.find((x) => x._id === m.mecanico)?.nombre || m.mecanico || "—"}
+                    {m.esCarroceria
+                      ? carroceros.find((x) => x._id === m.carrocero)?.nombre || m.carrocero || "—"
+                      : mecanicos.find((x) => x._id === m.mecanico)?.nombre || m.mecanico || "—"}
                   </td>
                   <td className="text-center">{m.horas}</td>
                   <td className="text-center">{formatFecha(m.fechaPago)}</td>
                   <td>{m.observaciones}</td>
-                  <td className="text-center">
-                    {m.esCarroceria ? (
-                      <span className="badge bg-warning text-dark">Sí</span>
-                    ) : (
-                      <span className="text-muted">—</span>
-                    )}
-                  </td>
-                  <td className="text-center">
-                    {m.esCarroceria
-                      ? carroceros.find((x) => x._id === m.carrocero)?.nombre || m.carrocero || "—"
-                      : "—"}
-                  </td>
-                  <td className="text-end">
-                    {m.esCarroceria && m.precioCarroceria
-                      ? formatMoney(m.precioCarroceria)
-                      : "—"}
-                  </td>
                   <td className="text-center">
                     <button
                       type="button"
@@ -1017,68 +854,147 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
           </table>
         </div>
 
+        {/* ── Formulario de nueva Mano de Obra ── */}
+        <div className="card border-primary mb-4">
+          <div className="card-header bg-primary text-white fw-semibold">
+            Agregar Mano de Obra
+          </div>
+          <div className="card-body">
+            <div className="row g-2 mb-2">
+              <div className="col-md-5">
+                <label className="form-label form-label-sm mb-1">Reparación / Servicio</label>
+                <input
+                  type="text"
+                  className="form-control form-control-sm"
+                  name="concepto"
+                  placeholder="Concepto o servicio..."
+                  value={moLine.concepto}
+                  onChange={handleMoLineChange}
+                />
+              </div>
+              <div className="col-md-3">
+                <label className="form-label form-label-sm mb-1">
+                  {moLine.esCarroceria ? "Carrocero" : "Mecánico / Carrocero"}
+                </label>
+                {moLine.esCarroceria ? (
+                  <select
+                    className="form-select form-select-sm"
+                    name="carrocero"
+                    value={moLine.carrocero}
+                    onChange={handleMoLineChange}
+                  >
+                    <option value="">-- Seleccionar carrocero --</option>
+                    {carroceros.map((c) => (
+                      <option key={c._id} value={c._id}>{c.nombre}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <select
+                    className="form-select form-select-sm"
+                    name="mecanico"
+                    value={moLine.mecanico}
+                    onChange={handleMoLineChange}
+                  >
+                    <option value="">-- Seleccionar --</option>
+                    {mecanicos.map((m) => (
+                      <option key={m._id} value={m._id}>{m.nombre}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <div className="col-md-2">
+                <label className="form-label form-label-sm mb-1">Horas</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  className="form-control form-control-sm"
+                  name="horas"
+                  value={moLine.horas}
+                  onChange={handleMoLineChange}
+                />
+              </div>
+              <div className="col-md-2">
+                <label className="form-label form-label-sm mb-1">Fecha de Pago</label>
+                <input
+                  type="date"
+                  className="form-control form-control-sm"
+                  name="fechaPago"
+                  value={moLine.fechaPago}
+                  onChange={handleMoLineChange}
+                />
+              </div>
+            </div>
+            <div className="row g-2 mb-2">
+              <div className="col-md-8">
+                <label className="form-label form-label-sm mb-1">Observaciones</label>
+                <input
+                  type="text"
+                  className="form-control form-control-sm"
+                  name="observaciones"
+                  value={moLine.observaciones}
+                  onChange={handleMoLineChange}
+                />
+              </div>
+              <div className="col-md-4 d-flex align-items-end">
+                <div className="form-check ms-2">
+                  <input
+                    type="checkbox"
+                    className="form-check-input"
+                    id="esCarroceriaCheck"
+                    name="esCarroceria"
+                    checked={moLine.esCarroceria}
+                    onChange={handleMoLineChange}
+                  />
+                  <label className="form-check-label fw-semibold" htmlFor="esCarroceriaCheck">
+                    ¿Trabajo de Carrocería?
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="d-flex justify-content-end mt-2">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm px-4"
+                onClick={addMoRow}
+              >
+                + Agregar
+              </button>
+            </div>
+          </div>
+        </div>
 
 
-        {/* ===== NUEVA SECCIÓN: CARGOS EN ORDEN ===== 
-        <h5 className="text-center mb-2 fw-bold">CARGOS EN ORDEN</h5>
 
-        <div className="table-responsive">
-          <table className="table table-bordered table-sm align-middle">
-            <thead className="table-light text-center">
-              <tr>
-                <th>Cant</th>
-                <th>Unidad</th>
-                <th>Refacción y/o Servicio</th>
-                <th>Marca</th>
-                <th>Proveedor</th>
-                <th>Código</th>
-                <th>Precio Unitario</th>
-                <th>Importe Total</th>
-                <th>Moneda</th>
-                <th>Observaciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cargos.length === 0 && (
-                <tr>
-                  <td colSpan={10} className="text-center text-muted">
-                    No hay cargos registrados para esta orden.
-                  </td>
-                </tr>
-              )}
-
-              {cargos.map((c, idx) => (
-                <tr key={idx}>
-                  <td className="text-center">{c.cant}</td>
-                  <td className="text-center">{c.unidad}</td>
-                  <td>{c.refaccion}</td>
-                  <td className="text-center">{c.marca}</td>
-                  <td className="text-center">{c.proveedor}</td>
-                  <td className="text-center">{c.codigo}</td>
-                  <td className="text-end">
-                    {formatMoney(c.precioUnitario)}
-                  </td>
-                  <td className="text-end">
-                    {formatMoney(c.importeTotal)}
-                  </td>
-                  <td className="text-center">{c.moneda}</td>
-                  <td>{c.observaciones}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colSpan={7} className="text-end fw-bold">
-                  Total:
-                </td>
-                <td className="text-end fw-bold">
-                  {formatMoney(totalCargos)}
-                </td>
-                <td colSpan={2}></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>*/}
+        {/* ── BOTONES DE ACCIÓN ── */}
+        <div className="d-flex justify-content-between align-items-center border-top pt-3 mt-2">
+          <button
+            type="button"
+            className="btn btn-outline-secondary"
+            onClick={handleRegresarRefaccionaria}
+            disabled={saving}
+          >
+            Regresar a Refaccionaria
+          </button>
+          <div className="d-flex gap-2">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleGuardarSeleccion}
+              disabled={saving}
+            >
+              {saving ? "Guardando..." : "Guardar selección"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleContinuarPresupuesto}
+              disabled={saving}
+            >
+              {saving ? "Guardando..." : "Continuar a Presupuesto →"}
+            </button>
+          </div>
+        </div>
 
       </div>
     </div>

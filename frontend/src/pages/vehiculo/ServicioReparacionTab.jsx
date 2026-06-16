@@ -22,7 +22,6 @@ const emptyForm = {
 
 export default function ServicioReparacionTab({ ordenId, initialData, onSaved }) {
   const [form, setForm] = useState(emptyForm);
-  const [saving, setSaving] = useState(false);
 
   // Catálogo de servicios desde BD Códigos
   const [catalogoServicios, setCatalogoServicios] = useState([]);
@@ -80,23 +79,6 @@ export default function ServicioReparacionTab({ ordenId, initialData, onSaved })
           : [...prev.serviciosSeleccionados, codigo],
       };
     });
-  };
-
-  // Guardar solo el servicio (sin enviar a refaccionaria)
-  const handleGuardar = async (e) => {
-    e.preventDefault();
-    if (!ordenId) return;
-    try {
-      setSaving(true);
-      const res = await updateServicioReparacion(ordenId, form);
-      alert("Servicio / Reparación guardado correctamente.");
-      if (onSaved) onSaved(res.data.vehiculo);
-    } catch (err) {
-      console.error(err);
-      alert("Error al guardar Servicio / Reparación.");
-    } finally {
-      setSaving(false);
-    }
   };
 
   // ===== Solicitud de refacciones =====
@@ -166,7 +148,7 @@ export default function ServicioReparacionTab({ ordenId, initialData, onSaved })
 
   return (
     <>
-      <form onSubmit={handleGuardar}>
+      <div>
         <div className="card">
           <div className="card-header fw-bold text-center bg-light">
             SERVICIO O REPARACIÓN
@@ -291,27 +273,19 @@ export default function ServicioReparacionTab({ ordenId, initialData, onSaved })
               />
             </div>
 
-            {/* ===== BOTONES ===== */}
-            <div className="d-flex gap-2 justify-content-between align-items-center flex-wrap">
+            {/* ===== BOTÓN ===== */}
+            <div className="d-flex justify-content-end">
               <button
                 type="button"
-                className="btn btn-outline-primary"
+                className="btn btn-primary px-5"
                 onClick={() => setShowModal(true)}
               >
-                Solicitar refacciones a refaccionaria
-              </button>
-
-              <button
-                type="submit"
-                className="btn btn-success px-5"
-                disabled={saving}
-              >
-                {saving ? "Guardando..." : "Guardar"}
+                Solicitar refacciones a refaccionaria →
               </button>
             </div>
           </div>
         </div>
-      </form>
+      </div>
 
       {/* ===== MODAL SOLICITUD DE REFACCIONES ===== */}
       {showModal && (

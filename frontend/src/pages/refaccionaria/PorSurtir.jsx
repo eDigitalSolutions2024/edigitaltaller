@@ -7,14 +7,18 @@ export default function PorSurtir() {
   const [now, setNow] = useState(Date.now());
   const [hayPendientes, setHayPendientes] = useState(false);
 
+  // { [ordenId]: Set<presupuestoIndex> } — selección local, no modifica el estado de la orden
+  const [seleccion, setSeleccion] = useState({});
+
   const cargar = async () => {
     try {
       setLoading(true);
-      const res = await listOrdenesServicio({
-        estado: "PENDIENTE_SURTIR",
-        limit: 100,
-      });
-      setOrdenes(res.data?.data || []);
+      const [r1, r2] = await Promise.all([
+        listOrdenesServicio({ estado: "PENDIENTE_SURTIR", limit: 100 }),
+        listOrdenesServicio({ estado: "REPARACION_EN_CURSO", limit: 100 }),
+      ]);
+      const todas = [...(r1.data?.data || []), ...(r2.data?.data || [])];
+      setOrdenes(todas);
     } catch (err) {
       console.error(err);
       alert("Error al cargar órdenes por surtir.");
@@ -23,24 +27,19 @@ export default function PorSurtir() {
     }
   };
 
-    useEffect(() => {
-    cargar();
-    }, []);
+  useEffect(() => { cargar(); }, []);
 
-    useEffect(() => {
+  useEffect(() => {
     const interval = setInterval(() => {
-        if (!hayPendientes) cargar();
+      if (!hayPendientes) cargar();
     }, 15000);
     return () => clearInterval(interval);
-    }, [hayPendientes]);
+  }, [hayPendientes]);
 
-    useEffect(() => {
-    const timer = setInterval(() => {
-        setNow(Date.now());
-    }, 60000);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60000);
     return () => clearInterval(timer);
-    }, []);
-
+  }, []);
 
   const nombreCliente = (orden) => {
     const c = orden.cliente || {};
@@ -48,32 +47,40 @@ export default function PorSurtir() {
     return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") || "Sin cliente";
   };
 
-  const toggleSurtida = (ordenId, presIdx) => {
-    setOrdenes((prev) =>
-        prev.map((o) => {
-        if (String(o._id) !== String(ordenId)) return o;
-        const nuevoPres = o.presupuesto.map((p, i) =>
-            i === presIdx ? { ...p, surtida: !p.surtida } : p
-        );
-        return { ...o, presupuesto: nuevoPres };
-        })
-    );
-    setHayPendientes(true); // ← pausa el polling
-    };
+  const toggleSeleccion = (ordenId, realIdx) => {
+    setSeleccion((prev) => {
+      const current = new Set(prev[ordenId] || []);
+      if (current.has(realIdx)) current.delete(realIdx);
+      else current.add(realIdx);
+      const hayAlgo = current.size > 0;
+      setHayPendientes(hayAlgo);
+      return { ...prev, [ordenId]: current };
+    });
+  };
 
   const handleGuardar = async (orden) => {
+    const selected = seleccion[orden._id] || new Set();
+
+    if (selected.size === 0) {
+      alert("Selecciona al menos una refacción para marcar como surtida.");
+      return;
+    }
+
+    const updatedPresupuesto = orden.presupuesto.map((p, i) =>
+      selected.has(i) ? { ...p, surtida: true } : p
+    );
+
     try {
-      await marcarSurtidas(orden._id, orden.presupuesto);
+      await marcarSurtidas(orden._id, updatedPresupuesto);
+      // Limpiar selección de esta orden
+      setSeleccion((prev) => ({ ...prev, [orden._id]: new Set() }));
       setHayPendientes(false);
-      //alert("Guardado correctamente.");
-      cargar(); // refresca — si todas surtidas desaparece de la lista
+      cargar();
     } catch (err) {
       console.error(err);
       alert("Error al guardar.");
     }
   };
-
-  if (loading) return <p className="text-center mt-4">Cargando...</p>;
 
   const calcularTiempo = (orden) => {
     const fechaBase = orden.fechaEnvioSurtir || orden.updatedAt;
@@ -85,124 +92,120 @@ export default function PorSurtir() {
     const minutos = totalMin % 60;
     const texto = horas > 0 ? `${horas}h ${minutos}m` : `${minutos}m`;
 
-    if (totalMin >= 60)  return { texto, className: "badge bg-danger",        rowClassName: "table-danger" };
-    if (totalMin >= 30)  return { texto, className: "badge bg-warning text-dark", rowClassName: "table-warning" };
-    return               { texto, className: "badge bg-success",       rowClassName: "table-success" };
+    if (totalMin >= 60) return { texto, className: "badge bg-danger",           rowClassName: "table-danger" };
+    if (totalMin >= 30) return { texto, className: "badge bg-warning text-dark", rowClassName: "table-warning" };
+    return               { texto, className: "badge bg-success",                 rowClassName: "table-success" };
   };
+
+  if (loading) return <p className="text-center mt-4">Cargando...</p>;
 
   return (
     <div className="container-fluid py-3">
-        <div className="card">  
+      <div className="card">
         <div className="card-header fw-bold text-center">
-            REFACCIONES POR SURTIR
+          REFACCIONES POR SURTIR
         </div>
         <div className="card-body">
-            {ordenes.length === 0 ? (
+          {ordenes.length === 0 ? (
             <div className="alert alert-info text-center">
-                No hay refacciones pendientes de surtir.
+              No hay refacciones pendientes de surtir.
             </div>
-            ) : (
+          ) : (
             ordenes.map((orden) => {
-                const autorizadas = (orden.presupuesto || []).filter(
-                (p) => p.autorizado
-                );
+              const autorizadas = (orden.presupuesto || []).filter(
+                (p) => p.autorizado && !p.surtida
+              );
 
-                if (autorizadas.length === 0) return null;
+              if (autorizadas.length === 0) return null;
 
-                const tiempo = calcularTiempo(orden);
+              const tiempo = calcularTiempo(orden);
+              const selectedSet = seleccion[orden._id] || new Set();
+              const haySel = selectedSet.size > 0;
 
-                return (
+              return (
                 <div key={orden._id} className="card mb-3">
-                    <div className="card-header d-flex justify-content-between align-items-center">
+                  <div className="card-header d-flex justify-content-between align-items-center">
                     <div>
-                        <strong>{orden.ordenServicio}</strong>
-                        <span className="ms-3 text-muted">
-                        {nombreCliente(orden)}
-                        </span>
-                        <span className="ms-3 text-muted">
-                        {[orden.marca, orden.modelo, orden.anio]
-                            .filter(Boolean)
-                            .join(" ")}
-                        </span>
-                        <span className="ms-3 badge bg-secondary">
-                        {orden.placas || "Sin placas"}
-                        </span>
-                        <span className={`ms-3 ${tiempo.className}`}>
-                        ⏱ {tiempo.texto}
-                        </span>
-
-                        {orden.devueltoPor && (
+                      <strong>{orden.ordenServicio}</strong>
+                      <span className="ms-3 text-muted">{nombreCliente(orden)}</span>
+                      <span className="ms-3 text-muted">
+                        {[orden.marca, orden.modelo, orden.anio].filter(Boolean).join(" ")}
+                      </span>
+                      <span className="ms-3 badge bg-secondary">{orden.placas || "Sin placas"}</span>
+                      <span className={`ms-3 ${tiempo.className}`}>⏱ {tiempo.texto}</span>
+                      {orden.devueltoPor && (
                         <span className="ms-3 badge bg-info text-dark">
-                            👤 Devuelto por: {orden.devueltoPor}
+                          👤 Devuelto por: {orden.devueltoPor}
                         </span>
-                        )}
+                      )}
                     </div>
                     <button
-                        type="button"
-                        className="btn btn-success btn-sm"
-                        onClick={() => handleGuardar(orden)}
+                      type="button"
+                      className={`btn btn-sm ${haySel ? "btn-success" : "btn-outline-secondary"}`}
+                      onClick={() => handleGuardar(orden)}
+                      disabled={!haySel}
+                      title={haySel ? `Guardar ${selectedSet.size} refacción(es) surtida(s)` : "Selecciona al menos una refacción"}
                     >
-                        Guardar
+                      {haySel ? `Guardar (${selectedSet.size})` : "Guardar"}
                     </button>
-                    </div>
+                  </div>
 
-                    <div className="card-body p-0">
+                  <div className="card-body p-0">
                     <table className="table table-bordered table-sm align-middle mb-0">
-                        <thead className="table-light text-center">
+                      <thead className="table-light text-center">
                         <tr>
-                            <th style={{ width: 60 }}>Surtida</th>
-                            <th>Concepto / Refacción</th>
-                            <th style={{ width: 80 }}>Cantidad</th>
-                            <th>Tipo</th>
-                            <th>Marca</th>
-                            <th>Código</th>
-                            <th>Proveedor</th>
+                          <th style={{ width: 60 }}>Surtida</th>
+                          <th>Concepto / Refacción</th>
+                          <th style={{ width: 80 }}>Cantidad</th>
+                          <th>Tipo</th>
+                          <th>Marca</th>
+                          <th>Código</th>
+                          <th>Proveedor</th>
                         </tr>
-                        </thead>
-                        <tbody>
-                        {autorizadas.map((p, presIdx) => (
+                      </thead>
+                      <tbody>
+                        {autorizadas.map((p) => {
+                          const realIdx = orden.presupuesto.indexOf(p);
+                          const isSelected = selectedSet.has(realIdx);
+                          return (
                             <tr
-                            key={presIdx}
-                            className={p.surtida ? "table-success" : tiempo.rowClassName}
+                              key={realIdx}
+                              className={isSelected ? "table-success" : tiempo.rowClassName}
                             >
-                            <td className="text-center">
+                              <td className="text-center">
                                 <input
-                                type="checkbox"
-                                checked={!!p.surtida}
-                                onChange={() =>
-                                    toggleSurtida(
-                                    orden._id,
-                                    (orden.presupuesto || []).indexOf(p)
-                                    )
-                                }
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleSeleccion(orden._id, realIdx)}
                                 />
-                            </td>
-                            <td>{p.concepto || p.refaccion || "-"}</td>
-                            <td className="text-center">{p.cant}</td>
-                            <td className="text-center">{p.tipo || "-"}</td>
-                            <td>{p.marca || "-"}</td>
-                            <td>{p.codigo || "-"}</td>
-                            <td>{p.proveedor || "-"}</td>
+                              </td>
+                              <td>{p.concepto || p.refaccion || "-"}</td>
+                              <td className="text-center">{p.cant}</td>
+                              <td className="text-center">{p.tipo || "-"}</td>
+                              <td>{p.marca || "-"}</td>
+                              <td>{p.codigo || "-"}</td>
+                              <td>{p.proveedor || "-"}</td>
                             </tr>
-                        ))}
-                        </tbody>
+                          );
+                        })}
+                      </tbody>
                     </table>
-                    </div>
+                  </div>
                 </div>
-                );
+              );
             })
-            )}
+          )}
 
-            <button
+          <button
             type="button"
             className="btn btn-outline-secondary btn-sm mt-2"
             onClick={cargar}
             disabled={loading}
-            >
+          >
             Actualizar
-            </button>
+          </button>
         </div>
-        </div>
+      </div>
     </div>
-    );
+  );
 }
