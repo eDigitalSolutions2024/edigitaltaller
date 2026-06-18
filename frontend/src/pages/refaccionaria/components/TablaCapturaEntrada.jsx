@@ -2,6 +2,7 @@
   import { useNavigate } from "react-router-dom";
   import { getUnidadesMedida } from "../../../api/configuracion";
   import ModalAltaCodigo from "./ModalAltaCodigo";
+  import ModalSeleccionarCodigo from "./ModalSeleccionarCodigo";
 
 
   /**
@@ -9,7 +10,7 @@
    * Props:
    *  - entradaId: id/folio de la entrada para asociar los renglones en el backend
    */
-  export default function TablaCapturaEntrada({ entradaId }) {
+  export default function TablaCapturaEntrada({ entradaId, modoConsulta }) {
     const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
     const navigate = useNavigate();
 
@@ -20,6 +21,10 @@
 
     const [showModalCodigo, setShowModalCodigo] = useState(false);
     const [filaModalCodigo, setFilaModalCodigo] = useState(null);
+
+    // Modal de selección desde BD Códigos
+    const [showModalSelCodigo, setShowModalSelCodigo] = useState(false);
+    const [filaModalSelCodigo, setFilaModalSelCodigo] = useState(null);
 
     // Cargar unidades de medida activas desde Configuración
     useEffect(() => {
@@ -56,19 +61,39 @@
       return {
         cantidad: "",
         unidad: "",
-        tipo: "",
-        codigoInterno: "",     // _id de BDCodigos
-        // codigoProveedor:  // ❌ eliminado
+        tipo: "Refacción",
+        codigoInterno: "",
+        _codigoLabel: "",  // solo para display en UI, no se envía al backend
         marca: "",
         subtotalUnitario: "",
         iva: 0.08,
         total: 0,
         costoDescuento: "",
-        // pvUnitario: "",   // ❌ eliminado
-        // pvPesos: "",      // ❌ eliminado
-        //ordenServicio: "",
         descripcion: "",
       };
+    }
+
+    function handleCodigoFromModal(i, codigo) {
+      const idValue = codigo._id ? String(codigo._id) : (codigo.numeroParte || codigo.codigo || "");
+      const np = codigo.numeroParte || codigo.codigo || "";
+      const label = np + (codigo.descripcion ? ` — ${codigo.descripcion}` : "");
+      setRows((prev) => {
+        const copia = [...prev];
+        copia[i] = {
+          ...copia[i],
+          codigoInterno: idValue,
+          _codigoLabel:  label,
+          descripcion:   codigo.descripcion || "",
+          marca:         codigo.proveedor   || "",
+          unidad:           codigo.unidad          || copia[i].unidad,
+          subtotalUnitario: codigo.precioUnitario != null && codigo.precioUnitario !== ""
+                              ? String(codigo.precioUnitario)
+                              : copia[i].subtotalUnitario,
+        };
+        return copia;
+      });
+      setFilaModalSelCodigo(null);
+      setShowModalSelCodigo(false);
     }
 
     function handleChange(i, campo, valor) {
@@ -231,7 +256,11 @@
         );
 
         alert("¡Captura guardada correctamente!");
-        navigate(0);
+        if (modoConsulta) {
+          navigate("/refaccionaria/factura-proveedor");
+        } else {
+          navigate(0);
+        }
       } catch (e) {
         console.error(e);
         alert(e.message || "Error al guardar la captura.");
@@ -267,7 +296,12 @@
             </thead>
 
             <tbody>
-              {rows.map((r, i) => (
+              {rows.map((r, i) => {
+                const codigoLabel = r._codigoLabel || (() => {
+                  const p = codigos.find(c => String(c._id) === String(r.codigoInterno));
+                  return p ? `${p.numeroParte || p.codigo || ""}${p.descripcion ? ` — ${p.descripcion}` : ""}` : (r.codigoInterno || "");
+                })();
+                return (
                 <tr key={i}>
                   <td>
                     <input
@@ -309,26 +343,14 @@
 
                   {/* CÓDIGO INTERNO (BDCodigos) */}
                   <td>
-                    <select
-                      className="form-select"
-                      value={r.codigoInterno}
-                      onChange={(e) => {
-                        if (e.target.value === "__nuevo__") {
-                          setShowModalCodigo(true);
-                          setFilaModalCodigo(i); // ← para saber qué fila actualizar
-                          return;
-                        }
-                        onSelectProducto(i, e.target.value);
-                      }}
+                    <span
+                      className="form-control form-control-sm text-truncate d-block"
+                      style={{ cursor: "pointer", color: codigoLabel ? "#212529" : "#6c757d" }}
+                      title={codigoLabel ? codigoLabel : "Clic para buscar en BD Códigos"}
+                      onClick={() => { setFilaModalSelCodigo(i); setShowModalSelCodigo(true); }}
                     >
-                      <option value="">Select an Option</option>
-                      {codigos.map((p) => (
-                        <option key={p._id} value={p._id}>
-                          {p.numeroParte || p.codigo} — {p.descripcion || ""}
-                        </option>
-                      ))}
-                      <option value="__nuevo__">➕ Dar de alta nuevo código...</option>
-                    </select>
+                      {codigoLabel || "Seleccionar código..."}
+                    </span>
                   </td>
 
                   {/* Código Proveedor ❌ eliminado */}
@@ -398,7 +420,7 @@
                   </td>*/}
 
                 </tr>
-              ))}
+              ); })}
             </tbody>
 
             <tfoot>
@@ -432,6 +454,13 @@
               setShowModalCodigo(false);
               setFilaModalCodigo(null);
             }}
+          />
+        )}
+
+        {showModalSelCodigo && filaModalSelCodigo !== null && (
+          <ModalSeleccionarCodigo
+            onSelect={(codigo) => handleCodigoFromModal(filaModalSelCodigo, codigo)}
+            onClose={() => { setShowModalSelCodigo(false); setFilaModalSelCodigo(null); }}
           />
         )}
       </div>

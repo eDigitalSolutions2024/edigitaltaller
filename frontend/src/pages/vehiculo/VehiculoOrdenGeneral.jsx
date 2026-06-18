@@ -1,6 +1,8 @@
 // src/pages/vehiculo/VehiculoOrdenGeneral.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { closeOrden } from "../../api/vehiculos";
+import http from "../../api/http";
 
 function formatFecha(fechaIso) {
   if (!fechaIso) return "";
@@ -19,10 +21,22 @@ function formatMoney(n) {
 }
 
 export default function VehiculoOrdenGeneral({ orden, onClosed }) {
-  // 👇 hooks SIEMPRE al inicio, sin if antes
+  const navigate = useNavigate();
   const [cerrando, setCerrando] = useState(false);
+  const [mecMap, setMecMap] = useState({}); // id → nombre del mecánico
 
-  // si no hay orden, ya después puedes salir
+  // Cargar empleados mecánicos para resolver IDs en manoObra
+  useEffect(() => {
+    http.get("/empleados?puesto=mecanico&activo=true")
+      .then((res) => {
+        const lista = res.data?.data || res.data || [];
+        const map = {};
+        lista.forEach((e) => { map[String(e._id)] = e.nombre; });
+        setMecMap(map);
+      })
+      .catch(() => {});
+  }, []);
+
   if (!orden) return null;
 
   const yaCerrada = orden.estadoOrden === "CERRADA";
@@ -41,7 +55,7 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
       const vAct = res.data.vehiculo;
 
       if (onClosed) onClosed(vAct);
-      else alert("Orden cerrada correctamente.");
+      navigate("/vehiculo/consulta-ordenes");
     } catch (err) {
       console.error(err);
       alert("Error al cerrar la orden.");
@@ -52,19 +66,58 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
 
   // --- DATOS DEL CLIENTE (desde populate) ---
   const c = orden.cliente || {};
+  const tipo = c.tipoCliente || "Particular";
+  const esParticular = tipo === "Particular";
+  const esEmpresa = tipo === "Empresa Privada" || tipo === "Empresa Arrendadora";
+  const esGobierno = tipo === "Empresa Gobierno";
+
   const gob = c.gobierno || {};
+  const emp = c.empresa || {};
   const tel = (c.telefonos || [])[0] || {};
   const cel = (c.celulares || [])[0] || {};
   const dir = c.direccion || {};
 
-  const nombreEmpresaGob = gob.nombreGobierno || "";
-  const contactoGob = gob.contactoGobierno?.nombre || "";
+  // Nombre principal por tipo de cliente
+  const nombreCompleto = [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ");
+  const nombrePrincipal = esParticular
+    ? nombreCompleto
+    : esEmpresa
+    ? (emp.razonSocial || nombreCompleto)
+    : (gob.nombreGobierno || nombreCompleto);
+  const labelNombrePrincipal = esParticular ? "Nombre Cliente" : "Nombre / Razón Social";
+
+  // Contacto por tipo de cliente
+  const nombreContacto = esEmpresa
+    ? (emp.contacto?.nombre || nombreCompleto)
+    : esGobierno
+    ? (gob.contactoGobierno?.nombre || gob.dependencia?.contacto?.nombre || "")
+    : "";
+  const labelNombreContacto = esParticular ? "Contacto" : "Nombre Contacto";
+
   const telefonoFijo = [tel.lada, tel.numero].filter(Boolean).join(" ");
   const celular = [cel.lada, cel.numero].filter(Boolean).join(" ");
-  const direccionTexto = [dir.calle, dir.colonia, dir.ciudad, dir.estado, dir.codigoPostal]
+  const direccionTexto = [
+    dir.calle,
+    dir.numeroExterior,
+    dir.numeroInterior,
+    dir.colonia,
+    dir.ciudad,
+    dir.estado,
+    dir.codigoPostal,
+  ]
     .filter(Boolean)
     .join(", ");
   const rfc = c.rfc || "";
+
+  // Asesor: asesor asignado al cliente → quien creó la orden
+  const asesorServicio = c.asesorResponsable || orden.asesorServicio || orden.creadoPor || "";
+
+  // Refaccionario: persona que respondió la solicitud de taller
+  const refaccionario = orden.refaccionario || orden.devueltoPor || "";
+
+  // Mecánico principal: resuelve el ID del empleado a nombre
+  const mecanicoId = (orden.manoObra || []).find((m) => m.mecanico)?.mecanico || "";
+  const mecanicoPrincipal = mecMap[mecanicoId] || mecanicoId || "";
 
   // --- LISTAS (amarradas al modelo actual) ---
   const refacciones = orden.refaccionesSolicitadas || [];
@@ -124,11 +177,10 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
             {orden.ordenServicio || orden._id}
           </div>
           <div className="mb-1">
-            <strong>Nombre Empresa:</strong> {nombreEmpresaGob}
+            <strong>{labelNombrePrincipal}:</strong> {nombrePrincipal}
           </div>
           <div className="mb-1">
-            <strong>Nombre Contacto Empresa:</strong>{" "}
-            {contactoGob}
+            <strong>{labelNombreContacto}:</strong> {nombreContacto}
           </div>
           <div className="mb-1">
             <strong>Teléfono fijo:</strong> {telefonoFijo}
@@ -180,14 +232,13 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
       <h5 className="mt-3 mb-2 text-center">USUARIOS</h5>
       <div className="row mb-3">
         <div className="col-md-4">
-          <strong>Asesor de Servicio:</strong> {orden.asesorServicio || ""}
+          <strong>Asesor de Servicio:</strong> {asesorServicio}
         </div>
         <div className="col-md-4">
-          <strong>Refaccionario:</strong> {orden.refaccionario || ""}
+          <strong>Refaccionario:</strong> {refaccionario}
         </div>
         <div className="col-md-4">
-          <strong>Mecánico principal:</strong>{" "}
-          {orden.mecanicoPrincipal || ""}
+          <strong>Mecánico principal:</strong> {mecanicoPrincipal}
         </div>
       </div>
 

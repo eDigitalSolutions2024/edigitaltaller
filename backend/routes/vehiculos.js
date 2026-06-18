@@ -11,7 +11,7 @@ const SalidaInventario  = require('../models/SalidaInventario');
 const AjusteInventario  = require('../models/AjusteInventario');
 const CodigoRefaccion   = require('../models/CodigoRefaccion');
 
-const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente gobierno telefonos celulares emails rfc direccion';
+const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares emails rfc direccion asesorResponsable';
 
 const { streamVehiculoOperativoPdf } = require('../service/VehiculoOperativoPdf');
 const { streamVehiculoOrdenPdf } = require('../service/vehiculoOrdenPdf');
@@ -106,7 +106,7 @@ async function resolveNPtoOid(numerosParteLista) {
   const map = new Map();
   for (const c of docs) {
     const np = c.numeroParte || c.codigo || '';
-    map.set(np, c._id); // ObjectId
+    map.set(np, String(c._id)); // String para que coincida con codigoInterno de EntradaInventario
   }
   return map;
 }
@@ -359,7 +359,7 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
 });
 
 // PUT /api/vehiculos/:id/presupuesto-venta
-router.put('/:id/presupuesto-venta', async (req, res) => {
+router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -447,18 +447,20 @@ router.put('/:id/presupuesto-venta', async (req, res) => {
           }
 
           if (partidasSalida.length > 0) {
-            // Resolver numeroParte → ObjectId para guardar codigoInterno correcto
             const oidMap = await resolveNPtoOid(partidasSalida.map(p => String(p.codigoInterno)));
-            const partidasConOid = partidasSalida.map(p => ({
-              ...p,
-              codigoInterno: oidMap.get(String(p.codigoInterno)) || p.codigoInterno,
-            }));
-            await SalidaInventario.create({
-              fechaSalida:   new Date(),
-              ordenServicio: vehiculo.ordenServicio || '',
-              partidas:      partidasConOid,
-              estatus:       'cerrada',
-            });
+            // Solo incluir partidas que existen en BD Códigos (evita entradas negativas por códigos temporales)
+            const partidasConOid = partidasSalida
+              .map(p => ({ ...p, codigoInterno: oidMap.get(String(p.codigoInterno)) || null }))
+              .filter(p => p.codigoInterno !== null);
+            if (partidasConOid.length > 0) {
+              await SalidaInventario.create({
+                fechaSalida:   new Date(),
+                ordenServicio: vehiculo.ordenServicio || '',
+                surtidoPor:    req.user?.name || req.user?.username || '',
+                partidas:      partidasConOid,
+                estatus:       'cerrada',
+              });
+            }
           }
         }
 
@@ -973,7 +975,7 @@ router.get('/:id/presupuesto-pdf', async (req, res) => {
 });
 
 // PUT /api/vehiculos/:id/surtir
-router.put('/:id/surtir', async (req, res) => {
+router.put('/:id/surtir', proteger, async (req, res) => {
   try {
     const { id } = req.params;
     const { presupuesto } = req.body;
@@ -1003,18 +1005,25 @@ router.put('/:id/surtir', async (req, res) => {
     if (nuevamenteSurtidas.length > 0) {
       const nps = nuevamenteSurtidas.map(p => String(p.codigo));
       const oidMap = await resolveNPtoOid(nps);
-      await SalidaInventario.create({
-        fechaSalida:   new Date(),
-        ordenServicio: vehiculo.ordenServicio || '',
-        partidas: nuevamenteSurtidas.map(p => ({
-          codigoInterno: oidMap.get(String(p.codigo)) || String(p.codigo),
+      // Solo incluir partidas que existen en BD Códigos (evita entradas negativas por códigos temporales)
+      const partidas = nuevamenteSurtidas
+        .map(p => ({
+          codigoInterno: oidMap.get(String(p.codigo)) || null,
           descripcion:   (p.refaccion || p.concepto || '').trim(),
           marca:         (p.marca || '').trim(),
           unidad:        'Pieza',
           cantidad:      Number(p.cant) || 1,
-        })),
-        estatus: 'cerrada',
-      });
+        }))
+        .filter(p => p.codigoInterno !== null);
+      if (partidas.length > 0) {
+        await SalidaInventario.create({
+          fechaSalida:   new Date(),
+          ordenServicio: vehiculo.ordenServicio || '',
+          surtidoPor:    req.user?.name || req.user?.username || '',
+          partidas,
+          estatus: 'cerrada',
+        });
+      }
     }
 
     // Si todas las partidas autorizadas ya están surtidas → Reparación en curso

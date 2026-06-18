@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const EntradaInventario = require('../models/EntradaInventario');
 const CodigoRefaccion  = require('../models/CodigoRefaccion');
 const uploadFactura = require('./middleware/uploadFactura');
+const { proteger, requiereRol } = require('../middleware/auth');
 
 // 0) Migración retroactiva: rellena proveedor en BDCodigos a partir de entradas finalizadas
 router.post('/migrate-codigos-proveedor', async (req, res) => {
@@ -178,6 +179,34 @@ router.patch('/:entradaId/foto', uploadFactura.single('fotoFactura'), async (req
     await entrada.save();
 
     res.json({ success: true, fotoFactura: entrada.fotoFactura });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
+// 6b) Editar entrada completa — solo admin
+router.put('/:entradaId', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const entrada = await EntradaInventario.findById(req.params.entradaId);
+    if (!entrada) return res.status(404).json({ success: false, message: 'Entrada no encontrada' });
+
+    const { tipoComprobante, numero, fechaFactura, proveedorId, moneda, formaPago, captura } = req.body;
+
+    if (tipoComprobante !== undefined) entrada.tipoComprobante = tipoComprobante;
+    if (numero       !== undefined) entrada.numero       = numero;
+    if (fechaFactura !== undefined) entrada.fechaFactura = fechaFactura;
+    if (proveedorId  !== undefined) entrada.proveedorId  = proveedorId || null;
+    if (moneda       !== undefined) entrada.moneda       = moneda;
+    if (formaPago    !== undefined) entrada.formaPago    = formaPago;
+    if (Array.isArray(captura))     entrada.captura      = captura;
+
+    await entrada.save();
+
+    const updated = await EntradaInventario.findById(entrada._id)
+      .populate('proveedorId', 'nombreProveedor nombre aliasProveedor')
+      .lean();
+
+    res.json({ success: true, data: updated });
   } catch (e) {
     res.status(400).json({ success: false, message: e.message });
   }

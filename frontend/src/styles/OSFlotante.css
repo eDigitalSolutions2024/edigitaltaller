@@ -90,6 +90,10 @@
   border-bottom: none;
 }
 
+.os-flotante__item--clickable {
+  cursor: pointer;
+}
+
 .os-flotante__item:hover {
   background: #f8f9fa;
 }

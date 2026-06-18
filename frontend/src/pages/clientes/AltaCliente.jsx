@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { createCustomer, getCustomer, updateCustomer } from "../../api/customers";
-import { listarEmpleados } from "../../api/empleados";
+import { getAsesores } from "../../api/users";
 import "../../styles/clientes.css";
 
 const CLIENT_TYPES = [
@@ -301,19 +301,19 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
   fetchCustomer();
 }, [id, isEdit]);
 
-  // 👉 Cargar empleados para el combo de Asesor Responsable
+  // 👉 Cargar asesores (usuarios con rol asesor_servicio) para el combo de Asesor Responsable
   useEffect(() => {
-    const loadEmpleados = async () => {
+    const loadAsesores = async () => {
       try {
-        const data = await listarEmpleados({ activo: true, puesto: "asesor" }); // solo activos
+        const data = await getAsesores();
         setEmpleados(Array.isArray(data) ? data : []);
       } catch (e) {
-        console.error("Error cargando empleados", e);
+        console.error("Error cargando asesores", e);
         setEmpleados([]);
       }
     };
 
-    loadEmpleados();
+    loadAsesores();
   }, []);
 
   const onSubmit = async (e) => {
@@ -1100,9 +1100,9 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
             onChange={(e) => upd("asesorResponsable", e.target.value)}
           >
             <option value="">-- Seleccionar --</option>
-            {empleados.map((emp) => (
-              <option key={emp._id} value={emp.nombre}>
-                {emp.nombre}
+            {empleados.map((user) => (
+              <option key={user._id} value={user.name}>
+                {user.name}
               </option>
             ))}
           </select>

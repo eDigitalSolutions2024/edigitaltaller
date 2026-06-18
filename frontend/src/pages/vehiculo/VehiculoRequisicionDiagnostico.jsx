@@ -874,7 +874,7 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
               </div>
               <div className="col-md-3">
                 <label className="form-label form-label-sm mb-1">
-                  {moLine.esCarroceria ? "Carrocero" : "Mecánico / Carrocero"}
+                  {moLine.esCarroceria ? "Carrocero" : "Mecánico"}
                 </label>
                 {moLine.esCarroceria ? (
                   <select
