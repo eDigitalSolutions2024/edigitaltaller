@@ -356,7 +356,7 @@ export default function EntradaInventario() {
                 )}
               </div>
               <div className="card-body">
-                <TablaCapturaEntrada entradaId={entradaId} info={entradaInfo} />
+                <TablaCapturaEntrada entradaId={entradaId} info={entradaInfo} modoConsulta={modoConsulta} />
               </div>
             </div>
           )}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getMisOrdenes } from '../api/vehiculos';
 import { getUser } from '../auth';
 import '../styles/OSFlotante.css';
@@ -48,6 +49,7 @@ function nombreCliente(orden) {
 export default function OSFlotante() {
   const user = getUser();
   const esAsesor = user?.role === 'asesor_servicio';
+  const navigate = useNavigate();
 
   const [ordenes, setOrdenes] = useState([]);
   const [minimizado, setMinimizado] = useState(false);
@@ -56,6 +58,7 @@ export default function OSFlotante() {
   // Posición inicial: esquina superior derecha
   const [pos, setPos] = useState({ x: window.innerWidth - 300, y: 20 });
   const dragging = useRef(false);
+  const hasDragged = useRef(false);
   const offset = useRef({ x: 0, y: 0 });
   const widgetRef = useRef(null);
   const intervalRef = useRef(null);
@@ -76,6 +79,14 @@ export default function OSFlotante() {
     return () => clearInterval(intervalRef.current);
   }, [esAsesor]);
 
+  // Refresca al volver a la pestaña/ventana para mostrar el estado actualizado
+  useEffect(() => {
+    if (!esAsesor) return;
+    const onVisible = () => { if (document.visibilityState === 'visible') cargar(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [esAsesor]);
+
   useEffect(() => {
     if (!esAsesor) return;
     const t = setInterval(() => setTick(n => n + 1), 60000);
@@ -84,9 +95,9 @@ export default function OSFlotante() {
 
   // ── Drag handlers ──────────────────────────────────────────
   const onMouseDown = useCallback((e) => {
-    // Solo arrastrar desde el header, no desde el botón toggle
     if (e.target.closest('.os-flotante__toggle')) return;
     dragging.current = true;
+    hasDragged.current = false;
     offset.current = {
       x: e.clientX - pos.x,
       y: e.clientY - pos.y,
@@ -97,9 +108,9 @@ export default function OSFlotante() {
   useEffect(() => {
     const onMouseMove = (e) => {
       if (!dragging.current) return;
+      hasDragged.current = true;
       const newX = e.clientX - offset.current.x;
       const newY = e.clientY - offset.current.y;
-      // Mantener dentro de la ventana
       const maxX = window.innerWidth - (widgetRef.current?.offsetWidth || 280);
       const maxY = window.innerHeight - (widgetRef.current?.offsetHeight || 50);
       setPos({
@@ -128,7 +139,7 @@ export default function OSFlotante() {
       <div
         className="os-flotante__header"
         onMouseDown={onMouseDown}
-        onClick={() => setMinimizado(m => !m)}
+        onClick={() => { if (!hasDragged.current) setMinimizado(m => !m); }}
       >
         <span className="os-flotante__titulo">
           ⠿ Mis OS
@@ -150,7 +161,11 @@ export default function OSFlotante() {
           ) : (
             <ul className="os-flotante__lista">
               {ordenes.map(os => (
-                <li key={os._id} className="os-flotante__item">
+                <li
+                  key={os._id}
+                  className="os-flotante__item os-flotante__item--clickable"
+                  onClick={() => navigate(`/vehiculo/orden/${os._id}`)}
+                >
                   <div className="os-flotante__item-top">
                     <span className="os-flotante__num">{os.ordenServicio}</span>
                     <span

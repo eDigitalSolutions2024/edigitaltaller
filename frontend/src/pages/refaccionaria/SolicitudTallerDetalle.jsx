@@ -5,11 +5,13 @@ import {
   saveRequisicionDiagnostico,
 } from "../../api/vehiculos";
 import { getUnidadesMedida } from "../../api/configuracion";
+import ModalSeleccionarCodigo from "./components/ModalSeleccionarCodigo";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 
 // ─── Modal selección de código ────────────────────────────────────────────────
-function ModalSeleccionarCodigo({ onSelect, onClose }) {
+// eslint-disable-next-line no-unused-vars
+function _ModalSeleccionarCodigoLegado({ onSelect, onClose }) {
   const [codigos, setCodigos]   = useState([]);
   const [stockMap, setStockMap] = useState({}); // { [_id]: cantidad }
   const [busqueda, setBusqueda] = useState("");

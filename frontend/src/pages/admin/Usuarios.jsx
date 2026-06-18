@@ -220,7 +220,6 @@ export default function Usuarios() {
                   onChange={handleChange}
                 >
                     <option value="admin">Admin</option>
-                    <option value="mecanico">Mecánico</option>
                     <option value="recepcion">Recepción</option>
                     <option value="cajas">Cajas</option>
                     <option value="captura">Captura</option>

@@ -107,29 +107,6 @@ export default function Configuracion() {
     }
   };
 
-  const handleGuardarMecanico = async (e) => {
-    e.preventDefault();
-
-    try {
-      setError("");
-
-      await crearMecanico({
-        nombre: mecanicoForm.nombre,
-        telefono: mecanicoForm.telefono,
-      });
-
-      setMecanicoForm({
-        nombre: "",
-        telefono: "",
-      });
-
-      await cargarDatos();
-      mostrarMensaje("Mecánico guardado correctamente");
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
   const toggleUnidad = async (unidad) => {
     try {
       await cambiarEstadoUnidad(unidad._id, !unidad.activo);
@@ -270,78 +247,6 @@ export default function Configuracion() {
 
               {!unidades.length && (
                 <p className="config-empty">No hay unidades registradas.</p>
-              )}
-            </div>
-          </section>
-
-          {/* Mecánicos */}
-          <section className="config-card">
-            <div className="config-card-header">
-              <div>
-                <h2>Mecánicos</h2>
-                <span>Registra mecánicos disponibles.</span>
-              </div>
-              <div className="config-icon">👨‍🔧</div>
-            </div>
-
-            <form onSubmit={handleGuardarMecanico} className="config-form">
-              <label>
-                Nombre
-                <input
-                  type="text"
-                  value={mecanicoForm.nombre}
-                  onChange={(e) =>
-                    setMecanicoForm({
-                      ...mecanicoForm,
-                      nombre: e.target.value,
-                    })
-                  }
-                  placeholder="Nombre del mecánico"
-                  required
-                />
-              </label>
-
-              {/*<label>
-                Teléfono
-                <input
-                  type="text"
-                  value={mecanicoForm.telefono}
-                  onChange={(e) =>
-                    setMecanicoForm({
-                      ...mecanicoForm,
-                      telefono: e.target.value,
-                    })
-                  }
-                  placeholder="Opcional"
-                />
-              </label>*/}
-
-              <button type="submit">Agregar mecánico</button>
-            </form>
-
-            <div className="config-list">
-              {mecanicos.map((mecanico) => (
-                <div key={mecanico._id} className="config-list-item">
-                  <div>
-                    <strong>{mecanico.nombre}</strong>
-                    <span>
-                      {mecanico.telefono || "Sin teléfono"} ·{" "}
-                      {mecanico.activo ? "Activo" : "Inactivo"}
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    className={mecanico.activo ? "btn-status off" : "btn-status on"}
-                    onClick={() => toggleMecanico(mecanico)}
-                  >
-                    {mecanico.activo ? "Desactivar" : "Activar"}
-                  </button>
-                </div>
-              ))}
-
-              {!mecanicos.length && (
-                <p className="config-empty">No hay mecánicos registrados.</p>
               )}
             </div>
           </section>

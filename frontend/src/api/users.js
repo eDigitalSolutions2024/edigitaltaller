@@ -24,3 +24,8 @@ export const updateUserStatus = async (id, isActive) => {
   const { data } = await http.patch(`/users/${id}/status`, { isActive });
   return data;
 };
+
+export const getAsesores = async () => {
+  const { data } = await http.get('/users/asesores');
+  return data;
+};

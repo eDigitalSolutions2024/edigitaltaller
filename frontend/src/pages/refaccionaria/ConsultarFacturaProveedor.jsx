@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import http from "../../api/http";
+import { getUser } from "../../auth";
+import ModalSeleccionarCodigo from "./components/ModalSeleccionarCodigo";
 
 const API    = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 const SERVER = API.replace(/\/api$/, "");
@@ -342,9 +344,254 @@ function ModalVerDetalle({ entrada, onClose }) {
   );
 }
 
+// ─── Modal editar entrada (solo admin) ───────────────────────────────────────
+function ModalEditarEntrada({ entrada, onClose, onGuardado }) {
+  const [proveedores, setProveedores]       = useState([]);
+  const [guardando, setGuardando]           = useState(false);
+  const [modalCodigoIdx, setModalCodigoIdx] = useState(null);
+
+  const [form, setForm] = useState({
+    tipoComprobante: entrada.tipoComprobante || "Factura",
+    numero:          entrada.numero          || "",
+    fechaFactura:    entrada.fechaFactura ? entrada.fechaFactura.split("T")[0] : "",
+    proveedorId:     entrada.proveedorId?._id || entrada.proveedorId || "",
+    moneda:          entrada.moneda      || "MXN",
+    formaPago:       entrada.formaPago   || "Crédito",
+  });
+
+  // Convierte descuentoPct (%) → costoDescuento ($) al cargar
+  const [captura, setCaptura] = useState(
+    (entrada.captura || []).map(c => {
+      const base = (c.cantidad || 0) * (c.costoUnitario || 0);
+      const costoDescuento = base > 0 ? (c.descuentoPct || 0) / 100 * base : 0;
+      return { ...c, costoDescuento, marca: c.marca || "" };
+    })
+  );
+
+  useEffect(() => {
+    fetch(`${API}/proveedores?limit=200&soloActivos=true`, { credentials: "include" })
+      .then(r => r.json()).catch(() => ({}))
+      .then(j => setProveedores(j?.data || []));
+  }, []);
+
+  const onF = (e) => setForm(s => ({ ...s, [e.target.name]: e.target.value }));
+
+  const onCaptura = (i, campo, valor) =>
+    setCaptura(prev => { const c = [...prev]; c[i] = { ...c[i], [campo]: valor }; return c; });
+
+  const handleCodigoSeleccionado = (codigo) => {
+    const idValue  = codigo._id ? String(codigo._id) : (codigo.numeroParte || codigo.codigo || "");
+    const np       = codigo.numeroParte || codigo.codigo || "";
+    const label    = np + (codigo.descripcion ? ` — ${codigo.descripcion}` : "");
+    setCaptura(prev => {
+      const c = [...prev];
+      c[modalCodigoIdx] = {
+        ...c[modalCodigoIdx],
+        codigoInterno:   idValue,
+        _codigoLabel:    label,
+        descripcion:     codigo.descripcion    || c[modalCodigoIdx].descripcion,
+        marca:           codigo.proveedor      || c[modalCodigoIdx].marca,
+        unidad:          codigo.unidad         || c[modalCodigoIdx].unidad,
+        costoUnitario:   codigo.precioUnitario != null && codigo.precioUnitario !== ""
+                           ? Number(codigo.precioUnitario)
+                           : c[modalCodigoIdx].costoUnitario,
+      };
+      return c;
+    });
+    setModalCodigoIdx(null);
+  };
+
+  const calcSinIva  = (c) => Math.max(0, (c.cantidad || 0) * (c.costoUnitario || 0) - (c.costoDescuento || 0));
+  const calcConIva  = (c) => calcSinIva(c) * (1 + (c.ivaPct || 0) / 100);
+  const totalGeneral = captura.reduce((s, c) => s + calcConIva(c), 0);
+
+  const addFila = () => setCaptura(prev => [...prev, {
+    descripcion: "", tipo: "Refacción", unidad: "", cantidad: 0,
+    costoUnitario: 0, ivaPct: 8, costoDescuento: 0, marca: "",
+  }]);
+
+  const removeFila = (i) => setCaptura(prev => prev.filter((_, idx) => idx !== i));
+
+  const guardar = async () => {
+    try {
+      setGuardando(true);
+      // Convierte costoDescuento ($) → descuentoPct (%) para el backend
+      const capturaBackend = captura.map(c => {
+        const base = (c.cantidad || 0) * (c.costoUnitario || 0);
+        const descuentoPct = base > 0 ? ((c.costoDescuento || 0) / base) * 100 : 0;
+        const { costoDescuento, _codigoLabel, ...rest } = c;
+        return { ...rest, descuentoPct };
+      });
+      const { data: json } = await http.put(`/entradas/${entrada._id}`, {
+        ...form,
+        fechaFactura: form.fechaFactura ? form.fechaFactura + "T12:00:00.000Z" : undefined,
+        proveedorId:  form.proveedorId  || null,
+        captura: capturaBackend,
+      });
+      if (!json.success) throw new Error(json?.message || "Error al guardar");
+      onGuardado(json.data);
+      onClose();
+    } catch (err) {
+      alert(err?.response?.data?.message || err.message);
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const ivaCatalog = [
+    { label: "0%", value: 0 },
+    { label: "8%", value: 8 },
+    { label: "16%", value: 16 },
+  ];
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1040 }} />
+      <div style={{
+        position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+        zIndex: 1050, width: "98%", maxWidth: 1300, maxHeight: "92vh",
+        background: "white", borderRadius: 8, boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+        display: "flex", flexDirection: "column", overflow: "hidden",
+      }}>
+        <div className="d-flex justify-content-between align-items-center p-3 border-bottom">
+          <h5 className="mb-0">Editar Factura <span className="text-muted small">#{entrada.numero || entrada._id}</span></h5>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{ overflowY: "auto", padding: 24 }}>
+          {/* Encabezado */}
+          <div className="row g-3 mb-4">
+            <div className="col-md-3">
+              <label className="form-label">Tipo de Comprobante</label>
+              <select className="form-select" name="tipoComprobante" value={form.tipoComprobante} onChange={onF}>
+                <option>Factura</option><option>Remisión</option><option>Nota</option><option>Ticket</option>
+              </select>
+            </div>
+            <div className="col-md-3">
+              <label className="form-label">Número de Factura</label>
+              <input className="form-control" name="numero" value={form.numero} onChange={onF} />
+            </div>
+            <div className="col-md-3">
+              <label className="form-label">Fecha Factura</label>
+              <input type="date" className="form-control" name="fechaFactura" value={form.fechaFactura} onChange={onF} />
+            </div>
+            <div className="col-md-3">
+              <label className="form-label">Proveedor</label>
+              <select className="form-select" name="proveedorId" value={form.proveedorId} onChange={onF}>
+                <option value="">— Selecciona —</option>
+                {proveedores.map(p => (
+                  <option key={p._id} value={p._id}>{p.nombreProveedor || p.aliasProveedor}</option>
+                ))}
+              </select>
+            </div>
+            <div className="col-md-3">
+              <label className="form-label">Moneda</label>
+              <select className="form-select" name="moneda" value={form.moneda} onChange={onF}>
+                <option value="MXN">MXN - Peso mexicano</option>
+                <option value="USD">USD - Dólar estadounidense</option>
+              </select>
+            </div>
+            <div className="col-md-3">
+              <label className="form-label">Forma de Pago</label>
+              <select className="form-select" name="formaPago" value={form.formaPago} onChange={onF}>
+                <option>Crédito</option><option>Contado</option><option>Transferencia</option>
+                <option>Efectivo</option><option>Tarjeta</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Partidas */}
+          <h6 className="text-uppercase text-muted mb-2">Partidas de Captura</h6>
+          <div className="table-responsive">
+            <table className="table table-bordered table-sm align-middle">
+              <thead className="table-light">
+                <tr>
+                  <th style={{minWidth:80}}>Cantidad</th>
+                  <th style={{minWidth:110}}>Unidad</th>
+                  <th style={{minWidth:110}}>Tipo</th>
+                  <th style={{minWidth:200}}>Código Interno</th>
+                  <th style={{minWidth:120}}>Marca</th>
+                  <th style={{minWidth:130}}>SubTotal Unitario</th>
+                  <th style={{minWidth:100}}>IVA</th>
+                  <th style={{minWidth:130}}>Total sin IVA</th>
+                  <th style={{minWidth:130}}>Total con IVA</th>
+                  <th style={{minWidth:130}}>Costo Descuento</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {captura.map((c, i) => (
+                  <tr key={i}>
+                    <td><input type="number" min="0" step="any" className="form-control form-control-sm" value={c.cantidad ?? 0} onChange={e => onCaptura(i, "cantidad", Number(e.target.value))} /></td>
+                    <td><input className="form-control form-control-sm" value={c.unidad || ""} onChange={e => onCaptura(i, "unidad", e.target.value)} /></td>
+                    <td>
+                      <select className="form-select form-select-sm" value={c.tipo || ""} onChange={e => onCaptura(i, "tipo", e.target.value)}>
+                        <option value="">—</option><option>Refacción</option><option>Insumo</option><option>Servicio</option>
+                      </select>
+                    </td>
+                    <td>
+                      {(() => {
+                        const label = c._codigoLabel || c.descripcion || "";
+                        return (
+                          <span
+                            className="form-control form-control-sm text-truncate d-block"
+                            style={{ cursor: "pointer", color: label ? "#212529" : "#6c757d" }}
+                            title={label || "Clic para buscar en BD Códigos"}
+                            onClick={() => setModalCodigoIdx(i)}
+                          >
+                            {label || "Seleccionar código..."}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    <td><input className="form-control form-control-sm" value={c.marca || ""} onChange={e => onCaptura(i, "marca", e.target.value)} /></td>
+                    <td><input type="number" min="0" step="any" className="form-control form-control-sm" value={c.costoUnitario ?? 0} onChange={e => onCaptura(i, "costoUnitario", Number(e.target.value))} /></td>
+                    <td>
+                      <select className="form-select form-select-sm" value={c.ivaPct ?? 8} onChange={e => onCaptura(i, "ivaPct", Number(e.target.value))}>
+                        {ivaCatalog.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
+                      </select>
+                    </td>
+                    <td><input className="form-control form-control-sm" value={formatCurrency(calcSinIva(c))} readOnly /></td>
+                    <td><input className="form-control form-control-sm" value={formatCurrency(calcConIva(c))} readOnly /></td>
+                    <td><input type="number" min="0" step="any" className="form-control form-control-sm" value={c.costoDescuento ?? 0} onChange={e => onCaptura(i, "costoDescuento", Number(e.target.value))} /></td>
+                    <td><button type="button" className="btn btn-outline-danger btn-sm" onClick={() => removeFila(i)}>✕</button></td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={8} className="text-end fw-semibold">Total General:</td>
+                  <td className="fw-bold">{formatCurrency(totalGeneral)}</td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <button type="button" className="btn btn-outline-secondary btn-sm mt-2" onClick={addFila}>+ Agregar fila</button>
+        </div>
+
+        <div className="p-3 border-top d-flex justify-content-end gap-2">
+          <button className="btn btn-outline-secondary" onClick={onClose} disabled={guardando}>Cancelar</button>
+          <button className="btn btn-primary" onClick={guardar} disabled={guardando}>
+            {guardando ? "Guardando..." : "Guardar cambios"}
+          </button>
+        </div>
+      </div>
+
+      {modalCodigoIdx !== null && (
+        <ModalSeleccionarCodigo
+          onSelect={handleCodigoSeleccionado}
+          onClose={() => setModalCodigoIdx(null)}
+        />
+      )}
+    </>
+  );
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function ConsultarFacturaProveedor() {
-  const navigate = useNavigate();
+  const navigate  = useNavigate();
+  const esAdmin   = getUser()?.role === "admin";
 
   const [rows, setRows]             = useState([]);
   const [loading, setLoading]       = useState(false);
@@ -354,6 +601,7 @@ export default function ConsultarFacturaProveedor() {
   const [totalDocs, setTotalDocs]   = useState(0);
   const [entradaFoto, setEntradaFoto]       = useState(null);
   const [entradaDetalle, setEntradaDetalle] = useState(null);
+  const [entradaEditar, setEntradaEditar]   = useState(null);
 
   const [f, setF] = useState({
     numero: "", q: "", proveedor: "", estado: "todos", desde: "", hasta: "",
@@ -430,6 +678,21 @@ export default function ConsultarFacturaProveedor() {
         r._id === id ? { ...r, fotoFactura: { url: "actualizada" } } : r
       )
     );
+  };
+
+  const abrirEditar = async (row) => {
+    try {
+      const r = await fetch(`${API}/entradas/${row._id}`, { credentials: "include" });
+      const json = await r.json().catch(() => ({}));
+      if (!r.ok || !json.success) throw new Error(json?.message || "Error al cargar");
+      setEntradaEditar(json.data);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const onEntradaGuardada = (updated) => {
+    setRows((prev) => prev.map((r) => r._id === updated._id ? { ...r, ...updated } : r));
   };
 
   return (
@@ -540,6 +803,11 @@ export default function ConsultarFacturaProveedor() {
                         <button className="btn btn-outline-info btn-sm" onClick={() => verDetalle(r)}>
                           Ver info
                         </button>
+                        {esAdmin && (
+                          <button className="btn btn-outline-warning btn-sm" onClick={() => abrirEditar(r)}>
+                            Editar
+                          </button>
+                        )}
                         {r.estado === "borrador" && (
                           <button className="btn btn-outline-danger btn-sm" onClick={() => eliminarBorrador(r)}>
                             Eliminar
@@ -588,6 +856,15 @@ export default function ConsultarFacturaProveedor() {
         <ModalVerDetalle
           entrada={entradaDetalle}
           onClose={() => setEntradaDetalle(null)}
+        />
+      )}
+
+      {/* Modal editar — solo admin */}
+      {entradaEditar && (
+        <ModalEditarEntrada
+          entrada={entradaEditar}
+          onClose={() => setEntradaEditar(null)}
+          onGuardado={onEntradaGuardada}
         />
       )}
     </div>
