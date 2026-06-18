@@ -20,7 +20,7 @@ const emptyForm = {
   revisionFallas: "",
 };
 
-export default function ServicioReparacionTab({ ordenId, initialData, onSaved }) {
+export default function ServicioReparacionTab({ ordenId, initialData, existingRefacciones = [], onSaved }) {
   const [form, setForm] = useState(emptyForm);
 
   // Catálogo de servicios desde BD Códigos
@@ -125,9 +125,9 @@ export default function ServicioReparacionTab({ ordenId, initialData, onSaved })
       // 1. Guardar el servicio primero
       await updateServicioReparacion(ordenId, form);
 
-      // 2. Enviar refacciones a refaccionaria
+      // 2. Conservar todas las existentes y agregar las nuevas al final
       const res = await saveRequisicionDiagnostico(ordenId, {
-        refacciones: validas,
+        refacciones: [...existingRefacciones, ...validas],
         estadoOrden: "PENDIENTE_REFACCIONARIA",
       });
 
