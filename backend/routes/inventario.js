@@ -36,7 +36,8 @@ router.get('/', async (req, res) => {
       { $match: { 'captura.codigoInterno': { $nin: [null, ''] } } },
       {
         $project: {
-          _id: '$captura.codigoInterno',                 // puede ser ObjectId o string
+          // $toString unifica ObjectId y string del mismo ID en un único grupo
+          _id: { $toString: '$captura.codigoInterno' },
           cantidad: { $ifNull: ['$captura.cantidad', 0] },
           descripcion: '$captura.descripcion',
           unidad: '$captura.unidad',
@@ -52,7 +53,7 @@ router.get('/', async (req, res) => {
             { $match: { 'partidas.codigoInterno': { $nin: [null, ''] } } },
             {
               $project: {
-                _id: '$partidas.codigoInterno',
+                _id: { $toString: '$partidas.codigoInterno' },
                 cantidad: { $multiply: [ { $ifNull: ['$partidas.cantidad', 0] }, -1 ] },
                 descripcion: '$partidas.descripcion',
                 unidad: '$partidas.unidad',
@@ -69,7 +70,7 @@ router.get('/', async (req, res) => {
             { $match: { codigoInterno: { $nin: [null, ''] } } },
             {
               $project: {
-                _id: '$codigoInterno',
+                _id: { $toString: '$codigoInterno' },
                 cantidad: { $ifNull: ['$cantidad', 0] },
                 descripcion: '$descripcion',
                 unidad: '$unidad',
@@ -84,8 +85,9 @@ router.get('/', async (req, res) => {
         $group: {
           _id: '$_id',
           cantidad:   { $sum: '$cantidad' },
-          descripcion:{ $last: '$descripcion' },
-          unidad:     { $last: '$unidad' },
+          // $first toma la descripción/unidad de EntradaInventario (llega antes vía pipeline)
+          descripcion:{ $first: '$descripcion' },
+          unidad:     { $first: '$unidad' },
           ultFecha:   { $last: '$fecha' },
         }
       },
@@ -111,7 +113,13 @@ router.get('/', async (req, res) => {
         $project: {
           _id:        { $toString: '$_id' },
           codigo:     { $ifNull: ['$code.numeroParte', { $toString: '$_id' }] },
-          descripcion:{ $ifNull: ['$descripcion', '$code.descripcion'] },
+          descripcion:{
+            $cond: [
+              { $and: [{ $ne: ['$descripcion', null] }, { $ne: ['$descripcion', ''] }] },
+              '$descripcion',
+              '$code.descripcion'
+            ]
+          },
           unidad:     1,
           cantidad:   1,
           ultFecha:   1,
@@ -214,7 +222,7 @@ router.get('/:codigo/historial-usos', async (req, res) => {
             tipo:       { $literal: 'SALIDA' },
             cantidad:   { $multiply: ['$partidas.cantidad', -1] },
             referencia: { $ifNull: ['$ordenServicio', ''] },
-            usuario:    { $literal: '' },
+            usuario:    { $ifNull: ['$surtidoPor', ''] },
           }
         },
         { $sort: { fecha: -1 } },

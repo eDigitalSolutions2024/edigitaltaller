@@ -3,6 +3,18 @@ const router = express.Router();
 const User = require('../models/User');
 const { proteger, requiereRol } = require('../middleware/auth');
 
+// GET /api/users/asesores — lista de asesores activos (accesible a todos los roles autenticados)
+router.get('/asesores', proteger, async (req, res) => {
+  try {
+    const asesores = await User.find({ role: 'asesor_servicio', isActive: true })
+      .select('_id name username')
+      .sort({ name: 1 });
+    res.json(asesores);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener asesores', error: error.message });
+  }
+});
+
 // GET /api/users
 router.get('/', proteger, requiereRol('admin'), async (req, res) => {
   try {

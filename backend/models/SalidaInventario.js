@@ -12,6 +12,7 @@ const PartidaSalidaSchema = new Schema({
 const SalidaInventarioSchema = new Schema({
   fechaSalida:   { type: Date, required: true },
   ordenServicio: { type: String, trim: true },
+  surtidoPor:    { type: String, trim: true, default: '' },
   partidas:      { type: [PartidaSalidaSchema], default: [] },
   estatus:       { type: String, enum:['cerrada','abierta'], default:'cerrada' },
 }, { timestamps: true });
