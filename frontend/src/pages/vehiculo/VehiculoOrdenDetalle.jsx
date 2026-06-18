@@ -245,6 +245,7 @@ export default function VehiculoOrdenDetalle() {
         <ServicioReparacionTab
           ordenId={orden._id}
           initialData={orden.servicioReparacion}
+          existingRefacciones={orden.refaccionesSolicitadas || []}
           onSaved={handleServicioSaved}
         />
       )}

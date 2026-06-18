@@ -983,11 +983,12 @@ router.put('/:id/surtir', async (req, res) => {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     }
 
-    // Detectar qué líneas pasan de surtida:false → surtida:true en este guardado
+    // Detectar qué índices ya estaban surtidos ANTES de la actualización
     const prevSurtidasIds = new Set(
-      (vehiculo.presupuesto || [])
-        .filter(p => p.surtida)
-        .map((_, i) => i)
+      (vehiculo.presupuesto || []).reduce((acc, p, i) => {
+        if (p.surtida) acc.push(i);
+        return acc;
+      }, [])
     );
 
     if (Array.isArray(presupuesto)) {

@@ -17,7 +17,12 @@ export default function PorSurtir() {
         listOrdenesServicio({ estado: "PENDIENTE_SURTIR", limit: 100 }),
         listOrdenesServicio({ estado: "REPARACION_EN_CURSO", limit: 100 }),
       ]);
-      const todas = [...(r1.data?.data || []), ...(r2.data?.data || [])];
+      const todas = [...(r1.data?.data || []), ...(r2.data?.data || [])]
+        .sort((a, b) => {
+          const fa = new Date(a.fechaEnvioSurtir || a.updatedAt).getTime();
+          const fb = new Date(b.fechaEnvioSurtir || b.updatedAt).getTime();
+          return fb - fa; // más reciente arriba = menor tiempo transcurrido
+        });
       setOrdenes(todas);
     } catch (err) {
       console.error(err);

@@ -150,43 +150,43 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral 
           <div className="card h-100">
             <div className="card-header fw-semibold bg-light">Personal Asignado</div>
             <div className="card-body p-0">
-              {personalRows.length > 0 ? (
-                <table className="table table-sm table-bordered mb-0">
-                  <thead className="table-light">
+              <table className="table table-sm table-bordered mb-0">
+                <thead className="table-light">
+                  <tr>
+                    <th className="ps-2">Rol</th>
+                    <th>Nombre</th>
+                    <th>Concepto / Servicio</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orden.creadoPor && (
                     <tr>
-                      <th className="ps-2">Rol</th>
-                      <th>Nombre</th>
-                      <th>Concepto / Servicio</th>
+                      <td className="ps-2 fw-semibold">Asesor</td>
+                      <td>{orden.creadoPor}</td>
+                      <td>—</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {personalRows.map((p, i) => (
-                      <tr key={i}>
-                        <td className="ps-2 fw-semibold">{p.rol}</td>
-                        <td>{p.nombre}</td>
-                        <td>{p.concepto}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <table className="table table-sm table-bordered mb-0">
-                  <tbody>
+                  )}
+                  {orden.devueltoPor && (
                     <tr>
-                      <th className="ps-2" style={{ width: "40%" }}>Asesor</th>
-                      <td>{orden.asesorServicio || "-"}</td>
+                      <td className="ps-2 fw-semibold">Refaccionario</td>
+                      <td>{orden.devueltoPor}</td>
+                      <td>—</td>
                     </tr>
+                  )}
+                  {personalRows.map((p, i) => (
+                    <tr key={i}>
+                      <td className="ps-2 fw-semibold">{p.rol}</td>
+                      <td>{p.nombre}</td>
+                      <td>{p.concepto}</td>
+                    </tr>
+                  ))}
+                  {!orden.creadoPor && !orden.devueltoPor && personalRows.length === 0 && (
                     <tr>
-                      <th className="ps-2">Mecánico</th>
-                      <td>{orden.mecanicoPrincipal || "-"}</td>
+                      <td colSpan={3} className="text-center text-muted">Sin personal asignado.</td>
                     </tr>
-                    <tr>
-                      <th className="ps-2">Refaccionario</th>
-                      <td>{orden.refaccionario || "-"}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              )}
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
