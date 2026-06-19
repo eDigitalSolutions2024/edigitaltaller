@@ -16,6 +16,18 @@ const CapturaSchema = new mongoose.Schema({
   caducidad:    { type: Date },
 }, { _id: true });
 
+const OrdenVinculadaSchema = new mongoose.Schema({
+  usadaEnOrden:  { type: Boolean, default: false },
+  sucursal:      { type: String, trim: true, default: '' },
+  ordenId:       { type: mongoose.Schema.Types.ObjectId, ref: 'Vehiculo', default: null },
+  numeroOrden:   { type: String, trim: true, default: '' },
+  cliente:       { type: String, trim: true, default: '' },
+  vehiculo:      { type: String, trim: true, default: '' },
+  modelo:        { type: String, trim: true, default: '' },
+  refaccionario: { type: String, trim: true, default: '' },
+  fechaOrden:    { type: Date, default: null },
+}, { _id: false });
+
 const EntradaInventarioSchema = new mongoose.Schema({
   // === Encabezado (tu formulario de la captura) ===
   tipoComprobante: { type: String, required: true },      // Factura / Remisión / etc.
@@ -38,6 +50,9 @@ const EntradaInventarioSchema = new mongoose.Schema({
     enum: ['borrador', 'finalizada'],
     default: 'borrador'
   },
+
+  // Vinculación con orden de servicio (opcional)
+  ordenVinculada: { type: OrdenVinculadaSchema, default: () => ({}) },
 
   // === Arreglo con los renglones de la tabla ===
   captura: { type: [CapturaSchema], default: [] },
