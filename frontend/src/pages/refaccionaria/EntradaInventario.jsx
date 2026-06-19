@@ -484,9 +484,10 @@ export default function EntradaInventario() {
                           <div className="input-group">
                             <input
                               className="form-control"
-                              readOnly
+                              name="numeroOrden"
                               value={form.numeroOrden || ""}
-                              placeholder="Seleccionar desde buscador..."
+                              onChange={onChange}
+                              placeholder="OS-00001 o captura manual"
                             />
                             <button
                               type="button"
@@ -499,33 +500,33 @@ export default function EntradaInventario() {
                         </div>
                       </div>
 
-                      {/* Campos auto-rellenados */}
+                      {/* Campos auto-rellenados o captura manual */}
                       <div className="row g-3">
                         <div className="col-12 col-md-4">
                           <label className="form-label text-muted small">Cliente</label>
-                          <input className="form-control form-control-sm bg-white" readOnly value={form.clienteOrden || ""} placeholder="—" />
+                          <input className="form-control form-control-sm" name="clienteOrden" value={form.clienteOrden || ""} onChange={onChange} placeholder="Nombre del cliente" />
                         </div>
                         <div className="col-12 col-md-4">
                           <label className="form-label text-muted small">Vehículo</label>
-                          <input className="form-control form-control-sm bg-white" readOnly value={form.vehiculoOrden || ""} placeholder="—" />
+                          <input className="form-control form-control-sm" name="vehiculoOrden" value={form.vehiculoOrden || ""} onChange={onChange} placeholder="Marca del vehículo" />
                         </div>
                         <div className="col-12 col-md-4">
                           <label className="form-label text-muted small">Modelo</label>
-                          <input className="form-control form-control-sm bg-white" readOnly value={form.modeloOrden || ""} placeholder="—" />
+                          <input className="form-control form-control-sm" name="modeloOrden" value={form.modeloOrden || ""} onChange={onChange} placeholder="Modelo y año" />
                         </div>
                         <div className="col-12 col-md-4">
                           <label className="form-label text-muted small">Refaccionario</label>
-                          <input className="form-control form-control-sm bg-white" readOnly value={form.refaccionarioOrden || ""} placeholder="—" />
+                          <input className="form-control form-control-sm" name="refaccionarioOrden" value={form.refaccionarioOrden || ""} onChange={onChange} placeholder="Nombre del refaccionario" />
                         </div>
                         <div className="col-12 col-md-4">
                           <label className="form-label text-muted small">Fecha Orden</label>
-                          <input className="form-control form-control-sm bg-white" readOnly value={form.fechaOrden ? fmtFecha(form.fechaOrden) : ""} placeholder="—" />
+                          <input type="date" className="form-control form-control-sm" name="fechaOrden" value={form.fechaOrden ? String(form.fechaOrden).split("T")[0] : ""} onChange={onChange} />
                         </div>
                       </div>
 
                       {!form.numeroOrden && (
                         <p className="text-muted small mt-2 mb-0">
-                          Presiona "Buscar" para seleccionar la orden de servicio. Los campos se rellenarán automáticamente.
+                          Usa "Buscar" para auto-rellenar desde el sistema, o captura los datos manualmente si la orden no está en el sistema.
                         </p>
                       )}
                     </div>

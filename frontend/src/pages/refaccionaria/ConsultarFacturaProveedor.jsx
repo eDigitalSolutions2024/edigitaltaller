@@ -673,29 +673,29 @@ function ModalEditarEntrada({ entrada, onClose, onGuardado }) {
                 <div className="col-md-4">
                   <label className="form-label">Número de Orden</label>
                   <div className="input-group">
-                    <input className="form-control" readOnly value={ordenForm.numeroOrden || ""} placeholder="Seleccionar..." />
+                    <input className="form-control" name="numeroOrden" value={ordenForm.numeroOrden || ""} onChange={onOrdenF} placeholder="OS-00001 o captura manual" />
                     <button type="button" className="btn btn-outline-primary" onClick={() => setShowBuscarOrden(true)}>Buscar</button>
                   </div>
                 </div>
                 <div className="col-md-4">
                   <label className="form-label text-muted small">Cliente</label>
-                  <input className="form-control bg-white" readOnly value={ordenForm.cliente || ""} placeholder="—" />
+                  <input className="form-control" name="cliente" value={ordenForm.cliente || ""} onChange={onOrdenF} placeholder="Nombre del cliente" />
                 </div>
                 <div className="col-md-4">
                   <label className="form-label text-muted small">Vehículo</label>
-                  <input className="form-control bg-white" readOnly value={ordenForm.vehiculo || ""} placeholder="—" />
+                  <input className="form-control" name="vehiculo" value={ordenForm.vehiculo || ""} onChange={onOrdenF} placeholder="Marca del vehículo" />
                 </div>
                 <div className="col-md-4">
                   <label className="form-label text-muted small">Modelo</label>
-                  <input className="form-control bg-white" readOnly value={ordenForm.modelo || ""} placeholder="—" />
+                  <input className="form-control" name="modelo" value={ordenForm.modelo || ""} onChange={onOrdenF} placeholder="Modelo y año" />
                 </div>
                 <div className="col-md-4">
                   <label className="form-label text-muted small">Refaccionario</label>
-                  <input className="form-control bg-white" readOnly value={ordenForm.refaccionario || ""} placeholder="—" />
+                  <input className="form-control" name="refaccionario" value={ordenForm.refaccionario || ""} onChange={onOrdenF} placeholder="Nombre del refaccionario" />
                 </div>
                 <div className="col-md-4">
                   <label className="form-label text-muted small">Fecha Orden</label>
-                  <input className="form-control bg-white" readOnly value={ordenForm.fechaOrden ? fmtFechaLarga(ordenForm.fechaOrden) : ""} placeholder="—" />
+                  <input type="date" className="form-control" name="fechaOrden" value={ordenForm.fechaOrden ? String(ordenForm.fechaOrden).split("T")[0] : ""} onChange={onOrdenF} />
                 </div>
               </div>
             )}
