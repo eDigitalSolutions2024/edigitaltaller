@@ -7,6 +7,129 @@ import ModalAltaCodigo from "./components/ModalAltaCodigo";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 
+const fmtFecha = (iso) => {
+  if (!iso) return "—";
+  try { return new Intl.DateTimeFormat("es-MX").format(new Date(iso)); }
+  catch { return iso; }
+};
+
+// ─── Modal buscar orden de servicio ──────────────────────────────────────────
+function ModalBuscarOrden({ onSelect, onClose }) {
+  const [busqueda, setBusqueda] = useState("");
+  const [ordenes,  setOrdenes]  = useState([]);
+  const [loading,  setLoading]  = useState(false);
+
+  const buscar = async (q = busqueda) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: 20 });
+      if (q.trim()) params.set("searchOs", q.trim());
+      const r = await fetch(`${API}/vehiculos/ordenes?${params}`, { credentials: "include" });
+      const json = await r.json().catch(() => ({}));
+      setOrdenes(json?.data || []);
+    } catch {
+      setOrdenes([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { buscar(""); }, []); // eslint-disable-line
+
+  useEffect(() => {
+    const t = setTimeout(() => buscar(busqueda), 350);
+    return () => clearTimeout(t);
+  }, [busqueda]); // eslint-disable-line
+
+  const seleccionar = (orden) => {
+    const cliente = [
+      orden.cliente?.nombre,
+      orden.cliente?.apellidoPaterno,
+      orden.cliente?.apellidoMaterno,
+    ].filter(Boolean).join(" ");
+
+    onSelect({
+      ordenId:       orden._id,
+      numeroOrden:   orden.ordenServicio || "",
+      clienteOrden:  cliente || orden.cliente?.empresa || "—",
+      vehiculoOrden: orden.marca || "",
+      modeloOrden:   [orden.modelo, orden.anio].filter(Boolean).join(" "),
+      refaccionarioOrden: orden.devueltoPor || "",
+      fechaOrden:    orden.fechaRecepcion || null,
+    });
+    onClose();
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1040 }} />
+      <div style={{
+        position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+        zIndex: 1050, width: "96%", maxWidth: 780, maxHeight: "85vh",
+        background: "white", borderRadius: 8, boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+        display: "flex", flexDirection: "column", overflow: "hidden",
+      }}>
+        <div className="d-flex justify-content-between align-items-center p-3 border-bottom">
+          <h5 className="mb-0">Buscar Orden de Servicio</h5>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer" }}>×</button>
+        </div>
+
+        <div className="p-3 border-bottom">
+          <input
+            className="form-control"
+            placeholder="Buscar por número de orden (OS-...)..."
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            autoFocus
+          />
+        </div>
+
+        <div style={{ overflowY: "auto", padding: 16, minHeight: 120 }}>
+          {!loading && ordenes.length === 0 && (
+            <p className="text-center text-muted py-3">No se encontraron órdenes.</p>
+          )}
+          <div className="row g-3" style={{ opacity: loading ? 0.5 : 1, transition: "opacity 0.15s" }}>
+            {ordenes.map((o) => {
+              const cliente = [o.cliente?.nombre, o.cliente?.apellidoPaterno, o.cliente?.apellidoMaterno]
+                .filter(Boolean).join(" ") || o.cliente?.empresa || "—";
+              return (
+                <div key={o._id} className="col-12 col-md-6">
+                  <div
+                    className="card h-100 border"
+                    onClick={() => seleccionar(o)}
+                    style={{ cursor: "pointer", transition: "box-shadow 0.15s" }}
+                    onMouseEnter={(e) => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.15)"}
+                    onMouseLeave={(e) => e.currentTarget.style.boxShadow = ""}
+                  >
+                    <div className="card-body p-3">
+                      <div className="d-flex justify-content-between align-items-start mb-2">
+                        <span className="fw-bold text-primary font-monospace">{o.ordenServicio || "—"}</span>
+                        <span className="badge bg-secondary small">{o.estadoOrden?.replace(/_/g, " ") || ""}</span>
+                      </div>
+                      <div className="small">
+                        <div><span className="text-muted">Cliente:</span> <strong>{cliente}</strong></div>
+                        <div><span className="text-muted">Vehículo:</span> <strong>{[o.marca, o.modelo, o.anio].filter(Boolean).join(" ") || "—"}</strong></div>
+                        <div><span className="text-muted">Fecha:</span> <strong>{fmtFecha(o.fechaRecepcion)}</strong></div>
+                        {o.devueltoPor && (
+                          <div><span className="text-muted">Refaccionario:</span> <strong>{o.devueltoPor}</strong></div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="p-3 border-top d-flex justify-content-end">
+          <button className="btn btn-outline-secondary" onClick={onClose}>Cancelar</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function EntradaInventario() {
   const [searchParams] = useSearchParams();
 
@@ -22,6 +145,8 @@ export default function EntradaInventario() {
   const tablaRef = useRef(null);
   const [showModalProveedor, setShowModalProveedor] = useState(false);
 
+  const [showModalOrden, setShowModalOrden] = useState(false);
+
   const [form, setForm] = useState({
     comprobante: "Factura",
     numero: "",
@@ -30,6 +155,15 @@ export default function EntradaInventario() {
     proveedorId: "",
     fecha: new Date().toISOString().split("T")[0],
     foto: null,
+    usadaEnOrden: false,
+    sucursal: "",
+    ordenId: "",
+    numeroOrden: "",
+    clienteOrden: "",
+    vehiculoOrden: "",
+    modeloOrden: "",
+    refaccionarioOrden: "",
+    fechaOrden: "",
   });
 
   // ─── Carga proveedores y códigos ───────────────────────────────────────────
@@ -101,10 +235,24 @@ export default function EntradaInventario() {
 
   // ─── Handlers del formulario ───────────────────────────────────────────────
   const onChange = (e) => {
-    const { name, value, files } = e.target;
+    const { name, value, files, type, checked } = e.target;
 
     if (name === "proveedorId" && value === "__nuevo__") {
       setShowModalProveedor(true);
+      return;
+    }
+
+    if (type === "checkbox") {
+      setForm((f) => ({
+        ...f,
+        [name]: checked,
+        // limpiar campos de orden si se desmarca
+        ...(name === "usadaEnOrden" && !checked ? {
+          sucursal: "", ordenId: "", numeroOrden: "",
+          clienteOrden: "", vehiculoOrden: "", modeloOrden: "",
+          refaccionarioOrden: "", fechaOrden: "",
+        } : {}),
+      }));
       return;
     }
 
@@ -121,6 +269,10 @@ export default function EntradaInventario() {
     } else {
       setForm((f) => ({ ...f, [name]: value }));
     }
+  };
+
+  const handleOrdenSeleccionada = (datos) => {
+    setForm((f) => ({ ...f, ...datos }));
   };
 
   const handleProveedorCreado = (nuevoProveedor) => {
@@ -150,6 +302,20 @@ export default function EntradaInventario() {
     formData.append("proveedorId", form.proveedorId);
     formData.append("fechaFactura", form.fecha + "T12:00:00.000Z");
     if (form.foto) formData.append("fotoFactura", form.foto);
+
+    if (form.usadaEnOrden) {
+      formData.append("usadaEnOrden", "true");
+      formData.append("sucursal",           form.sucursal || "");
+      formData.append("ordenId",            form.ordenId  || "");
+      formData.append("numeroOrden",        form.numeroOrden || "");
+      formData.append("clienteOrden",       form.clienteOrden || "");
+      formData.append("vehiculoOrden",      form.vehiculoOrden || "");
+      formData.append("modeloOrden",        form.modeloOrden || "");
+      formData.append("refaccionarioOrden", form.refaccionarioOrden || "");
+      if (form.fechaOrden) formData.append("fechaOrden", form.fechaOrden);
+    } else {
+      formData.append("usadaEnOrden", "false");
+    }
 
     try {
       setLoading(true);
@@ -275,7 +441,95 @@ export default function EntradaInventario() {
                       />
                       <div className="form-text">Acepta imagen o PDF (≤ 5MB).</div>
                     </div>
+
+                    {/* Checkbox orden de servicio */}
+                    <div className="col-12 col-md-6 d-flex align-items-center" style={{ paddingTop: 28 }}>
+                      <div className="form-check">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id="usadaEnOrden"
+                          name="usadaEnOrden"
+                          checked={form.usadaEnOrden}
+                          onChange={onChange}
+                        />
+                        <label className="form-check-label fw-semibold" htmlFor="usadaEnOrden">
+                          ¿Esta factura fue usada en alguna orden de servicio?
+                        </label>
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Sección orden vinculada */}
+                  {form.usadaEnOrden && (
+                    <div className="border rounded p-3 mt-3" style={{ background: "#f8f9fa" }}>
+                      <h6 className="text-uppercase text-muted mb-3" style={{ fontSize: "0.78rem", letterSpacing: 1 }}>
+                        Datos de la Orden de Servicio Vinculada
+                      </h6>
+
+                      {/* Sucursal + Número de Orden */}
+                      <div className="row g-3 mb-3">
+                        <div className="col-12 col-md-4">
+                          <label className="form-label">Sucursal</label>
+                          <input
+                            className="form-control"
+                            name="sucursal"
+                            value={form.sucursal}
+                            onChange={onChange}
+                            placeholder="Nombre de la sucursal"
+                          />
+                        </div>
+                        <div className="col-12 col-md-4">
+                          <label className="form-label">Número de Orden</label>
+                          <div className="input-group">
+                            <input
+                              className="form-control"
+                              readOnly
+                              value={form.numeroOrden || ""}
+                              placeholder="Seleccionar desde buscador..."
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-outline-primary"
+                              onClick={() => setShowModalOrden(true)}
+                            >
+                              Buscar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Campos auto-rellenados */}
+                      <div className="row g-3">
+                        <div className="col-12 col-md-4">
+                          <label className="form-label text-muted small">Cliente</label>
+                          <input className="form-control form-control-sm bg-white" readOnly value={form.clienteOrden || ""} placeholder="—" />
+                        </div>
+                        <div className="col-12 col-md-4">
+                          <label className="form-label text-muted small">Vehículo</label>
+                          <input className="form-control form-control-sm bg-white" readOnly value={form.vehiculoOrden || ""} placeholder="—" />
+                        </div>
+                        <div className="col-12 col-md-4">
+                          <label className="form-label text-muted small">Modelo</label>
+                          <input className="form-control form-control-sm bg-white" readOnly value={form.modeloOrden || ""} placeholder="—" />
+                        </div>
+                        <div className="col-12 col-md-4">
+                          <label className="form-label text-muted small">Refaccionario</label>
+                          <input className="form-control form-control-sm bg-white" readOnly value={form.refaccionarioOrden || ""} placeholder="—" />
+                        </div>
+                        <div className="col-12 col-md-4">
+                          <label className="form-label text-muted small">Fecha Orden</label>
+                          <input className="form-control form-control-sm bg-white" readOnly value={form.fechaOrden ? fmtFecha(form.fechaOrden) : ""} placeholder="—" />
+                        </div>
+                      </div>
+
+                      {!form.numeroOrden && (
+                        <p className="text-muted small mt-2 mb-0">
+                          Presiona "Buscar" para seleccionar la orden de servicio. Los campos se rellenarán automáticamente.
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Vista previa foto */}
                   {fotoPreview && (
@@ -368,6 +622,13 @@ export default function EntradaInventario() {
         <ModalAltaProveedor
           onProveedorCreado={handleProveedorCreado}
           onClose={() => setShowModalProveedor(false)}
+        />
+      )}
+
+      {showModalOrden && (
+        <ModalBuscarOrden
+          onSelect={handleOrdenSeleccionada}
+          onClose={() => setShowModalOrden(false)}
         />
       )}
     </div>

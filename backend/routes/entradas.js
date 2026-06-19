@@ -48,7 +48,11 @@ router.post('/migrate-codigos-proveedor', async (req, res) => {
 // 1) Crear encabezado de entrada
 router.post('/', uploadFactura.single('fotoFactura'), async (req, res) => {
   try {
-    const { tipoComprobante, numero, moneda, formaPago, proveedorId, fechaFactura } = req.body;
+    const {
+      tipoComprobante, numero, moneda, formaPago, proveedorId, fechaFactura,
+      usadaEnOrden, sucursal, ordenId, numeroOrden,
+      clienteOrden, vehiculoOrden, modeloOrden, refaccionarioOrden, fechaOrden,
+    } = req.body;
 
     let fotoFactura = null;
     if (req.file) {
@@ -60,10 +64,23 @@ router.post('/', uploadFactura.single('fotoFactura'), async (req, res) => {
       };
     }
 
-    console.log("Archivo recibido:", req.file);
+    const ordenVinculada = usadaEnOrden === 'true'
+      ? {
+          usadaEnOrden: true,
+          sucursal:      sucursal      || '',
+          ordenId:       ordenId       || null,
+          numeroOrden:   numeroOrden   || '',
+          cliente:       clienteOrden  || '',
+          vehiculo:      vehiculoOrden || '',
+          modelo:        modeloOrden   || '',
+          refaccionario: refaccionarioOrden || '',
+          fechaOrden:    fechaOrden    || null,
+        }
+      : { usadaEnOrden: false };
 
     const entrada = await EntradaInventario.create({
-      tipoComprobante, numero, moneda, formaPago, proveedorId, fechaFactura, fotoFactura
+      tipoComprobante, numero, moneda, formaPago, proveedorId, fechaFactura,
+      fotoFactura, ordenVinculada,
     });
 
     res.status(201).json({ success: true, entradaId: entrada._id });
@@ -190,15 +207,16 @@ router.put('/:entradaId', proteger, requiereRol('admin'), async (req, res) => {
     const entrada = await EntradaInventario.findById(req.params.entradaId);
     if (!entrada) return res.status(404).json({ success: false, message: 'Entrada no encontrada' });
 
-    const { tipoComprobante, numero, fechaFactura, proveedorId, moneda, formaPago, captura } = req.body;
+    const { tipoComprobante, numero, fechaFactura, proveedorId, moneda, formaPago, captura, ordenVinculada } = req.body;
 
     if (tipoComprobante !== undefined) entrada.tipoComprobante = tipoComprobante;
-    if (numero       !== undefined) entrada.numero       = numero;
-    if (fechaFactura !== undefined) entrada.fechaFactura = fechaFactura;
-    if (proveedorId  !== undefined) entrada.proveedorId  = proveedorId || null;
-    if (moneda       !== undefined) entrada.moneda       = moneda;
-    if (formaPago    !== undefined) entrada.formaPago    = formaPago;
-    if (Array.isArray(captura))     entrada.captura      = captura;
+    if (numero          !== undefined) entrada.numero          = numero;
+    if (fechaFactura    !== undefined) entrada.fechaFactura    = fechaFactura;
+    if (proveedorId     !== undefined) entrada.proveedorId     = proveedorId || null;
+    if (moneda          !== undefined) entrada.moneda          = moneda;
+    if (formaPago       !== undefined) entrada.formaPago       = formaPago;
+    if (Array.isArray(captura))        entrada.captura         = captura;
+    if (ordenVinculada  !== undefined) entrada.ordenVinculada  = ordenVinculada;
 
     await entrada.save();
 

@@ -4,6 +4,12 @@ import http from "../../api/http";
 import { getUser } from "../../auth";
 import ModalSeleccionarCodigo from "./components/ModalSeleccionarCodigo";
 
+const fmtFechaLarga = (iso) => {
+  if (!iso) return "—";
+  try { return new Intl.DateTimeFormat("es-MX", { dateStyle: "medium" }).format(new Date(iso)); }
+  catch { return iso; }
+};
+
 const API    = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 const SERVER = API.replace(/\/api$/, "");
 const fmt    = new Intl.DateTimeFormat("es-MX");
@@ -261,6 +267,31 @@ function ModalVerDetalle({ entrada, onClose }) {
             </div>
           </div>
 
+          {/* Orden vinculada */}
+          {entrada.ordenVinculada?.usadaEnOrden && (
+            <div className="mb-4 border rounded p-3" style={{ background: "#f0f7ff" }}>
+              <h6 className="text-uppercase mb-3" style={{ fontSize: "0.78rem", letterSpacing: 1, color: "#0d6efd" }}>
+                Orden de Servicio Vinculada
+              </h6>
+              <div className="row g-2">
+                {[
+                  ["Sucursal",        entrada.ordenVinculada.sucursal],
+                  ["Número de Orden", entrada.ordenVinculada.numeroOrden],
+                  ["Cliente",         entrada.ordenVinculada.cliente],
+                  ["Vehículo",        entrada.ordenVinculada.vehiculo],
+                  ["Modelo",          entrada.ordenVinculada.modelo],
+                  ["Refaccionario",   entrada.ordenVinculada.refaccionario],
+                  ["Fecha",           fmtFechaLarga(entrada.ordenVinculada.fechaOrden)],
+                ].map(([label, valor]) => (
+                  <div key={label} className="col-6 col-md-4 col-lg-3">
+                    <small className="text-muted d-block">{label}</small>
+                    <strong>{valor || "—"}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Fotografía de la factura */}
           {entrada.fotoFactura?.url && (
             <div className="mb-4">
@@ -344,12 +375,107 @@ function ModalVerDetalle({ entrada, onClose }) {
   );
 }
 
+// ─── Modal buscar orden (reutilizado en edición admin) ───────────────────────
+function ModalBuscarOrdenEditar({ onSelect, onClose }) {
+  const [busqueda, setBusqueda] = useState("");
+  const [ordenes,  setOrdenes]  = useState([]);
+  const [loading,  setLoading]  = useState(false);
+
+  const buscar = async (q = busqueda) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: 20 });
+      if (q.trim()) params.set("searchOs", q.trim());
+      const r = await fetch(`${API}/vehiculos/ordenes?${params}`, { credentials: "include" });
+      const json = await r.json().catch(() => ({}));
+      setOrdenes(json?.data || []);
+    } catch { setOrdenes([]); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { buscar(""); }, []); // eslint-disable-line
+  useEffect(() => {
+    const t = setTimeout(() => buscar(busqueda), 350);
+    return () => clearTimeout(t);
+  }, [busqueda]); // eslint-disable-line
+
+  const seleccionar = (orden) => {
+    const cliente = [orden.cliente?.nombre, orden.cliente?.apellidoPaterno, orden.cliente?.apellidoMaterno]
+      .filter(Boolean).join(" ") || orden.cliente?.empresa || "—";
+    onSelect({
+      ordenId:       orden._id,
+      numeroOrden:   orden.ordenServicio || "",
+      cliente:       cliente,
+      vehiculo:      orden.marca || "",
+      modelo:        [orden.modelo, orden.anio].filter(Boolean).join(" "),
+      refaccionario: orden.devueltoPor || "",
+      fechaOrden:    orden.fechaRecepcion || null,
+    });
+    onClose();
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1060 }} />
+      <div style={{
+        position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+        zIndex: 1070, width: "96%", maxWidth: 780, maxHeight: "85vh",
+        background: "white", borderRadius: 8, boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+        display: "flex", flexDirection: "column", overflow: "hidden",
+      }}>
+        <div className="d-flex justify-content-between align-items-center p-3 border-bottom">
+          <h5 className="mb-0">Buscar Orden de Servicio</h5>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer" }}>×</button>
+        </div>
+        <div className="p-3 border-bottom">
+          <input className="form-control" placeholder="Buscar por número de orden (OS-...)..." value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)} autoFocus />
+        </div>
+        <div style={{ overflowY: "auto", padding: 16, minHeight: 120 }}>
+          {!loading && ordenes.length === 0 && <p className="text-center text-muted py-3">No se encontraron órdenes.</p>}
+          <div className="row g-3" style={{ opacity: loading ? 0.5 : 1, transition: "opacity 0.15s" }}>
+            {ordenes.map((o) => {
+              const cliente = [o.cliente?.nombre, o.cliente?.apellidoPaterno, o.cliente?.apellidoMaterno]
+                .filter(Boolean).join(" ") || o.cliente?.empresa || "—";
+              return (
+                <div key={o._id} className="col-12 col-md-6">
+                  <div className="card h-100 border" onClick={() => seleccionar(o)}
+                    style={{ cursor: "pointer" }}
+                    onMouseEnter={(e) => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.15)"}
+                    onMouseLeave={(e) => e.currentTarget.style.boxShadow = ""}>
+                    <div className="card-body p-3">
+                      <div className="d-flex justify-content-between align-items-start mb-2">
+                        <span className="fw-bold text-primary font-monospace">{o.ordenServicio || "—"}</span>
+                        <span className="badge bg-secondary small">{o.estadoOrden?.replace(/_/g, " ") || ""}</span>
+                      </div>
+                      <div className="small">
+                        <div><span className="text-muted">Cliente:</span> <strong>{cliente}</strong></div>
+                        <div><span className="text-muted">Vehículo:</span> <strong>{[o.marca, o.modelo, o.anio].filter(Boolean).join(" ") || "—"}</strong></div>
+                        <div><span className="text-muted">Fecha:</span> <strong>{fmtFechaLarga(o.fechaRecepcion)}</strong></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="p-3 border-top d-flex justify-content-end">
+          <button className="btn btn-outline-secondary" onClick={onClose}>Cancelar</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── Modal editar entrada (solo admin) ───────────────────────────────────────
 function ModalEditarEntrada({ entrada, onClose, onGuardado }) {
   const [proveedores, setProveedores]       = useState([]);
   const [guardando, setGuardando]           = useState(false);
   const [modalCodigoIdx, setModalCodigoIdx] = useState(null);
+  const [showBuscarOrden, setShowBuscarOrden] = useState(false);
 
+  const ov = entrada.ordenVinculada || {};
   const [form, setForm] = useState({
     tipoComprobante: entrada.tipoComprobante || "Factura",
     numero:          entrada.numero          || "",
@@ -357,6 +483,18 @@ function ModalEditarEntrada({ entrada, onClose, onGuardado }) {
     proveedorId:     entrada.proveedorId?._id || entrada.proveedorId || "",
     moneda:          entrada.moneda      || "MXN",
     formaPago:       entrada.formaPago   || "Crédito",
+  });
+
+  const [ordenForm, setOrdenForm] = useState({
+    usadaEnOrden:  ov.usadaEnOrden  || false,
+    sucursal:      ov.sucursal      || "",
+    ordenId:       ov.ordenId       || "",
+    numeroOrden:   ov.numeroOrden   || "",
+    cliente:       ov.cliente       || "",
+    vehiculo:      ov.vehiculo      || "",
+    modelo:        ov.modelo        || "",
+    refaccionario: ov.refaccionario || "",
+    fechaOrden:    ov.fechaOrden    || null,
   });
 
   // Convierte descuentoPct (%) → costoDescuento ($) al cargar
@@ -375,6 +513,22 @@ function ModalEditarEntrada({ entrada, onClose, onGuardado }) {
   }, []);
 
   const onF = (e) => setForm(s => ({ ...s, [e.target.name]: e.target.value }));
+
+  const onOrdenF = (e) => {
+    const { name, value, type, checked } = e.target;
+    setOrdenForm(s => ({
+      ...s,
+      [name]: type === "checkbox" ? checked : value,
+      ...(name === "usadaEnOrden" && !checked ? {
+        sucursal: "", ordenId: "", numeroOrden: "",
+        cliente: "", vehiculo: "", modelo: "", refaccionario: "", fechaOrden: null,
+      } : {}),
+    }));
+  };
+
+  const handleOrdenSeleccionadaEdit = (datos) => {
+    setOrdenForm(s => ({ ...s, ...datos }));
+  };
 
   const onCaptura = (i, campo, valor) =>
     setCaptura(prev => { const c = [...prev]; c[i] = { ...c[i], [campo]: valor }; return c; });
@@ -424,9 +578,10 @@ function ModalEditarEntrada({ entrada, onClose, onGuardado }) {
       });
       const { data: json } = await http.put(`/entradas/${entrada._id}`, {
         ...form,
-        fechaFactura: form.fechaFactura ? form.fechaFactura + "T12:00:00.000Z" : undefined,
-        proveedorId:  form.proveedorId  || null,
-        captura: capturaBackend,
+        fechaFactura:   form.fechaFactura ? form.fechaFactura + "T12:00:00.000Z" : undefined,
+        proveedorId:    form.proveedorId  || null,
+        captura:        capturaBackend,
+        ordenVinculada: ordenForm.usadaEnOrden ? ordenForm : { usadaEnOrden: false },
       });
       if (!json.success) throw new Error(json?.message || "Error al guardar");
       onGuardado(json.data);
@@ -498,6 +653,52 @@ function ModalEditarEntrada({ entrada, onClose, onGuardado }) {
                 <option>Efectivo</option><option>Tarjeta</option>
               </select>
             </div>
+          </div>
+
+          {/* Orden vinculada — edición */}
+          <div className="border rounded p-3 mb-4" style={{ background: "#f8f9fa" }}>
+            <div className="form-check mb-3">
+              <input className="form-check-input" type="checkbox" id="editUsadaEnOrden"
+                name="usadaEnOrden" checked={ordenForm.usadaEnOrden} onChange={onOrdenF} />
+              <label className="form-check-label fw-semibold" htmlFor="editUsadaEnOrden">
+                ¿Esta factura fue usada en alguna orden de servicio?
+              </label>
+            </div>
+            {ordenForm.usadaEnOrden && (
+              <div className="row g-3">
+                <div className="col-md-4">
+                  <label className="form-label">Sucursal</label>
+                  <input className="form-control" name="sucursal" value={ordenForm.sucursal} onChange={onOrdenF} placeholder="Nombre de la sucursal" />
+                </div>
+                <div className="col-md-4">
+                  <label className="form-label">Número de Orden</label>
+                  <div className="input-group">
+                    <input className="form-control" readOnly value={ordenForm.numeroOrden || ""} placeholder="Seleccionar..." />
+                    <button type="button" className="btn btn-outline-primary" onClick={() => setShowBuscarOrden(true)}>Buscar</button>
+                  </div>
+                </div>
+                <div className="col-md-4">
+                  <label className="form-label text-muted small">Cliente</label>
+                  <input className="form-control bg-white" readOnly value={ordenForm.cliente || ""} placeholder="—" />
+                </div>
+                <div className="col-md-4">
+                  <label className="form-label text-muted small">Vehículo</label>
+                  <input className="form-control bg-white" readOnly value={ordenForm.vehiculo || ""} placeholder="—" />
+                </div>
+                <div className="col-md-4">
+                  <label className="form-label text-muted small">Modelo</label>
+                  <input className="form-control bg-white" readOnly value={ordenForm.modelo || ""} placeholder="—" />
+                </div>
+                <div className="col-md-4">
+                  <label className="form-label text-muted small">Refaccionario</label>
+                  <input className="form-control bg-white" readOnly value={ordenForm.refaccionario || ""} placeholder="—" />
+                </div>
+                <div className="col-md-4">
+                  <label className="form-label text-muted small">Fecha Orden</label>
+                  <input className="form-control bg-white" readOnly value={ordenForm.fechaOrden ? fmtFechaLarga(ordenForm.fechaOrden) : ""} placeholder="—" />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Partidas */}
@@ -582,6 +783,13 @@ function ModalEditarEntrada({ entrada, onClose, onGuardado }) {
         <ModalSeleccionarCodigo
           onSelect={handleCodigoSeleccionado}
           onClose={() => setModalCodigoIdx(null)}
+        />
+      )}
+
+      {showBuscarOrden && (
+        <ModalBuscarOrdenEditar
+          onSelect={handleOrdenSeleccionadaEdit}
+          onClose={() => setShowBuscarOrden(false)}
         />
       )}
     </>
