@@ -164,10 +164,56 @@ router.post('/', async (req, res) => {
     }
 
     const vehiculo = new Vehiculo(payload);
-
     await vehiculo.save();
 
-    return res.status(201).json({ ok: true, vehiculo });
+    // Actualizar datos del cliente con la información capturada en el formulario
+    const b = req.body;
+    const clienteDoc = await Cliente.findById(clienteId);
+    if (clienteDoc) {
+      const clienteUpdate = {};
+      const esParticular = clienteDoc.tipoCliente === 'Particular';
+
+      if (esParticular) {
+        if (b.nombreCliente)    clienteUpdate.nombre           = b.nombreCliente;
+        if (b.apellidoPaterno)  clienteUpdate.apellidoPaterno  = b.apellidoPaterno;
+        if (b.apellidoMaterno)  clienteUpdate.apellidoMaterno  = b.apellidoMaterno;
+      } else {
+        if (b.nombreGobierno)             clienteUpdate['gobierno.nombreGobierno']              = b.nombreGobierno;
+        if (b.nombreContactoGobierno)     clienteUpdate['gobierno.contactoGobierno.nombre']     = b.nombreContactoGobierno;
+        if (b.nombreDependencia)          clienteUpdate['gobierno.dependencia.nombre']           = b.nombreDependencia;
+        if (b.nombreContactoDependencia)  clienteUpdate['gobierno.dependencia.contacto.nombre'] = b.nombreContactoDependencia;
+      }
+
+      if (b.rfc) clienteUpdate.rfc = b.rfc;
+
+      if (b.telefonoFijo || b.telefonoFijoLada) {
+        clienteUpdate.telefonos = [{ lada: b.telefonoFijoLada || '', numero: b.telefonoFijo || '' }];
+      }
+      if (b.celular || b.celularLada) {
+        clienteUpdate.celulares = [{ lada: b.celularLada || '', numero: b.celular || '' }];
+      }
+      if (Array.isArray(b.correos) && b.correos.length) {
+        clienteUpdate.emails = b.correos;
+      }
+      if (b.direccion || b.ciudad) {
+        clienteUpdate.direccion = {
+          calle: b.direccion || '',
+          numeroExterior: b.numeroExt || '',
+          numeroInterior: b.numeroInt || '',
+          colonia: b.colonia || '',
+          codigoPostal: b.codigoPostal || '',
+          ciudad: b.ciudad || '',
+          estado: b.estado || '',
+        };
+      }
+
+      if (Object.keys(clienteUpdate).length > 0) {
+        await Cliente.findByIdAndUpdate(clienteId, { $set: clienteUpdate });
+      }
+    }
+
+    const vehiculoConCliente = await Vehiculo.findById(vehiculo._id).populate('cliente', POPULATE_CLIENTE);
+    return res.status(201).json({ ok: true, vehiculo: vehiculoConCliente });
   } catch (err) {
     console.error('Error creando vehiculo:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });

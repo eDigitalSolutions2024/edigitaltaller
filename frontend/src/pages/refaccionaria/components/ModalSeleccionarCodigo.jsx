@@ -3,7 +3,7 @@ import { getUnidadesMedida } from "../../../api/configuracion";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 
-export default function ModalSeleccionarCodigo({ onSelect, onClose }) {
+export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}, modoEntrada = false }) {
   const [codigos, setCodigos]   = useState([]);
   const [stockMap, setStockMap] = useState({});
   const [busqueda, setBusqueda] = useState("");
@@ -16,7 +16,11 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose }) {
   const [mostrarFormGuardar, setMostrarFormGuardar] = useState(false);
   const [guardando, setGuardando]                   = useState(false);
   const [formNuevo, setFormNuevo] = useState({
-    descripcion: "", proveedor: "", marca: "", unidad: "", precioUnitario: "",
+    descripcion: "",
+    proveedor: prefill.proveedor || "",
+    marca: prefill.marca || "",
+    unidad: prefill.unidad || "",
+    precioUnitario: prefill.precioUnitario || "",
   });
 
   useEffect(() => {
@@ -121,7 +125,7 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose }) {
               className={`btn btn-sm ${vista === "manual" ? "btn-primary" : "btn-outline-secondary"}`}
               onClick={() => setVista("manual")}
             >
-              Código manual
+              {modoEntrada ? "Nuevo código" : "Código manual"}
             </button>
           </div>
           <button
@@ -198,7 +202,7 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose }) {
                 value={codigoManual}
                 onChange={(e) => {
                   setCodigoManual(e.target.value);
-                  setMostrarFormGuardar(false);
+                  if (!modoEntrada) setMostrarFormGuardar(false);
                 }}
               />
             </div>
@@ -216,113 +220,191 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose }) {
               </div>
             )}
 
-            {!codigoExistente && codigoManual.trim() && (
-              <div className="d-flex flex-column gap-2">
-                <p className="text-muted small mb-1">
-                  Este código no está en BD Códigos. Elige cómo continuar:
-                </p>
-
+            {!codigoExistente && (modoEntrada || codigoManual.trim()) && (
+              modoEntrada ? (
+                /* ── Modo Entrada Inventario: formulario directo, sin opciones ── */
                 <div className="border rounded p-3">
-                  <div className="d-flex justify-content-between align-items-center">
-                    <div>
-                      <strong>Opción 1:</strong> Guardar en BD Códigos
-                      <p className="text-muted small mb-0">Queda registrado para futuras cotizaciones.</p>
+                  <div className="row g-2">
+                    <div className="col-md-4">
+                      <label className="form-label form-label-sm mb-1">Código <span className="text-danger">*</span></label>
+                      <input className="form-control form-control-sm" value={codigoManual} readOnly placeholder="Ej. AZ-BJ-2345" />
                     </div>
+                    <div className="col-md-8">
+                      <label className="form-label form-label-sm mb-1">Descripción <span className="text-danger">*</span></label>
+                      <input
+                        className="form-control form-control-sm"
+                        placeholder="Nombre o descripción de la refacción..."
+                        value={formNuevo.descripcion}
+                        onChange={(e) => setFormNuevo((f) => ({ ...f, descripcion: e.target.value }))}
+                      />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label form-label-sm mb-1">Proveedor</label>
+                      <select
+                        className="form-select form-select-sm"
+                        value={formNuevo.proveedor}
+                        disabled
+                      >
+                        <option value="">— Seleccionar —</option>
+                        {proveedores.map((p) => (
+                          <option key={p._id} value={p.nombreProveedor || p.aliasProveedor || p._id}>
+                            {p.nombreProveedor || p.aliasProveedor}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label form-label-sm mb-1">Marca <span className="text-muted small">(opcional)</span></label>
+                      <input
+                        className="form-control form-control-sm"
+                        placeholder="Ej. Bosch, Gates..."
+                        value={formNuevo.marca}
+                        onChange={(e) => setFormNuevo((f) => ({ ...f, marca: e.target.value }))}
+                      />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label form-label-sm mb-1">Unidad <span className="text-muted small">(opcional)</span></label>
+                      <select
+                        className="form-select form-select-sm"
+                        value={formNuevo.unidad}
+                        onChange={(e) => setFormNuevo((f) => ({ ...f, unidad: e.target.value }))}
+                      >
+                        <option value="">— Seleccionar —</option>
+                        {unidades.map((u) => (
+                          <option key={u._id} value={u.nombre || u.clave}>{u.nombre || u.clave}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label form-label-sm mb-1">Precio unitario <span className="text-muted small">(opcional)</span></label>
+                      <input
+                        type="number" step="0.01"
+                        className="form-control form-control-sm"
+                        placeholder="$0.00"
+                        value={formNuevo.precioUnitario}
+                        onChange={(e) => setFormNuevo((f) => ({ ...f, precioUnitario: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="d-flex justify-content-end mt-3">
                     <button
-                      className="btn btn-outline-primary btn-sm"
-                      onClick={() => setMostrarFormGuardar((v) => !v)}
+                      className="btn btn-primary btn-sm px-4"
+                      onClick={handleGuardarEnBD}
+                      disabled={guardando}
                     >
-                      {mostrarFormGuardar ? "Ocultar" : "Llenar datos"}
+                      {guardando ? "Guardando..." : "Guardar y usar código"}
                     </button>
                   </div>
+                </div>
+              ) : (
+                /* ── Modo estándar: Opción 1 + Opción 2 ── */
+                <div className="d-flex flex-column gap-2">
+                  <p className="text-muted small mb-1">
+                    Este código no está en BD Códigos. Elige cómo continuar:
+                  </p>
 
-                  {mostrarFormGuardar && (
-                    <div className="mt-3 border-top pt-3">
-                      <div className="row g-2">
-                        <div className="col-md-4">
-                          <label className="form-label form-label-sm mb-1">Código <span className="text-danger">*</span></label>
-                          <input className="form-control form-control-sm" value={codigoManual} readOnly />
-                        </div>
-                        <div className="col-md-8">
-                          <label className="form-label form-label-sm mb-1">Descripción <span className="text-danger">*</span></label>
-                          <input
-                            className="form-control form-control-sm"
-                            placeholder="Nombre o descripción de la refacción..."
-                            value={formNuevo.descripcion}
-                            onChange={(e) => setFormNuevo((f) => ({ ...f, descripcion: e.target.value }))}
-                          />
-                        </div>
-                        <div className="col-md-6">
-                          <label className="form-label form-label-sm mb-1">Proveedor</label>
-                          <select
-                            className="form-select form-select-sm"
-                            value={formNuevo.proveedor}
-                            onChange={(e) => setFormNuevo((f) => ({ ...f, proveedor: e.target.value }))}
-                          >
-                            <option value="">— Seleccionar —</option>
-                            {proveedores.map((p) => (
-                              <option key={p._id} value={p.nombreProveedor || p.aliasProveedor || p._id}>
-                                {p.nombreProveedor || p.aliasProveedor}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="col-md-6">
-                          <label className="form-label form-label-sm mb-1">Marca <span className="text-muted small">(opcional)</span></label>
-                          <input
-                            className="form-control form-control-sm"
-                            placeholder="Ej. Bosch, Gates..."
-                            value={formNuevo.marca}
-                            onChange={(e) => setFormNuevo((f) => ({ ...f, marca: e.target.value }))}
-                          />
-                        </div>
-                        <div className="col-md-6">
-                          <label className="form-label form-label-sm mb-1">Unidad <span className="text-muted small">(opcional)</span></label>
-                          <select
-                            className="form-select form-select-sm"
-                            value={formNuevo.unidad}
-                            onChange={(e) => setFormNuevo((f) => ({ ...f, unidad: e.target.value }))}
-                          >
-                            <option value="">— Seleccionar —</option>
-                            {unidades.map((u) => (
-                              <option key={u._id} value={u.nombre || u.clave}>{u.nombre || u.clave}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="col-md-6">
-                          <label className="form-label form-label-sm mb-1">Precio unitario <span className="text-muted small">(opcional)</span></label>
-                          <input
-                            type="number" step="0.01"
-                            className="form-control form-control-sm"
-                            placeholder="$0.00"
-                            value={formNuevo.precioUnitario}
-                            onChange={(e) => setFormNuevo((f) => ({ ...f, precioUnitario: e.target.value }))}
-                          />
-                        </div>
+                  <div className="border rounded p-3">
+                    <div className="d-flex justify-content-between align-items-center">
+                      <div>
+                        <strong>Opción 1:</strong> Guardar en BD Códigos
+                        <p className="text-muted small mb-0">Queda registrado para futuras cotizaciones.</p>
                       </div>
-                      <div className="d-flex justify-content-end mt-3">
-                        <button
-                          className="btn btn-primary btn-sm px-4"
-                          onClick={handleGuardarEnBD}
-                          disabled={guardando}
-                        >
-                          {guardando ? "Guardando..." : "Guardar y usar código"}
-                        </button>
-                      </div>
+                      <button
+                        className="btn btn-outline-primary btn-sm"
+                        onClick={() => setMostrarFormGuardar((v) => !v)}
+                      >
+                        {mostrarFormGuardar ? "Ocultar" : "Llenar datos"}
+                      </button>
                     </div>
-                  )}
-                </div>
 
-                <div className="border rounded p-3 d-flex justify-content-between align-items-center">
-                  <div>
-                    <strong>Opción 2:</strong> Solo para esta ocasión
-                    <p className="text-muted small mb-0">No se descuenta del inventario. Se surte manualmente.</p>
+                    {mostrarFormGuardar && (
+                      <div className="mt-3 border-top pt-3">
+                        <div className="row g-2">
+                          <div className="col-md-4">
+                            <label className="form-label form-label-sm mb-1">Código <span className="text-danger">*</span></label>
+                            <input className="form-control form-control-sm" value={codigoManual} readOnly />
+                          </div>
+                          <div className="col-md-8">
+                            <label className="form-label form-label-sm mb-1">Descripción <span className="text-danger">*</span></label>
+                            <input
+                              className="form-control form-control-sm"
+                              placeholder="Nombre o descripción de la refacción..."
+                              value={formNuevo.descripcion}
+                              onChange={(e) => setFormNuevo((f) => ({ ...f, descripcion: e.target.value }))}
+                            />
+                          </div>
+                          <div className="col-md-6">
+                            <label className="form-label form-label-sm mb-1">Proveedor</label>
+                            <select
+                              className="form-select form-select-sm"
+                              value={formNuevo.proveedor}
+                              onChange={(e) => setFormNuevo((f) => ({ ...f, proveedor: e.target.value }))}
+                            >
+                              <option value="">— Seleccionar —</option>
+                              {proveedores.map((p) => (
+                                <option key={p._id} value={p.nombreProveedor || p.aliasProveedor || p._id}>
+                                  {p.nombreProveedor || p.aliasProveedor}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="col-md-6">
+                            <label className="form-label form-label-sm mb-1">Marca <span className="text-muted small">(opcional)</span></label>
+                            <input
+                              className="form-control form-control-sm"
+                              placeholder="Ej. Bosch, Gates..."
+                              value={formNuevo.marca}
+                              onChange={(e) => setFormNuevo((f) => ({ ...f, marca: e.target.value }))}
+                            />
+                          </div>
+                          <div className="col-md-6">
+                            <label className="form-label form-label-sm mb-1">Unidad <span className="text-muted small">(opcional)</span></label>
+                            <select
+                              className="form-select form-select-sm"
+                              value={formNuevo.unidad}
+                              onChange={(e) => setFormNuevo((f) => ({ ...f, unidad: e.target.value }))}
+                            >
+                              <option value="">— Seleccionar —</option>
+                              {unidades.map((u) => (
+                                <option key={u._id} value={u.nombre || u.clave}>{u.nombre || u.clave}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="col-md-6">
+                            <label className="form-label form-label-sm mb-1">Precio unitario <span className="text-muted small">(opcional)</span></label>
+                            <input
+                              type="number" step="0.01"
+                              className="form-control form-control-sm"
+                              placeholder="$0.00"
+                              value={formNuevo.precioUnitario}
+                              onChange={(e) => setFormNuevo((f) => ({ ...f, precioUnitario: e.target.value }))}
+                            />
+                          </div>
+                        </div>
+                        <div className="d-flex justify-content-end mt-3">
+                          <button
+                            className="btn btn-primary btn-sm px-4"
+                            onClick={handleGuardarEnBD}
+                            disabled={guardando}
+                          >
+                            {guardando ? "Guardando..." : "Guardar y usar código"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <button className="btn btn-outline-secondary btn-sm" onClick={handleContinuarSinGuardar}>
-                    Continuar sin guardar
-                  </button>
+
+                  <div className="border rounded p-3 d-flex justify-content-between align-items-center">
+                    <div>
+                      <strong>Opción 2:</strong> Solo para esta ocasión
+                      <p className="text-muted small mb-0">No se descuenta del inventario. Se surte manualmente.</p>
+                    </div>
+                    <button className="btn btn-outline-secondary btn-sm" onClick={handleContinuarSinGuardar}>
+                      Continuar sin guardar
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )
             )}
 
             <div className="d-flex justify-content-start mt-1">
