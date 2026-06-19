@@ -466,6 +466,12 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
           </div>
 
           <TelefonoList
+            label="Teléfono Fijo"
+            valores={form.telefonos ?? [{ lada: "", numero: "" }]}
+            onChange={(arr) => upd("telefonos", arr)}
+          />
+
+          <TelefonoList
             label="Celular *"
             valores={form.celulares ?? [{ lada: "", numero: "" }]}
             onChange={(arr) => upd("celulares", arr)}

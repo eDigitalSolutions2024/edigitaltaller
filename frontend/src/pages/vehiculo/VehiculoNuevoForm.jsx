@@ -197,9 +197,10 @@ export default function VehiculoNuevoForm({
 
     const tel = (cliente.telefonos || [])[0] || {};
     const cel = (cliente.celulares || [])[0] || {};
-    const dir = cliente?.requiereFacturacion
-    ? cliente.facturacion?.direccion || {}
-    : cliente.direccion || {};
+    const facturDir = cliente?.facturacion?.direccion;
+    const dir = (cliente?.requiereFacturacion && facturDir?.calle)
+      ? facturDir
+      : cliente.direccion || {};
     const gob = cliente.gobierno || {};
     const dep = gob.dependencia || {};
     const contactoGob = gob.contactoGobierno || {};
@@ -296,8 +297,8 @@ export default function VehiculoNuevoForm({
             nombreContactoDependencia: "",
           }
         : {
-            nombreGobierno: gob.nombreGobierno || "",
-            nombreContactoGobierno: contactoGob.nombre || "",
+            nombreGobierno: gob.nombreGobierno || c.nombre || "",
+            nombreContactoGobierno: c.apellidoPaterno || contactoGob.nombre || c.empresa?.contacto?.nombre || "",
             nombreDependencia: dep.nombre || "",
             nombreContactoDependencia: contactoDep.nombre || "",
             nombreCliente: "",
@@ -577,8 +578,10 @@ export default function VehiculoNuevoForm({
                   </>
                 ) : (
                   <>
-                    {/* === EMPRESA PRIVADA === */}
-                    {cliente?.tipoCliente === "Empresa Privada" && (
+                    {/* === EMPRESA PRIVADA / ARRENDADORA === */}
+                    {(cliente?.tipoCliente === "Empresa Privada" ||
+                      cliente?.tipoCliente === "Empresa Arrendadora" ||
+                      cliente?.tipoCliente === "Empresa") && (
                       <>
                         <div className="col-12">
                           <label className="form-label">Nombre Empresa</label>
@@ -604,8 +607,8 @@ export default function VehiculoNuevoForm({
                       </>
                     )}
 
-                    {/* === GOBIERNO === */}
-                    {cliente?.tipoCliente === "Gobierno" && (
+                    {/* === EMPRESA GOBIERNO === */}
+                    {cliente?.tipoCliente === "Empresa Gobierno" && (
                       <>
                         <div className="col-12">
                           <label className="form-label">

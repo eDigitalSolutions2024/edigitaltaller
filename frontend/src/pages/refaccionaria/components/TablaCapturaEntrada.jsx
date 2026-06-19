@@ -10,7 +10,7 @@
    * Props:
    *  - entradaId: id/folio de la entrada para asociar los renglones en el backend
    */
-  export default function TablaCapturaEntrada({ entradaId, modoConsulta }) {
+  export default function TablaCapturaEntrada({ entradaId, info, modoConsulta }) {
     const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
     const navigate = useNavigate();
 
@@ -461,6 +461,13 @@
           <ModalSeleccionarCodigo
             onSelect={(codigo) => handleCodigoFromModal(filaModalSelCodigo, codigo)}
             onClose={() => { setShowModalSelCodigo(false); setFilaModalSelCodigo(null); }}
+            modoEntrada
+            prefill={{
+              proveedor: info?.proveedorNombre || "",
+              marca: rows[filaModalSelCodigo]?.marca || "",
+              unidad: rows[filaModalSelCodigo]?.unidad || "",
+              precioUnitario: rows[filaModalSelCodigo]?.subtotalUnitario || "",
+            }}
           />
         )}
       </div>
