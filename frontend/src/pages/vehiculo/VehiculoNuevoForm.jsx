@@ -498,7 +498,7 @@ export default function VehiculoNuevoForm({
     <div className="card mt-3">
       <div className="card-header fw-bold">Datos del Cliente</div>
       <div className="card-body">
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} onKeyDown={(e) => { if (e.key === "Enter" && e.target.type !== "submit") e.preventDefault(); }}>
           {/* ====== FILA: ORDEN / FECHA / HORA ====== */}
           <div className="row g-2 mb-2">
             <div className="col-md-4">

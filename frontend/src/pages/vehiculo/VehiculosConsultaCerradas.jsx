@@ -162,7 +162,7 @@ export default function VehiculoConsultaCerradas() {
                       : ""}
                   </td>
                   <td>{telefono}</td>
-                  <td>{o.asesorServicio || ""}</td>
+                  <td>{o.asesorServicio || o.creadoPor}</td>
                   <td>
                     {o.fechaCierre
                       ? new Date(o.fechaCierre).toLocaleDateString("es-MX")

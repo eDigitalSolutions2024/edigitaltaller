@@ -290,7 +290,7 @@ exports.generarPresupuestoPDF = async (res, orden) => {
       ${logoSrc ? `<img src="${logoSrc}" class="logo" />` : `Servi<span>compactos</span>`}
     </div>
     <div class="advisor">
-      ASESOR: ${escapeHtml(orden.asesor || 'admin')}<br>
+      ASESOR: ${escapeHtml(orden.creadoPor || '')}<br>
       Tel: ${escapeHtml(orden.telefonoAsesor || '')}<br>
       Correo: ${escapeHtml(orden.correoAsesor || '')}<br>
       Fecha: ${fechaActual}

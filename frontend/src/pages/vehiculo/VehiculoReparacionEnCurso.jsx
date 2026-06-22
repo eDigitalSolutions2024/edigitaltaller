@@ -110,7 +110,7 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral 
                   </tr>
                   <tr>
                     <th className="ps-2">Cliente</th>
-                    <td>{nombreCliente}</td>
+                    <td>{nombreCliente || "-"}</td>
                   </tr>
                   <tr>
                     <th className="ps-2">Marca</th>
@@ -151,33 +151,29 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral 
             <div className="card-header fw-semibold bg-light">Personal Asignado</div>
             <div className="card-body p-0">
               <table className="table table-sm table-bordered mb-0">
-                <thead className="table-light">
+                {/* <thead className="table-light">
                   <tr>
                     <th className="ps-2">Rol</th>
                     <th>Nombre</th>
-                    <th>Concepto / Servicio</th>
                   </tr>
-                </thead>
+                </thead> */}
                 <tbody>
                   {orden.creadoPor && (
                     <tr>
                       <td className="ps-2 fw-semibold">Asesor</td>
                       <td>{orden.creadoPor}</td>
-                      <td>—</td>
                     </tr>
                   )}
                   {orden.devueltoPor && (
                     <tr>
                       <td className="ps-2 fw-semibold">Refaccionario</td>
                       <td>{orden.devueltoPor}</td>
-                      <td>—</td>
                     </tr>
                   )}
                   {personalRows.map((p, i) => (
                     <tr key={i}>
                       <td className="ps-2 fw-semibold">{p.rol}</td>
                       <td>{p.nombre}</td>
-                      <td>{p.concepto}</td>
                     </tr>
                   ))}
                   {!orden.creadoPor && !orden.devueltoPor && personalRows.length === 0 && (

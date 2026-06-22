@@ -218,7 +218,7 @@ export default function VehicleDamageCanvas({ value, onChange, readOnly = false 
       )}
 
       {/* Canvas */}
-      <div style={{ position: "relative", width: "100%", border: "1px solid #ddd", borderRadius: 6, overflow: "hidden", cursor: readOnly ? "default" : tool === "libre" ? "crosshair" : "cell" }}>
+      <div style={{ position: "relative", width: "100%", border: "1px solid #ddd", borderRadius: 6, overflow: "hidden", cursor: readOnly ? "default" : tool === "libre" ? "crosshair" : "default" }}>
         {!imgLoaded && (
           <div className="text-center py-4 text-muted" style={{ fontSize: 13 }}>
             Cargando imagen...
