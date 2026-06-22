@@ -118,6 +118,25 @@ export default function VehiculoOrdenDetalle() {
     return () => clearInterval(interval);
   }, [tab, id]);
 
+  // Polling — refresca cada 8 seg en tab reparacion mientras haya refacciones pendientes
+  useEffect(() => {
+    if (tab !== "reparacion") return;
+    const refacciones = (orden?.presupuesto || []).filter((p) => p.autorizado);
+    const todasSurtidas = refacciones.length === 0 || refacciones.every((p) => p.surtida);
+    if (todasSurtidas) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await getVehiculoById(id);
+        setOrden(res.data.vehiculo);
+      } catch (err) {
+        console.error("Error al refrescar la orden:", err);
+      }
+    }, 8000);
+
+    return () => clearInterval(interval);
+  }, [tab, id, orden]);
+
   const handleServicioSaved = (vehiculoActualizado) => {
     setOrden(vehiculoActualizado);
     changeTab("req");

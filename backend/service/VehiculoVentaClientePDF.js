@@ -317,10 +317,10 @@ exports.generarVentaClientePDF = async (res, orden) => {
 
 
     <div class="advisor">
-      ASESOR: ${escapeHtml(orden.asesor || 'admin')}<br>
+      ASESOR: ${escapeHtml(orden.creadoPor || '')}<br>
       Tel: ${escapeHtml(orden.telefonoAsesor || '')}<br>
       Correo: ${escapeHtml(orden.correoAsesor || '')}<br>
-      Fecha Cotización: ${fechaActual}
+      Fecha: ${fechaActual}
     </div>
   </div>
 

@@ -397,7 +397,8 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
 
     await vehiculo.save();
 
-    return res.json({ ok: true, vehiculo });
+    const vehiculoConCliente = await Vehiculo.findById(vehiculo._id).populate('cliente', POPULATE_CLIENTE);
+    return res.json({ ok: true, vehiculo: vehiculoConCliente });
   } catch (err) {
     console.error('Error guardando requisicion/diagnostico:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
@@ -980,7 +981,8 @@ router.put('/:id/cerrar', async (req, res) => {
 
     // marcar como cerrada
     vehiculo.estadoOrden = 'CERRADA';
-    vehiculo.pendienteCierre = false; 
+    vehiculo.pendienteCierre = false;
+    vehiculo.fechaCierre = new Date();
 
     // si quieres guardar fecha de cierre, puedes agregar el campo en el schema
     // y descomentar esto:

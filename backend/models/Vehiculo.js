@@ -39,6 +39,9 @@ const vehiculoSchema = new Schema(
     creadoPor: { type: String, default: "" },
     devueltoPor: { type: String, default: "" },
 
+    //---- FECHA DE CIERRE -----
+    fechaCierre:{ type: Date, default: null},
+
 
     // ----- Datos de Orden / cabecera -----
     ordenServicio: String,

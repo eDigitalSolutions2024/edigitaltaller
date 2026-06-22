@@ -220,7 +220,7 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
               </div>
             )}
 
-            {!codigoExistente && (modoEntrada || codigoManual.trim()) && (
+            {!codigoExistente && (modoEntrada || codigoManual.trim() || mostrarFormGuardar) && (
               modoEntrada ? (
                 /* ── Modo Entrada Inventario: formulario directo, sin opciones ── */
                 <div className="border rounded p-3">
@@ -322,7 +322,11 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
                         <div className="row g-2">
                           <div className="col-md-4">
                             <label className="form-label form-label-sm mb-1">Código <span className="text-danger">*</span></label>
-                            <input className="form-control form-control-sm" value={codigoManual} readOnly />
+                            <input
+                              className="form-control form-control-sm"
+                              value={codigoManual}
+                              onChange={(e) => setCodigoManual(e.target.value)}
+                            />
                           </div>
                           <div className="col-md-8">
                             <label className="form-label form-label-sm mb-1">Descripción <span className="text-danger">*</span></label>
