@@ -40,9 +40,10 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
   if (!orden) return null;
 
   const yaCerrada = orden.estadoOrden === "CERRADA";
+  const puedesCerrar = orden.estadoOrden === "PENDIENTE_CERRAR";
 
   const handleCerrarOrden = async () => {
-    if (yaCerrada) return;
+    if (yaCerrada || !puedesCerrar) return;
 
     const ok = window.confirm(
       "¿Seguro que deseas CERRAR esta orden de servicio? Ya no podrás modificarla."
@@ -154,7 +155,8 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
           type="button"
           className="btn btn-danger btn-sm"
           onClick={handleCerrarOrden}
-          disabled={cerrando || yaCerrada}
+          disabled={cerrando || yaCerrada || !puedesCerrar}
+          title={!puedesCerrar && !yaCerrada ? "La reparación aún no ha sido completada" : undefined}
         >
           {yaCerrada ? "Orden cerrada" : cerrando ? "Cerrando..." : "Cerrar orden"}
         </button>

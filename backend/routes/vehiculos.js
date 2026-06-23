@@ -392,6 +392,10 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
         vehiculo.fechaRespuestaRefaccionaria = new Date();
         if (devueltoPor) vehiculo.devueltoPor = devueltoPor;
       }
+
+      if (estadoOrden === 'PENDIENTE_CERRAR') {
+        vehiculo.pendienteCierre = true;
+      }
     }
 
 
@@ -517,8 +521,7 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
           .every(p => p.surtida);
 
         if (todasSurtidas && autorizadas.length > 0) {
-          vehiculo.estadoOrden   = 'REPARACION_EN_CURSO';
-          vehiculo.pendienteCierre = true;
+          vehiculo.estadoOrden = 'REPARACION_EN_CURSO';
         } else {
           vehiculo.estadoOrden     = 'PENDIENTE_SURTIR';
           vehiculo.fechaEnvioSurtir = new Date();
@@ -979,6 +982,10 @@ router.put('/:id/cerrar', async (req, res) => {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     }
 
+    if (vehiculo.estadoOrden !== 'PENDIENTE_CERRAR') {
+      return res.status(400).json({ ok: false, msg: 'La orden debe estar en estado PENDIENTE_CERRAR para poder cerrarse.' });
+    }
+
     // marcar como cerrada
     vehiculo.estadoOrden = 'CERRADA';
     vehiculo.pendienteCierre = false;
@@ -1080,7 +1087,6 @@ router.put('/:id/surtir', proteger, async (req, res) => {
 
     if (todasSurtidas) {
       vehiculo.estadoOrden = 'REPARACION_EN_CURSO';
-      vehiculo.pendienteCierre = true;
     }
 
     await vehiculo.save();
