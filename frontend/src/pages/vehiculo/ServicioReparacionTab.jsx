@@ -20,7 +20,7 @@ const emptyForm = {
   revisionFallas: "",
 };
 
-export default function ServicioReparacionTab({ ordenId, initialData, existingRefacciones = [], onSaved }) {
+export default function ServicioReparacionTab({ ordenId, initialData, existingRefacciones = [], onSaved, readOnly = false }) {
   const [form, setForm] = useState(emptyForm);
 
   // Catálogo de servicios desde BD Códigos
@@ -186,7 +186,8 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
                           <button
                             key={srv._id || srv.codigo}
                             type="button"
-                            onClick={() => toggleServicio(srv.codigo)}
+                            onClick={() => !readOnly && toggleServicio(srv.codigo)}
+                            disabled={readOnly}
                             className={
                               "btn btn-sm " +
                               (activo
@@ -232,6 +233,7 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
                 rows={4}
                 placeholder="Describe las fallas o síntomas que reportó el cliente..."
                 value={form.fallasReportadasCliente}
+                readOnly={readOnly}
                 onChange={(e) =>
                   setForm((prev) => ({
                     ...prev,
@@ -251,6 +253,7 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
                 rows={2}
                 placeholder="Estado de las llantas, medidas, observaciones..."
                 value={form.infoLlantas}
+                readOnly={readOnly}
                 onChange={(e) =>
                   setForm((prev) => ({ ...prev, infoLlantas: e.target.value }))
                 }
@@ -267,6 +270,7 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
                 rows={3}
                 placeholder="Observaciones adicionales sobre el servicio o reparación..."
                 value={form.revisionFallas}
+                readOnly={readOnly}
                 onChange={(e) =>
                   setForm((prev) => ({ ...prev, revisionFallas: e.target.value }))
                 }
@@ -274,15 +278,17 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
             </div>
 
             {/* ===== BOTÓN ===== */}
-            <div className="d-flex justify-content-end">
-              <button
-                type="button"
-                className="btn btn-primary px-5"
-                onClick={() => setShowModal(true)}
-              >
-                Solicitar refacciones a refaccionaria →
-              </button>
-            </div>
+            {!readOnly && (
+              <div className="d-flex justify-content-end">
+                <button
+                  type="button"
+                  className="btn btn-primary px-5"
+                  onClick={() => setShowModal(true)}
+                >
+                  Solicitar refacciones a refaccionaria →
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

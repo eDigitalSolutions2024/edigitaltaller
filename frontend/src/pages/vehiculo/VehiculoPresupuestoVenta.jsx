@@ -10,7 +10,7 @@ import {
 import { fetchServiciosTaller } from "../../api/codigos";
 import http from "../../api/http";
 
-export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparacion }) {
+export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparacion, readOnly = false }) {
   const navigate = useNavigate();
 
   // Encabezado
@@ -543,6 +543,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                     <input
                       type="checkbox"
                       checked={!!r.autorizado}
+                      disabled={readOnly}
                       onChange={() => toggleAutorizado(idx)}
                       title="Marcar como autorizado por el cliente"
                     />
@@ -554,6 +555,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       type="text"
                       className="form-control form-control-sm"
                       value={r.concepto || ""}
+                      readOnly={readOnly}
                       onChange={(e) => handleUpdatePres(idx, "concepto", e.target.value)}
                     />
                   </td>
@@ -579,6 +581,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       className="form-control form-control-sm text-end"
                       style={{ minWidth: 90 }}
                       value={r.precioVenta}
+                      readOnly={readOnly}
                       onChange={(e) =>
                         handleUpdatePres(idx, "precioVenta", e.target.value)
                       }
@@ -596,26 +599,29 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       type="text"
                       className="form-control form-control-sm"
                       value={r.observInt || ""}
+                      readOnly={readOnly}
                       onChange={(e) =>
                         handleUpdatePres(idx, "observInt", e.target.value)
                       }
                     />
                   </td>
 
-                  <td className="text-center">
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-danger"
-                      onClick={() => removePresRow(idx)}
-                    >
-                      Borrar
-                    </button>
-                  </td>
+                  {!readOnly && (
+                    <td className="text-center">
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        onClick={() => removePresRow(idx)}
+                      >
+                        Borrar
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
 
               {/* Fila de captura manual */}
-              <tr className="table-info">
+              {!readOnly && <tr className="table-info">
                 <td></td>
                 <td>
                   <input
@@ -777,7 +783,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                     +
                   </button>
                 </td>
-              </tr>
+              </tr>}
             </tbody>
 
             <tfoot className="table-light">
@@ -796,13 +802,15 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
         {/* Botones Presupuesto */}
         <div className="d-flex justify-content-end gap-2 mb-4">
-          <button
-            type="button"
-            className="btn btn-outline-secondary btn-sm"
-            onClick={handleRegresarRefaccionaria}
-          >
-            Regresar a Refaccionaria
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              className="btn btn-outline-secondary btn-sm"
+              onClick={handleRegresarRefaccionaria}
+            >
+              Regresar a Refaccionaria
+            </button>
+          )}
           <button
             type="button"
             className="btn btn-danger btn-sm"
@@ -810,21 +818,25 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
           >
             Imprimir
           </button>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={handleGuardarPresupuesto}
-          >
-            Guardar
-          </button>
-          <button
-            type="button"
-            className="btn btn-success btn-sm"
-            onClick={handleEnviarAVenta}
-            title="Envía las partidas marcadas con ✓ a Venta al Cliente"
-          >
-            Enviar a Venta ✓
-          </button>
+          {!readOnly && (
+            <>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleGuardarPresupuesto}
+              >
+                Guardar
+              </button>
+              <button
+                type="button"
+                className="btn btn-success btn-sm"
+                onClick={handleEnviarAVenta}
+                title="Envía las partidas marcadas con ✓ a Venta al Cliente"
+              >
+                Enviar a Venta ✓
+              </button>
+            </>
+          )}
         </div>
 
         {/* ===== VENTA AL CLIENTE ===== */}
@@ -850,7 +862,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         </div>
 
         {/* Fila de captura venta */}
-        <div className="mb-2" style={{ overflow: "visible" }}>
+        {!readOnly && <div className="mb-2" style={{ overflow: "visible" }}>
           <table className="table table-bordered table-sm align-middle mb-0" style={{ overflow: "visible" }}>
             <thead className="table-light text-center">
               <tr>
@@ -964,7 +976,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
               </tr>
             </tbody>
           </table>
-        </div>
+        </div>}
 
         {/* Lista venta al cliente */}
         <div className="table-responsive mb-3">
@@ -975,13 +987,13 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                 <th>Concepto, Servicio y/o Reparación</th>
                 <th style={{ width: 160 }}>Precio Venta (Sin IVA)</th>
                 <th>Observaciones</th>
-                <th style={{ width: 80 }}>Acción</th>
+                {!readOnly && <th style={{ width: 80 }}>Acción</th>}
               </tr>
             </thead>
             <tbody>
               {ventaRows.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="text-center text-muted">
+                  <td colSpan={readOnly ? 4 : 5} className="text-center text-muted">
                     No hay partidas de venta al cliente.
                   </td>
                 </tr>
@@ -994,6 +1006,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       type="number"
                       className="form-control form-control-sm text-center"
                       value={r.cant ?? ""}
+                      readOnly={readOnly}
                       onChange={(e) => handleUpdateVentaRow(idx, "cant", e.target.value)}
                     />
                   </td>
@@ -1002,6 +1015,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       type="text"
                       className="form-control form-control-sm"
                       value={r.concepto ?? ""}
+                      readOnly={readOnly}
                       onChange={(e) => handleUpdateVentaRow(idx, "concepto", e.target.value)}
                     />
                   </td>
@@ -1011,6 +1025,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       step="0.01"
                       className="form-control form-control-sm text-end"
                       value={r.precioVenta ?? ""}
+                      readOnly={readOnly}
                       onChange={(e) => handleUpdateVentaRow(idx, "precioVenta", e.target.value)}
                     />
                   </td>
@@ -1019,18 +1034,21 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       type="text"
                       className="form-control form-control-sm"
                       value={r.observaciones || ""}
+                      readOnly={readOnly}
                       onChange={(e) => handleUpdateVentaRow(idx, "observaciones", e.target.value)}
                     />
                   </td>
-                  <td className="text-center">
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-danger"
-                      onClick={() => removeVentaRow(idx)}
-                    >
-                      Borrar
-                    </button>
-                  </td>
+                  {!readOnly && (
+                    <td className="text-center">
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        onClick={() => removeVentaRow(idx)}
+                      >
+                        Borrar
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -1106,6 +1124,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
               className="form-control"
               rows={3}
               value={obsExternas}
+              readOnly={readOnly}
               onChange={(e) => setObsExternas(e.target.value)}
             />
           </div>
@@ -1115,20 +1134,23 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
               className="form-control"
               rows={3}
               value={obsInternas}
+              readOnly={readOnly}
               onChange={(e) => setObsInternas(e.target.value)}
             />
           </div>
         </div>
 
-        <div className="d-flex justify-content-end">
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={handleGuardarOrdenServicio}
-          >
-            Guardar Orden de Servicio
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="d-flex justify-content-end">
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={handleGuardarOrdenServicio}
+            >
+              Guardar Orden de Servicio
+            </button>
+          </div>
+        )}
 
         <p className="mt-2 text-muted" style={{ fontSize: 12 }}>
           * Marca las partidas autorizadas por el cliente (✓) y usa "Enviar a Venta" para pasarlas a Venta al Cliente.

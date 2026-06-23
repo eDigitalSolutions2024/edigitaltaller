@@ -71,6 +71,8 @@ export default function VehiculoOrdenDetalle() {
   const ESTADOS_PREPARACION = ["REPARACION_EN_CURSO", "PENDIENTE_CIERRE", "PENDIENTE_CERRAR", "CERRADA"];
   const reparacionHabilitada = ESTADOS_PREPARACION.includes(orden?.estadoOrden);
 
+  const esCerrada = orden?.estadoOrden === "CERRADA";
+
   const currentStep = ESTADO_STEP[orden?.estadoOrden] ?? 0;
   const isPast = (tabKey) => !orden ? false : TAB_STEP[tabKey] < currentStep;
 
@@ -255,6 +257,13 @@ export default function VehiculoOrdenDetalle() {
         )}
       </ul>
 
+      {/* Banner solo lectura cuando la orden está cerrada */}
+      {esCerrada && (
+        <div className="alert alert-secondary text-center py-2 mb-3">
+          <strong>Orden cerrada.</strong> Solo lectura — no se pueden realizar modificaciones.
+        </div>
+      )}
+
       {/* Contenido de tabs */}
       {tab === "datos" && (
         <VehiculoNuevoForm cliente={null} initialData={orden} readOnly />
@@ -266,6 +275,7 @@ export default function VehiculoOrdenDetalle() {
           initialData={orden.servicioReparacion}
           existingRefacciones={orden.refaccionesSolicitadas || []}
           onSaved={handleServicioSaved}
+          readOnly={esCerrada}
         />
       )}
 
@@ -302,6 +312,7 @@ export default function VehiculoOrdenDetalle() {
             orden={orden}
             onSaved={(vActualizado) => setOrden(vActualizado)}
             onGoPresupuesto={handleGoPresupuesto}
+            readOnly={esCerrada}
           />
         )
       )}
@@ -311,6 +322,7 @@ export default function VehiculoOrdenDetalle() {
           orden={orden}
           onSaved={handleOrdenSaved}
           onGoPreparacion={() => changeTab("reparacion")}
+          readOnly={esCerrada}
         />
       )}
 
@@ -319,6 +331,7 @@ export default function VehiculoOrdenDetalle() {
           orden={orden}
           onSaved={(vActualizado) => setOrden(vActualizado)}
           onGoGeneral={() => changeTab("general")}
+          readOnly={esCerrada}
         />
       )}
 

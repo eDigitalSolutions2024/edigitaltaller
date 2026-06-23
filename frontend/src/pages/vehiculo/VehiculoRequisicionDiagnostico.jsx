@@ -6,7 +6,7 @@ import {
 } from "../../api/vehiculos";
 import http from "../../api/http"; // 👈 para descargar el PDF de la OC
 
-export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPresupuesto, }) {
+export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPresupuesto, readOnly = false }) {
   const [diagnostico, setDiagnostico] = useState("");
   const [rows, setRows] = useState([]); // refaccionesSolicitadas
   const [cargos, setCargos] = useState([]); // cargosEnOrden
@@ -616,6 +616,7 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
               rows={4}
               placeholder="Describe el diagnóstico técnico del vehículo..."
               value={diagnostico}
+              readOnly={readOnly}
               onChange={(e) => setDiagnostico(e.target.value)}
             />
           </div>
@@ -659,14 +660,14 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
                       <th>Core</th>
                       <th>Precio Core</th>
                       <th>Observaciones</th>
-                      <th style={{ width: "110px" }}>Acción</th>
+                      {!readOnly && <th style={{ width: "110px" }}>Acción</th>}
                     </tr>
                   </thead>
 
                   <tbody>
                     {(!r.opciones || r.opciones.length === 0) && (
                       <tr>
-                        <td colSpan={13} className="text-center text-muted">
+                        <td colSpan={readOnly ? 12 : 13} className="text-center text-muted">
                           Refaccionaria aún no agregó opciones.
                         </td>
                       </tr>
@@ -697,19 +698,21 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
                           {op.precioCore ? formatMoney(op.precioCore) : "-"}
                         </td>
                         <td>{op.observaciones || "-"}</td>
-                        <td className="text-center">
-                          <button
-                            type="button"
-                            className={
-                              op.seleccionada
-                                ? "btn btn-success btn-sm w-100"
-                                : "btn btn-outline-primary btn-sm w-100"
-                            }
-                            onClick={() => handleSeleccionarOpcion(idx, opIdx)}
-                          >
-                            {op.seleccionada ? "Elegida" : "Elegir"}
-                          </button>
-                        </td>
+                        {!readOnly && (
+                          <td className="text-center">
+                            <button
+                              type="button"
+                              className={
+                                op.seleccionada
+                                  ? "btn btn-success btn-sm w-100"
+                                  : "btn btn-outline-primary btn-sm w-100"
+                              }
+                              onClick={() => handleSeleccionarOpcion(idx, opIdx)}
+                            >
+                              {op.seleccionada ? "Elegida" : "Elegir"}
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -738,14 +741,14 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
                 <th>Tipo Cambio</th>
                 <th>Tiempo Entrega</th>
                 <th>Observaciones</th>
-                <th style={{ width: "100px" }}>Acción</th>
+                {!readOnly && <th style={{ width: "100px" }}>Acción</th>}
               </tr>
             </thead>
 
             <tbody>
               {getSeleccionadas().length === 0 && (
                 <tr>
-                  <td colSpan={14} className="text-center text-muted">
+                  <td colSpan={readOnly ? 13 : 14} className="text-center text-muted">
                     No hay refacciones seleccionadas.
                   </td>
                 </tr>
@@ -776,15 +779,17 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
                     </td>
                     <td>{op.tiempoEntrega}</td>
                     <td>{op.observaciones}</td>
-                    <td className="text-center">
-                      <button
-                        type="button"
-                        className="btn btn-outline-danger btn-sm w-100"
-                        onClick={() => handleQuitarSeleccion(idx)}
-                      >
-                        Quitar
-                      </button>
-                    </td>
+                    {!readOnly && (
+                      <td className="text-center">
+                        <button
+                          type="button"
+                          className="btn btn-outline-danger btn-sm w-100"
+                          onClick={() => handleQuitarSeleccion(idx)}
+                        >
+                          Quitar
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -817,13 +822,13 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
                 <th>Horas</th>
                 <th>Fecha de Pago</th>
                 <th>Observaciones</th>
-                <th style={{ width: "70px" }}>Acción</th>
+                {!readOnly && <th style={{ width: "70px" }}>Acción</th>}
               </tr>
             </thead>
             <tbody>
               {moRows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center text-muted">
+                  <td colSpan={readOnly ? 5 : 6} className="text-center text-muted">
                     No hay registros de mano de obra.
                   </td>
                 </tr>
@@ -839,15 +844,17 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
                   <td className="text-center">{m.horas}</td>
                   <td className="text-center">{formatFecha(m.fechaPago)}</td>
                   <td>{m.observaciones}</td>
-                  <td className="text-center">
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-danger"
-                      onClick={() => removeMoRow(idx)}
-                    >
-                      Borrar
-                    </button>
-                  </td>
+                  {!readOnly && (
+                    <td className="text-center">
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        onClick={() => removeMoRow(idx)}
+                      >
+                        Borrar
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -855,7 +862,7 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
         </div>
 
         {/* ── Formulario de nueva Mano de Obra ── */}
-        <div className="card border-primary mb-4">
+        {!readOnly && <div className="card border-primary mb-4">
           <div className="card-header bg-primary text-white fw-semibold">
             Agregar Mano de Obra
           </div>
@@ -962,39 +969,41 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
               </button>
             </div>
           </div>
-        </div>
+        </div>}
 
 
 
         {/* ── BOTONES DE ACCIÓN ── */}
-        <div className="d-flex justify-content-between align-items-center border-top pt-3 mt-2">
-          <button
-            type="button"
-            className="btn btn-outline-secondary"
-            onClick={handleRegresarRefaccionaria}
-            disabled={saving}
-          >
-            Regresar a Refaccionaria
-          </button>
-          <div className="d-flex gap-2">
+        {!readOnly && (
+          <div className="d-flex justify-content-between align-items-center border-top pt-3 mt-2">
             <button
               type="button"
-              className="btn btn-secondary"
-              onClick={handleGuardarSeleccion}
+              className="btn btn-outline-secondary"
+              onClick={handleRegresarRefaccionaria}
               disabled={saving}
             >
-              {saving ? "Guardando..." : "Guardar selección"}
+              Regresar a Refaccionaria
             </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleContinuarPresupuesto}
-              disabled={saving}
-            >
-              {saving ? "Guardando..." : "Continuar a Presupuesto →"}
-            </button>
+            <div className="d-flex gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleGuardarSeleccion}
+                disabled={saving}
+              >
+                {saving ? "Guardando..." : "Guardar selección"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleContinuarPresupuesto}
+                disabled={saving}
+              >
+                {saving ? "Guardando..." : "Continuar a Presupuesto →"}
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
       </div>
     </div>

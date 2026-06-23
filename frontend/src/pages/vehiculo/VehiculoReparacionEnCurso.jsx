@@ -13,7 +13,7 @@ function formatMoney(n) {
   }).format(Number(n) || 0);
 }
 
-export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral }) {
+export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral, readOnly = false }) {
   const [catalogo, setCatalogo] = useState([]);
   const [completando, setCompletando] = useState(false);
   const [mecanicos, setMecanicos] = useState([]);
@@ -270,21 +270,23 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral 
       </div>
 
       {/* ── BOTÓN REPARACIÓN COMPLETADA ── */}
-      <div className="d-flex justify-content-end align-items-center gap-3 mb-4">
-        {!todasSurtidas && (
-          <span className="text-danger small fw-semibold">
-            Hay refacciones pendientes de surtir
-          </span>
-        )}
-        <button
-          type="button"
-          className="btn btn-success px-4"
-          onClick={handleReparacionCompletada}
-          disabled={completando || !todasSurtidas}
-        >
-          {completando ? "Actualizando..." : "Reparación Completada"}
-        </button>
-      </div>
+      {!readOnly && (
+        <div className="d-flex justify-content-end align-items-center gap-3 mb-4">
+          {!todasSurtidas && (
+            <span className="text-danger small fw-semibold">
+              Hay refacciones pendientes de surtir
+            </span>
+          )}
+          <button
+            type="button"
+            className="btn btn-success px-4"
+            onClick={handleReparacionCompletada}
+            disabled={completando || !todasSurtidas}
+          >
+            {completando ? "Actualizando..." : "Reparación Completada"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
