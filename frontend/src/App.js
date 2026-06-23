@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
@@ -71,8 +71,12 @@ import ConfiguracionFiscal from "./pages/facturacion/ConfiguracionFiscal";
  */
 const PrivateRoute = ({ children }) => {
   const [status, setStatus] = useState('loading'); // 'loading' | 'ok' | 'unauth'
+  const calledRef = useRef(false); // evita la doble llamada de React.StrictMode
 
   useEffect(() => {
+    if (calledRef.current) return;
+    calledRef.current = true;
+
     const user = localStorage.getItem('user');
 
     if (!user) {

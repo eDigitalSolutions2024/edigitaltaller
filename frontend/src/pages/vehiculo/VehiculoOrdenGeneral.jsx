@@ -357,7 +357,7 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
             {manoObra.map((m, idx) => (
               <tr key={idx}>
                 <td>{m.servicio || m.concepto}</td>
-                <td>{m.mecanico?.nombre || m.mecanico}</td>
+                <td>{m.mecanico?.nombre || mecMap[String(m.mecanico)] || m.mecanico}</td>
                 <td>{m.horas}</td>
                 <td>{formatFecha(m.fechaPago)}</td>
                 <td>{m.observaciones}</td>

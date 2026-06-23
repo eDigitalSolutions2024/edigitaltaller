@@ -227,7 +227,12 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
                   <div className="row g-2">
                     <div className="col-md-4">
                       <label className="form-label form-label-sm mb-1">Código <span className="text-danger">*</span></label>
-                      <input className="form-control form-control-sm" value={codigoManual} readOnly placeholder="Ej. AZ-BJ-2345" />
+                      <input
+                        className="form-control form-control-sm"
+                        value={codigoManual}
+                        onChange={(e) => setCodigoManual(e.target.value)}
+                        placeholder="Ej. AZ-BJ-2345"
+                      />
                     </div>
                     <div className="col-md-8">
                       <label className="form-label form-label-sm mb-1">Descripción <span className="text-danger">*</span></label>

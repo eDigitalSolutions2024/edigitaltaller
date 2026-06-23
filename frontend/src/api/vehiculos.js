@@ -76,3 +76,13 @@ export const updateDatosOrden = (id, payload) =>
 export const getMisOrdenes = () =>
   http.get('/vehiculos/mis-ordenes');
 
+export const getRefaccionariaAlerts = () =>
+  Promise.all([
+    http.get('/vehiculos/ordenes', { params: { estado: 'PENDIENTE_REFACCIONARIA', limit: 1 } }),
+    http.get('/vehiculos/ordenes', { params: { estado: 'PENDIENTE_SURTIR', limit: 1 } }),
+    http.get('/vehiculos/ordenes', { params: { estado: 'REPARACION_EN_CURSO', limit: 1 } }),
+  ]).then(([sol, ps, ric]) => ({
+    solicitudes: sol.data.total ?? 0,
+    porSurtir: (ps.data.total ?? 0) + (ric.data.total ?? 0),
+  }));
+

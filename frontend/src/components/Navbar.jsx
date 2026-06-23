@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import '../styles/Navbar.css';
 import { canSeeModule } from '../utils/roles';
 import http from '../api/http';
+import { getRefaccionariaAlerts } from '../api/vehiculos';
 
 export default function Navbar({ collapsed, onToggle }) {
   const user = getUser();
@@ -74,6 +75,24 @@ useEffect(() => {
     setDevOpen(true);    // abre el submenú Devoluciones
   }
 }, [location.pathname]);
+
+// === ALERTAS REFACCIONARIA ===
+const [solicitudesCount, setSolicitudesCount] = useState(0);
+const [porSurtirCount, setPorSurtirCount] = useState(0);
+
+useEffect(() => {
+  if (user?.role !== 'refaccionario') return;
+  const fetch = async () => {
+    try {
+      const { solicitudes, porSurtir } = await getRefaccionariaAlerts();
+      setSolicitudesCount(solicitudes);
+      setPorSurtirCount(porSurtir);
+    } catch (_) {}
+  };
+  fetch();
+  const id = setInterval(fetch, 30_000);
+  return () => clearInterval(id);
+}, [user?.role]);
 
 // === ADMINISTRACIÓN ===
 const [adminOpen, setAdminOpen] = useState(
@@ -359,6 +378,9 @@ useEffect(() => {
           >
             <span className="emoji">🧰</span>
             <span className="label">Refaccionaria</span>
+            {(solicitudesCount + porSurtirCount) > 0 && (
+              <span className="nav-badge">{solicitudesCount + porSurtirCount}</span>
+            )}
             {!collapsed && <span className="chev" aria-hidden>▾</span>}
           </button>
 
@@ -381,6 +403,7 @@ useEffect(() => {
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">Solicitudes Taller</span>
+              {solicitudesCount > 0 && <span className="nav-badge">{solicitudesCount}</span>}
             </NavLink>
 
             <NavLink
@@ -388,6 +411,7 @@ useEffect(() => {
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">Por Surtir</span>
+              {porSurtirCount > 0 && <span className="nav-badge">{porSurtirCount}</span>}
             </NavLink>
 
 
