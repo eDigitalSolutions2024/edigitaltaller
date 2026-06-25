@@ -760,19 +760,19 @@ export default function SolicitudTallerDetalle() {
               <thead className="table-light">
                 <tr>
                     <th style={{ width: "70px" }}>Cant</th>
-                    <th style={{ width: "90px" }}>Unidad</th>
+                    <th>Unidad</th>
                     <th>Refacción</th>
-                    <th style={{ width: "120px" }}>Tipo</th>
+                    <th>Tipo</th>
                     <th>Marca</th>
                     <th>Proveedor</th>
                     <th>Código</th>
-                    <th style={{ width: "130px" }}>Precio Unitario</th>
-                    <th style={{ width: "120px" }}>Importe</th>
-                    <th style={{ width: "90px" }}>Moneda</th>
-                    <th style={{ width: "120px" }}>Tipo Cambio</th>
-                    <th style={{ width: "130px" }}>Tiempo Entrega</th>
-                    <th style={{ width: "100px" }}>Core</th>
-                    <th style={{ width: "120px" }}>Precio Core</th>
+                    <th>Precio Unitario</th>
+                    <th>Importe</th>
+                    <th>Moneda</th>
+                    <th>Tipo Cambio</th>
+                    <th>Tiempo Entrega</th>
+                    <th>Core</th>
+                    <th>Precio Core</th>
                     <th>Observaciones</th>
                 </tr>
               </thead>
@@ -835,6 +835,7 @@ export default function SolicitudTallerDetalle() {
                       <td>
                         <select
                           className="form-select form-select-sm"
+                          style={{ width: "auto" }}
                           value={item.nuevaOpcion?.unidad || ""}
                           onChange={(e) => cambiarNuevaOpcion(index, "unidad", e.target.value)}
                           disabled={unidades.length === 0 || item.nuevaOpcion?._camposBloqueados?.includes("unidad")}
@@ -853,7 +854,8 @@ export default function SolicitudTallerDetalle() {
                       <td>{item.refaccion}</td>
                       <td>
                         <select
-                          className="form-select form-select-sm"
+                          className="form-select"
+                          style={{ width: "auto" }}
                           value={item.nuevaOpcion?.tipo || ""}
                           onChange={(e) => cambiarNuevaOpcion(index, "tipo", e.target.value)}
                         >
@@ -867,6 +869,8 @@ export default function SolicitudTallerDetalle() {
                       <td>
                         <input
                           className="form-control form-control-sm"
+                          style={{ width: "auto" }}
+                          size={Math.max(8, (item.nuevaOpcion?.marca || "").length + 2)}
                           value={item.nuevaOpcion?.marca || ""}
                           onChange={(e) => cambiarNuevaOpcion(index, "marca", e.target.value)}
                           disabled={item.nuevaOpcion?._camposBloqueados?.includes("marca")}
@@ -875,6 +879,8 @@ export default function SolicitudTallerDetalle() {
                       <td>
                         <input
                           className="form-control form-control-sm"
+                          style={{ width: "auto" }}
+                          size={Math.max(10, (item.nuevaOpcion?.proveedor || "").length + 2)}
                           value={item.nuevaOpcion?.proveedor || ""}
                           onChange={(e) => cambiarNuevaOpcion(index, "proveedor", e.target.value)}
                           disabled={item.nuevaOpcion?._camposBloqueados?.includes("proveedor")}
@@ -885,8 +891,9 @@ export default function SolicitudTallerDetalle() {
                           className="form-control form-control-sm"
                           value={item.nuevaOpcion?.codigo || ""}
                           readOnly
-                          placeholder="Clic para seleccionar..."
-                          style={{ cursor: "pointer", backgroundColor: "#fff" }}
+                          placeholder="Clic..."
+                          size={Math.max(7, (item.nuevaOpcion?.codigo || "").length + 2)}
+                          style={{ cursor: "pointer", backgroundColor: "#fff", width: "auto" }}
                           onClick={() => setModalCodigoIndex(index)}
                         />
                       </td>
@@ -894,6 +901,8 @@ export default function SolicitudTallerDetalle() {
                         <input
                           type="number"
                           className="form-control form-control-sm"
+                          style={{ width: "auto" }}
+                          size={Math.max(8, String(item.nuevaOpcion?.precioUnitario || "").length + 2)}
                           value={item.nuevaOpcion?.precioUnitario || ""}
                           onChange={(e) =>
                             cambiarNuevaOpcion(index, "precioUnitario", e.target.value)
@@ -904,6 +913,7 @@ export default function SolicitudTallerDetalle() {
                       <td>
                         <select
                           className="form-select form-select-sm"
+                          style={{ width: "auto" }}
                           value={item.nuevaOpcion?.moneda || "MN"}
                           onChange={(e) => cambiarNuevaOpcion(index, "moneda", e.target.value)}
                         >
@@ -919,6 +929,8 @@ export default function SolicitudTallerDetalle() {
                             min="0"
                             step="0.0001"
                             className="form-control form-control-sm"
+                            style={{ width: "auto" }}
+                            size={Math.max(8, String(item.nuevaOpcion?.tipoCambio || "").length + 2)}
                             value={item.nuevaOpcion?.tipoCambio || ""}
                             onChange={(e) =>
                               cambiarNuevaOpcion(index, "tipoCambio", e.target.value)
@@ -934,6 +946,8 @@ export default function SolicitudTallerDetalle() {
                       <td>
                         <input
                           className="form-control form-control-sm"
+                          style={{ width: "auto" }}
+                          size={Math.max(8, (item.nuevaOpcion?.tiempoEntrega || "").length + 2)}
                           value={item.nuevaOpcion?.tiempoEntrega || ""}
                           onChange={(e) =>
                             cambiarNuevaOpcion(index, "tiempoEntrega", e.target.value)
@@ -943,6 +957,7 @@ export default function SolicitudTallerDetalle() {
                       <td>
                         <select
                           className="form-select form-select-sm"
+                          style={{ width: "auto" }}
                           value={item.nuevaOpcion?.core || ""}
                           onChange={(e) => cambiarNuevaOpcion(index, "core", e.target.value)}
                         >
@@ -957,6 +972,8 @@ export default function SolicitudTallerDetalle() {
                           <input
                             type="number"
                             className="form-control form-control-sm"
+                            style={{ width: "auto" }}
+                            size={Math.max(7, String(item.nuevaOpcion?.precioCore || "").length + 2)}
                             value={item.nuevaOpcion?.precioCore || ""}
                             onChange={(e) =>
                               cambiarNuevaOpcion(index, "precioCore", e.target.value)
@@ -970,6 +987,8 @@ export default function SolicitudTallerDetalle() {
                         <div className="d-flex gap-2">
                           <input
                             className="form-control form-control-sm"
+                            style={{ width: "auto" }}
+                            size={Math.max(10, (item.nuevaOpcion?.observaciones || "").length + 2)}
                             value={item.nuevaOpcion?.observaciones || ""}
                             onChange={(e) =>
                               cambiarNuevaOpcion(index, "observaciones", e.target.value)

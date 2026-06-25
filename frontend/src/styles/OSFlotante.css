@@ -8,7 +8,7 @@
   font-size: 12px;
   font-family: inherit;
   overflow: hidden;
-  border: 1px solid #e0e0e0;
+  
   /* left y top se inyectan por estilo inline desde el componente */
 }
 
@@ -145,4 +145,132 @@
   color: #d34b3f;
   font-size: 11px;
   font-weight: 500;
+}
+
+/* ── Variante Refaccionaria ───────────────────────────────── */
+.os-flotante__header--refac {
+  background: linear-gradient(135deg, #0d6efd, #6610f2);
+}
+
+.osref .os-flotante__body {
+  max-height: 480px;
+  padding: 0;
+}
+
+/* Sección (Solicitudes / Por Surtir) */
+.osref-seccion {
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.osref-seccion:last-child {
+  border-bottom: none;
+}
+
+.osref-seccion__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  transition: background 0.15s;
+}
+
+.osref-seccion:hover .osref-seccion__header {
+  background: #f8f9fa;
+}
+
+.osref-seccion__badge {
+  min-width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.osref-seccion__label {
+  flex: 1;
+  font-weight: 600;
+  color: #333;
+  font-size: 12px;
+}
+
+.osref-seccion__chevron {
+  color: #aaa;
+  font-size: 13px;
+}
+
+/* Lista de órdenes dentro de una sección */
+.osref-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: #fafafa;
+  border-top: 1px solid #eee;
+}
+
+.osref-orden {
+  padding: 8px 14px 8px 22px;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.osref-orden:hover {
+  background: #eef2ff;
+}
+
+.osref-orden__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.osref-orden__num {
+  font-weight: 700;
+  color: #2d2a6b;
+  font-size: 11px;
+}
+
+.osref-orden__tiempo {
+  font-size: 10px;
+  color: #d34b3f;
+  font-weight: 500;
+}
+
+.osref-orden__cliente {
+  font-size: 11px;
+  font-weight: 500;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 1px;
+}
+
+.osref-orden__vehiculo {
+  font-size: 10px;
+  color: #777;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.osref-ver-todos {
+  padding: 7px 14px 7px 22px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0d6efd;
+  cursor: pointer;
+  text-align: right;
+}
+
+.osref-ver-todos:hover {
+  text-decoration: underline;
 }

@@ -143,7 +143,7 @@ useEffect(() => {
 
 
         <div className="sidebar__brand">
-          {!collapsed && <span className="brand-text">🔧{user?.workshopName || "Edigital Solutions"}</span>}
+          {!collapsed && <span className="brand-text">{user?.workshopName || "ServiCompactos"}</span>}
         </div>
       </div>
 

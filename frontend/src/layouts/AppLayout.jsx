@@ -2,6 +2,7 @@ import { Outlet } from "react-router-dom";
 import { useEffect, useState } from "react";
 import Sidebar from "../components/Navbar";
 import OSFlotante from "../components/OSFlotante";
+import OSFlotanteRefaccionaria from "../components/OSFlotanteRefaccionaria";
 import "../styles/Navbar.css";
 
 export default function AppLayout() {
@@ -33,6 +34,7 @@ export default function AppLayout() {
       </main>
 
       <OSFlotante />
+      <OSFlotanteRefaccionaria />
     </div>
   );
 }
