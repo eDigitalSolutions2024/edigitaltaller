@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { listOrdenesServicio } from "../../api/vehiculos";
 import { useNavigate } from "react-router-dom";
+import { getUser } from "../../auth";
 
 
 const TABS = [
@@ -13,6 +14,9 @@ const TABS = [
 ];
 
 export default function VehiculosConsultaOrdenes() {
+  const usuario = getUser();
+  const miNombre = usuario?.name || usuario?.username || "";
+
   const [tab, setTab] = useState("PENDIENTE_CAPTURA");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -165,6 +169,7 @@ export default function VehiculosConsultaOrdenes() {
   {rows.map((r) => (
     <tr
       key={r._id}
+      className={r.creadoPor === miNombre ? "fila-propia" : ""}
       style={{ cursor: "pointer" }}
       onClick={() => {
         const TAB_MAP = {
@@ -193,7 +198,7 @@ export default function VehiculosConsultaOrdenes() {
           : "-"}
       </td>
       <td className="text-center">{(r.cliente?.telefonos?.[0]?.numero) || "-"}</td>
-      <td className="text-center">{r.asesor || "admin"}</td>
+      <td className="text-center">{r.creadoPor || "-"}</td>
     </tr>
   ))}
 </tbody>

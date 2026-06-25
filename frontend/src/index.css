@@ -11,3 +11,8 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* Fila propia en tablas de órdenes — supera el striping de Bootstrap */
+tr.fila-propia td {
+  background-color: #9df3aba9 !important;
+}

@@ -89,6 +89,13 @@ export default function OSFlotante() {
 
   useEffect(() => {
     if (!esAsesor) return;
+    const onNuevaOrden = () => cargar();
+    window.addEventListener('orden-creada', onNuevaOrden);
+    return () => window.removeEventListener('orden-creada', onNuevaOrden);
+  }, [esAsesor]);
+
+  useEffect(() => {
+    if (!esAsesor) return;
     const t = setInterval(() => setTick(n => n + 1), 60000);
     return () => clearInterval(t);
   }, [esAsesor]);
