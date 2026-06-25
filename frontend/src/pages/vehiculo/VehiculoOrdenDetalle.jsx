@@ -1,7 +1,7 @@
 // src/pages/vehiculo/VehiculoOrdenDetalle.jsx
 import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
-import { getVehiculoById } from "../../api/vehiculos";
+import { getVehiculoById, openOperativoPdf } from "../../api/vehiculos";
 import VehiculoNuevoForm from "./VehiculoNuevoForm";
 import ServicioReparacionTab from "./ServicioReparacionTab";
 import VehiculoRequisicionDiagnostico from "./VehiculoRequisicionDiagnostico";
@@ -304,6 +304,45 @@ export default function VehiculoOrdenDetalle() {
 
       {tab === "general" && ordenIniciada && (
         <VehiculoOrdenGeneral orden={orden} />
+      )}
+
+      {/* Botón PDF Operativo — visible en tab de datos y servicio */}
+      {(tab === "datos" || tab === "servicio") && orden._id && (
+        <div className="text-center my-4">
+          <div className="btn-group">
+            <button
+              className="btn btn-outline-primary"
+              onClick={() => openOperativoPdf(orden._id, 'a4')}
+            >
+              Formato Operativo
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline-primary dropdown-toggle dropdown-toggle-split"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+            >
+              <span className="visually-hidden">Opciones de tamaño</span>
+            </button>
+            <ul className="dropdown-menu">
+              <li>
+                <button className="dropdown-item" onClick={() => openOperativoPdf(orden._id, 'a4')}>
+                  A4 (predeterminado)
+                </button>
+              </li>
+              <li>
+                <button className="dropdown-item" onClick={() => openOperativoPdf(orden._id, 'carta')}>
+                  Carta (Letter 8.5×11")
+                </button>
+              </li>
+              <li>
+                <button className="dropdown-item" onClick={() => openOperativoPdf(orden._id, 'oficio')}>
+                  Oficio (Legal 8.5×14")
+                </button>
+              </li>
+            </ul>
+          </div>
+        </div>
       )}
     </div>
   );
