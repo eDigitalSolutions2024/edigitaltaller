@@ -42,16 +42,12 @@ export default function LoginForm() {
 
   return (
     <div className="login-container">
-      <div className="login-left">
-        <div className="overlay">
-          <h2>Bienvenidos a Edigital Solutions</h2>
-        </div>
-      </div>
+      <div className="login-left"></div>
 
       <div className="login-right">
         <form onSubmit={handleSubmit} className="login-form">
           <h2 className="mb-2">Inicia Sesión</h2>
-          <p className="text-muted">Edigital Solutions</p>
+          <p className="text-muted">ServiCompactos</p>
 
           {error && <div className="alert alert-danger">{error}</div>}
 

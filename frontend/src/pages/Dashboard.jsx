@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { getUser } from '../auth';
 import { useEffect, useState } from "react";
 import http from "../api/http";
 import "../styles/dashboard.css";
@@ -13,7 +14,7 @@ const tiles = [
 
 export default function Dashboard() {
   const [stats, setStats] = useState({ ordenesHoy: 0, enProceso: 0, entregadas: 0 });
-
+  const user = getUser();
   useEffect(() => {
     http.get("/vehiculos/stats/dashboard")
       .then((res) => {
@@ -27,7 +28,7 @@ export default function Dashboard() {
       <header className="dash-hero">
         <div className="dash-hero__left">
           <h1 className="dash-title">Bienvenido 👋</h1>
-          <p className="dash-subtitle">Edigital Solutions · Panel principal</p>
+          <p className="dash-subtitle">{user?.name} · Panel principal</p>
           <div className="dash-actions">
             <NavLink to="/vehiculo/entrada" className="btn btn-primary">Nueva orden</NavLink>
             <NavLink to="/clientes/alta" className="btn btn-ghost">Nuevo cliente</NavLink>

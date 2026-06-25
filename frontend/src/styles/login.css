@@ -6,14 +6,21 @@
   justify-content: center;    /* centra horizontal */
   align-items: center; 
 }
+/* Tarjeta externa */
+.login-card {
+  width: 900px;
+  max-width: 95vw;
+  border-radius: 15px;
+  overflow: hidden;
+}
+
 /* Contenedor principal */
 .login-container {
   display: flex;
-  justify-content: center;
-  align-items: center;
+  align-items: stretch;
   min-height: auto;
-  padding: 20px;
   background: transparent;
+  width: 100%;
 }
 
 /* Tarjeta de login (izquierda y derecha) */
@@ -25,7 +32,7 @@
 
 /* Columna izquierda (imagen) */
 .login-left {
-  background: url('../img/nissan.jpg') no-repeat center center/cover;
+  background: url('../img/Logo_Servicompacto.jpg') no-repeat center center/cover;
   position: relative;
   display: flex;
   align-items: center;
@@ -34,20 +41,6 @@
   border-bottom-left-radius: 15px;
   overflow: hidden;
   padding: 40px;
-}
-
-/* Oscurecer la imagen con overlay */
-.login-left .overlay {
-  background: rgba(0, 0, 0, 0.4);
-  padding: 30px;
-  color: white;
-  text-align: center;
-  border-radius: 10px;
-}
-
-.login-left h2 {
-  font-weight: bold;
-  margin-bottom: 20px;
 }
 
 .login-left .btn-group {
