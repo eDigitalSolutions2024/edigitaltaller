@@ -393,6 +393,7 @@ export default function VehiculoNuevoForm({
       setGuardado(true);
       const vehiculoCreado = res.data?.vehiculo || res.data;
       if (onCreated) onCreated(vehiculoCreado);
+      window.dispatchEvent(new CustomEvent('orden-creada'));
       console.log("Vehiculo guardado:", res.data || res);
       alert(
         `Vehículo / orden guardada correctamente.\nOrden de Servicio: ${payload.ordenServicio}`
