@@ -860,7 +860,8 @@ router.get('/:id/operativo-pdf', async (req, res) => {
         .json({ success: false, message: 'Orden no encontrada' });
     }
 
-    await streamVehiculoOperativoPdf(res, vehiculo);
+    const papel = ['carta', 'oficio', 'a4'].includes(req.query.papel) ? req.query.papel : 'a4';
+    await streamVehiculoOperativoPdf(res, vehiculo, papel);
   } catch (err) {
     console.error('Error generando PDF operativo', err);
     res

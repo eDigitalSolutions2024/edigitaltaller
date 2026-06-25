@@ -35,8 +35,9 @@ export const savePresupuestoVenta = (id, payload) =>
 
 
 // 👇 nuevo ayudante
-export const openOperativoPdf = (id) => {
-  const url = `${API}/vehiculos/${id}/operativo-pdf`;
+// papel: 'a4' | 'carta' | 'oficio'
+export const openOperativoPdf = (id, papel = 'a4') => {
+  const url = `${API}/vehiculos/${id}/operativo-pdf?papel=${papel}`;
   window.open(url, "_blank", "noopener");
 };
 
