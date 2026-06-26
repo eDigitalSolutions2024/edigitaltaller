@@ -2,6 +2,7 @@
 // Genera el PDF "Operativo" con formato de recepción de vehículo
 // Página 1 (frente): inspección / servicios
 // Página 2 (reverso): condiciones de servicio + concepto de reparaciones
+// Página 3: Contrato de Prestación de Servicios (NOM-174-SCFI-2007)
 
 const puppeteer = require('puppeteer');
 const dayjs = require('dayjs');
@@ -102,6 +103,82 @@ function buildGaugeSvg(nivelGasolina) {
 </svg>`;
 }
 
+// ---------- PÁGINA 3: CONTRATO ----------
+function buildPagina3() {
+  return `
+<!-- ==================== PÁGINA 3: CONTRATO ==================== -->
+<div class="page3">
+
+  <div class="contrato-titulo">
+    CONDICIONES DEL CONTRATO DE PRESTACIÓN DE SERVICIOS DE REPARACIÓN Y/O MANTENIMIENTO DE VEHÍCULOS
+  </div>
+
+  <ol class="contrato-lista">
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;En virtud de este contrato (*), el Distribuidor presta el servicio de reparación y/o mantenimiento al cliente (Consumidor), del vehículo cuyas características se detallan en este contrato.
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;El Cliente expresa ser el dueño del vehículo y/o estar facultado para autorizar la reparación y/o mantenimiento del vehículo descrito en el presente contrato, por lo que acepta las condiciones y términos bajo las cuales se realizará la prestación del servicio descrita en el presente contrato.
+      Asimismo, es sabedor de las posibles consecuencias que puede sufrir el vehículo con motivo de su reparación y/o mantenimiento y se responsabiliza de las mismas. El consumidor acepta haber tenido a la vista los precios por mano de obra, partes y/o refacciones a emplear en las operaciones a efectuar por parte del Distribuidor.
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;El precio total por concepto de la prestación del servicio de reparación y/o mantenimiento será cubierto en las instalaciones del Distribuidor y en moneda nacional en la forma y término expresados en este contrato, incluyendo, en su caso, las partes y/o refacciones y los servicios adicionales que el cliente haya aceptado previamente.
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;En la situación de que el Cliente solicite, o en su caso, el Distribuidor avise al Cliente de servicios adicionales a los establecidos en el presente contrato, este último los podrá autorizar vía telefónica. Asimismo, todas las quejas y sugerencias serán atendidas en el domicilio, teléfonos y horarios de atención señalados en la carátula o anverso del presente contrato.
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;Las condiciones generales del vehículo materia de reparación y/o mantenimiento, son las siguientes:
+      <strong>Exteriores:</strong> (&#160;&#160;) Limpiadores (plumas); (&#160;&#160;) Unidades de las luces; (&#160;&#160;) Antena; (&#160;&#160;) Espejos laterales; (&#160;&#160;) Cristales; (&#160;&#160;) Tapones de ruedas; (&#160;&#160;) Molduras completas; (&#160;&#160;) Tapón de gasolina; (&#160;&#160;) Claxon;
+      <strong>Interiores:</strong> (&#160;&#160;) Instrumentos del tablero; (&#160;&#160;) Calefacción; (&#160;&#160;) Aire acondicionado; (&#160;&#160;) Radio/Tipo; (&#160;&#160;) Bocinas; (&#160;&#160;) Encendedor; (&#160;&#160;) Espejo retrovisor; (&#160;&#160;) Ceniceros; (&#160;&#160;) Cinturones de seguridad; (&#160;&#160;) Tapetes; (&#160;&#160;) Manijas y/o controles interiores; (&#160;&#160;) Equipo adicional; (&#160;&#160;) Accesorios;
+      <strong>Aditamentos especiales:</strong> (&#160;&#160;) Otros.
+      El vehículo se encuentra en las siguientes condiciones generales: Aspectos mecánicos _______________ aspectos de carrocería _______________.
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;La prestación del servicio de reparación y/o mantenimiento del vehículo materia de este contrato, se otorga (&#160;&#160;) sin garantía; (&#160;&#160;) con garantía por un plazo de _______, (Art. 77 de la LFPC* no podrá ser inferior a 90 días) contados a partir de la entrega del vehículo. Para la garantía en partes, piezas, refacciones y accesorios. El distribuidor transmitirá la otorgada por la fabricante, la garantía deberá hacerse válida en el domicilio, teléfonos y horarios de atención señalados en la carátula o anverso del presente contrato, siempre y cuando no se haya efectuado una reparación por un tercero. El tiempo que dure la reparación y/o mantenimiento del vehículo, bajo la protección de la garantía, no es computable dentro del plazo de la misma. Las partes y/o refacciones empleadas en la reparación y/o mantenimiento del vehículo materia de este contrato, son nuevas y apropiadas para el funcionamiento del mismo. De igual forma, los gastos en que incurra el Cliente para hacer válida la garantía en un domicilio diverso al del Distribuidor, deberán ser cubiertos por éste.
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;El Distribuidor será el responsable por las descomposturas, daños o pérdidas parciales o totales imputables a él, mientras el vehículo se encuentre bajo su resguardo para llevar a cabo la presentación del servicio de reparación y/o mantenimiento, o como consecuencia de la prestación del servicio, o bien, en el cumplimiento de la garantía, de acuerdo a lo establecido en el presente contrato. Asimismo, el Cliente autoriza al Distribuidor a usar el vehículo para efectos de prueba o verificación de las operaciones a realizar o realizadas. El cliente libera al Distribuidor de cualquier responsabilidad que hubiere surgido o pudiera surgir con relación al origen, propiedad o posesión del vehículo.
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;El cliente podrá revocar su consentimiento, en un plazo de 5 días hábiles mediante aviso personal, correo electrónico o correo certificado, siempre y cuando no se hayan iniciado los trabajos de reparación y/o mantenimiento.
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;En caso de que apliquen restricciones, estas se le darán a conocer al cliente.
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;En caso de que el consumidor cancele la operación, está obligado a pagar de manera inmediata y previa a la entrega del vehículo, el importe de las operaciones efectuadas y partes y/o refacciones colocadas o adquiridas hasta el retiro del mismo.
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;Son causas de rescisión del presente contrato: (i) Que el Distribuidor incumpla en la fecha y lugar de entrega del vehículo por causas imputables a él.- El Cliente le notificará por escrito el incumplimiento de dicha obligación y el Distribuidor entregará de manera inmediata el vehículo, debiendo descontar del monto total de la operación, la cantidad equivalente al ______% por concepto de pena convencional (ii) Que el Cliente incumpla con su obligación de pago.- En el evento que el Cliente incumpla con el pago por el concepto de la reparación y/o mantenimiento del vehículo, el Distribuidor le notificará por escrito su incumplimiento y podrá exigirle la rescisión o cumplimiento por mora, más la pena convencional del ______% del monto total de la operación. Las penas convencionales deberán ser equitativas y de la misma magnitud para las partes.
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;El Consumidor deberá recoger el vehículo en la fecha y lugar establecida en el presente contrato, en caso contrario, se obliga a pagar al Distribuidor, la cantidad que resulte por concepto de almacenaje del vehículo por cada día que transcurra, tomando como referencia una tarifa no mayor al precio general establecido para estacionamientos públicos ubicados en la localidad del Distribuidor. Transcurrido un plazo de 15 días naturales a partir de la fecha señalada para la entrega del vehículo, y el Cliente no acuda a recoger el mismo, el Distribuidor sin responsabilidad alguna, pondrá a disposición de la autoridad correspondiente dicho vehículo. Sin perjuicio de lo anterior, el Distribuidor podrá realizar el cobro correspondiente por el concepto de almacenaje.
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;El Distribuidor se obliga a expedir la factura o comprobante de pago por las operaciones efectuadas, en la cual se especificarán los precios por mano de obra, refacciones, materiales y accesorios empleados, así como la garantía que en su caso se otorgue, conforme al artículo 62 de la Ley Federal de Protección al Consumidor.
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;El Distribuidor se obliga a: (i) No ceder o transmitir a terceros, con fines mercadotécnicos o publicitarios, los datos e información proporcionada por el consumidor con motivo del presente contrato (ii) No enviar publicidad sobre bienes y servicios, salvo autorización expresa del consumidor en la presente cláusula.<br>
+      <div class="firma-linea">Firma o rúbrica de autorización del consumidor: _______________________________</div>
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;Las partes están de acuerdo en someterse a la competencia de la Procuraduría Federal del Consumidor en la vía administrativa para resolver cualquier controversia que se suscite sobre la interpretación o cumplimiento de los términos y condiciones del presente contrato y de las disposiciones de la Ley Federal de Protección al Consumidor, la Norma Oficial Mexicana NOM-174-SCFI-2007, Prácticas comerciales-Elementos de información para la prestación de servicios en general y cualquier otra disposición aplicable, sin perjuicio del derecho que tienen las partes de someterse a la jurisdicción de los Tribunales competentes del domicilio del Distribuidor, renunciando las partes expresamente a cualquier otra jurisdicción que pudiera corresponderles por razón de sus domicilios futuros.
+    </li>
+
+    <li>&nbsp;&nbsp;&nbsp;&nbsp;El Cliente y Distribuidor aceptan la realización de la prestación del servicio de reparación y/o mantenimiento, en los términos establecidos en este contrato, y sabedores de su alcance legal, lo firman por duplicado.
+    </li>
+  </ol>
+
+  <!-- Pie de página del contrato -->
+  <div class="contrato-pie">
+    <p>(*) El presente contrato fue registrado en la Procuraduría Federal del Consumidor bajo el número 115-2019 de fecha 10 de Enero de 2019</p>
+    <p>*LFPC.- Ley Federal de Protección al Consumidor</p>
+  </div>
+
+</div>
+`;
+}
+
 // ---------- HTML PRINCIPAL ----------
 
 function buildHtml(vehiculo) {
@@ -128,22 +205,21 @@ function buildHtml(vehiculo) {
   const fechaRecepcion = fmtFecha(vehiculo.fechaRecepcion);
   const hora = vehiculo.horaRecepcion || '';
 
-  const gaugeSvg = buildGaugeSvg(insp.nivelGasolina);
+  const nivelGasolina = (insp.nivelGasolina && insp.nivelGasolina !== 'false') ? insp.nivelGasolina : null;
+  const gaugeSvg = buildGaugeSvg(nivelGasolina);
 
   const canvasImg = insp.danoVehiculo
-    ? `<img src="${insp.danoVehiculo}" style="max-width:100%;max-height:140px;object-fit:contain;"/>`
-    : `<div style="width:100%;height:110px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:9px;border:1px dashed #ccc;">Sin daños registrados</div>`;
+    ? `<img src="${insp.danoVehiculo}" style="display:block;max-height:140px;width:auto;margin:0 auto;"/>`
+    : `<div style="width:auto;height:110px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:9px;border:1px dashed #ccc;">Sin daños registrados</div>`;
 
   const esMex = (vehiculo.nacionalidad || '').toUpperCase() === 'MEX';
   const es4x4 = vehiculo.traccion === '4x4';
   const es4x2 = vehiculo.traccion === '4x2';
 
-  // Líneas en blanco para el concepto de reparaciones (página 2)
   const lineasReparacion = Array.from({ length: 12 }, (_, i) => `
     <tr>
       <td style="width:20px;padding:2px 3px;border:none;">${i + 1}.-</td>
       <td style="border:none;border-bottom:0.7px solid #bbb;height:22px;padding:2px 4px;">&nbsp;</td>
-      <td style="width:70px;border:none;border-bottom:0.7px solid #bbb;text-align:right;padding:2px 3px;">$</td>
       <td style="width:40px;border:none;border-bottom:0.7px solid #bbb;text-align:right;padding:2px 3px;color:#555;">hrs</td>
     </tr>`).join('');
 
@@ -157,6 +233,7 @@ function buildHtml(vehiculo) {
   body { margin: 0; padding: 0; font-size: 10px; color: #000; }
   .page  { width: 210mm; padding: 4mm 5mm; margin: 0 auto; }
   .page2 { width: 210mm; padding: 8mm 10mm; margin: 0 auto; page-break-before: always; }
+  .page3 { width: 210mm; padding: 10mm 12mm; margin: 0 auto; page-break-before: always; }
   table { border-collapse: collapse; width: 100%; }
   th, td { border: 0.5px solid #000; padding: 2px 3px; vertical-align: middle; }
   .nb td, .nb th { border: none; padding: 1px 2px; }
@@ -185,6 +262,62 @@ function buildHtml(vehiculo) {
     font-size: 12px;
     margin-bottom: 6px;
   }
+
+  /* ── PÁGINA 3: CONTRATO ── */
+  .contrato-titulo {
+    font-size: 12px;
+    font-weight: bold;
+    font-style: italic;
+    color: #000000;
+    text-align: left;
+    margin-bottom: 25px;
+    line-height: 1.4;
+    text-align: justify;
+    text-justify: inter-word;
+  }
+  .contrato-lista {
+    margin: 0;
+    padding-left: 22px;
+    list-style-type: decimal;
+  }
+  .contrato-lista li {
+    font-size: 9px;
+    line-height: 1.3;
+    text-align: justify;
+    text-justify: inter-word;
+    margin-bottom: 1px;
+    color: #000000;
+  }
+  .contrato-lista li strong {
+    font-weight: bold;
+  }
+  .firma-linea {
+    margin-top: 4px;
+    font-size: 8.2px;
+    border-top: 0.5px solid #555;
+    padding-top: 3px;
+    display: inline-block;
+  }
+  .contrato-pie {
+    margin-top: 50px;
+    padding-top: 5px;
+    font-size: 10px;
+    font-style: italic;
+    color: #000000;
+    line-height: 1.5;
+    font-weight: 900;
+    text-align: justify;
+    text-justify: inter-word;
+  }
+  .contrato-pie p { margin: 1px 0; }
+
+  .condiciones-s p{ 
+    font-size:8px;
+    line-height:1.6;
+    text-align:justify;
+    justify:inter-word;
+    margin-bottom:1px;
+  }
 </style>
 </head>
 <body>
@@ -196,9 +329,9 @@ function buildHtml(vehiculo) {
 <table class="nb" style="margin-bottom:2px;">
   <tr>
     <td style="width:22%;vertical-align:top;">
-      <div style="border:0.7px solid #888;padding:3px;font-size:9px;">
-        <div style="margin-bottom:2px;"><strong>ASESOR:</strong> ______________________</div>
-        <div><strong>ASESOR:</strong> ______________________</div>
+      <div style="padding:3px;font-size:9px;">
+        <div></div>
+        <div></div>
       </div>
     </td>
     <td style="text-align:center;vertical-align:middle;padding:0 10px;">
@@ -208,8 +341,8 @@ function buildHtml(vehiculo) {
       }
     </td>
     <td style="width:26%;vertical-align:top;text-align:right;font-size:9px;">
-      <div style="margin-bottom:2px;"><strong>TÉCNICO:</strong> _______________ &nbsp; HRS: ____</div>
-      <div><strong>TÉCNICO:</strong> _______________ &nbsp; HRS: ____</div>
+      <div style="margin-bottom:2px;"></div>
+      <div></div>
     </td>
   </tr>
 </table>
@@ -305,8 +438,7 @@ function buildHtml(vehiculo) {
         <tr><td style="padding:1px 2px;">ESTÉREO ${chk(insp.estereo)} &nbsp; ANTENA ${chk(insp.antena)} &nbsp; ENCENDEDOR ${chk(insp.encendedor)}</td></tr>
         <tr><td style="padding:1px 2px;">GATO ${chk(insp.gato)} &nbsp; EXTRA ${chk(insp.extra)} &nbsp; BATERÍA ${chk(insp.bateria)}</td></tr>
       </table>
-      <div style="font-weight:bold;font-size:9px;background:#E5E7EB;padding:2px 4px;margin:3px 0 2px;">INDICADORES DEL TABLERO</div>
-      <div style="font-size:8.5px;margin-bottom:2px;">PRENDIDO "P" &nbsp; NO FUNCIONA "N"</div>
+      <div style="font-weight:bold;font-size:9px;background:#E5E7EB;padding:2px 4px;margin:3px 0 2px;">INDICADORES DEL TABLERO &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; PRENDIDO "P" &nbsp; NO FUNCIONA "N"</div>
       <table class="nb" style="width:100%;font-size:9px;">
         <tr>
           <td style="padding:1px 2px;">CHECK ENGINE ${chk(insp.checkEngine === 'SI')}</td>
@@ -323,16 +455,16 @@ function buildHtml(vehiculo) {
       </table>
     </td>
 
-    <td style="width:40%;vertical-align:middle;text-align:center;padding:3px;">
+    <td style="width:20%;vertical-align:middle;text-align:center;padding:3px;">
       <div style="font-weight:bold;font-size:9px;margin-bottom:2px;">DAÑOS DEL VEHÍCULO</div>
       ${canvasImg}
     </td>
 
-    <td style="width:24%;vertical-align:middle;text-align:center;padding:3px;">
+    <td style="width:20%;vertical-align:middle;text-align:center;padding:3px;">
       <div style="font-weight:bold;font-size:9px;margin-bottom:2px;">Gasolina</div>
       ${gaugeSvg}
       <div style="font-size:11px;font-weight:bold;margin-top:4px;">
-        ${esc(insp.nivelGasolina || '—')}
+        ${esc(nivelGasolina || '—')}
       </div>
     </td>
   </tr>
@@ -342,10 +474,9 @@ function buildHtml(vehiculo) {
 <div class="sh">S &nbsp; E &nbsp; R &nbsp; V &nbsp; I &nbsp; C &nbsp; I &nbsp; O</div>
 <table>
   <tr>
-    <!-- Checkboxes izquierda -->
     <td style="width:43%;vertical-align:top;padding:2px 3px;">
       <table class="nb" style="width:100%;font-size:9px;">
-        <tr><td colspan="2" class="gh" style="padding:2px 4px;">MANTENIMIENTO DEL MOTOR</td><td class="gh r" style="width:52px;padding:2px 4px;">$ IMPORTE</td></tr>
+        <tr><td colspan="2" class="gh" style="padding:2px 4px;">MANTENIMIENTO DEL MOTOR</td><td class="gh r" style="width:52px;padding:2px 4px;"></td></tr>
         <tr><td style="width:15px;padding:1px 2px;">${chk(mm.afinacion)}</td><td style="padding:1px 2px;">AFINACIÓN</td><td>&nbsp;</td></tr>
         <tr><td style="padding:1px 2px;">${chk(mm.limpiezaInyectores)}</td><td style="padding:1px 2px;">LIMPIEZA DE INYECTORES</td><td>&nbsp;</td></tr>
         <tr><td style="padding:1px 2px;">${chk(mm.limpiezaCuerpoAceleracion)}</td><td style="padding:1px 2px;">LIMPIEZA AL CUERPO DE ACELERACIÓN</td><td>&nbsp;</td></tr>
@@ -383,43 +514,34 @@ function buildHtml(vehiculo) {
       </table>
     </td>
 
-    <!-- Áreas de texto derecha -->
     <td style="width:57%;vertical-align:top;padding:2px 3px;">
       <table class="nb" style="width:100%;font-size:9px;">
         <tr>
           <td class="gh" style="padding:2px 4px;">FALLAS DE MOTOR Y OTROS:</td>
-          <td class="gh r" style="width:68px;padding:2px 4px;">PRECIO $</td>
         </tr>
         <tr>
           <td style="height:45px;vertical-align:top;padding:2px 3px;">${esc(sr.fallasMotorOtros || sr.fallasReportadasCliente || '')}</td>
-          <td style="vertical-align:top;padding:2px 3px;">${sr.precioFallasMotorOtros ? '$' + sr.precioFallasMotorOtros : '&nbsp;'}</td>
         </tr>
 
         <tr>
           <td class="gh" style="padding:2px 4px;">SISTEMA ELÉCTRICO Y AIRE ACONDICIONADO:</td>
-          <td class="gh r" style="padding:2px 4px;">PRECIO $</td>
         </tr>
         <tr>
           <td style="height:45px;vertical-align:top;padding:2px 3px;">${esc(sr.sistemaElectricoAire || '')}</td>
-          <td style="vertical-align:top;padding:2px 3px;">${sr.precioSistemaElectricoAire ? '$' + sr.precioSistemaElectricoAire : '&nbsp;'}</td>
         </tr>
 
         <tr>
           <td class="gh" style="padding:2px 4px;">SUSPENSIÓN, DIRECCIÓN Y FRENOS:</td>
-          <td class="gh r" style="padding:2px 4px;">PRECIO $</td>
         </tr>
         <tr>
           <td style="height:45px;vertical-align:top;padding:2px 3px;">${esc(sr.suspensionDireccionFrenos || '')}</td>
-          <td style="vertical-align:top;padding:2px 3px;">${sr.precioSuspensionDireccionFrenos ? '$' + sr.precioSuspensionDireccionFrenos : '&nbsp;'}</td>
         </tr>
 
         <tr>
           <td class="gh" style="padding:2px 4px;">SISTEMA DE ENFRIAMIENTO:</td>
-          <td class="gh r" style="padding:2px 4px;">PRECIO $</td>
         </tr>
         <tr>
           <td style="height:45px;vertical-align:top;padding:2px 3px;">${esc(sr.sistemaEnfriamiento || '')}</td>
-          <td style="vertical-align:top;padding:2px 3px;">${sr.precioSistemaEnfriamiento ? '$' + sr.precioSistemaEnfriamiento : '&nbsp;'}</td>
         </tr>
       </table>
     </td>
@@ -431,7 +553,6 @@ function buildHtml(vehiculo) {
 <!-- ==================== PÁGINA 2 (REVERSO) ==================== -->
 <div class="page2">
 
-  <!-- Referencia de la orden -->
   <table style="margin-bottom:10px;font-size:9px;">
     <tr>
       <td class="gh" style="width:30%;">ORDEN DE SERVICIO:
@@ -447,34 +568,33 @@ function buildHtml(vehiculo) {
     </tr>
   </table>
 
-  <!-- Condiciones + Concepto reparaciones (lado a lado) -->
   <table style="height:200mm;">
     <tr style="vertical-align:top;">
 
-      <!-- CONDICIONES DE SERVICIO -->
-      <td style="width:44%;padding:8px 10px;vertical-align:top;">
+      <td class="condiciones-s"style="width:44%;padding:8px 10px;vertical-align:top;">
         <div style="font-weight:bold;text-align:center;font-size:11px;margin-bottom:8px;border-bottom:1px solid #000;padding-bottom:4px;">
           CONDICIONES DE SERVICIO
         </div>
-        <p style="font-size:9px;line-height:1.6;text-align:justify;margin:0;">
+        <p>
           ACEPTO QUE EN CASO DE REQUERIR COMBUSTIBLE PARA PRUEBA Y REACONDICIONAMIENTO
           DE MI VEHÍCULO SEA CARGADO A MI CUENTA EN TODA OCASIÓN.
         </p>
-        <p style="font-size:9px;line-height:1.6;text-align:justify;margin:8px 0 0;">
-          IMPORTANTE: ACEPTO QUE LA EMPRESA Y/O SUS REPRESENTANTES NO SE HACEN RESPONSABLES
-          POR OBJETOS DE VALOR OLVIDADOS O NO DEPOSITADOS EN LA RECEPCIÓN, CON RECIBO;
-          POR ESCRITO, ASÍ COMO TAMPOCO SE RESPONSABILIZARÁN POR ROBO, INCENDIO O CUALQUIER
-          OTRO SUCESO EXTRAÑO QUE AFECTE MIS INTERESES Y QUE ESTÉ FUERA DEL CONTROL DE LA EMPRESA.
+        <p >
+          IMPORTANTE: ACEPTO QUE SERVICOMPACTOS DE JUÁREZ S.A. DE C.V Y/O SUS REPRESENTANTES NO SE HACEN RESPONSABLES POR OBJETOS DE VALOR OLVIDADOS O NO DEPOSITADOS EN LA RECEPCIÓN O LA CAJA, CON RECIBO, POR  ESCRITO, ASI COMO TAMPOCO SE RESPONSABILIZAN POR ROBO, INCENDIO, UNIDADES SIN ANTICONGELANTE O CUALQUIER OTRO SUSESO EXTRAÑO QUE AFECTE MIS INTERESES Y QUE ESTE FUERA DEL CONTROL DE LA EMPRESA, Y SUS REPRESENTANTES Y/O QUE NO SEA IMPUTABLE A LOS MISMOS.
         </p>
-        <p style="font-size:9px;line-height:1.6;text-align:justify;margin:8px 0 0;">
-          DECLARO: QUE SOY EL PROPIETARIO Y/O REPRESENTANTE Y AUTORIZO LAS REPARACIONES O
-          SERVICIOS DESCRITOS EN LA PRESENTE ORDEN, ASÍ COMO EL USO DE REFACCIONES, ACCESORIOS,
-          LUBRICANTES Y OTROS MATERIALES NECESARIOS PARA LLEVAR A CABO LA REPARACIÓN O SERVICIO
-          SOLICITADO, MISMO QUE ACEPTO LIQUIDAR ANTES O EN EL MOMENTO QUE ME SEA ENTREGADO
-          MI VEHÍCULO.
+        <p >
+          DECLARO: QUE SOY EL PROPIETARIO Y/O SOY REPRESENTANTE Y AUTORIZO LAS REPARACIONES O SERVICIOS DESCRITOS EN LA PRESENTE ORDEN, ASÍ COMO EL USO DE REFACCIONES, ACCESORIOS, LUBRICANTES Y OTROS MATERIALES NECESARIOS PARA LLEVAR A CABO LA REPARACIÓN O SERVICIO SOLICITADO MISMO QUE ACEPTO LIQUIDAR ANTES O EN EL MOMENTO QUE ME SEA ENTREGADO MI VEHÍCULO.
+        </p>
+        <p >
+          ASÍ COMO QUE SE ME GARANTICEN LAS REFACCIONES POR NOVENTA DÍAS O MIL QUINIENTOS KMS. LO QUE PRIMERO OCURRA EN CONDICIONES DE USO NORMAL, EXCEPTO EN PARTES ELÉCTRICAS USADAS Y/O SURTIDAS POR EL MISMO.
+        </p>
+        <p >
+          SI NO AUTORIZO LA REPARACIÓN Y/O ABANDONO DE MI VEHICULO POR CUALQUIER CIRCUNSTANCIA, EL TALLER PODRA APLICAR LA CONDICIÓN No. 9 DEL CONTRATO DE PRESTACIÓN DE SERVICIOS, EL CUAL PONDRA EL VEHICULO A DISPOSICIÓN DE SERVICOMPACTOS LA AUTORIDAD CORRESPONDIENTE, SIN RESPONSABILIDAD ALGUNA PARA SERVICOMPACTOS DE JUÁREZ, S.A DE C.V.
+        </p>
+        <p>
+          ESTOY DEACUERDO QUE UNA VEZ NOTIFICADO POR EL ASESOR DE SERVICIO QUE MI VEHICULO YA ESTA TERMINADO, DEBO RECOGERLO EN UN LAPSO NO MAYOR DE 24 HRS, DE LO CONTRARIO PAGARE UN HOSPEDAJE DE DOSCIENTOS SESENTA PESOS DIARIOS
         </p>
 
-        <!-- Firma del cliente -->
         <div style="margin-top:30px;font-size:10px;">
           <div style="border-top:1px solid #000;padding-top:6px;text-align:center;">
             FIRMA DEL CLIENTE
@@ -484,7 +604,6 @@ function buildHtml(vehiculo) {
         </div>
       </td>
 
-      <!-- CONCEPTO DE REPARACIONES -->
       <td style="width:56%;padding:8px 10px;vertical-align:top;border-left:0.7px solid #000;">
         <div style="font-weight:bold;text-align:center;font-size:11px;margin-bottom:8px;border-bottom:1px solid #000;padding-bottom:4px;">
           CONCEPTO DE LAS REPARACIONES EFECTUADAS
@@ -493,14 +612,12 @@ function buildHtml(vehiculo) {
           <tr>
             <td style="width:20px;border:none;padding:2px 3px;font-weight:bold;">#</td>
             <td style="border:none;border-bottom:1px solid #000;padding:3px 4px;font-weight:bold;">DESCRIPCIÓN</td>
-            <td style="width:75px;border:none;border-bottom:1px solid #000;text-align:right;padding:3px 4px;font-weight:bold;">PRECIO $</td>
             <td style="width:42px;border:none;border-bottom:1px solid #000;text-align:right;padding:3px 4px;font-weight:bold;">HRS</td>
           </tr>
           ${lineasReparacion}
           <tr>
             <td colspan="2" style="border:none;border-top:1px solid #000;text-align:right;padding:4px 6px;font-weight:bold;font-size:10px;">TOTAL:</td>
-            <td style="border:none;border-top:1px solid #000;text-align:right;padding:4px 4px;font-weight:bold;">$</td>
-            <td style="border:none;border-top:1px solid #000;"></td>
+            <td style="border:none;border-top:1px solid #000;text-align:right;padding:4px 4px;font-weight:bold;"></td>
           </tr>
         </table>
 
@@ -514,6 +631,8 @@ function buildHtml(vehiculo) {
   </table>
 
 </div>
+
+${buildPagina3()}
 
 </body>
 </html>`;
