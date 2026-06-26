@@ -18,10 +18,27 @@ const emptyForm = {
   fallasReportadasCliente: "",
   infoLlantas: "",
   revisionFallas: "",
+  fallasMotorOtros: "",
+  sistemaElectricoAire: "",
+  suspensionDireccionFrenos: "",
+  sistemaEnfriamiento: "",
 };
+
+const PDF_SECTIONS = [
+  { label: "Fallas de motor y otros",                textKey: "fallasMotorOtros" },
+  { label: "Sistema eléctrico y aire acondicionado", textKey: "sistemaElectricoAire" },
+  { label: "Suspensión, dirección y frenos",         textKey: "suspensionDireccionFrenos" },
+  { label: "Sistema de enfriamiento",                textKey: "sistemaEnfriamiento" },
+];
 
 export default function ServicioReparacionTab({ ordenId, initialData, existingRefacciones = [], onSaved, readOnly = false }) {
   const [form, setForm] = useState(emptyForm);
+  const [activePdf, setActivePdf] = useState({
+    fallasMotorOtros: false,
+    sistemaElectricoAire: false,
+    suspensionDireccionFrenos: false,
+    sistemaEnfriamiento: false,
+  });
 
   // Catálogo de servicios desde BD Códigos
   const [catalogoServicios, setCatalogoServicios] = useState([]);
@@ -40,6 +57,16 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
         fallasReportadasCliente: initialData.fallasReportadasCliente || "",
         infoLlantas: initialData.infoLlantas || "",
         revisionFallas: initialData.revisionFallas || "",
+        fallasMotorOtros: initialData.fallasMotorOtros || "",
+        sistemaElectricoAire: initialData.sistemaElectricoAire || "",
+        suspensionDireccionFrenos: initialData.suspensionDireccionFrenos || "",
+        sistemaEnfriamiento: initialData.sistemaEnfriamiento || "",
+      });
+      setActivePdf({
+        fallasMotorOtros: !!initialData.fallasMotorOtros,
+        sistemaElectricoAire: !!initialData.sistemaElectricoAire,
+        suspensionDireccionFrenos: !!initialData.suspensionDireccionFrenos,
+        sistemaEnfriamiento: !!initialData.sistemaEnfriamiento,
       });
     }
   }, [initialData]);
@@ -79,6 +106,23 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
           : [...prev.serviciosSeleccionados, codigo],
       };
     });
+  };
+
+  // ===== Guardar servicio =====
+  const [guardando, setGuardando] = useState(false);
+
+  const handleGuardar = async () => {
+    if (!ordenId) return;
+    try {
+      setGuardando(true);
+      await updateServicioReparacion(ordenId, form);
+      alert("Guardado correctamente.");
+    } catch (err) {
+      console.error(err);
+      alert("Error al guardar.");
+    } finally {
+      setGuardando(false);
+    }
   };
 
   // ===== Solicitud de refacciones =====
@@ -277,9 +321,52 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
               />
             </div>
 
-            {/* ===== BOTÓN ===== */}
+            {/* ===== CAMPOS PARA EL PDF OPERATIVO ===== */}
+            {PDF_SECTIONS.map(({ label, textKey }) => (
+              <div className="mb-3" key={textKey}>
+                <div className="form-check border-bottom pb-2 mb-2">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    id={`chk-${textKey}`}
+                    checked={activePdf[textKey]}
+                    disabled={readOnly}
+                    onChange={(e) =>
+                      setActivePdf((prev) => ({ ...prev, [textKey]: e.target.checked }))
+                    }
+                  />
+                  <label
+                    className="form-check-label fw-bold text-uppercase"
+                    htmlFor={`chk-${textKey}`}
+                  >
+                    {label}
+                  </label>
+                </div>
+                {activePdf[textKey] && (
+                  <textarea
+                    className="form-control"
+                    rows={3}
+                    value={form[textKey]}
+                    readOnly={readOnly}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, [textKey]: e.target.value }))
+                    }
+                  />
+                )}
+              </div>
+            ))}
+
+            {/* ===== BOTONES ===== */}
             {!readOnly && (
-              <div className="d-flex justify-content-end">
+              <div className="d-flex justify-content-end gap-2">
+                <button
+                  type="button"
+                  className="btn btn-success px-4"
+                  onClick={handleGuardar}
+                  disabled={guardando}
+                >
+                  {guardando ? "Guardando..." : "Guardar"}
+                </button>
                 <button
                   type="button"
                   className="btn btn-primary px-5"
