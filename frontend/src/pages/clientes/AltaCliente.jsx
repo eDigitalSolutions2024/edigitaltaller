@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { createCustomer, getCustomer, updateCustomer } from "../../api/customers";
 import { getAsesores } from "../../api/users";
+import { getUser } from "../../auth";
 import "../../styles/clientes.css";
 
 const CLIENT_TYPES = [
@@ -169,6 +170,8 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
   const id = modoModal ? undefined : params.id;
   const isEdit = Boolean(id);
   const navigate = useNavigate();
+
+  const isAdmin = getUser()?.role === "admin";
 
   const [form, setForm] = useState(initial);
   useEffect(() => {
@@ -1097,22 +1100,24 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
         </>
       )}
 
-      {/* 👉 Combo de Asesor Responsable */}
+      {/* Asesor Responsable: solo visible para administradores */}
       <div className="form-grid">
-        <div className="form-row">
-          <label>Asesor Responsable</label>
-          <select
-            value={form.asesorResponsable ?? ""}
-            onChange={(e) => upd("asesorResponsable", e.target.value)}
-          >
-            <option value="">-- Seleccionar --</option>
-            {empleados.map((user) => (
-              <option key={user._id} value={user.name}>
-                {user.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        {isAdmin && (
+          <div className="form-row">
+            <label>Asesor Responsable</label>
+            <select
+              value={form.asesorResponsable ?? ""}
+              onChange={(e) => upd("asesorResponsable", e.target.value)}
+            >
+              <option value="">-- Seleccionar --</option>
+              {empleados.map((user) => (
+                <option key={user._id} value={user.name}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="form-row col-12">
           <label>Observaciones</label>

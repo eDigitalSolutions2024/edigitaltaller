@@ -1,5 +1,5 @@
 // src/pages/vehiculo/ServicioReparacionTab.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { updateServicioReparacion, saveRequisicionDiagnostico } from "../../api/vehiculos";
 import { fetchServiciosTaller } from "../../api/codigos";
 
@@ -108,22 +108,34 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
     });
   };
 
-  // ===== Guardar servicio =====
-  const [guardando, setGuardando] = useState(false);
+  // ===== Auto-guardado =====
+  const [autoSaveStatus, setAutoSaveStatus] = useState(null); // null | 'saving' | 'saved'
+  const autoSaveTimerRef = useRef(null);
+  const isFirstRenderRef = useRef(true);
 
-  const handleGuardar = async () => {
-    if (!ordenId) return;
-    try {
-      setGuardando(true);
-      await updateServicioReparacion(ordenId, form);
-      alert("Guardado correctamente.");
-    } catch (err) {
-      console.error(err);
-      alert("Error al guardar.");
-    } finally {
-      setGuardando(false);
+  useEffect(() => {
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      return;
     }
-  };
+    if (!ordenId || readOnly) return;
+
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+
+    autoSaveTimerRef.current = setTimeout(async () => {
+      try {
+        setAutoSaveStatus("saving");
+        await updateServicioReparacion(ordenId, form);
+        setAutoSaveStatus("saved");
+        setTimeout(() => setAutoSaveStatus(null), 2000);
+      } catch (err) {
+        console.error(err);
+        setAutoSaveStatus(null);
+      }
+    }, 1500);
+
+    return () => clearTimeout(autoSaveTimerRef.current);
+  }, [form, ordenId, readOnly]);
 
   // ===== Solicitud de refacciones =====
   const agregarRefaccion = () =>
@@ -358,15 +370,13 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
 
             {/* ===== BOTONES ===== */}
             {!readOnly && (
-              <div className="d-flex justify-content-end gap-2">
-                <button
-                  type="button"
-                  className="btn btn-success px-4"
-                  onClick={handleGuardar}
-                  disabled={guardando}
-                >
-                  {guardando ? "Guardando..." : "Guardar"}
-                </button>
+              <div className="d-flex justify-content-end align-items-center gap-3">
+                {autoSaveStatus === "saving" && (
+                  <small className="text-muted">Guardando...</small>
+                )}
+                {autoSaveStatus === "saved" && (
+                  <small className="text-success">Guardado</small>
+                )}
                 <button
                   type="button"
                   className="btn btn-primary px-5"
