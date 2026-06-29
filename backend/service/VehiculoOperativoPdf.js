@@ -103,10 +103,56 @@ function buildGaugeSvg(nivelGasolina) {
 </svg>`;
 }
 
-// ---------- PÁGINA 3: CONTRATO ----------
+// ---------- PÁGINA 3: RESUMEN VEHÍCULO ----------
+function buildPaginaResumen(vehiculo, fechaRecepcion) {
+  const marca = esc((vehiculo.marca || '') + ' ' + (vehiculo.modelo || '')).trim();
+  const anio  = esc(vehiculo.anio  || '');
+  const color = esc(vehiculo.color || '');
+  const orden = esc(vehiculo.ordenServicio || '');
+
+  return `
+<!-- ==================== PÁGINA 3: RESUMEN VEHÍCULO ==================== -->
+<div class="page3" style="display:flex;align-items:flex-start;justify-content:center;padding-top:20mm;">
+  <table style="border-collapse:collapse;width:100%;border:1.5px solid #000;">
+    <tr>
+      <td rowspan="2" style="width:26%;border:1.5px solid #000;padding:4px 6px;text-align:center;vertical-align:middle;">
+        ${LOGO_DATA_URL
+          ? `<img src="${LOGO_DATA_URL}" style="max-height:54px;max-width:170px;object-fit:contain;"/>`
+          : `<span style="font-size:14px;font-weight:800;color:#1E40AF;">Servicompactos</span>`}
+      </td>
+      <td style="border:1.5px solid #000;padding:3px 5px;font-weight:bold;text-align:center;font-size:9px;">VEHÍCULO/MARCA</td>
+      <td style="border:1.5px solid #000;padding:3px 5px;font-weight:bold;text-align:center;font-size:9px;">AÑO</td>
+      <td style="border:1.5px solid #000;padding:3px 5px;font-weight:bold;text-align:center;font-size:9px;">COLOR</td>
+      <td style="border:1.5px solid #000;padding:3px 5px;font-weight:bold;text-align:center;font-size:9px;">FECHA DE INGRESO</td>
+      <td style="border:1.5px solid #000;padding:3px 5px;font-weight:bold;text-align:center;font-size:13px;color:#E07B00;">ORDEN No.</td>
+    </tr>
+    <tr>
+      <td style="border:1.5px solid #000;padding:3px 5px;font-size:9px;text-align:center;">${marca}</td>
+      <td style="border:1.5px solid #000;padding:3px 5px;font-size:9px;text-align:center;">${anio}</td>
+      <td style="border:1.5px solid #000;padding:3px 5px;font-size:9px;text-align:center;">${color}</td>
+      <td style="border:1.5px solid #000;padding:3px 5px;font-size:9px;text-align:center;">${fechaRecepcion}</td>
+      <td style="border:1.5px solid #000;padding:3px 5px;font-size:18px;text-align:center;font-weight:bold;color:#E07B00;">O-${orden}</td>
+    </tr>
+    <tr>
+      <td colspan="6" style="border:1.5px solid #000;padding:4px 8px;font-size:8px;font-weight:bold;text-align:center;line-height:1.4;">
+        UNA VEZ CONCLUIDA LA REPARACIÓN DE SU VEHÍCULO, DEBERÁ SER RECOGIDO DENTRO DE LAS SIGUIENTES 24 HORAS.
+        DESPUÉS DE ESE PLAZO, SE GENERARÁ UN CARGO POR RESGUARDO DE $260.00 PESOS POR DIA
+      </td>
+    </tr>
+    <tr>
+      <td colspan="2" style="border:1.5px solid #000;padding:4px 6px;font-size:9px;font-weight:bold;background:#1E40AF;color:#fff;">Su...Asesor con espíritu de Servicio</td>
+      <td colspan="2" style="border:1.5px solid #000;padding:4px 6px;font-size:9px;font-weight:bold;background:#1E40AF;color:#fff;text-align:center;">CELULAR</td>
+      <td colspan="2" style="border:1.5px solid #000;padding:4px 6px;font-size:9px;font-weight:bold;background:#1E40AF;color:#fff;text-align:right;">Tels: (656) 6 23 56 51 al 54</td>
+    </tr>
+  </table>
+</div>
+`;
+}
+
+// ---------- PÁGINA 4: CONTRATO ----------
 function buildPagina3() {
   return `
-<!-- ==================== PÁGINA 3: CONTRATO ==================== -->
+<!-- ==================== PÁGINA 4: CONTRATO ==================== -->
 <div class="page3">
 
   <div class="contrato-titulo">
@@ -642,6 +688,7 @@ function buildHtml(vehiculo) {
 
 </div>
 
+${buildPaginaResumen(vehiculo, fechaRecepcion)}
 ${buildPagina3()}
 
 </body>
