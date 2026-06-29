@@ -451,7 +451,9 @@ function buildHtml(vehiculo) {
           <td style="padding:1px 2px;">ALTERNADOR ${chk(insp.alternador === 'SI')}</td>
         </tr>
         ${insp.otros ? `<tr><td colspan="3" style="padding:1px 2px;">OTROS: ${esc(insp.otros)}</td></tr>` : ''}
-        ${insp.observaciones ? `<tr><td colspan="3" style="padding:1px 2px;border-top:0.5px solid #ccc;">OBS: ${esc(insp.observaciones)}</td></tr>` : ''}
+        ${insp.observaciones ? `
+        <tr><td colspan="3" style="padding:2px 4px;background:#E5E7EB;font-weight:bold;font-size:9px;">OBSERVACIONES</td></tr>
+        <tr><td colspan="3" style="padding:2px 4px;">${esc(insp.observaciones)}</td></tr>` : ''}
       </table>
     </td>
 
@@ -543,6 +545,13 @@ function buildHtml(vehiculo) {
         <tr>
           <td style="height:45px;vertical-align:top;padding:2px 3px;">${esc(sr.sistemaEnfriamiento || '')}</td>
         </tr>
+
+        <tr>
+          <td class="gh" style="padding:2px 4px;">OBSERVACIONES GENERALES:</td>
+        </tr>
+        <tr>
+          <td style="height:45px;vertical-align:top;padding:2px 3px;">${esc(sr.revisionFallas || '')}</td>
+        </tr>
       </table>
     </td>
   </tr>
@@ -589,18 +598,17 @@ function buildHtml(vehiculo) {
           ASÍ COMO QUE SE ME GARANTICEN LAS REFACCIONES POR NOVENTA DÍAS O MIL QUINIENTOS KMS. LO QUE PRIMERO OCURRA EN CONDICIONES DE USO NORMAL, EXCEPTO EN PARTES ELÉCTRICAS USADAS Y/O SURTIDAS POR EL MISMO.
         </p>
         <p >
-          SI NO AUTORIZO LA REPARACIÓN Y/O ABANDONO DE MI VEHICULO POR CUALQUIER CIRCUNSTANCIA, EL TALLER PODRA APLICAR LA CONDICIÓN No. 9 DEL CONTRATO DE PRESTACIÓN DE SERVICIOS, EL CUAL PONDRA EL VEHICULO A DISPOSICIÓN DE SERVICOMPACTOS LA AUTORIDAD CORRESPONDIENTE, SIN RESPONSABILIDAD ALGUNA PARA SERVICOMPACTOS DE JUÁREZ, S.A DE C.V.
+          SI NO AUTORIZO LA REPARACIÓN Y/O ABANDONO DE MI VEHICULO POR CUALQUIER CIRCUNSTANCIA, EL TALLER PODRA APLICAR LA CONDICIÓN No. 9 DEL CONTRATO DE PRESTACIÓN DE SERVICIOS, EL CUAL PONDRA EL VEHICULO A DISPOSICIÓN LA AUTORIDAD CORRESPONDIENTE, SIN RESPONSABILIDAD ALGUNA PARA SERVICOMPACTOS DE JUÁREZ, S.A DE C.V.
         </p>
         <p>
           ESTOY DEACUERDO QUE UNA VEZ NOTIFICADO POR EL ASESOR DE SERVICIO QUE MI VEHICULO YA ESTA TERMINADO, DEBO RECOGERLO EN UN LAPSO NO MAYOR DE 24 HRS, DE LO CONTRARIO PAGARE UN HOSPEDAJE DE DOSCIENTOS SESENTA PESOS DIARIOS
         </p>
 
-        <div style="margin-top:30px;font-size:10px;">
-          <div style="border-top:1px solid #000;padding-top:6px;text-align:center;">
-            FIRMA DEL CLIENTE
+        <div style="margin-top:60px;font-size:10px;">
+          <div style="border-top:1.5px solid #000;margin-bottom:6px;"></div>
+          <div style="text-align:center;font-weight:bold;font-size:9px;line-height:1.4;">
+            AUTORIZACIÓN Y FIRMA DEL CLIENTE Y/O SUS REPRESENTANTES
           </div>
-          <div style="margin-top:20px;font-size:10px;">NOMBRE: _______________________________</div>
-          <div style="margin-top:10px;font-size:10px;">FECHA DE ENTREGA: ____________________</div>
         </div>
       </td>
 
@@ -621,9 +629,11 @@ function buildHtml(vehiculo) {
           </tr>
         </table>
 
-        <div style="margin-top:16px;font-size:10px;">
-          <div>TÉCNICO RESPONSABLE: _________________________________</div>
-          <div style="margin-top:10px;">FIRMA: _______________________________</div>
+        <div style="margin-top:60px;font-size:10px;">
+          <div style="border-top:1.5px solid #000;margin-bottom:6px;"></div>
+          <div style="text-align:center;font-weight:bold;font-size:9px;line-height:1.4;">
+            FIRMA DEL ASESOR O QUIEN LEVANTA LA ORDEN DE SERVICIO
+          </div>
         </div>
       </td>
 

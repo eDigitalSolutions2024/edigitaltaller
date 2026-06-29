@@ -324,7 +324,6 @@ router.put('/:id/servicio', async (req, res) => {
       {
         servicioReparacion,
         ordenIniciada: true,
-        estadoOrden: 'PENDIENTE_REFACCIONARIA',  // 👈 mover de CAPTURA a REFACCIONARIA
       },
       { new: true }
     );
