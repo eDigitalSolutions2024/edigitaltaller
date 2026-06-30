@@ -41,6 +41,8 @@ app.use('/api/proveedores', require('./routes/proveedores'));
 
 app.use('/api/vehiculos', require('./routes/vehiculos')); // 👈 NUEVA
 
+app.use('/api/garage', require('./routes/garage'));
+
 app.use('/api/entradas', require('./routes/entradas'));
 
 app.use('/api/inventario', require('./routes/inventario'));

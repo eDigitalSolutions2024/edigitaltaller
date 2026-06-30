@@ -312,6 +312,15 @@ useEffect(() => {
             >
               <span className="label">Exportar</span>
             </NavLink>
+
+            {user?.role === 'admin' && (
+              <NavLink
+                to="/vehiculo/garaje"
+                className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+              >
+                <span className="label">Garaje</span>
+              </NavLink>
+            )}
           </div>
         </div>
         )}

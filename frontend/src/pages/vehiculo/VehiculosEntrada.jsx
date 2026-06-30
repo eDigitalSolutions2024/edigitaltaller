@@ -1,10 +1,10 @@
 // src/pages/vehiculo/VehiculoEntrada.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { getClientes } from "../../api/customers"; // 👈 obtiene clientes del backend
+import { getClientes } from "../../api/customers";
 import VehiculoNuevoForm from "./VehiculoNuevoForm";
-import { listVehiculosByCliente } from "../../api/vehiculos"; // 👈 vehículos por cliente
 import { useNavigate } from "react-router-dom";
 import ModalAltaCliente from "../../components/ModalAltaCliente";
+import GarageModal from "./GarageModal";
 
 export default function VehiculoEntrada() {
   const [q, setQ] = useState("");
@@ -19,9 +19,8 @@ export default function VehiculoEntrada() {
   const [mostrarAcciones, setMostrarAcciones] = useState(false);
   const [mostrarFormNuevoCarro, setMostrarFormNuevoCarro] = useState(false);
 
-  const [vehiculosCliente, setVehiculosCliente] = useState([]);
-  const [loadingVehiculos, setLoadingVehiculos] = useState(false);
-  const [errorVehiculos, setErrorVehiculos] = useState("");
+  const [showGarageModal, setShowGarageModal] = useState(false);
+  const [vehiculoGarage, setVehiculoGarage] = useState(null);
 
   const navigate = useNavigate();
   const tabsRef = useRef(null);
@@ -78,12 +77,9 @@ export default function VehiculoEntrada() {
 
   const handleSeleccion = async (cliente) => {
     setClienteSeleccionado(cliente);
-
     setMostrarAcciones(true);
-
     setMostrarFormNuevoCarro(false);
-    setVehiculosCliente([]);
-    setErrorVehiculos("");
+    setVehiculoGarage(null);
 
     const nombre =
       cliente.gobierno?.nombreGobierno ||
@@ -92,40 +88,29 @@ export default function VehiculoEntrada() {
       "Sin nombre";
 
     setQ(nombre);
-
-    await cargarVehiculosCliente(cliente._id);
-  };
-
-  const cargarVehiculosCliente = async (clienteId) => {
-    try {
-      setLoadingVehiculos(true);
-      setErrorVehiculos("");
-
-      const res = await listVehiculosByCliente(clienteId);
-      // el backend responde { ok: true, data: [...] }
-      setVehiculosCliente(res.data.data || []);
-    } catch (err) {
-      console.error("Error cargando vehículos del cliente:", err);
-      setErrorVehiculos("No se pudieron cargar los vehículos del cliente.");
-      setVehiculosCliente([]);
-    } finally {
-      setLoadingVehiculos(false);
-    }
   };
 
   const handleNuevoCarro = () => {
-    console.log("Nuevo carro para cliente:", clienteSeleccionado);
-    setMostrarFormNuevoCarro(true); // 👈 mostrar el formulario
+    setVehiculoGarage(null);
+    setMostrarFormNuevoCarro(true);
   };
 
   const handleSinCarro = () => {
     console.log("Orden sin carro para cliente:", clienteSeleccionado);
-    // aquí luego harás el flujo de orden sin carro
+  };
+
+  const handleGaraje = () => {
+    setShowGarageModal(true);
+  };
+
+  const handleVehiculoDesdeGarage = (v) => {
+    setVehiculoGarage(v);
+    setMostrarFormNuevoCarro(true);
+    setShowGarageModal(false);
   };
 
   const handleVehiculoCreado = (vehiculo) => {
     if (!vehiculo?._id) return;
-
     navigate(`/vehiculo/orden/${vehiculo._id}?tab=servicio`);
   };
 
@@ -160,21 +145,10 @@ export default function VehiculoEntrada() {
                   setClienteSeleccionado(null);
                   setMostrarAcciones(false);
                   setMostrarFormNuevoCarro(false);
-                  setVehiculosCliente([]);
+                  setVehiculoGarage(null);
                 }}
               />
             </div>
-
-            {/* Botón Buscar 
-            <div className="col-12 col-md-3 d-grid">
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleBuscar}
-              >
-                Buscar
-              </button>
-            </div>*/}
           </div>
 
           {/* Estado de carga / error */}
@@ -235,54 +209,9 @@ export default function VehiculoEntrada() {
             </div>
           )}
 
-          {/* 4) Después de dar Buscar → mostrar vehículos del cliente + acciones */}
+          {/* Después de seleccionar cliente → botones de acción */}
           {mostrarAcciones && clienteSeleccionado && (
             <div className="mt-3">
-              {/* Lista de vehículos del cliente */}
-              <div className="mb-2">
-                {loadingVehiculos && (
-                  <p className="text-muted mb-1">Cargando vehículos...</p>
-                )}
-
-                {errorVehiculos && (
-                  <p className="text-danger mb-1">{errorVehiculos}</p>
-                )}
-
-                {!loadingVehiculos &&
-                  !errorVehiculos &&
-                  vehiculosCliente.length > 0 && (
-                    <div className="d-flex flex-wrap gap-2 mb-2">
-                      {vehiculosCliente.map((v) => {
-                        const label = `${v.marca || ""} ${v.modelo || ""} - ${
-                          v.anio || ""
-                        } - ${v.color || ""}`.trim();
-
-                        return (
-                          <button
-                            key={v._id}
-                            type="button"
-                            className="btn btn-outline-primary btn-sm"
-                            onClick={() => navigate(`/vehiculo/orden/${v._id}`)}
-                          >
-                            {label}
-                            {v.ordenServicio && ` · ${v.ordenServicio}`}
-                            {v.creadoPor && ` · ${v.creadoPor}`}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                {!loadingVehiculos &&
-                  !errorVehiculos &&
-                  vehiculosCliente.length === 0 && (
-                    <p className="text-muted mb-2">
-                      Este cliente aún no tiene vehículos registrados.
-                    </p>
-                  )}
-              </div>
-
-              {/* Cliente seleccionado + botones de acción */}
               <p className="mb-2">
                 <strong>Cliente Seleccionado: </strong>
                 {clienteSeleccionado.gobierno?.nombreGobierno ||
@@ -300,27 +229,35 @@ export default function VehiculoEntrada() {
               </button>
               <button
                 type="button"
-                className="btn btn-secondary"
+                className="btn btn-secondary me-2"
                 onClick={handleSinCarro}
               >
                 Sin Carro
+              </button>
+              <button
+                type="button"
+                className="btn btn-success"
+                onClick={handleGaraje}
+              >
+                Garaje
               </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* 👇 AQUÍ APARECE EL FORMULARIO GRANDE CUANDO DAN "Nuevo Carro" */}
+      {/* Formulario de nuevo vehículo */}
       {mostrarFormNuevoCarro && clienteSeleccionado && (
         <VehiculoNuevoForm
           cliente={clienteSeleccionado}
+          vehiculoGarage={vehiculoGarage}
           onCreated={handleVehiculoCreado}
         />
       )}
 
       <small className="text-muted d-block mt-2">
-        * Selecciona un cliente de la lista para continuar.
-        para continuar con el registro del vehículo o de la orden sin carro.
+        * Selecciona un cliente de la lista para continuar
+        con el registro del vehículo o de la orden sin carro.
       </small>
 
       {mostrarModalAlta && (
@@ -328,10 +265,7 @@ export default function VehiculoEntrada() {
           nombreInicial={q}
           onCerrar={() => setMostrarModalAlta(false)}
           onClienteCreado={(clienteNuevo) => {
-            // 1. Cerrar modal
             setMostrarModalAlta(false);
-
-            // 2. Agregar el cliente nuevo a la lista local y seleccionarlo
             if (clienteNuevo?._id) {
               setClientes((prev) => [clienteNuevo, ...prev]);
               handleSeleccion(clienteNuevo);
@@ -339,6 +273,12 @@ export default function VehiculoEntrada() {
           }}
         />
       )}
+
+      <GarageModal
+        show={showGarageModal}
+        onSelect={handleVehiculoDesdeGarage}
+        onClose={() => setShowGarageModal(false)}
+      />
     </div>
   );
 }
