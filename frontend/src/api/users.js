@@ -29,3 +29,15 @@ export const getAsesores = async () => {
   const { data } = await http.get('/users/asesores');
   return data;
 };
+
+export const verifyAdminPassword = async (password) => {
+  const { data } = await http.post('/users/verify-admin-password', { password });
+  return data; // { token }
+};
+
+export const revealUserPassword = async (id, revealToken) => {
+  const { data } = await http.get(`/users/${id}/password-reveal`, {
+    params: { revealToken }
+  });
+  return data; // { password }
+};

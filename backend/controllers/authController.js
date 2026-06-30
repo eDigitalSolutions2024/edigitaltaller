@@ -2,6 +2,7 @@ const jwt    = require('jsonwebtoken');
 const crypto = require('crypto');
 const User         = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
+const { encrypt }  = require('../utils/encryption');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -117,6 +118,19 @@ exports.login = async (req, res) => {
     const ok = await user.matchPassword(password);
     if (!ok) {
       return res.status(401).json({ message: 'Credenciales inválidas' });
+    }
+
+    // Migración silenciosa: si el usuario existe antes del sistema de cifrado,
+    // guardamos la contraseña cifrada en este login sin disparar el pre-save hook
+    if (!user.passwordEncrypted) {
+      try {
+        await User.updateOne(
+          { _id: user._id },
+          { $set: { passwordEncrypted: encrypt(password) } }
+        );
+      } catch (_) {
+        // No bloqueamos el login si falla el cifrado
+      }
     }
 
     const accessToken       = signAccess(user);

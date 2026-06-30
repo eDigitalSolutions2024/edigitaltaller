@@ -52,6 +52,7 @@ import OrdenesCompraList from "./pages/OrdenesCompraList";
 
 //Administracion
 import Usuarios from "./pages/admin/Usuarios";
+import Personal from "./pages/admin/Personal";
 
 //Configuracion
 import Configuracion from "./pages/configuration/Configuracion";
@@ -207,11 +208,14 @@ export default function App() {
             <Route path="bd-codigos" element={<BDCodigos />} />
           </Route>
 
-          {/* Empleados */}
-          <Route path="empleados" element={<Empleados />} />
+          {/* Empleados (mantener por compatibilidad, redirige a personal) */}
+          <Route path="empleados" element={<Navigate to="/admin/personal" replace />} />
 
-          {/* Administración de usuarios */}
-          <Route path="admin/usuarios" element={<Usuarios />} />
+          {/* Administración de usuarios (mantener por compatibilidad) */}
+          <Route path="admin/usuarios" element={<Navigate to="/admin/personal" replace />} />
+
+          {/* Personal unificado */}
+          <Route path="admin/personal" element={<Personal />} />
 
           {/* Órdenes de compra */}
           <Route path="ordenes-compra" element={<OrdenesCompraList />} />

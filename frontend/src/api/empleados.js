@@ -30,3 +30,9 @@ export async function cambiarEstadoEmpleado(id, activo) {
   const { data } = await http.patch(`/empleados/${id}/estado`, { activo });
   return data;
 }
+
+// Vincula/desvincula un usuario al empleado
+export async function vincularUsuario(empleadoId, usuarioId) {
+  const { data } = await http.put(`/empleados/${empleadoId}`, { usuario: usuarioId || null });
+  return data;
+}
