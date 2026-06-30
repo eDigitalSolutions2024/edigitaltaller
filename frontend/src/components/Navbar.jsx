@@ -114,6 +114,7 @@ useEffect(() => {
 }, [location.pathname]);
 
 
+
   const handleLogout = async () => {
     try {
       await http.post('/auth/logout'); // revoca el refresh token en BD
@@ -504,11 +505,12 @@ useEffect(() => {
 
                   
 
-            {canSeeModule(user?.role, 'reportes') && (
-              <NavLink to="/reportes" className="sidebar__link" title="Reportes">
-                <span className="emoji">📈</span><span className="label">Reportes</span>
-              </NavLink>
-            )}
+        {/* === REPORTES === */}
+        {canSeeModule(user?.role, 'reportes') && (
+          <NavLink to="/reportes" className="sidebar__link" title="Reportes">
+            <span className="emoji">📈</span><span className="label">Reportes</span>
+          </NavLink>
+        )}
           </nav>
 
       {/* Bottom */}

@@ -70,5 +70,7 @@ app.use('/api/facturacion', require('./routes/facturacion'));
 app.use('/api/fiscal-config', require('./routes/fiscal_config'));
 app.use('/api/generar-xml', require('./routes/generar_xml'));
 
+app.use('/api/reportes', require('./routes/reportes'));
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`🚀 Server en http://localhost:${PORT}`));
