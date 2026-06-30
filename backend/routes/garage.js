@@ -6,30 +6,39 @@ const Vehiculo = require('../models/Vehiculo');
 const POPULATE_CLIENTES = 'nombre apellidoPaterno empresa gobierno';
 
 // GET /api/garage — listar todos los vehículos del garaje
-// ?detalle=1 busca en tiempo real las órdenes cerradas por serie (vista admin)
+// Siempre calcula el conteo real de órdenes cerradas por serie.
+// ?detalle=1 además incluye el listado completo de órdenes (vista admin)
 router.get('/', async (req, res) => {
   try {
     const garageVehiculos = await GarageVehiculo.find()
       .populate('clientes', POPULATE_CLIENTES)
       .sort({ updatedAt: -1 });
 
-    if (req.query.detalle !== '1') {
-      return res.json({ ok: true, data: garageVehiculos });
-    }
+    const esDetalle = req.query.detalle === '1';
 
-    // Para la vista admin: buscar órdenes cerradas por serie en la colección Vehiculo
     const data = await Promise.all(
       garageVehiculos.map(async (g) => {
-        const ordenesCerradas = await Vehiculo.find({
-          serie: g.serie,
-          estadoOrden: 'CERRADA',
-        })
-          .select('ordenServicio fechaRecepcion fechaCierre')
-          .populate('cliente', POPULATE_CLIENTES)
-          .sort({ fechaCierre: -1 });
-
         const obj = g.toObject();
-        obj.ordenesCerradas = ordenesCerradas;
+
+        if (esDetalle) {
+          const ordenesCerradas = await Vehiculo.find({
+            serie: g.serie,
+            estadoOrden: 'CERRADA',
+          })
+            .select('ordenServicio fechaRecepcion fechaCierre')
+            .populate('cliente', POPULATE_CLIENTES)
+            .sort({ fechaCierre: -1 });
+
+          obj.ordenesCerradas = ordenesCerradas;
+          obj.vecesUsado = ordenesCerradas.length;
+        } else {
+          // Solo el conteo real para el modal de selección
+          obj.vecesUsado = await Vehiculo.countDocuments({
+            serie: g.serie,
+            estadoOrden: 'CERRADA',
+          });
+        }
+
         return obj;
       })
     );

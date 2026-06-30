@@ -58,6 +58,14 @@ import Personal from "./pages/admin/Personal";
 //Configuracion
 import Configuracion from "./pages/configuration/Configuracion";
 
+// Reportes
+import ReportesDashboard from "./pages/reportes/ReportesDashboard";
+
+// Captura (Reportes)
+import CapturaLayout from "./pages/captura/CapturaLayout";
+import ReporteOriginales from "./pages/captura/ReporteOriginales";
+import ReporteVentasAsesores from "./pages/captura/ReporteVentasAsesores";
+
 // Facturación
 import FacturacionLayout from "./pages/facturacion/FacturacionLayout";
 import FacturacionPanel from "./pages/facturacion/FacturacionPanel";
@@ -128,6 +136,16 @@ const RoleRoute = ({ children, module }) => {
   const raw = localStorage.getItem("user");
   const user = raw ? JSON.parse(raw) : null;
   if (!canSeeModule(user?.role, module)) {
+    return <Navigate to={defaultRouteForRole(user?.role)} replace />;
+  }
+  return children;
+};
+
+/** Protege una ruta para roles específicos */
+const RolesRoute = ({ children, roles }) => {
+  const raw = localStorage.getItem("user");
+  const user = raw ? JSON.parse(raw) : null;
+  if (!roles.includes(user?.role)) {
     return <Navigate to={defaultRouteForRole(user?.role)} replace />;
   }
   return children;
@@ -225,6 +243,19 @@ export default function App() {
           {/* Configuración */}
           <Route path="configuracion" element={<Configuracion />} />
 
+
+          {/* Reportes dashboard */}
+          <Route path="reportes" element={<RoleRoute module="reportes"><ReportesDashboard /></RoleRoute>} />
+
+          {/* Captura (solo admin y finanzas) */}
+          <Route
+            path="captura/*"
+            element={<RolesRoute roles={['admin', 'finanzas']}><CapturaLayout /></RolesRoute>}
+          >
+            <Route index element={<Navigate to="originales" replace />} />
+            <Route path="originales" element={<ReporteOriginales />} />
+            <Route path="ventas-asesores" element={<ReporteVentasAsesores />} />
+          </Route>
 
           {/* Facturación */}
           <Route path="facturacion/*" element={<FacturacionLayout />}>
