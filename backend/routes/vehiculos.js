@@ -991,11 +991,16 @@ router.put('/:id/cerrar', async (req, res) => {
     vehiculo.pendienteCierre = false;
     vehiculo.fechaCierre = new Date();
 
-    // si quieres guardar fecha de cierre, puedes agregar el campo en el schema
-    // y descomentar esto:
-    // vehiculo.fechaCierre = new Date();
-
     await vehiculo.save();
+
+    // incrementar contador de usos en el garaje si el vehículo tiene serie
+    if (vehiculo.serie) {
+      const GarageVehiculo = require('../models/GarageVehiculo');
+      await GarageVehiculo.findOneAndUpdate(
+        { serie: vehiculo.serie },
+        { $inc: { vecesUsado: 1 } }
+      ).catch(() => {});
+    }
 
     return res.json({ ok: true, vehiculo });
   } catch (err) {

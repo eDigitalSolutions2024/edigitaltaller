@@ -1,6 +1,7 @@
 // src/pages/vehiculo/VehiculoNuevoForm.jsx
 import React, { useEffect, useState } from "react";
 import { createVehiculo, updateDatosOrden } from "../../api/vehiculos";
+import { upsertGarageVehiculo } from "../../api/garage";
 import VehicleDamageCanvas from "../../components/VehicleDamageCanvas";
 import { getUser } from "../../auth";
 
@@ -72,6 +73,7 @@ export default function VehiculoNuevoForm({
   initialData,
   readOnly = false,
   onCreated,
+  vehiculoGarage,
 }) {
   const esParticular = cliente?.tipoCliente === "Particular";
   const requiereFactura = cliente?.requiereFacturacion === true;
@@ -323,6 +325,25 @@ export default function VehiculoNuevoForm({
     }));
   }, [initialData]);
 
+  // Pre-llenar campos de vehículo cuando se selecciona desde el garaje
+  useEffect(() => {
+    if (!vehiculoGarage) return;
+    setForm((prev) => ({
+      ...prev,
+      marca:           vehiculoGarage.marca || "",
+      modelo:          vehiculoGarage.modelo || "",
+      anio:            vehiculoGarage.anio || "",
+      color:           vehiculoGarage.color || "",
+      serie:           vehiculoGarage.serie || "",
+      placas:          vehiculoGarage.placas || "",
+      kmsMillas:       vehiculoGarage.kmsMillas || "",
+      nacionalidad:    vehiculoGarage.nacionalidad || "",
+      motor:           vehiculoGarage.motor || "",
+      numeroEconomico: vehiculoGarage.numeroEconomico || "",
+      traccion:        vehiculoGarage.traccion || "",
+    }));
+  }, [vehiculoGarage]);
+
   const handleChange = (e) => {
     if (efectivoReadOnly) return; // no permitir editar en detalle
 
@@ -392,9 +413,32 @@ export default function VehiculoNuevoForm({
       const res = await createVehiculo(cliente._id, payload);
       setGuardado(true);
       const vehiculoCreado = res.data?.vehiculo || res.data;
-      if (onCreated) onCreated(vehiculoCreado);
       window.dispatchEvent(new CustomEvent('orden-creada'));
       console.log("Vehiculo guardado:", res.data || res);
+
+      // Guardar automáticamente en el garaje si tiene serie (sin pedir confirmación)
+      if (form.serie?.trim()) {
+        try {
+          await upsertGarageVehiculo({
+            serie:           form.serie,
+            marca:           form.marca,
+            modelo:          form.modelo,
+            anio:            form.anio,
+            color:           form.color,
+            placas:          form.placas,
+            kmsMillas:       form.kmsMillas,
+            nacionalidad:    form.nacionalidad,
+            motor:           form.motor,
+            numeroEconomico: form.numeroEconomico,
+            traccion:        form.traccion,
+            clienteId:       cliente?._id,
+          });
+        } catch (garageErr) {
+          console.error("Error guardando en garaje:", garageErr);
+        }
+      }
+
+      if (onCreated) onCreated(vehiculoCreado);
       alert(
         `Vehículo / orden guardada correctamente.\nOrden de Servicio: ${payload.ordenServicio}`
       );
