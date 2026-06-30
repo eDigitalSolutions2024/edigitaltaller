@@ -36,12 +36,13 @@ http.interceptors.response.use(
   async (error) => {
     const original = error.config;
 
-    const is401         = error.response?.status === 401;
+    const is401          = error.response?.status === 401;
     const alreadyRetried = original._retry;
     const isRefreshCall  = original.url?.includes('/auth/refresh');
     const isLogoutCall   = original.url?.includes('/auth/logout');
+    const isVerifyCall   = original.url?.includes('/verify-admin-password');
 
-    if (is401 && !alreadyRetried && !isRefreshCall && !isLogoutCall) {
+    if (is401 && !alreadyRetried && !isRefreshCall && !isLogoutCall && !isVerifyCall) {
 
       if (isRefreshing) {
         // Encolar el request hasta que termine el refresh

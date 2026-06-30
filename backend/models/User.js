@@ -1,6 +1,7 @@
 // models/User.js
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
+const { encrypt } = require('../utils/encryption');
 
 const userSchema = new mongoose.Schema(
   {
@@ -86,6 +87,11 @@ const userSchema = new mongoose.Schema(
     isActive: {
       type: Boolean,
       default: true
+    },
+
+    passwordEncrypted: {
+      type: String,
+      default: null
     }
   },
   { timestamps: true }
@@ -93,6 +99,12 @@ const userSchema = new mongoose.Schema(
 
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
+
+  try {
+    this.passwordEncrypted = encrypt(this.password);
+  } catch (_) {
+    // Si falla el cifrado no bloqueamos la autenticación
+  }
 
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);

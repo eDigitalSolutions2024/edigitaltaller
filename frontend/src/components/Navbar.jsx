@@ -177,10 +177,10 @@ useEffect(() => {
 
               <div id="submenu-admin" className="sidebar__sublinks">
                 <NavLink
-                  to="/admin/usuarios"
-                      className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+                  to="/admin/personal"
+                  className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
                 >
-                <span className="label">Usuarios</span>
+                  <span className="label">Personal</span>
                 </NavLink>
               </div>
 
@@ -492,17 +492,6 @@ useEffect(() => {
         </div>
         )}
         {/* === FIN GRUPO REFACCIONARIA === */}
-                {/* Empleados (solo admin) */}
-                  {user?.role === 'admin' && (
-                    <NavLink
-                      to="/empleados"
-                      className="sidebar__link"
-                      title="Empleados"
-                    >
-                      <span className="emoji">👷‍♂️</span>
-                      <span className="label">Empleados</span>
-                    </NavLink>
-                  )}
 
                   
 

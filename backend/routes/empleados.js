@@ -60,6 +60,7 @@ router.get('/', proteger, async (req, res) => {
     if (req.query.puesto) filtros.puesto = req.query.puesto;
 
     const empleados = await Empleado.find(filtros)
+      .populate('usuario', '_id name username email role isActive')
       .sort({ nombre: 1 })
       .lean();
 
@@ -104,20 +105,23 @@ router.put(
   requiereRol('jefe', 'admin', 'contabilidad'),
   async (req, res) => {
     try {
-      const { nombre, puesto, telefono, correo, fechaAlta, notas, activo } =
+      const { nombre, puesto, telefono, correo, fechaAlta, notas, activo, usuario } =
         req.body;
+
+      const update = {
+        nombre,
+        puesto,
+        telefono,
+        correo,
+        fechaAlta,
+        notas,
+        ...(typeof activo === 'boolean' ? { activo } : {}),
+        ...(usuario !== undefined ? { usuario: usuario || null } : {})
+      };
 
       const actualizado = await Empleado.findByIdAndUpdate(
         req.params.id,
-        {
-          nombre,
-          puesto,
-          telefono,
-          correo,
-          fechaAlta,
-          notas,
-          ...(typeof activo === 'boolean' ? { activo } : {})
-        },
+        update,
         { new: true, runValidators: true }
       );
 

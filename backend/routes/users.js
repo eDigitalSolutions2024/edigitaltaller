@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
+const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { decrypt } = require('../utils/encryption');
 const { proteger, requiereRol } = require('../middleware/auth');
 
 // GET /api/users/asesores — lista de asesores activos (accesible a todos los roles autenticados)
@@ -19,7 +21,7 @@ router.get('/asesores', proteger, async (req, res) => {
 router.get('/', proteger, requiereRol('admin'), async (req, res) => {
   try {
     const users = await User.find()
-      .select('-password')
+      .select('-password -passwordEncrypted')
       .populate('employee', 'nombre nombreCompleto puesto')
       .sort({ createdAt: -1 });
 
@@ -175,6 +177,71 @@ router.patch('/:id/status', proteger, requiereRol('admin'), async (req, res) => 
     res.json(cleanUser);
   } catch (error) {
     res.status(500).json({ message: 'Error al cambiar estatus', error: error.message });
+  }
+});
+
+// POST /api/users/verify-admin-password
+// El admin verifica su propia contraseña; devuelve un token de 60 s para revelar contraseñas
+router.post('/verify-admin-password', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password) {
+      return res.status(400).json({ message: 'Contraseña requerida' });
+    }
+
+    const admin = await User.findById(req.user._id || req.user.id);
+    const match = await admin.matchPassword(password);
+    if (!match) {
+      return res.status(401).json({ message: 'Contraseña incorrecta' });
+    }
+
+    const token = jwt.sign(
+      { adminId: String(req.user._id || req.user.id), type: 'pwd_reveal' },
+      process.env.JWT_SECRET,
+      { expiresIn: '60s' }
+    );
+
+    res.json({ token });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al verificar contraseña', error: error.message });
+  }
+});
+
+// GET /api/users/:id/password-reveal
+// Devuelve la contraseña descifrada; requiere el token de verificación (60 s)
+router.get('/:id/password-reveal', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { revealToken } = req.query;
+    if (!revealToken) {
+      return res.status(401).json({ message: 'Token de verificación requerido' });
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(revealToken, process.env.JWT_SECRET);
+    } catch (_) {
+      return res.status(401).json({ message: 'Token expirado o inválido' });
+    }
+
+    if (payload.type !== 'pwd_reveal') {
+      return res.status(401).json({ message: 'Token inválido' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+    if (user.role === 'admin' && String(user._id) !== String(req.user._id || req.user.id)) {
+      return res.status(403).json({ message: 'No tienes permiso para ver la contraseña de otro administrador' });
+    }
+    if (!user.passwordEncrypted) {
+      return res.status(404).json({ message: 'Contraseña no disponible para este usuario' });
+    }
+
+    const password = decrypt(user.passwordEncrypted);
+    res.json({ password });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al revelar contraseña', error: error.message });
   }
 });
 
