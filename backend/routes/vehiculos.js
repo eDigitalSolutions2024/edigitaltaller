@@ -323,7 +323,6 @@ router.put('/:id/servicio', async (req, res) => {
       req.params.id,
       {
         servicioReparacion,
-        ordenIniciada: true,
       },
       { new: true }
     );
@@ -385,6 +384,7 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
       if (estadoOrden === 'PENDIENTE_REFACCIONARIA') {
         vehiculo.fechaSolicitudRefacciones = new Date();
         vehiculo.fechaRespuestaRefaccionaria = null;
+        vehiculo.ordenIniciada = true;
       }
 
       if (estadoOrden === 'PENDIENTE_AUTORIZACION_CLIENTE') {
