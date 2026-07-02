@@ -120,7 +120,7 @@ export default function PeriodoSelector({ onBuscar, cargando }) {
               {cargando ? (
                 <><span className="spinner-border spinner-border-sm me-1" />Cargando…</>
               ) : (
-                '🔍 Generar reporte'
+                'Generar reporte'
               )}
             </button>
           </div>

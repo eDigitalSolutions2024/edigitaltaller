@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import PeriodoSelector from './PeriodoSelector';
-import { getReporteOriginales } from '../../api/reportes';
+import { getReporteOriginales, openReporteOriginalesPdf } from '../../api/reportes';
 
 export default function ReporteOriginales() {
   const [cargando, setCargando] = useState(false);
@@ -42,9 +42,18 @@ export default function ReporteOriginales() {
             <span className="text-muted small">
               Período: <strong>{new Date(rango.desde).toLocaleDateString('es-MX')}</strong> — <strong>{new Date(rango.hasta).toLocaleDateString('es-MX')}</strong>
             </span>
-            <span className="badge bg-primary fs-6">
-              Total: {data.total} orden{data.total !== 1 ? 'es' : ''}
-            </span>
+            <div className="d-flex align-items-center gap-2">
+              <span className="badge bg-primary fs-6">
+                Total: {data.total} orden{data.total !== 1 ? 'es' : ''}
+              </span>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-danger"
+                onClick={() => openReporteOriginalesPdf(rango.desde, rango.hasta)}
+              >
+                Ver PDF
+              </button>
+            </div>
           </div>
 
           {data.data.length === 0 ? (

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import PeriodoSelector from './PeriodoSelector';
-import { getReporteVentasAsesores } from '../../api/reportes';
+import { getReporteVentasAsesores, openReporteVentasAsesoresPdf } from '../../api/reportes';
 
 const fmt = (n) =>
   new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n || 0);
@@ -45,13 +45,20 @@ export default function ReporteVentasAsesores() {
             <span className="text-muted small">
               Período: <strong>{new Date(rango.desde).toLocaleDateString('es-MX')}</strong> — <strong>{new Date(rango.hasta).toLocaleDateString('es-MX')}</strong>
             </span>
-            <div className="d-flex gap-2">
+            <div className="d-flex gap-2 align-items-center">
               <span className="badge bg-secondary fs-6">
                 Total órdenes: {resultado.totalOrdenes}
               </span>
               <span className="badge bg-primary fs-6">
                 Total general: {fmt(resultado.totalGeneral)}
               </span>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-danger"
+                onClick={() => openReporteVentasAsesoresPdf(rango.desde, rango.hasta)}
+              >
+                Ver PDF
+              </button>
             </div>
           </div>
 
