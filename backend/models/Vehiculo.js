@@ -13,6 +13,7 @@ const ESTADOS_ORDEN = [
   'CALIDAD',
   'PENDIENTE_CERRAR',
   'CERRADA',
+  'CANCELADA',
 ];
 
 const vehiculoSchema = new Schema(

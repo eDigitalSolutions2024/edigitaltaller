@@ -183,18 +183,16 @@
 /* La zona de navegación crece y hace scroll */
 .sidebar__nav{
   flex: 1 1 auto;             /* ocupa el espacio entre top y bottom */
-  overflow-y: auto;           /* << barra de scroll */
+  overflow-y: auto;           /* mantiene el scroll, pero sin barra visible */
   min-height: 0;              /* importante en layouts flex */
-  padding-right: 6px;         /* deja espacio para la barra */
-  scrollbar-gutter: stable both-edges; /* evita “saltos” al aparecer la barra */
+  scrollbar-width: none;      /* Firefox */
+  -ms-overflow-style: none;   /* IE/Edge legacy */
 }
 
-/* Scrollbar bonita (opcional) */
-.sidebar__nav::-webkit-scrollbar{ width: 8px; }
-.sidebar__nav::-webkit-scrollbar-thumb{
-  background: rgba(255,255,255,.35); border-radius: 8px;
-}
-.sidebar__nav::-webkit-scrollbar-track{ background: transparent; }
+/* Oculta la barra de scroll (Chrome/Edge/Safari) sin usar display:none,
+   que en algunos WebKit (iOS/tablets) desactiva el scroll táctil */
+.sidebar__nav::-webkit-scrollbar{ width: 0; height: 0; background: transparent; }
+.sidebar__nav::-webkit-scrollbar-thumb{ background: transparent; }
 
 /* En modo colapsado puedes quitar el padding derecho si quieres */
 .sidebar.is-collapsed .sidebar__nav{ padding-right: 0; }

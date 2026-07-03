@@ -4,6 +4,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { canSeeModule, defaultRouteForRole } from "./utils/roles";
 import { setAccessToken, getAccessToken } from "./api/http";
+import useGlobalUppercase from "./hooks/useGlobalUppercase";
 
 import LoginPage from "./pages/LoginPage";
 import AppLayout from "./layouts/AppLayout";
@@ -39,6 +40,7 @@ import VehiculoConsultaOrdenes from "./pages/vehiculo/VehiculosConsultaOrdenes";
 import VehiculoConsultaCerradas from "./pages/vehiculo/VehiculosConsultaCerradas";
 import VehiculoExportar from "./pages/vehiculo/VehiculosExportar";
 import VehiculoOrdenDetalle from "./pages/vehiculo/VehiculoOrdenDetalle";
+import VehiculoConsultaCanceladas from "./pages/vehiculo/VehiculosConsultaCanceladas";
 import GarageAdminPage from "./pages/vehiculo/GarageAdminPage";
 
 // Devoluciones
@@ -152,6 +154,8 @@ const RolesRoute = ({ children, roles }) => {
 };
 
 export default function App() {
+  useGlobalUppercase();
+
   return (
     <BrowserRouter>
       <Routes>
@@ -197,6 +201,7 @@ export default function App() {
             <Route path="entrada" element={<VehiculoEntrada />} />
             <Route path="consulta-ordenes" element={<VehiculoConsultaOrdenes />} />
             <Route path="consulta-ordenes-cerradas" element={<VehiculoConsultaCerradas />} />
+            <Route path="consulta-ordenes-canceladas" element={<VehiculoConsultaCanceladas />} />
             <Route path="exportar" element={<VehiculoExportar />} />
             <Route path="garaje" element={<GarageAdminPage />} />
             <Route path="orden/:id" element={<VehiculoOrdenDetalle />} />
@@ -250,7 +255,7 @@ export default function App() {
           {/* Captura (solo admin y finanzas) */}
           <Route
             path="captura/*"
-            element={<RolesRoute roles={['admin', 'finanzas']}><CapturaLayout /></RolesRoute>}
+            element={<RolesRoute roles={['admin', 'finanzas', 'captura']}><CapturaLayout /></RolesRoute>}
           >
             <Route index element={<Navigate to="originales" replace />} />
             <Route path="originales" element={<ReporteOriginales />} />

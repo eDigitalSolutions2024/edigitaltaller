@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { getVehiculoById, openOperativoPdf } from "../../api/vehiculos";
+import { getUser } from "../../auth";
 import VehiculoNuevoForm from "./VehiculoNuevoForm";
 import ServicioReparacionTab from "./ServicioReparacionTab";
 import VehiculoRequisicionDiagnostico from "./VehiculoRequisicionDiagnostico";
@@ -20,6 +21,7 @@ const ESTADO_TO_TAB = {
   PENDIENTE_CIERRE:               "general",
   PENDIENTE_CERRAR:               "general",
   CERRADA:                        "general",
+  CANCELADA:                      "general",
 };
 
 const TAB_STEP = { datos: 0, servicio: 1, req: 2, presupuesto: 3, reparacion: 4, general: 5 };
@@ -32,6 +34,7 @@ const ESTADO_STEP = {
   PENDIENTE_CIERRE:               5,
   PENDIENTE_CERRAR:               5,
   CERRADA:                        5,
+  CANCELADA:                      5,
 };
 
 // Estados donde el presupuesto siempre es accesible (sin necesitar el botón)
@@ -72,6 +75,15 @@ export default function VehiculoOrdenDetalle() {
   const reparacionHabilitada = ESTADOS_PREPARACION.includes(orden?.estadoOrden);
 
   const esCerrada = orden?.estadoOrden === "CERRADA";
+  const esCancelada = orden?.estadoOrden === "CANCELADA";
+
+  // Solo el admin puede editar órdenes de otros asesores; el dueño puede editar la suya
+  const usuario = getUser();
+  const miNombre = usuario?.name || usuario?.username || "";
+  const esAdmin = usuario?.role === "admin";
+  const esPropia = orden?.creadoPor === miNombre;
+  const soloConsulta = !esAdmin && !esPropia;
+  const soloLectura = esCerrada || esCancelada || soloConsulta;
 
   const currentStep = ESTADO_STEP[orden?.estadoOrden] ?? 0;
   const isPast = (tabKey) => !orden ? false : TAB_STEP[tabKey] < currentStep;
@@ -264,6 +276,20 @@ export default function VehiculoOrdenDetalle() {
         </div>
       )}
 
+      {/* Banner solo lectura cuando la orden está cancelada */}
+      {esCancelada && (
+        <div className="alert alert-danger text-center py-2 mb-3">
+          <strong>Orden cancelada.</strong> Solo lectura — no se pueden realizar modificaciones.
+        </div>
+      )}
+
+      {/* Banner solo lectura cuando la orden es de otro asesor */}
+      {!esCerrada && !esCancelada && soloConsulta && (
+        <div className="alert alert-warning text-center py-2 mb-3">
+          <strong>Orden de otro asesor.</strong> Solo puedes consultarla — no se pueden realizar modificaciones.
+        </div>
+      )}
+
       {/* Contenido de tabs */}
       {tab === "datos" && (
         <VehiculoNuevoForm cliente={null} initialData={orden} readOnly />
@@ -275,7 +301,7 @@ export default function VehiculoOrdenDetalle() {
           initialData={orden.servicioReparacion}
           existingRefacciones={orden.refaccionesSolicitadas || []}
           onSaved={handleServicioSaved}
-          readOnly={esCerrada}
+          readOnly={soloLectura}
         />
       )}
 
@@ -312,7 +338,7 @@ export default function VehiculoOrdenDetalle() {
             orden={orden}
             onSaved={(vActualizado) => setOrden(vActualizado)}
             onGoPresupuesto={handleGoPresupuesto}
-            readOnly={esCerrada}
+            readOnly={soloLectura}
           />
         )
       )}
@@ -322,7 +348,7 @@ export default function VehiculoOrdenDetalle() {
           orden={orden}
           onSaved={handleOrdenSaved}
           onGoPreparacion={() => changeTab("reparacion")}
-          readOnly={esCerrada}
+          readOnly={soloLectura}
         />
       )}
 
@@ -331,7 +357,7 @@ export default function VehiculoOrdenDetalle() {
           orden={orden}
           onSaved={(vActualizado) => setOrden(vActualizado)}
           onGoGeneral={() => changeTab("general")}
-          readOnly={esCerrada}
+          readOnly={soloLectura}
         />
       )}
 
