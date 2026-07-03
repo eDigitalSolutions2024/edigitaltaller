@@ -8,6 +8,8 @@ import {
   getMecanicos,
   crearMecanico,
   cambiarEstadoMecanico,
+  getOrdenServicioContador,
+  actualizarOrdenServicioContador,
 } from "../../api/configuracion";
 
 import "../../styles/configuracion.css";
@@ -20,11 +22,14 @@ export default function Configuracion() {
   const [tiposCambio, setTiposCambio] = useState([]);
   const [unidades, setUnidades] = useState([]);
   const [mecanicos, setMecanicos] = useState([]);
+  const [ordenServicioContador, setOrdenServicioContador] = useState(0);
 
   const [tipoCambioForm, setTipoCambioForm] = useState({
     valor: "",
     fecha: new Date().toISOString().slice(0, 10),
   });
+
+  const [ordenServicioForm, setOrdenServicioForm] = useState("");
 
   const [unidadForm, setUnidadForm] = useState({
     nombre: "",
@@ -40,15 +45,17 @@ export default function Configuracion() {
       setLoading(true);
       setError("");
 
-      const [tipos, unidadesData, mecanicosData] = await Promise.all([
+      const [tipos, unidadesData, mecanicosData, ordenServicioData] = await Promise.all([
         getTiposCambio(),
         getUnidadesMedida(),
         getMecanicos(),
+        getOrdenServicioContador(),
       ]);
 
       setTiposCambio(tipos);
       setUnidades(unidadesData);
       setMecanicos(mecanicosData);
+      setOrdenServicioContador(ordenServicioData?.valor || 0);
     } catch (err) {
       setError(err.message || "Error al cargar configuración");
     } finally {
@@ -56,8 +63,38 @@ export default function Configuracion() {
     }
   };
 
+  // Refresca solo el contador de Orden de Servicio (sin tocar el resto de
+  // la pantalla) — se usa al montar y al recuperar el foco de la pestaña.
+  const refrescarOrdenServicioContador = async () => {
+    try {
+      const data = await getOrdenServicioContador();
+      setOrdenServicioContador(data?.valor || 0);
+    } catch {
+      // Falla silenciosa: no interrumpe la vista si el refresco en segundo
+      // plano no se pudo completar.
+    }
+  };
+
   useEffect(() => {
     cargarDatos();
+  }, []);
+
+  // Al volver a enfocar la pestaña, el contador puede haber cambiado
+  // (ej. otro asesor creó una orden mientras tanto) — lo refrescamos.
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refrescarOrdenServicioContador();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", refrescarOrdenServicioContador);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", refrescarOrdenServicioContador);
+    };
   }, []);
 
   const mostrarMensaje = (texto) => {
@@ -83,6 +120,22 @@ export default function Configuracion() {
 
       await cargarDatos();
       mostrarMensaje("Tipo de cambio guardado correctamente");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleGuardarOrdenServicioContador = async (e) => {
+    e.preventDefault();
+
+    try {
+      setError("");
+
+      const res = await actualizarOrdenServicioContador(ordenServicioForm);
+      setOrdenServicioContador(res?.valor || 0);
+      setOrdenServicioForm("");
+
+      mostrarMensaje("Número actual de Orden de Servicio actualizado correctamente");
     } catch (err) {
       setError(err.message);
     }
@@ -190,6 +243,43 @@ export default function Configuracion() {
                       fecha: e.target.value,
                     })
                   }
+                  required
+                />
+              </label>
+
+              <button type="submit">Guardar</button>
+            </form>
+          </section>
+
+          {/* Contador de Orden de Servicio */}
+          <section className="config-card">
+            <div className="config-card-header">
+              <div>
+                <h2>Folio de Orden de Servicio</h2>
+              </div>
+              <div className="config-icon">🔢</div>
+            </div>
+
+            <div className="config-current">
+              <span>Número actual</span>
+              <strong>{ordenServicioContador}</strong>
+            </div>
+
+            <p className="text-muted small mb-2">
+              La próxima orden de servicio se creará como{" "}
+              <strong>P-{Number(ordenServicioContador) + 1}</strong>.
+            </p>
+
+            <form onSubmit={handleGuardarOrdenServicioContador} className="config-form">
+              <label>
+                Redefinir número actual
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={ordenServicioForm}
+                  onChange={(e) => setOrdenServicioForm(e.target.value)}
+                  placeholder={`Ej. ${ordenServicioContador}`}
                   required
                 />
               </label>

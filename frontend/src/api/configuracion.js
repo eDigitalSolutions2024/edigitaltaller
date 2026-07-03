@@ -23,3 +23,9 @@ export const crearMecanico = (payload) =>
 
 export const cambiarEstadoMecanico = (id, activo) =>
   http.patch(`/configuracion/mecanicos/${id}/status`, { activo }).then(r => r.data);
+
+export const getOrdenServicioContador = () =>
+  http.get('/configuracion/orden-servicio-contador').then(r => r.data);
+
+export const actualizarOrdenServicioContador = (valor) =>
+  http.put('/configuracion/orden-servicio-contador', { valor }).then(r => r.data);
