@@ -3,8 +3,9 @@
  * Los roles que NO aparecen aquí tienen acceso completo (admin, mecanico, etc.)
  */
 const ROLE_MODULES = {
-  refaccionario:  ['refaccionaria'],
+  refaccionario:   ['refaccionaria'],
   asesor_servicio: ['clientes', 'vehiculo'],
+  captura:         ['reportes'],
 };
 
 /**
@@ -22,5 +23,6 @@ export function canSeeModule(role, module) {
 export function defaultRouteForRole(role) {
   if (role === 'refaccionario')   return '/refaccionaria';
   if (role === 'asesor_servicio') return '/clientes/consulta';
+  if (role === 'captura')         return '/reportes';
   return '/dashboard';
 }

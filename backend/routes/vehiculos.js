@@ -300,7 +300,7 @@ router.get('/mis-ordenes', proteger, requiereRol('asesor_servicio', 'admin'), as
     const nombreUsuario = req.user.name || req.user.username;
     const ordenes = await Vehiculo.find({
       creadoPor: nombreUsuario,
-      estadoOrden: { $ne: 'CERRADA' },
+      estadoOrden: { $nin: ['CERRADA', 'CANCELADA'] },
     })
       .select('ordenServicio estadoOrden marca modelo anio color createdAt cliente')
       .populate('cliente', POPULATE_CLIENTE)

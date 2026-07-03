@@ -14,6 +14,7 @@ const ESTADO_LABEL = {
   CALIDAD: 'Calidad',
   PENDIENTE_CERRAR: 'Por cerrar',
   CERRADA: 'Cerrada',
+  CANCELADA: 'Cancelada',
 };
 
 const ESTADO_COLOR = {
@@ -26,6 +27,7 @@ const ESTADO_COLOR = {
   CALIDAD: '#20c997',
   PENDIENTE_CERRAR: '#ffc107',
   CERRADA: '#343a40',
+  CANCELADA: '#dc3545',
 };
 
 function tiempoTranscurrido(fechaCreacion) {

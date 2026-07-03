@@ -33,7 +33,7 @@ export default function VehiculoEntrada() {
         setError("");
 
         const res = await getClientes({ limit: 9999 });
-        console.log("BACKEND RESPUESTA:", res.data);
+        // console.log("BACKEND RESPUESTA:", res.data);
         const data = Array.isArray(res.data?.data) ? res.data.data : [];
 
         setClientes(data);

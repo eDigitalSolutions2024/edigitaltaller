@@ -308,13 +308,20 @@ useEffect(() => {
             </NavLink>
 
             <NavLink
+              to="/vehiculo/consulta-ordenes-canceladas"
+              className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+            >
+              <span className="label">Consulta Órdenes Canceladas</span>
+            </NavLink>
+
+            <NavLink
               to="/vehiculo/exportar"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">Exportar</span>
             </NavLink>
 
-            {user?.role === 'admin' && (
+            {(user?.role === 'admin' || user?.role === 'asesor_servicio') && (
               <NavLink
                 to="/vehiculo/garaje"
                 className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
@@ -401,12 +408,12 @@ useEffect(() => {
             >
               <span className="label">Entrada Inventario</span>
             </NavLink>
-            <NavLink
+            {/* <NavLink
               to="/refaccionaria/salida"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">Salida Refacción</span>
-            </NavLink>
+            </NavLink> */}
 
             <NavLink
               to="/refaccionaria/solicitudes-taller"

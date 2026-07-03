@@ -28,9 +28,8 @@ export default function GarageAdminPage() {
   const [expandido, setExpandido] = useState(null);
   const [importando, setImportando] = useState(false);
 
-  // Solo admin puede acceder
   useEffect(() => {
-    if (user?.role !== "admin") {
+    if (user?.role !== "admin" && user?.role !== "asesor_servicio") {
       navigate("/vehiculo/entrada", { replace: true });
     }
   }, [user, navigate]);
@@ -87,7 +86,7 @@ export default function GarageAdminPage() {
     <div className="container-fluid py-3">
       <h2 className="fw-bold mb-1">Garaje de Vehículos</h2>
       <p className="text-muted mb-3">
-        Catálogo de vehículos registrados por número de serie. Vista exclusiva de administrador.
+        Catálogo de vehículos registrados por número de serie.
       </p>
 
       <div className="row mb-3 align-items-center g-2">

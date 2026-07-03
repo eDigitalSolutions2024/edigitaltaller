@@ -463,6 +463,21 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     }
   };
 
+  const handleCancelarOrden = async () => {
+    if (!window.confirm("¿Cancelar esta orden de servicio? Esta acción no se puede deshacer.")) return;
+    try {
+      const res = await savePresupuestoVenta(
+        orden._id,
+        buildPayload({ estadoOrden: "CANCELADA" })
+      );
+      if (onSaved) onSaved(res.data.vehiculo);
+      navigate("/vehiculo/consulta-ordenes");
+    } catch (err) {
+      console.error(err);
+      alert("Error al cancelar la orden.");
+    }
+  };
+
   // ===== RENDER =====
   return (
     <div className="card">
@@ -809,6 +824,15 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
               onClick={handleRegresarRefaccionaria}
             >
               Regresar a Refaccionaria
+            </button>
+          )}
+          {!readOnly && (
+            <button
+              type="button"
+              className="btn btn-outline-danger btn-sm"
+              onClick={handleCancelarOrden}
+            >
+              Cancelar Orden
             </button>
           )}
           <button

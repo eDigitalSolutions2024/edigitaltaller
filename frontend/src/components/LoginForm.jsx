@@ -59,6 +59,7 @@ export default function LoginForm() {
               value={login}
               onChange={(e) => setLogin(e.target.value)}
               autoComplete="username"
+              data-no-uppercase
               required
             />
           </div>

@@ -9,7 +9,7 @@ const SECCIONES = [
     title: 'Captura',
     desc: 'Reporte de originales y ventas por asesor',
     to: '/captura/originales',
-    roles: ['admin', 'finanzas'],
+    roles: ['admin', 'finanzas', 'captura'],
   },
 ];
 
