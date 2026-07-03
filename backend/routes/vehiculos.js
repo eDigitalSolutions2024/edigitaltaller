@@ -5,6 +5,7 @@ const router = express.Router();
 const Vehiculo = require('../models/Vehiculo');
 const Cliente = require('../models/Cliente');
 const OrdenCompra = require('../models/OrdenCompra');
+const Contador = require('../models/Contador');
 const { proteger, requiereRol } = require('../middleware/auth');
 const EntradaInventario = require('../models/EntradaInventario');
 const SalidaInventario  = require('../models/SalidaInventario');
@@ -111,25 +112,20 @@ async function resolveNPtoOid(numerosParteLista) {
   return map;
 }
 
-// 👇 Helper para generar número de Orden de Servicio
+// 👇 Helper para generar número de Orden de Servicio — auto-increment
+// atómico (igual que un AUTO_INCREMENT de MySQL). El valor actual del
+// contador se administra desde Configuración (colección Contador,
+// nombre: 'ordenServicio').
+const ORDEN_SERVICIO_PREFIJO = 'P-';
+const ORDEN_SERVICIO_CONTADOR = 'ordenServicio';
+
 async function generarOrdenServicio() {
-  // Buscamos el último vehículo creado (por fecha de creación)
-  const ultimo = await Vehiculo.findOne()
-    .sort({ createdAt: -1 })
-    .lean();
-
-  let nextNum = 1;
-
-  if (ultimo?.ordenServicio) {
-    // Tomamos la parte numérica al final (ej: OS-00012 -> 12)
-    const match = String(ultimo.ordenServicio).match(/(\d+)$/);
-    if (match) {
-      nextNum = Number(match[1]) + 1;
-    }
-  }
-
-  // Formato: OS-00001, OS-00002, etc.
-  return `OS-${String(nextNum).padStart(5, '0')}`;
+  const contador = await Contador.findOneAndUpdate(
+    { nombre: ORDEN_SERVICIO_CONTADOR },
+    { $inc: { valor: 1 } },
+    { new: true, upsert: true }
+  );
+  return `${ORDEN_SERVICIO_PREFIJO}${contador.valor}`;
 }
 
 // POST /api/vehiculos  -> registrar nuevo vehículo para un cliente
@@ -149,19 +145,9 @@ router.post('/', async (req, res) => {
       ...data,
     };
 
-    // 👇 Si no viene ordenServicio, la generamos aquí
-    {/*if (!payload.ordenServicio) {
-      payload.ordenServicio = await generarOrdenServicio();
-    }*/}
-
-    // 👇 Verificar que el número de orden no esté duplicado
-    const duplicado = await Vehiculo.findOne({ ordenServicio: payload.ordenServicio });
-    if (duplicado) {
-      return res.status(400).json({
-        ok: false,
-        msg: `Ya existe una orden con el número "${payload.ordenServicio}". Usa un número diferente.`
-      });
-    }
+    // El folio de Orden de Servicio siempre se asigna automáticamente
+    // (auto-increment), no se toma del formulario.
+    payload.ordenServicio = await generarOrdenServicio();
 
     const vehiculo = new Vehiculo(payload);
     await vehiculo.save();

@@ -4,6 +4,7 @@ import { createVehiculo, updateDatosOrden } from "../../api/vehiculos";
 import { upsertGarageVehiculo } from "../../api/garage";
 import VehicleDamageCanvas from "../../components/VehicleDamageCanvas";
 import { getUser } from "../../auth";
+import { getOrdenServicioContador } from "../../api/configuracion";
 
 // 🔹 Helper para generar el folio igual que en el backend
 {/*function generateOrdenServicio() {
@@ -168,6 +169,7 @@ export default function VehiculoNuevoForm({
   });
 
   const [otrosIndicadoresActivo, setOtrosIndicadoresActivo] = useState(false);
+  const [proximoFolio, setProximoFolio] = useState(null);
 
   const [guardando, setGuardando] = useState(false);
   const [guardado, setGuardado] = useState(false);
@@ -178,7 +180,8 @@ export default function VehiculoNuevoForm({
   // Si es admin y activó edición, el form se desbloquea aunque venga readOnly=true
   const efectivoReadOnly = readOnly && !(isAdmin && editandoAdmin);
 
-  // 🔹 Al montar, si es ALTA (sin initialData), generamos folio de OS
+  // 🔹 Al montar, si es ALTA (sin initialData), el folio de OS se asigna
+  // hasta guardar; aquí solo mostramos una vista previa del próximo número.
   useEffect(() => {
     if (!initialData) {
       setForm((prev) => ({
@@ -187,6 +190,11 @@ export default function VehiculoNuevoForm({
         fechaRecepcion: getTodayInputDate(),
         horaRecepcion: getCurrentInputTime(),
       }));
+
+      setProximoFolio(null);
+      getOrdenServicioContador()
+        .then((res) => setProximoFolio(`P-${Number(res?.valor || 0) + 1}`))
+        .catch(() => setProximoFolio(null));
     }
   }, [initialData]);
 
@@ -403,11 +411,6 @@ export default function VehiculoNuevoForm({
       return;
     }
 
-    if (!form.ordenServicio.trim()) {
-      alert("El número de Orden de Servicio es obligatorio.");
-      return;
-    }
-
     try {
       setGuardando(true);
       const res = await createVehiculo(cliente._id, payload);
@@ -440,7 +443,7 @@ export default function VehiculoNuevoForm({
 
       if (onCreated) onCreated(vehiculoCreado);
       alert(
-        `Vehículo / orden guardada correctamente.\nOrden de Servicio: ${payload.ordenServicio}`
+        `Vehículo / orden guardada correctamente.\nOrden de Servicio: ${vehiculoCreado?.ordenServicio || ""}`
       );
     } catch (err) {
       console.error("Error guardando vehiculo:", err);
@@ -554,9 +557,21 @@ export default function VehiculoNuevoForm({
                 name="ordenServicio"
                 value={form.ordenServicio}
                 onChange={handleChange}
-                placeholder="Ej. OS-00123"
-                required
+                readOnly={initialData && efectivoReadOnly}
+                disabled={!initialData}
+                placeholder={
+                  !initialData
+                    ? proximoFolio
+                      ? `${proximoFolio}`
+                      : "Se asignará automáticamente al guardar"
+                    : ""
+                }
               />
+              {!initialData && (
+                <small className="text-muted">
+                  El número definitivo se confirma al guardar la orden.
+                </small>
+              )}
             </div>
             <div className="col-md-4">
               <label className="form-label">Fecha Recepción</label>
