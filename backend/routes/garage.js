@@ -8,11 +8,22 @@ const POPULATE_CLIENTES = 'nombre apellidoPaterno empresa gobierno';
 // GET /api/garage — listar todos los vehículos del garaje
 // Siempre calcula el conteo real de órdenes cerradas por serie.
 // ?detalle=1 además incluye el listado completo de órdenes (vista admin)
+// ?search=xxx busca por coincidencia parcial de serie (autocompletado) y limita a 8 resultados
 router.get('/', async (req, res) => {
   try {
-    const garageVehiculos = await GarageVehiculo.find()
+    const { search = '' } = req.query;
+    const q = {};
+    if (search.trim()) {
+      q.serie = { $regex: search.trim(), $options: 'i' };
+    }
+
+    let query = GarageVehiculo.find(q)
       .populate('clientes', POPULATE_CLIENTES)
       .sort({ updatedAt: -1 });
+    if (search.trim()) {
+      query = query.limit(8);
+    }
+    const garageVehiculos = await query;
 
     const esDetalle = req.query.detalle === '1';
 

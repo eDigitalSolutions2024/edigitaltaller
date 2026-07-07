@@ -427,23 +427,80 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     }
   };
 
+  // Verifica que ninguna partida de Venta al Cliente tenga precio <= 0 sin motivo.
+  // Devuelve las filas (posiblemente con motivoPrecioCero agregado) o null si el usuario
+  // canceló/no pudo justificar el precio en $0 (en cuyo caso la acción que llamó debe abortar).
+  const asegurarPreciosVentaCliente = () => {
+    const filasEnCero = ventaRows.filter((r) => Number(r.precioVenta) <= 0);
+    if (filasEnCero.length === 0) return ventaRows;
+
+    const conceptos = filasEnCero
+      .map((r) => r.concepto || "Partida sin concepto")
+      .join("\n- ");
+    const confirmar = window.confirm(
+      `Las siguientes partidas de Venta al Cliente tienen Precio de Venta en $0:\n- ${conceptos}\n\n` +
+        "¿Confirmas que el precio es correcto en $0?"
+    );
+    if (!confirmar) {
+      alert("Corrige el precio de venta antes de continuar.");
+      return null;
+    }
+
+    const motivo = window.prompt(
+      "Indica el motivo por el cual el precio de venta es $0 (obligatorio para guardar):"
+    );
+    if (!motivo || !motivo.trim()) {
+      alert("Debes indicar un motivo para guardar una partida con precio en $0.");
+      return null;
+    }
+
+    const filasVenta = ventaRows.map((r) =>
+      Number(r.precioVenta) <= 0 ? { ...r, motivoPrecioCero: motivo.trim() } : r
+    );
+    setVentaRows(filasVenta);
+    return filasVenta;
+  };
+
   const handleGuardarOrdenServicio = async () => {
+    const hayAutorizada = presRows.some((r) => r.autorizado);
+    if (!hayAutorizada) {
+      alert(
+        "Debes autorizar al menos una partida del presupuesto antes de guardar la orden de servicio."
+      );
+      return;
+    }
+    if (ventaRows.length === 0) {
+      alert(
+        "Debes enviar a Venta al Cliente al menos una partida autorizada antes de guardar la orden de servicio."
+      );
+      return;
+    }
+
+    const filasVenta = asegurarPreciosVentaCliente();
+    if (filasVenta === null) return;
+
     try {
       const res = await savePresupuestoVenta(
         orden._id,
-        buildPayload({ estadoOrden: "REPARACION_EN_CURSO" })
+        buildPayload({ estadoOrden: "REPARACION_EN_CURSO", ventaCliente: filasVenta })
       );
       if (onSaved) onSaved(res.data.vehiculo);
       if (onGoPreparacion) onGoPreparacion();
     } catch (err) {
       console.error(err);
-      alert("Error al guardar la orden de servicio.");
+      alert(err.response?.data?.msg || "Error al guardar la orden de servicio.");
     }
   };
 
   const handleImprimirVentaCliente = async () => {
+    const filasVenta = asegurarPreciosVentaCliente();
+    if (filasVenta === null) return;
+
     try {
-      const res = await savePresupuestoVenta(orden._id, buildPayload());
+      const res = await savePresupuestoVenta(
+        orden._id,
+        buildPayload({ ventaCliente: filasVenta })
+      );
       if (onSaved) onSaved(res.data.vehiculo);
       openVentaClientePdf(orden._id);
     } catch (err) {

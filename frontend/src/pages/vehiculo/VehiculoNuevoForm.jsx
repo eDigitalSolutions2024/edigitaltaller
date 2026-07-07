@@ -1,7 +1,7 @@
 // src/pages/vehiculo/VehiculoNuevoForm.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createVehiculo, updateDatosOrden } from "../../api/vehiculos";
-import { upsertGarageVehiculo } from "../../api/garage";
+import { upsertGarageVehiculo, searchGarageVehiculos } from "../../api/garage";
 import VehicleDamageCanvas from "../../components/VehicleDamageCanvas";
 import { getUser } from "../../auth";
 import { getOrdenServicioContador } from "../../api/configuracion";
@@ -56,7 +56,12 @@ function formatDateForInput(value) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-
+function nombreClienteGarage(c) {
+  if (!c) return "";
+  if (c.empresa) return c.empresa;
+  if (c.gobierno?.nombreGobierno) return c.gobierno.nombreGobierno;
+  return [c.nombre, c.apellidoPaterno].filter(Boolean).join(" ");
+}
 
 const INSPECCION_FIELDS = [
   'grua', 'precioGrua', 'espejoLateralIzq', 'espejoLateralDer',
@@ -179,6 +184,12 @@ export default function VehiculoNuevoForm({
   const [editandoAdmin, setEditandoAdmin] = useState(false);
   // Si es admin y activó edición, el form se desbloquea aunque venga readOnly=true
   const efectivoReadOnly = readOnly && !(isAdmin && editandoAdmin);
+
+  // ── Serie: autocompletado buscando en el garaje ──────────
+  const [sugerenciasSerie, setSugerenciasSerie] = useState([]);
+  const [mostrarSugerenciasSerie, setMostrarSugerenciasSerie] = useState(false);
+  const [buscandoSerie, setBuscandoSerie] = useState(false);
+  const serieDebounceRef = useRef(null);
 
   // 🔹 Al montar, si es ALTA (sin initialData), el folio de OS se asigna
   // hasta guardar; aquí solo mostramos una vista previa del próximo número.
@@ -360,6 +371,53 @@ export default function VehiculoNuevoForm({
       ...prev,
       [name]: type === "checkbox" ? checked : value,
     }));
+  };
+
+  // Serie: busca en el garaje mientras se escribe y muestra sugerencias
+  const handleSerieChange = (e) => {
+    if (efectivoReadOnly) return;
+
+    const valor = e.target.value;
+    setForm((prev) => ({ ...prev, serie: valor }));
+
+    if (serieDebounceRef.current) clearTimeout(serieDebounceRef.current);
+    if (valor.trim().length < 1) {
+      setSugerenciasSerie([]);
+      setMostrarSugerenciasSerie(false);
+      return;
+    }
+    setBuscandoSerie(true);
+    serieDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await searchGarageVehiculos(valor.trim());
+        setSugerenciasSerie(res.data?.data || []);
+        setMostrarSugerenciasSerie(true);
+      } catch {
+        setSugerenciasSerie([]);
+      } finally {
+        setBuscandoSerie(false);
+      }
+    }, 300);
+  };
+
+  // Al elegir una sugerencia, autocompleta los datos del vehículo (como en el garaje)
+  const seleccionarVehiculoSerie = (v) => {
+    setForm((prev) => ({
+      ...prev,
+      marca: v.marca || "",
+      modelo: v.modelo || "",
+      anio: v.anio || "",
+      color: v.color || "",
+      serie: v.serie || "",
+      placas: v.placas || "",
+      kmsMillas: v.kmsMillas || "",
+      nacionalidad: v.nacionalidad || "",
+      motor: v.motor || "",
+      numeroEconomico: v.numeroEconomico || "",
+      traccion: v.traccion || "",
+    }));
+    setSugerenciasSerie([]);
+    setMostrarSugerenciasSerie(false);
   };
 
   const handleSubmit = async (e) => {
@@ -983,15 +1041,35 @@ export default function VehiculoNuevoForm({
                     onChange={handleChange}
                   />
                 </div>
-                <div className="col-md-4">
+                <div className="col-md-4 position-relative">
                   <label className="form-label">Serie</label>
                   <input
                     type="text"
                     className="form-control"
                     name="serie"
                     value={form.serie}
-                    onChange={handleChange}
+                    onChange={handleSerieChange}
+                    onFocus={() => sugerenciasSerie.length > 0 && setMostrarSugerenciasSerie(true)}
+                    onBlur={() => setTimeout(() => setMostrarSugerenciasSerie(false), 150)}
+                    autoComplete="off"
                   />
+                  {buscandoSerie && <div className="form-text">Buscando…</div>}
+                  {mostrarSugerenciasSerie && sugerenciasSerie.length > 0 && (
+                    <div className="list-group position-absolute w-100 shadow-sm" style={{ zIndex: 20 }}>
+                      {sugerenciasSerie.map((v) => (
+                        <button
+                          type="button"
+                          key={v._id}
+                          className="list-group-item list-group-item-action py-1 px-2 small"
+                          onMouseDown={() => seleccionarVehiculoSerie(v)}
+                        >
+                          <strong>{v.serie}</strong> — {v.marca || ""} {v.modelo || ""}
+                          {v.anio ? ` (${v.anio})` : ""} ·{" "}
+                          {v.clientes?.[0] ? nombreClienteGarage(v.clientes[0]) : "Sin cliente"}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="col-md-6">
