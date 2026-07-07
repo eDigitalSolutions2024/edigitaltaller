@@ -454,6 +454,29 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
 
     let inventarioResult = null;
 
+    if (estadoOrden === 'REPARACION_EN_CURSO') {
+      const hayAutorizada = (vehiculo.presupuesto || []).some((p) => p.autorizado);
+      const hayEnviadaAVenta = (vehiculo.ventaCliente || []).length > 0;
+      if (!hayAutorizada || !hayEnviadaAVenta) {
+        return res.status(400).json({
+          ok: false,
+          msg:
+            'No se puede guardar la orden de servicio: debes autorizar al menos una partida del presupuesto y enviarla a Venta al Cliente.',
+        });
+      }
+
+      const faltaMotivoPrecioCero = (vehiculo.ventaCliente || []).some(
+        (v) => Number(v.precioVenta) <= 0 && !String(v.motivoPrecioCero || '').trim()
+      );
+      if (faltaMotivoPrecioCero) {
+        return res.status(400).json({
+          ok: false,
+          msg:
+            'No se puede guardar la orden de servicio: hay partidas de Venta al Cliente con precio en $0 sin motivo capturado.',
+        });
+      }
+    }
+
     if (estadoOrden) {
       if (estadoOrden === 'PENDIENTE_SURTIR') {
         // Verificar inventario por cada partida autorizada que tenga código

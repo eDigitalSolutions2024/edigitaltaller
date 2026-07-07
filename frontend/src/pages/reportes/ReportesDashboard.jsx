@@ -13,7 +13,7 @@ const SECCIONES = [
   },
   {
     key: 'auditoria',
-    emoji: '',
+    emoji: '📃',
     title: 'Auditoría',
     desc: 'Órdenes abiertas, reporte de originales y garantías',
     to: '/auditoria/ordenes-abiertas',

@@ -385,6 +385,7 @@ const vehiculoSchema = new Schema(
         descripcionServicio: { type: String, default: "" },
         codigoSat: { type: String, default: "" },
         descripcionSat: { type: String, default: "" },
+        motivoPrecioCero: { type: String, default: "" }, // justificación cuando precioVenta <= 0
       },
     ],
 

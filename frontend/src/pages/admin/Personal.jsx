@@ -297,7 +297,7 @@ export default function Personal() {
     const tieneAcceso = form.tipo !== 'empleado';
 
     try {
-      if (editando) {
+      if (editando && editando.key) {
         // ─ Editar ─
         if (editando.empleadoId) {
           await actualizarEmpleado(editando.empleadoId, {
