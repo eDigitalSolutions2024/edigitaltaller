@@ -10,6 +10,8 @@ import {
   cambiarEstadoMecanico,
   getOrdenServicioContador,
   actualizarOrdenServicioContador,
+  getValeContador,
+  actualizarValeContador,
 } from "../../api/configuracion";
 
 import "../../styles/configuracion.css";
@@ -23,6 +25,7 @@ export default function Configuracion() {
   const [unidades, setUnidades] = useState([]);
   const [mecanicos, setMecanicos] = useState([]);
   const [ordenServicioContador, setOrdenServicioContador] = useState(0);
+  const [valeContador, setValeContador] = useState(0);
 
   const [tipoCambioForm, setTipoCambioForm] = useState({
     valor: "",
@@ -30,6 +33,7 @@ export default function Configuracion() {
   });
 
   const [ordenServicioForm, setOrdenServicioForm] = useState("");
+  const [valeForm, setValeForm] = useState("");
 
   const [unidadForm, setUnidadForm] = useState({
     nombre: "",
@@ -45,17 +49,19 @@ export default function Configuracion() {
       setLoading(true);
       setError("");
 
-      const [tipos, unidadesData, mecanicosData, ordenServicioData] = await Promise.all([
+      const [tipos, unidadesData, mecanicosData, ordenServicioData, valeData] = await Promise.all([
         getTiposCambio(),
         getUnidadesMedida(),
         getMecanicos(),
         getOrdenServicioContador(),
+        getValeContador(),
       ]);
 
       setTiposCambio(tipos);
       setUnidades(unidadesData);
       setMecanicos(mecanicosData);
       setOrdenServicioContador(ordenServicioData?.valor || 0);
+      setValeContador(valeData?.valor || 0);
     } catch (err) {
       setError(err.message || "Error al cargar configuración");
     } finally {
@@ -75,25 +81,41 @@ export default function Configuracion() {
     }
   };
 
+  const refrescarValeContador = async () => {
+    try {
+      const data = await getValeContador();
+      setValeContador(data?.valor || 0);
+    } catch {
+      // Falla silenciosa: no interrumpe la vista si el refresco en segundo
+      // plano no se pudo completar.
+    }
+  };
+
   useEffect(() => {
     cargarDatos();
   }, []);
 
-  // Al volver a enfocar la pestaña, el contador puede haber cambiado
-  // (ej. otro asesor creó una orden mientras tanto) — lo refrescamos.
+  // Al volver a enfocar la pestaña, los contadores pueden haber cambiado
+  // (ej. otro usuario emitió una orden o un vale mientras tanto) — se refrescan.
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
         refrescarOrdenServicioContador();
+        refrescarValeContador();
       }
     };
 
+    const handleFocus = () => {
+      refrescarOrdenServicioContador();
+      refrescarValeContador();
+    };
+
     document.addEventListener("visibilitychange", handleVisibility);
-    window.addEventListener("focus", refrescarOrdenServicioContador);
+    window.addEventListener("focus", handleFocus);
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibility);
-      window.removeEventListener("focus", refrescarOrdenServicioContador);
+      window.removeEventListener("focus", handleFocus);
     };
   }, []);
 
@@ -136,6 +158,22 @@ export default function Configuracion() {
       setOrdenServicioForm("");
 
       mostrarMensaje("Número actual de Orden de Servicio actualizado correctamente");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleGuardarValeContador = async (e) => {
+    e.preventDefault();
+
+    try {
+      setError("");
+
+      const res = await actualizarValeContador(valeForm);
+      setValeContador(res?.valor || 0);
+      setValeForm("");
+
+      mostrarMensaje("Número actual de Vale de Salida actualizado correctamente");
     } catch (err) {
       setError(err.message);
     }
@@ -280,6 +318,43 @@ export default function Configuracion() {
                   value={ordenServicioForm}
                   onChange={(e) => setOrdenServicioForm(e.target.value)}
                   placeholder={`Ej. ${ordenServicioContador}`}
+                  required
+                />
+              </label>
+
+              <button type="submit">Guardar</button>
+            </form>
+          </section>
+
+          {/* Contador de Vale de Salida */}
+          <section className="config-card">
+            <div className="config-card-header">
+              <div>
+                <h2>Folio de Vale de Salida</h2>
+              </div>
+              <div className="config-icon">🎫</div>
+            </div>
+
+            <div className="config-current">
+              <span>Número actual</span>
+              <strong>{valeContador}</strong>
+            </div>
+
+            <p className="text-muted small mb-2">
+              El próximo vale de salida se creará como{" "}
+              <strong>{Number(valeContador) + 1}</strong>.
+            </p>
+
+            <form onSubmit={handleGuardarValeContador} className="config-form">
+              <label>
+                Redefinir número actual
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={valeForm}
+                  onChange={(e) => setValeForm(e.target.value)}
+                  placeholder={`Ej. ${valeContador}`}
                   required
                 />
               </label>

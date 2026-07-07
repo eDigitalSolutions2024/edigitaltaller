@@ -68,6 +68,15 @@ import CapturaLayout from "./pages/captura/CapturaLayout";
 import ReporteOriginales from "./pages/captura/ReporteOriginales";
 import ReporteVentasAsesores from "./pages/captura/ReporteVentasAsesores";
 
+// Auditoria (Reportes)
+import AuditoriaLayout from "./pages/auditoria/AuditoriaLayout";
+import OrdenesAbiertas from "./pages/auditoria/OrdenesAbiertas";
+import ReporteOriginalesAuditoria from "./pages/auditoria/ReporteOriginalesAuditoria";
+import ReporteGarantias from "./pages/auditoria/ReporteGarantias";
+
+// Vales de Salida
+import ValeSalidaForm from "./pages/vales/ValeSalidaForm";
+
 // Facturación
 import FacturacionLayout from "./pages/facturacion/FacturacionLayout";
 import FacturacionPanel from "./pages/facturacion/FacturacionPanel";
@@ -252,6 +261,9 @@ export default function App() {
           {/* Reportes dashboard */}
           <Route path="reportes" element={<RoleRoute module="reportes"><ReportesDashboard /></RoleRoute>} />
 
+          {/* Vales de Salida (nuevo vale + historial) */}
+          <Route path="vales/nuevo" element={<RoleRoute module="vales"><ValeSalidaForm /></RoleRoute>} />
+
           {/* Captura (solo admin y finanzas) */}
           <Route
             path="captura/*"
@@ -260,6 +272,17 @@ export default function App() {
             <Route index element={<Navigate to="originales" replace />} />
             <Route path="originales" element={<ReporteOriginales />} />
             <Route path="ventas-asesores" element={<ReporteVentasAsesores />} />
+          </Route>
+
+          {/* Auditoría (solo admin y auditoria) */}
+          <Route
+            path="auditoria/*"
+            element={<RolesRoute roles={['admin', 'auditoria']}><AuditoriaLayout /></RolesRoute>}
+          >
+            <Route index element={<Navigate to="ordenes-abiertas" replace />} />
+            <Route path="ordenes-abiertas" element={<OrdenesAbiertas />} />
+            <Route path="originales" element={<ReporteOriginalesAuditoria />} />
+            <Route path="garantias" element={<ReporteGarantias />} />
           </Route>
 
           {/* Facturación */}

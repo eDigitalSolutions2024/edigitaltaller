@@ -512,6 +512,13 @@ useEffect(() => {
 
                   
 
+        {/* === VALES DE SALIDA === */}
+        {canSeeModule(user?.role, 'vales') && (
+          <NavLink to="/vales/nuevo" className="sidebar__link" title="Vales de Salida">
+            <span className="emoji">🎫</span><span className="label">Vales</span>
+          </NavLink>
+        )}
+
         {/* === REPORTES === */}
         {canSeeModule(user?.role, 'reportes') && (
           <NavLink to="/reportes" className="sidebar__link" title="Reportes">

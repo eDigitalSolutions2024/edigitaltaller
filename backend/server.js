@@ -72,5 +72,7 @@ app.use('/api/generar-xml', require('./routes/generar_xml'));
 
 app.use('/api/reportes', require('./routes/reportes'));
 
+app.use('/api/vales', require('./routes/vales'));
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`🚀 Server en http://localhost:${PORT}`));

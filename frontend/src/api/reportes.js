@@ -17,3 +17,19 @@ export const openReporteVentasAsesoresPdf = (desde, hasta) => {
   const url = `${BASE_URL}/reportes/ventas-asesores-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
   window.open(url, '_blank', 'noopener');
 };
+
+export const getReporteOrdenesAbiertas = (desde, hasta) =>
+  http.get('/reportes/ordenes-abiertas', { params: { desde, hasta } });
+
+export const getReporteOriginalesAbiertas = (desde, hasta) =>
+  http.get('/reportes/originales-abiertas', { params: { desde, hasta } });
+
+export const openReporteOrdenesAbiertasPdf = (desde, hasta) => {
+  const url = `${BASE_URL}/reportes/ordenes-abiertas-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
+  window.open(url, '_blank', 'noopener');
+};
+
+export const openReporteOriginalesAbiertasPdf = (desde, hasta) => {
+  const url = `${BASE_URL}/reportes/originales-abiertas-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
+  window.open(url, '_blank', 'noopener');
+};

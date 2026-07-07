@@ -327,6 +327,7 @@ const vehiculoSchema = new Schema(
     // ===== Presupuesto (refacciones autorizadas) =====
     presupuesto: [
       {
+        origenRefId: { type: String, default: null },
         cant: { type: Number, default: 0 },
         concepto: { type: String, default: "" },
         refaccion: { type: String, default: "" },
@@ -408,6 +409,13 @@ observacionesExternas: { type: String, default: "" },
 observacionesInternas: { type: String, default: "" },
 // ===== Control de cierre =====
 pendienteCierre: { type: Boolean, default: false },
+
+    // ===== Último Vale de Salida emitido para esta orden =====
+    ultimoVale: {
+      noVale: { type: Number, default: null },
+      dig: { type: Number, default: 0 },
+      fecha: { type: Date, default: null },
+    },
   },
   {
     timestamps: true, // createdAt, updatedAt

@@ -318,6 +318,10 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
         ...r,
         opcionSeleccionada: opIdx,
         estatus: "APROBADA",
+        opciones: r.opciones.map((op, oi) => ({
+          ...op,
+          seleccionada: oi === opIdx, 
+        })),
       };
     });
 
@@ -342,6 +346,7 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
         ...r,
         opcionSeleccionada: null,
         estatus: "PENDIENTE",
+        opciones: r.opciones.map((op) => ({ ...op, seleccionada: false })),
       };
     });
 
