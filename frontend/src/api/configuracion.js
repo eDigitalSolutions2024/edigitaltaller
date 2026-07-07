@@ -29,3 +29,9 @@ export const getOrdenServicioContador = () =>
 
 export const actualizarOrdenServicioContador = (valor) =>
   http.put('/configuracion/orden-servicio-contador', { valor }).then(r => r.data);
+
+export const getValeContador = () =>
+  http.get('/configuracion/vale-contador').then(r => r.data);
+
+export const actualizarValeContador = (valor) =>
+  http.put('/configuracion/vale-contador', { valor }).then(r => r.data);

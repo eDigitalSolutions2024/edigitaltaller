@@ -11,6 +11,14 @@ const SECCIONES = [
     to: '/captura/originales',
     roles: ['admin', 'finanzas', 'captura'],
   },
+  {
+    key: 'auditoria',
+    emoji: '',
+    title: 'Auditoría',
+    desc: 'Órdenes abiertas, reporte de originales y garantías',
+    to: '/auditoria/ordenes-abiertas',
+    roles: ['admin', 'auditoria'],
+  },
 ];
 
 export default function ReportesDashboard() {

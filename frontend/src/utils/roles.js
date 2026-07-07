@@ -24,5 +24,6 @@ export function defaultRouteForRole(role) {
   if (role === 'refaccionario')   return '/refaccionaria';
   if (role === 'asesor_servicio') return '/clientes/consulta';
   if (role === 'captura')         return '/reportes';
+  if (role === 'auditoria')       return '/reportes';
   return '/dashboard';
 }

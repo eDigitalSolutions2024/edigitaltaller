@@ -84,60 +84,64 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     setObsExternas(orden.observacionesExternas || "");
     setObsInternas(orden.observacionesInternas || "");
 
-    // Presupuesto
-    if (Array.isArray(orden.presupuesto) && orden.presupuesto.length > 0) {
-      setPresRows(
-        orden.presupuesto.map((p) => ({
-          ...p,
-          autorizado: !!p.autorizado,
-        }))
-      );
-    } else {
-      // Construir desde refacciones aprobadas
-      const refParaPresupuesto = (orden.refaccionesSolicitadas || []).filter(
-        (r) => {
-          const op = r.opciones?.[r.opcionSeleccionada] || {};
-          return (
-            r.estatus === "APROBADA" &&
-            r.opcionSeleccionada !== null &&
-            r.opcionSeleccionada !== undefined &&
-            Number(op.precioUnitario || 0) > 0
-          );
-        }
-      );
+    // ===== PRESUPUESTO: reconciliar lo guardado con lo recién aprobado =====
+    const presupuestoGuardado = Array.isArray(orden.presupuesto)
+      ? orden.presupuesto
+      : [];
 
-      setPresRows(
-        refParaPresupuesto.map((r) => {
-          const op = r.opciones?.[r.opcionSeleccionada] || {};
-          const cant = Number(r.cant || 0);
-          const precioUnitario = Number(op.precioUnitario || 0);
-          const importeTotal = Number(op.importeTotal || 0);
-          const moneda = op.moneda || "MN";
-          const tipoCambio = moneda === "USD" ? Number(op.tipoCambio || 0) : 0;
-          const precioCompraMXN =
-            moneda === "USD" ? importeTotal / (cant || 1) : precioUnitario;
-
-          return {
-            cant,
-            concepto: r.refaccion || "",
-            refaccion: r.refaccion || "",
-            tipo: op.tipo || "",
-            marca: op.marca || "",
-            proveedor: op.proveedor || "",
-            codigo: op.codigo || "",
-            precioOriginal: precioUnitario,
-            moneda,
-            tipoCambio,
-            precioCompra: precioCompraMXN,
-            tiempoEntrega: op.tiempoEntrega ?? "",
-            horasMO: 0,
-            precioVenta: precioCompraMXN,
-            observInt: op.observaciones ?? "",
-            autorizado: false,
-          };
-        })
+    const refAprobadas = (orden.refaccionesSolicitadas || []).filter((r) => {
+      const op = r.opciones?.[r.opcionSeleccionada] || {};
+      return (
+        r.estatus === "APROBADA" &&
+        r.opcionSeleccionada !== null &&
+        r.opcionSeleccionada !== undefined &&
+        Number(op.precioUnitario || 0) > 0
       );
-    }
+    });
+
+    // IDs de refacciones que YA tienen su línea en el presupuesto guardado
+    const idsYaEnPresupuesto = new Set(
+      presupuestoGuardado.map((p) => p.origenRefId).filter(Boolean)
+    );
+
+    // Solo agregamos las aprobadas que todavía no están representadas
+    const nuevasDesdeAprobadas = refAprobadas
+      .filter((r) => !idsYaEnPresupuesto.has(String(r._id)))
+      .map((r) => {
+        const op = r.opciones?.[r.opcionSeleccionada] || {};
+        const cant = Number(r.cant || 0);
+        const precioUnitario = Number(op.precioUnitario || 0);
+        const importeTotal = Number(op.importeTotal || 0);
+        const moneda = op.moneda || "MN";
+        const tipoCambio = moneda === "USD" ? Number(op.tipoCambio || 0) : 0;
+        const precioCompraMXN =
+          moneda === "USD" ? importeTotal / (cant || 1) : precioUnitario;
+
+        return {
+          origenRefId: String(r._id), // 👈 clave para no duplicar después
+          cant,
+          concepto: r.refaccion || "",
+          refaccion: r.refaccion || "",
+          tipo: op.tipo || "",
+          marca: op.marca || "",
+          proveedor: op.proveedor || "",
+          codigo: op.codigo || "",
+          precioOriginal: precioUnitario,
+          moneda,
+          tipoCambio,
+          precioCompra: precioCompraMXN,
+          tiempoEntrega: op.tiempoEntrega ?? "",
+          horasMO: 0,
+          precioVenta: precioCompraMXN,
+          observInt: op.observaciones ?? "",
+          autorizado: false,
+        };
+      });
+
+    setPresRows([
+      ...presupuestoGuardado.map((p) => ({ ...p, autorizado: !!p.autorizado })),
+      ...nuevasDesdeAprobadas,
+    ]);
 
     // Venta al cliente ya guardada
     setVentaRows(orden.ventaCliente || []);
