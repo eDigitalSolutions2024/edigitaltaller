@@ -11,7 +11,7 @@ function fmtFechaLarga() {
   return dayjs().format('dddd, D [de] MMMM [de] YYYY');
 }
 
-function buildHtml(data, desde, hasta) {
+function buildHtml(data, desde, hasta, asesor) {
   const filas = data.data
     .map(
       (o) => `
@@ -107,6 +107,7 @@ function buildHtml(data, desde, hasta) {
     <div class="fechas">
       <div><strong>Desde:</strong>&nbsp;${fmtFecha(desde)}</div>
       <div><strong>Hasta:</strong>&nbsp;${fmtFecha(hasta)}</div>
+      ${asesor ? `<div><strong>Asesor:</strong>&nbsp;${asesor}</div>` : ''}
     </div>
   </div>
 
@@ -139,8 +140,8 @@ function buildHtml(data, desde, hasta) {
 </html>`;
 }
 
-async function streamReporteOriginalesAbiertasPdf(res, data, desde, hasta) {
-  const html = buildHtml(data, desde, hasta);
+async function streamReporteOriginalesAbiertasPdf(res, data, desde, hasta, asesor) {
+  const html = buildHtml(data, desde, hasta, asesor);
 
   const browser = await puppeteer.launch({
     headless: 'new',

@@ -268,16 +268,18 @@ router.get('/ordenes-abiertas', async (req, res) => {
   }
 });
 
-// GET /api/reportes/originales-abiertas?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+// GET /api/reportes/originales-abiertas?desde=YYYY-MM-DD&hasta=YYYY-MM-DD&asesor=Nombre
 router.get('/originales-abiertas', async (req, res) => {
   try {
-    const { desde, hasta } = req.query;
+    const { desde, hasta, asesor } = req.query;
     if (!desde || !hasta) {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter })
+    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter };
+    if (asesor) query.creadoPor = asesor;
+    const ordenes = await Vehiculo.find(query)
       .sort({ fechaRecepcion: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .lean();
@@ -349,16 +351,18 @@ router.get('/ordenes-abiertas-pdf', async (req, res) => {
   }
 });
 
-// GET /api/reportes/originales-abiertas-pdf?desde=...&hasta=...
+// GET /api/reportes/originales-abiertas-pdf?desde=...&hasta=...&asesor=Nombre
 router.get('/originales-abiertas-pdf', async (req, res) => {
   try {
-    const { desde, hasta } = req.query;
+    const { desde, hasta, asesor } = req.query;
     if (!desde || !hasta) {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter })
+    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter };
+    if (asesor) query.creadoPor = asesor;
+    const ordenes = await Vehiculo.find(query)
       .sort({ fechaRecepcion: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .lean();
@@ -376,7 +380,7 @@ router.get('/originales-abiertas-pdf', async (req, res) => {
       ultVale: formatUltVale(o),
     }));
 
-    await streamReporteOriginalesAbiertasPdf(res, { data, total: data.length }, desde, hasta);
+    await streamReporteOriginalesAbiertasPdf(res, { data, total: data.length }, desde, hasta, asesor);
   } catch (err) {
     console.error('Error PDF originales abiertas:', err);
     if (!res.headersSent) res.status(500).json({ ok: false, msg: 'Error generando PDF' });
