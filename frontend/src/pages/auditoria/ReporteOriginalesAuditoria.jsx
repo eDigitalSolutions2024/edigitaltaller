@@ -1,20 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import PeriodoSelector from '../captura/PeriodoSelector';
 import { getReporteOriginalesAbiertas, openReporteOriginalesAbiertasPdf } from '../../api/reportes';
+import { getAsesores } from '../../api/users';
 
 export default function ReporteOriginalesAuditoria() {
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
   const [rango, setRango] = useState(null);
+  const [asesores, setAsesores] = useState([]);
+  const [asesor, setAsesor] = useState('');
 
-  const handleBuscar = async (desde, hasta) => {
+  useEffect(() => {
+    getAsesores().then(setAsesores).catch(() => {});
+  }, []);
+
+  const buscar = async (desde, hasta, asesorFiltro) => {
     setCargando(true);
     setError('');
     setData(null);
     setRango({ desde, hasta });
     try {
-      const res = await getReporteOriginalesAbiertas(desde, hasta);
+      const res = await getReporteOriginalesAbiertas(desde, hasta, asesorFiltro);
       setData(res.data);
     } catch (err) {
       setError('Error al cargar el reporte. Intenta de nuevo.');
@@ -23,14 +30,36 @@ export default function ReporteOriginalesAuditoria() {
     }
   };
 
+  const handleBuscar = (desde, hasta) => buscar(desde, hasta, asesor);
+
+  const handleAsesorChange = (e) => {
+    const val = e.target.value;
+    setAsesor(val);
+    if (rango) buscar(rango.desde, rango.hasta, val);
+  };
+
   return (
     <div>
       <h5 className="mb-3 fw-bold">Reporte de Originales</h5>
-      <p className="text-muted small mb-3">
+      {/* <p className="text-muted small mb-3">
         Muestra todas las órdenes abiertas (no cerradas ni canceladas) en el período seleccionado, según su fecha de recepción.
-      </p>
+      </p> */}
 
       <PeriodoSelector onBuscar={handleBuscar} cargando={cargando} />
+
+      <div className="mb-3" style={{ maxWidth: 280 }}>
+        <label className="form-label mb-1 fw-semibold small">Asesor</label>
+        <select
+          className="form-select form-select-sm"
+          value={asesor}
+          onChange={handleAsesorChange}
+        >
+          <option value="">Todos los asesores</option>
+          {asesores.map((a) => (
+            <option key={a._id} value={a.name}>{a.name}</option>
+          ))}
+        </select>
+      </div>
 
       {error && <div className="alert alert-danger py-2">{error}</div>}
 
@@ -47,7 +76,7 @@ export default function ReporteOriginalesAuditoria() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => openReporteOriginalesAbiertasPdf(rango.desde, rango.hasta)}
+                onClick={() => openReporteOriginalesAbiertasPdf(rango.desde, rango.hasta, asesor)}
               >
                 Ver PDF
               </button>
