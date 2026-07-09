@@ -65,17 +65,6 @@ useEffect(() => {
 
 
 
-  // === DEVOLUCIONES (dentro de Refaccionaria) ===
-const [devOpen, setDevOpen] = useState(
-  location.pathname.startsWith('/refaccionaria/devoluciones')
-);
-useEffect(() => {
-  if (location.pathname.startsWith('/refaccionaria/devoluciones')) {
-    setRefaOpen(true);   // asegura abrir el grupo padre
-    setDevOpen(true);    // abre el submenú Devoluciones
-  }
-}, [location.pathname]);
-
 // === ALERTAS REFACCIONARIA ===
 const [solicitudesCount, setSolicitudesCount] = useState(0);
 const [porSurtirCount, setPorSurtirCount] = useState(0);
@@ -431,60 +420,6 @@ useEffect(() => {
               {porSurtirCount > 0 && <span className="nav-badge">{porSurtirCount}</span>}
             </NavLink>
 
-
-
-
-            {/* SUBMENÚ: Devoluciones */}
-            <div className={`sidebar__subgroup ${devOpen ? 'open' : ''}`}>
-              <button
-                type="button"
-                className="sidebar__sublink sidebar__subgroup-toggle"
-                onClick={() => setDevOpen(o => !o)}
-                aria-expanded={devOpen}
-                aria-controls="submenu-refa-devoluciones"
-                title="*Devoluciones*"
-              >
-                <span className="label"><em>*Devoluciones*</em></span>
-                {!collapsed && <span className="chev" aria-hidden>▾</span>}
-              </button>
-
-              <div id="submenu-refa-devoluciones" className="sidebar__subsublinks">
-                <NavLink
-                  to="/refaccionaria/devoluciones/dinero"
-                  className={({ isActive }) => `sidebar__subsublink ${isActive ? 'active' : ''}`}
-                >
-                  <span className="label">Dinero</span>
-                </NavLink>
-                <NavLink
-                  to="/refaccionaria/devoluciones/pieza"
-                  className={({ isActive }) => `sidebar__subsublink ${isActive ? 'active' : ''}`}
-                >
-                  <span className="label">Pieza x Pieza</span>
-                </NavLink>
-                <NavLink
-                  to="/refaccionaria/devoluciones/vale"
-                  className={({ isActive }) => `sidebar__subsublink ${isActive ? 'active' : ''}`}
-                >
-                  <span className="label">Vale</span>
-                </NavLink>
-                <NavLink
-                  to="/refaccionaria/devoluciones/consultas"
-                  className={({ isActive }) => `sidebar__subsublink ${isActive ? 'active' : ''}`}
-                >
-                  <span className="label">Consulta Devoluciones</span>
-                </NavLink>
-                <NavLink
-                  to="/refaccionaria/devoluciones/consultas-vales"
-                  className={({ isActive }) => `sidebar__subsublink ${isActive ? 'active' : ''}`}
-                >
-                  <span className="label">Consulta Devoluciones (Vales/Especie)</span>
-                </NavLink>
-              </div>
-            </div>
-          {/* FIN SUBMENÚ: Devoluciones */}
-
-
-
             <NavLink
               to="/refaccionaria/consultar"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
@@ -504,6 +439,20 @@ useEffect(() => {
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">BD Codigos</span>
+            </NavLink>
+
+            <NavLink
+              to="/refaccionaria/devoluciones"
+              className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+            >
+              <span className="label">Devolución de Refacciones</span>
+            </NavLink>
+
+            <NavLink
+              to="/refaccionaria/consulta-devoluciones"
+              className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+            >
+              <span className="label">Consulta Devoluciones</span>
             </NavLink>
           </div>
         </div>

@@ -19,7 +19,6 @@ import ConsultaClientes from "./pages/clientes/ConsultaClientes";
 import RefaccionariaLayout from "./pages/refaccionaria/RefaccionariaLayout";
 import EntradaInventario from "./pages/refaccionaria/EntradaInventario";
 import SalidaRefaccion from "./pages/refaccionaria/SalidaRefaccion";
-import Devoluciones from "./pages/refaccionaria/devoluciones/DevolucionesLayout";
 import ConsultarInventario from "./pages/refaccionaria/ConsultarInventario";
 import ConsultarFacturaProveedor from "./pages/refaccionaria/ConsultarFacturaProveedor.jsx";
 import BDCodigos from "./pages/refaccionaria/BDCodigos";
@@ -44,11 +43,8 @@ import VehiculoConsultaCanceladas from "./pages/vehiculo/VehiculosConsultaCancel
 import GarageAdminPage from "./pages/vehiculo/GarageAdminPage";
 
 // Devoluciones
-import DevDinero from "./pages/refaccionaria/devoluciones/dinero";
-import DevPieza from "./pages/refaccionaria/devoluciones/pieza";
-import DevVale from "./pages/refaccionaria/devoluciones/vale";
-import ConsultaDevoluciones from "./pages/refaccionaria/devoluciones/consultas";
-import ConsultaVales from "./pages/refaccionaria/devoluciones/consultas-vales";
+import DevolucionRefaccion from "./pages/refaccionaria/devoluciones/DevolucionRefaccion";
+import ConsultaDevoluciones from "./pages/refaccionaria/devoluciones/ConsultaDevoluciones";
 
 import Empleados from "./pages/Empleados";
 import OrdenesCompraList from "./pages/OrdenesCompraList";
@@ -228,14 +224,8 @@ export default function App() {
 
 
             {/* Devoluciones */}
-            <Route path="devoluciones/*" element={<Devoluciones />}>
-              <Route index element={<Navigate to="dinero" replace />} />
-              <Route path="dinero" element={<DevDinero />} />
-              <Route path="pieza" element={<DevPieza />} />
-              <Route path="vale" element={<DevVale />} />
-              <Route path="consultas" element={<ConsultaDevoluciones />} />
-              <Route path="consultas-vales" element={<ConsultaVales />} />
-            </Route>
+            <Route path="devoluciones" element={<DevolucionRefaccion />} />
+            <Route path="consulta-devoluciones" element={<ConsultaDevoluciones />} />
 
             <Route path="consultar" element={<ConsultarInventario />} />
             <Route path="factura-proveedor" element={<ConsultarFacturaProveedor />} />
