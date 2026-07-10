@@ -1,10 +1,12 @@
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   searchFacturasDevolucion,
   prefillDevolucionRefaccion,
   createDevolucionRefaccion,
   openDevolucionRefaccionPdf,
 } from "../../../api/devoluciones";
+import { getRefaccionarios } from "../../../api/users";
+import { getUser } from "../../../auth";
 
 const hoyYMD = () => new Date().toISOString().slice(0, 10);
 const toYMD = (v) => (v ? String(v).slice(0, 10) : "");
@@ -17,6 +19,18 @@ const TIPOS = [
 
 const CANT_INICIAL = { pesos: "", dolares: "", cheque: "", vale: "", garantia: "" };
 
+// Renglón vacío de la tabla de refacciones.
+const REFACCION_INICIAL = {
+  codigo: "",
+  nombre: "",
+  tipo: "",
+  unidad: "",
+  cantidad: "",
+  costoUnitario: "",
+  ivaPct: "",
+  descuento: "",
+};
+
 const headInicial = () => ({
   tipoDevolucion: "DINERO",
   proveedor: "",
@@ -27,9 +41,32 @@ const headInicial = () => ({
   numeroOrdenServicio: "",
 });
 
+const firmasInicial = () => ({
+  gerenteCompras: "",
+  comprador: getUser()?.name || "",
+  mensajero: "",
+  supervisadoPor: "",
+  auditadoPor: "",
+});
+
+const num = (v) => {
+  const n = Number(String(v ?? "").replace(/[$,\s]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+};
+
+// Total por renglón = (cantidad × costo − descuento) × (1 + IVA%)
+const totalRenglon = (r) => {
+  const base = num(r.cantidad) * num(r.costoUnitario) - num(r.descuento);
+  const total = base * (1 + num(r.ivaPct) / 100);
+  return total > 0 ? total : 0;
+};
+
+const fmtMoneda = (n) =>
+  Number(n || 0).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 export default function DevolucionRefaccion() {
   const [head, setHead] = useState(headInicial());
-  const [refacciones, setRefacciones] = useState([{ codigo: "", nombre: "" }]);
+  const [refacciones, setRefacciones] = useState([{ ...REFACCION_INICIAL }]);
   const [cantidad, setCantidad] = useState({ ...CANT_INICIAL });
   const [destino, setDestino] = useState({
     cajaChicaDlls: false,
@@ -46,6 +83,7 @@ export default function DevolucionRefaccion() {
     cancelacionVenta: false,
     otro: "",
   });
+  const [firmas, setFirmas] = useState(firmasInicial());
 
   const [buscando, setBuscando] = useState(false);
   const [sending, setSending] = useState(false);
@@ -55,10 +93,31 @@ export default function DevolucionRefaccion() {
   const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
   const facturaDebounceRef = useRef(null);
 
+  // Typeahead de "Comprador": busca solo entre refaccionarios
+  const [refaccionarios, setRefaccionarios] = useState([]);
+  const [mostrarRefaccionarios, setMostrarRefaccionarios] = useState(false);
+
+  useEffect(() => {
+    getRefaccionarios()
+      .then((data) => setRefaccionarios(Array.isArray(data) ? data : []))
+      .catch(() => setRefaccionarios([]));
+  }, []);
+
   const onHead = (e) => setHead((h) => ({ ...h, [e.target.name]: e.target.value }));
   const onCantidad = (e) => setCantidad((c) => ({ ...c, [e.target.name]: e.target.value }));
   const onDestino = (e) => setDestino((d) => ({ ...d, [e.target.name]: e.target.checked }));
   const onMotivo = (e) => setMotivo((m) => ({ ...m, [e.target.name]: e.target.checked }));
+  const onFirma = (e) => setFirmas((f) => ({ ...f, [e.target.name]: e.target.value }));
+
+  // Total de todas las refacciones a devolver ("cantidad a recuperar").
+  const granTotal = useMemo(
+    () => refacciones.reduce((s, r) => s + totalRenglon(r), 0),
+    [refacciones]
+  );
+  const granTotalStr = granTotal ? granTotal.toFixed(2) : "";
+
+  // Copia el total de refacciones al campo de dinero elegido (queda editable).
+  const copiarTotal = (campo) => setCantidad((c) => ({ ...c, [campo]: granTotalStr }));
 
   // Habilita solo los campos de "cantidad a recuperar" del tipo elegido
   const cantHabilitada = (campo) => {
@@ -86,7 +145,7 @@ export default function DevolucionRefaccion() {
 
   const onRefaccion = (i, k, v) =>
     setRefacciones((rs) => rs.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
-  const addRefaccion = () => setRefacciones((rs) => [...rs, { codigo: "", nombre: "" }]);
+  const addRefaccion = () => setRefacciones((rs) => [...rs, { ...REFACCION_INICIAL }]);
   const delRefaccion = (i) =>
     setRefacciones((rs) => (rs.length > 1 ? rs.filter((_, j) => j !== i) : rs));
 
@@ -130,7 +189,9 @@ export default function DevolucionRefaccion() {
         numeroOrdenServicio: data.numeroOrdenServicio || h.numeroOrdenServicio,
       }));
       if (Array.isArray(data.refacciones) && data.refacciones.length) {
-        setRefacciones(data.refacciones);
+        setRefacciones(
+          data.refacciones.map((r) => ({ ...REFACCION_INICIAL, ...r }))
+        );
       }
     } catch (err) {
       console.error("prefill error:", err?.response || err);
@@ -138,9 +199,20 @@ export default function DevolucionRefaccion() {
     }
   };
 
+  // Filtrado local del typeahead de "Comprador" (solo refaccionarios).
+  const compradorFiltrados = useMemo(() => {
+    const q = (firmas.comprador || "").trim().toLowerCase();
+    if (!q) return refaccionarios;
+    return refaccionarios.filter(
+      (u) =>
+        (u.name || "").toLowerCase().includes(q) ||
+        (u.username || "").toLowerCase().includes(q)
+    );
+  }, [firmas.comprador, refaccionarios]);
+
   const limpiar = () => {
     setHead(headInicial());
-    setRefacciones([{ codigo: "", nombre: "" }]);
+    setRefacciones([{ ...REFACCION_INICIAL }]);
     setCantidad({ ...CANT_INICIAL });
     setDestino({ cajaChicaDlls: false, cajaChicaMN: false, banco: false, credito: false });
     setMotivo({
@@ -152,6 +224,7 @@ export default function DevolucionRefaccion() {
       cancelacionVenta: false,
       otro: "",
     });
+    setFirmas(firmasInicial());
   };
 
   const onSubmit = async (e) => {
@@ -166,12 +239,26 @@ export default function DevolucionRefaccion() {
     }
     setSending(true);
     try {
+      const cantidadRecuperar = { ...cantidad };
+
       const payload = {
         ...head,
-        refacciones: refacciones.filter((r) => r.codigo.trim() || r.nombre.trim()),
-        cantidadRecuperar: cantidad,
+        refacciones: refacciones
+          .filter((r) => String(r.codigo).trim() || String(r.nombre).trim())
+          .map((r) => ({
+            codigo: r.codigo,
+            nombre: r.nombre,
+            tipo: r.tipo,
+            unidad: r.unidad,
+            cantidad: num(r.cantidad),
+            costoUnitario: num(r.costoUnitario),
+            ivaPct: num(r.ivaPct),
+            descuento: num(r.descuento),
+          })),
+        cantidadRecuperar,
         destinoDevolucion: destino,
         motivoDevolucion: motivo,
+        firmas,
       };
       const { data } = await createDevolucionRefaccion(payload);
       openDevolucionRefaccionPdf(data.devId);
@@ -282,7 +369,7 @@ export default function DevolucionRefaccion() {
                   type="text"
                   className="form-control"
                   name="numeroComprobante"
-                  value={head.numeroComprobante}
+                  value={head.numeroComprobante} required
                   onChange={onHead}
                 />
               </div>
@@ -304,38 +391,120 @@ export default function DevolucionRefaccion() {
 
         {/* ===== Refacciones ===== */}
         <div className="card shadow-sm mb-4">
-          <div className="card-header">Refacciones (código y nombre)</div>
+          <div className="card-header d-flex justify-content-between align-items-center">
+            <span>Refacciones a devolver</span>
+            <small className="text-muted">
+              Se traen de la factura; ajusta la cantidad para devolver solo algunas piezas.
+            </small>
+          </div>
           <div className="card-body">
-            {refacciones.map((r, i) => (
-              <div className="row g-2 mb-2" key={i}>
-                <div className="col-sm-4">
-                  <input
-                    className="form-control"
-                    placeholder="Código"
-                    value={r.codigo}
-                    onChange={(e) => onRefaccion(i, "codigo", e.target.value)}
-                  />
-                </div>
-                <div className="col-sm-6">
-                  <input
-                    className="form-control"
-                    placeholder="Nombre"
-                    value={r.nombre}
-                    onChange={(e) => onRefaccion(i, "nombre", e.target.value)}
-                  />
-                </div>
-                <div className="col-sm-2">
-                  <button
-                    type="button"
-                    className="btn btn-outline-danger"
-                    onClick={() => delRefaccion(i)}
-                    disabled={refacciones.length <= 1}
-                  >
-                    Quitar
-                  </button>
-                </div>
-              </div>
-            ))}
+            <div className="table-responsive">
+              <table className="table table-sm align-middle mb-2">
+                <thead>
+                  <tr>
+                    <th style={{ minWidth: 120 }}>Código</th>
+                    <th style={{ minWidth: 180 }}>Nombre</th>
+                    <th style={{ minWidth: 90 }}>Unidad</th>
+                    <th style={{ minWidth: 90 }}>Cantidad</th>
+                    <th style={{ minWidth: 110 }}>Costo Unit.</th>
+                    <th style={{ minWidth: 80 }}>IVA %</th>
+                    <th style={{ minWidth: 100 }}>Desc. ($)</th>
+                    <th style={{ minWidth: 110 }} className="text-end">Total</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {refacciones.map((r, i) => (
+                    <tr key={i}>
+                      <td>
+                        <input
+                          className="form-control form-control-sm"
+                          placeholder="Código"
+                          value={r.codigo}
+                          onChange={(e) => onRefaccion(i, "codigo", e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="form-control form-control-sm"
+                          placeholder="Nombre"
+                          value={r.nombre}
+                          onChange={(e) => onRefaccion(i, "nombre", e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="form-control form-control-sm"
+                          placeholder="Pieza"
+                          value={r.unidad}
+                          onChange={(e) => onRefaccion(i, "unidad", e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          step="1"
+                          min="0"
+                          className="form-control form-control-sm"
+                          value={r.cantidad}
+                          onChange={(e) => onRefaccion(i, "cantidad", e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          className="form-control form-control-sm"
+                          value={r.costoUnitario}
+                          onChange={(e) => onRefaccion(i, "costoUnitario", e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          className="form-control form-control-sm"
+                          value={r.ivaPct}
+                          onChange={(e) => onRefaccion(i, "ivaPct", e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          className="form-control form-control-sm"
+                          value={r.descuento}
+                          onChange={(e) => onRefaccion(i, "descuento", e.target.value)}
+                        />
+                      </td>
+                      <td className="text-end fw-semibold">
+                        ${fmtMoneda(totalRenglon(r))}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-outline-danger btn-sm"
+                          onClick={() => delRefaccion(i)}
+                          disabled={refacciones.length <= 1}
+                        >
+                          Quitar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th colSpan={7} className="text-end">Total de refacciones a devolver</th>
+                    <th className="text-end">${fmtMoneda(granTotal)}</th>
+                    <th></th>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
             <button type="button" className="btn btn-secondary btn-sm" onClick={addRefaccion}>
               Agregar refacción
             </button>
@@ -346,6 +515,42 @@ export default function DevolucionRefaccion() {
         <div className="card shadow-sm mb-4">
           <div className="card-header">Cantidad a recuperar</div>
           <div className="card-body">
+            {head.tipoDevolucion === "DINERO" && (
+              <div className="d-flex align-items-center gap-2 mb-3 flex-wrap">
+                <span className="fw-semibold">
+                  Total de refacciones: ${fmtMoneda(granTotal)}
+                </span>
+                <div className="btn-group btn-group-sm" role="group">
+                  <button
+                    type="button"
+                    className="btn btn-outline-primary"
+                    onClick={() => copiarTotal("pesos")}
+                    disabled={!granTotal}
+                  >
+                    Copiar a Pesos
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-outline-primary"
+                    onClick={() => copiarTotal("dolares")}
+                    disabled={!granTotal}
+                  >
+                    a Dólares
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-outline-primary"
+                    onClick={() => copiarTotal("cheque")}
+                    disabled={!granTotal}
+                  >
+                    a Cheque
+                  </button>
+                </div>
+                <span className="form-text w-100 m-0">
+                  El total está en la moneda de la factura; cópialo al campo que corresponda o captúralo manualmente.
+                </span>
+              </div>
+            )}
             <div className="row g-3">
               <div className="col-sm-2">
                 <label className="form-label">Pesos</label>
@@ -476,6 +681,95 @@ export default function DevolucionRefaccion() {
                     placeholder="Especifica otro motivo"
                   />
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ===== Responsables (firmas del formato) ===== */}
+        <div className="card shadow-sm mb-4">
+          <div className="card-header">Responsables (firmas del formato)</div>
+          <div className="card-body">
+            <div className="row g-3">
+              <div className="col-sm-4">
+                <label className="form-label">Gerente de Compras</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  name="gerenteCompras"
+                  value={firmas.gerenteCompras}
+                  onChange={onFirma}
+                />
+              </div>
+
+              <div className="col-sm-4 position-relative">
+                <label className="form-label">Comprador</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  name="comprador"
+                  value={firmas.comprador}
+                  onChange={(e) => {
+                    onFirma(e);
+                    setMostrarRefaccionarios(true);
+                  }}
+                  onFocus={() => setMostrarRefaccionarios(true)}
+                  onBlur={() => setTimeout(() => setMostrarRefaccionarios(false), 150)}
+                  autoComplete="off"
+                  placeholder="Refaccionario"
+                />
+                {mostrarRefaccionarios && compradorFiltrados.length > 0 && (
+                  <div className="list-group position-absolute w-100 shadow-sm" style={{ zIndex: 20 }}>
+                    {compradorFiltrados.map((u) => (
+                      <button
+                        type="button"
+                        key={u._id}
+                        className="list-group-item list-group-item-action py-1 px-2 small"
+                        onMouseDown={() => {
+                          setFirmas((f) => ({ ...f, comprador: u.name }));
+                          setMostrarRefaccionarios(false);
+                        }}
+                      >
+                        <strong>{u.name}</strong>
+                        {u.username ? ` — ${u.username}` : ""}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="form-text">Se propone tu usuario; búscalo entre los refaccionarios.</div>
+              </div>
+
+              <div className="col-sm-4">
+                <label className="form-label">Mensajero</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  name="mensajero"
+                  value={firmas.mensajero}
+                  onChange={onFirma}
+                />
+              </div>
+
+              <div className="col-sm-4">
+                <label className="form-label">Supervisado por</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  name="supervisadoPor"
+                  value={firmas.supervisadoPor}
+                  onChange={onFirma}
+                />
+              </div>
+
+              <div className="col-sm-4">
+                <label className="form-label">Auditado por</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  name="auditadoPor"
+                  value={firmas.auditadoPor}
+                  onChange={onFirma}
+                />
               </div>
             </div>
           </div>

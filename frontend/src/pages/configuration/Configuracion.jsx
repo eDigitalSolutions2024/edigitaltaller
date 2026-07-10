@@ -12,6 +12,8 @@ import {
   actualizarOrdenServicioContador,
   getValeContador,
   actualizarValeContador,
+  getDevolucionRefaccionContador,
+  actualizarDevolucionRefaccionContador,
 } from "../../api/configuracion";
 
 import "../../styles/configuracion.css";
@@ -26,6 +28,7 @@ export default function Configuracion() {
   const [mecanicos, setMecanicos] = useState([]);
   const [ordenServicioContador, setOrdenServicioContador] = useState(0);
   const [valeContador, setValeContador] = useState(0);
+  const [devolucionRefaccionContador, setDevolucionRefaccionContador] = useState(0);
 
   const [tipoCambioForm, setTipoCambioForm] = useState({
     valor: "",
@@ -34,6 +37,7 @@ export default function Configuracion() {
 
   const [ordenServicioForm, setOrdenServicioForm] = useState("");
   const [valeForm, setValeForm] = useState("");
+  const [devolucionRefaccionForm, setDevolucionRefaccionForm] = useState("");
 
   const [unidadForm, setUnidadForm] = useState({
     nombre: "",
@@ -49,12 +53,13 @@ export default function Configuracion() {
       setLoading(true);
       setError("");
 
-      const [tipos, unidadesData, mecanicosData, ordenServicioData, valeData] = await Promise.all([
+      const [tipos, unidadesData, mecanicosData, ordenServicioData, valeData, devolucionData] = await Promise.all([
         getTiposCambio(),
         getUnidadesMedida(),
         getMecanicos(),
         getOrdenServicioContador(),
         getValeContador(),
+        getDevolucionRefaccionContador(),
       ]);
 
       setTiposCambio(tipos);
@@ -62,6 +67,7 @@ export default function Configuracion() {
       setMecanicos(mecanicosData);
       setOrdenServicioContador(ordenServicioData?.valor || 0);
       setValeContador(valeData?.valor || 0);
+      setDevolucionRefaccionContador(devolucionData?.valor || 0);
     } catch (err) {
       setError(err.message || "Error al cargar configuración");
     } finally {
@@ -91,6 +97,16 @@ export default function Configuracion() {
     }
   };
 
+  const refrescarDevolucionRefaccionContador = async () => {
+    try {
+      const data = await getDevolucionRefaccionContador();
+      setDevolucionRefaccionContador(data?.valor || 0);
+    } catch {
+      // Falla silenciosa: no interrumpe la vista si el refresco en segundo
+      // plano no se pudo completar.
+    }
+  };
+
   useEffect(() => {
     cargarDatos();
   }, []);
@@ -102,12 +118,14 @@ export default function Configuracion() {
       if (document.visibilityState === "visible") {
         refrescarOrdenServicioContador();
         refrescarValeContador();
+        refrescarDevolucionRefaccionContador();
       }
     };
 
     const handleFocus = () => {
       refrescarOrdenServicioContador();
       refrescarValeContador();
+      refrescarDevolucionRefaccionContador();
     };
 
     document.addEventListener("visibilitychange", handleVisibility);
@@ -174,6 +192,22 @@ export default function Configuracion() {
       setValeForm("");
 
       mostrarMensaje("Número actual de Vale de Salida actualizado correctamente");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleGuardarDevolucionRefaccionContador = async (e) => {
+    e.preventDefault();
+
+    try {
+      setError("");
+
+      const res = await actualizarDevolucionRefaccionContador(devolucionRefaccionForm);
+      setDevolucionRefaccionContador(res?.valor || 0);
+      setDevolucionRefaccionForm("");
+
+      mostrarMensaje("Número actual de Devolución de Refacción actualizado correctamente");
     } catch (err) {
       setError(err.message);
     }
@@ -355,6 +389,43 @@ export default function Configuracion() {
                   value={valeForm}
                   onChange={(e) => setValeForm(e.target.value)}
                   placeholder={`Ej. ${valeContador}`}
+                  required
+                />
+              </label>
+
+              <button type="submit">Guardar</button>
+            </form>
+          </section>
+
+          {/* Contador de Devolución de Refacción */}
+          <section className="config-card">
+            <div className="config-card-header">
+              <div>
+                <h2>Número de Devolución de Refacción</h2>
+              </div>
+              <div className="config-icon">↩️</div>
+            </div>
+
+            <div className="config-current">
+              <span>Número actual</span>
+              <strong>{devolucionRefaccionContador}</strong>
+            </div>
+
+            <p className="text-muted small mb-2">
+              La próxima devolución de refacción se imprimirá con el número{" "}
+              <strong>{Number(devolucionRefaccionContador) + 1}</strong>.
+            </p>
+
+            <form onSubmit={handleGuardarDevolucionRefaccionContador} className="config-form">
+              <label>
+                Redefinir número actual
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={devolucionRefaccionForm}
+                  onChange={(e) => setDevolucionRefaccionForm(e.target.value)}
+                  placeholder={`Ej. ${devolucionRefaccionContador}`}
                   required
                 />
               </label>

@@ -35,3 +35,9 @@ export const getValeContador = () =>
 
 export const actualizarValeContador = (valor) =>
   http.put('/configuracion/vale-contador', { valor }).then(r => r.data);
+
+export const getDevolucionRefaccionContador = () =>
+  http.get('/configuracion/devolucion-refaccion-contador').then(r => r.data);
+
+export const actualizarDevolucionRefaccionContador = (valor) =>
+  http.put('/configuracion/devolucion-refaccion-contador', { valor }).then(r => r.data);

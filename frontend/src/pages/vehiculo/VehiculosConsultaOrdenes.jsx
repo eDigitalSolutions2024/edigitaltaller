@@ -191,7 +191,13 @@ export default function VehiculosConsultaOrdenes() {
                       <td className="text-center">{r.ordenServicio || "-"}</td>
                       <td>
                         {r.cliente?.gobierno?.nombreGobierno ||
-                          r.cliente?.nombre ||
+                          [
+                            r.cliente?.nombre,
+                            r.cliente?.apellidoPaterno,
+                            r.cliente?.apellidoMaterno,
+                          ]
+                            .filter(Boolean)
+                            .join(" ") ||
                           "-"}
                       </td>
                       <td>
@@ -344,7 +350,13 @@ export default function VehiculosConsultaOrdenes() {
       onClick={() => irAOrden(r)}
     >
       <td className="text-center">{r.ordenServicio || "-"}</td>
-      <td>{r.cliente?.gobierno?.nombreGobierno || r.cliente?.nombre || "-"}</td>
+      <td>
+        {r.cliente?.gobierno?.nombreGobierno ||
+          [r.cliente?.nombre, r.cliente?.apellidoPaterno, r.cliente?.apellidoMaterno]
+            .filter(Boolean)
+            .join(" ") ||
+          "-"}
+      </td>
       <td>
         {(r.marca || "") + (r.modelo ? " / " + r.modelo : "") || "-"}
       </td>

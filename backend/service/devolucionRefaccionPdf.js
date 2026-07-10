@@ -8,9 +8,6 @@ const path = require('path');
 require('dayjs/locale/es');
 dayjs.locale('es');
 
-// Por el momento el número de pendiente es fijo
-const NUMERO_PENDIENTE = 1;
-
 let LOGO_DATA_URL = '';
 try {
   const logoPath = path.join(__dirname, '../../frontend/public/images/logo_servicompactos.png');
@@ -58,6 +55,8 @@ function copiaHtml(dev) {
   const cant = dev.cantidadRecuperar || {};
   const dest = dev.destinoDevolucion || {};
   const mot = dev.motivoDevolucion || {};
+  const fir = dev.firmas || {};
+  const numeroConsecutivo = dev.folio ?? '';
 
   const refacciones = (dev.refacciones || [])
     .map(r => [r.codigo, r.nombre].filter(Boolean).join(' '))
@@ -73,7 +72,7 @@ function copiaHtml(dev) {
         ${LOGO_DATA_URL ? `<img src="${LOGO_DATA_URL}" />` : '<b>Servicompactos</b>'}
       </div>
       <div class="s1__titulo">Devoluci&oacute;n de Refacciones</div>
-      <div class="s1__num">${NUMERO_PENDIENTE}</div>
+      <div class="s1__num">${esc(numeroConsecutivo)}</div>
     </div>
 
     <!-- SECCIÓN 2: PROVEEDOR / REPORTE IMPORTANTE -->
@@ -149,13 +148,13 @@ function copiaHtml(dev) {
     <!-- SECCIÓN 7: FIRMAS -->
     <div class="s7">
       <div class="s7__fila">
-        <div class="firma"><div class="firma__linea"></div><div class="firma__label">Gerente de Compras</div></div>
-        <div class="firma"><div class="firma__linea"></div><div class="firma__label">Comprador:</div></div>
-        <div class="firma"><div class="firma__linea"></div><div class="firma__label">Mensajero:</div></div>
+        <div class="firma"><div class="firma__linea">${esc(fir.gerenteCompras) || '&nbsp;'}</div><div class="firma__label">Gerente de Compras</div></div>
+        <div class="firma"><div class="firma__linea">${esc(fir.comprador) || '&nbsp;'}</div><div class="firma__label">Comprador:</div></div>
+        <div class="firma"><div class="firma__linea">${esc(fir.mensajero) || '&nbsp;'}</div><div class="firma__label">Mensajero:</div></div>
       </div>
       <div class="s7__fila s7__fila--centro">
-        <div class="firma"><div class="firma__linea"></div><div class="firma__label">Supervisado por:</div></div>
-        <div class="firma"><div class="firma__linea"></div><div class="firma__label">Auditado por:</div></div>
+        <div class="firma"><div class="firma__linea">${esc(fir.supervisadoPor) || '&nbsp;'}</div><div class="firma__label">Supervisado por:</div></div>
+        <div class="firma"><div class="firma__linea">${esc(fir.auditadoPor) || '&nbsp;'}</div><div class="firma__label">Auditado por:</div></div>
       </div>
     </div>
 
@@ -248,14 +247,17 @@ function buildHtml(dev) {
   .s7__fila { display: flex; justify-content: space-between; }
   .s7__fila--centro { justify-content: space-around; }
   .firma { width: 30%; text-align: left; }
-  .firma__linea { border-bottom: 0.3mm solid #000; height: 6mm; }
+  .firma__linea {
+    border-bottom: 0.3mm solid #000; height: 6mm;
+    display: flex; align-items: flex-end; justify-content: center;
+    font-weight: bold; font-size: 8.5pt; text-align: center;
+    padding: 0 1mm; overflow: hidden;
+  }
   .firma__label { font-size: 9pt; padding-top: 0.5mm; }
 </style>
 </head>
 <body>
   ${copia}
-  ${copia}
-  ${copia.replace('class="copia"', 'class="copia copia--salto"')}
 </body>
 </html>`;
 }

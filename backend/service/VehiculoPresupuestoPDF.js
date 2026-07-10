@@ -68,11 +68,13 @@ exports.generarPresupuestoPDF = async (res, orden) => {
       ? dayjs(orden.fechaRecepcion).format('DD/MM/YYYY')
       : fechaActual;
 
+    const ivaRate = (Number(orden.ivaPresupuesto ?? 8) || 0) / 100;
+
     const items = (orden.presupuesto || []).map((item) => {
       const cant = Number(item.cant || 0);
       const precio = Number(item.precioVenta || 0);
       const subtotal = cant * precio;
-      const iva = subtotal * 0.08;
+      const iva = subtotal * ivaRate;
 
       return {
         cant,
@@ -84,7 +86,7 @@ exports.generarPresupuestoPDF = async (res, orden) => {
     });
 
     const subtotal = items.reduce((acc, item) => acc + Number(item.cant || 0) * Number(item.precio || 0), 0);
-    const iva = subtotal * 0.08;
+    const iva = subtotal * ivaRate;
     const totalFinal = subtotal + iva;
 
     const dir = (orden.cliente || {}).direccion || {};
@@ -291,8 +293,6 @@ exports.generarPresupuestoPDF = async (res, orden) => {
     </div>
     <div class="advisor">
       ASESOR: ${escapeHtml(orden.creadoPor || '')}<br>
-      Tel: ${escapeHtml(orden.telefonoAsesor || '')}<br>
-      Correo: ${escapeHtml(orden.correoAsesor || '')}<br>
       Fecha: ${fechaActual}
     </div>
   </div>
@@ -349,9 +349,11 @@ exports.generarPresupuestoPDF = async (res, orden) => {
   <table class="items">
     <thead>
       <tr>
-        <th style="width: 10%;">Cantidad</th>
-        <th style="width: 68%;">Concepto, Servicio y/o Reparación</th>
-        <th style="width: 22%;">Precio Venta</th>
+        <th style="width: 15%;">Cantidad</th>
+        <th style="width: 51%;">Concepto, Servicio y/o Reparación</th>
+        <th style="width: 12%;">Precio Venta</th>
+        <th style="width: 10%;">IVA</th>
+        <th style="width: 12%;">Total</th>
       </tr>
     </thead>
     <tbody>
@@ -362,13 +364,28 @@ exports.generarPresupuestoPDF = async (res, orden) => {
           <td>${item.cant}</td>
           <td class="desc">${escapeHtml(item.desc)}</td>
           <td class="money">${money(item.precio)}</td>
+          <td class="money">${money(item.iva)}</td>
+          <td class="money">${money(item.total)}</td>
         </tr>`).join('')
-          : `<tr><td colspan="3">Sin partidas de presupuesto.</td></tr>`
+          : `<tr><td colspan="5">Sin partidas de presupuesto.</td></tr>`
       }
       <tr>
         <td></td>
-        <td style="text-align:right;"><b>Total Presupuesto:</b></td>
+        <td></td>
+        <td colspan="2" style="text-align:right;"><b>Subtotal:</b></td>
         <td class="money"><b>${money(subtotal)}</b></td>
+      </tr>
+      <tr>
+        <td></td>
+        <td></td>
+        <td colspan="2" style="text-align:right;"><b>IVA (${escapeHtml(Number(orden.ivaPresupuesto ?? 8))}%):</b></td>
+        <td class="money"><b>${money(iva)}</b></td>
+      </tr>
+      <tr>
+        <td></td>
+        <td></td>
+        <td colspan="2" style="text-align:right;"><b>Importe Total:</b></td>
+        <td class="money"><b>${money(totalFinal)}</b></td>
       </tr>
     </tbody>
   </table>

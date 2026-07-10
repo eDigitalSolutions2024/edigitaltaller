@@ -461,6 +461,13 @@ useEffect(() => {
 
                   
 
+        {/* === SOLICITUDES DE GARANTÍA === */}
+        {['admin', 'jefe', 'asesor_servicio', 'auditoria'].includes(user?.role) && (
+          <NavLink to="/garantias" className="sidebar__link" title="Solicitudes de Garantía">
+            <span className="emoji">🔧</span><span className="label">Solicitud de Garantías</span>
+          </NavLink>
+        )}
+
         {/* === VALES DE SALIDA === */}
         {canSeeModule(user?.role, 'vales') && (
           <NavLink to="/vales/nuevo" className="sidebar__link" title="Vales de Salida">

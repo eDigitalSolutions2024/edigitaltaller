@@ -5,8 +5,12 @@ import VehiculoNuevoForm from "./VehiculoNuevoForm";
 import { useNavigate } from "react-router-dom";
 import ModalAltaCliente from "../../components/ModalAltaCliente";
 import GarageModal from "./GarageModal";
+import GarantiaModal from "./GarantiaModal";
+import { getUser } from "../../auth";
 
 export default function VehiculoEntrada() {
+  // Garantías aún en ajustes: el botón solo está disponible para admins
+  const esAdmin = getUser()?.role === "admin";
   const [q, setQ] = useState("");
   const [clientes, setClientes] = useState([]);
   const [filtrados, setFiltrados] = useState([]);
@@ -21,6 +25,9 @@ export default function VehiculoEntrada() {
 
   const [showGarageModal, setShowGarageModal] = useState(false);
   const [vehiculoGarage, setVehiculoGarage] = useState(null);
+
+  const [showGarantiaModal, setShowGarantiaModal] = useState(false);
+  const [garantiaInfo, setGarantiaInfo] = useState(null); // { ordenAnterior, motivo }
 
   const navigate = useNavigate();
   const tabsRef = useRef(null);
@@ -80,6 +87,7 @@ export default function VehiculoEntrada() {
     setMostrarAcciones(true);
     setMostrarFormNuevoCarro(false);
     setVehiculoGarage(null);
+    setGarantiaInfo(null);
 
     const nombre =
       cliente.gobierno?.nombreGobierno ||
@@ -92,6 +100,7 @@ export default function VehiculoEntrada() {
 
   const handleNuevoCarro = () => {
     setVehiculoGarage(null);
+    setGarantiaInfo(null);
     setMostrarFormNuevoCarro(true);
   };
 
@@ -105,8 +114,22 @@ export default function VehiculoEntrada() {
 
   const handleVehiculoDesdeGarage = (v) => {
     setVehiculoGarage(v);
+    setGarantiaInfo(null);
     setMostrarFormNuevoCarro(true);
     setShowGarageModal(false);
+  };
+
+  const handleGarantia = () => {
+    setShowGarantiaModal(true);
+  };
+
+  // La orden anterior es un doc Vehiculo completo: sirve como prefill
+  // del vehículo (mismo mecanismo que el flujo del garaje).
+  const handleGarantiaSolicitada = ({ ordenAnterior, motivo }) => {
+    setGarantiaInfo({ ordenAnterior, motivo });
+    setVehiculoGarage(ordenAnterior);
+    setMostrarFormNuevoCarro(true);
+    setShowGarantiaModal(false);
   };
 
   const handleVehiculoCreado = (vehiculo) => {
@@ -146,6 +169,7 @@ export default function VehiculoEntrada() {
                   setMostrarAcciones(false);
                   setMostrarFormNuevoCarro(false);
                   setVehiculoGarage(null);
+                  setGarantiaInfo(null);
                 }}
               />
             </div>
@@ -236,21 +260,40 @@ export default function VehiculoEntrada() {
               </button>
               <button
                 type="button"
-                className="btn btn-success"
+                className="btn btn-success me-2"
                 onClick={handleGaraje}
               >
                 Garaje
               </button>
+              {esAdmin && (
+                <button
+                  type="button"
+                  className="btn btn-warning"
+                  onClick={handleGarantia}
+                >
+                  Garantía
+                </button>
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {/* Aviso de orden con solicitud de garantía */}
+      {mostrarFormNuevoCarro && clienteSeleccionado && garantiaInfo && (
+        <div className="alert alert-warning mt-3 mb-0">
+          <strong>Solicitud de garantía</strong> sobre la orden{" "}
+          <strong>{garantiaInfo.ordenAnterior?.ordenServicio}</strong>.
+          {" "}Motivo: {garantiaInfo.motivo}
+        </div>
+      )}
 
       {/* Formulario de nuevo vehículo */}
       {mostrarFormNuevoCarro && clienteSeleccionado && (
         <VehiculoNuevoForm
           cliente={clienteSeleccionado}
           vehiculoGarage={vehiculoGarage}
+          garantia={garantiaInfo}
           onCreated={handleVehiculoCreado}
         />
       )}
@@ -278,6 +321,13 @@ export default function VehiculoEntrada() {
         show={showGarageModal}
         onSelect={handleVehiculoDesdeGarage}
         onClose={() => setShowGarageModal(false)}
+      />
+
+      <GarantiaModal
+        show={showGarantiaModal}
+        cliente={clienteSeleccionado}
+        onSolicitar={handleGarantiaSolicitada}
+        onClose={() => setShowGarantiaModal(false)}
       />
     </div>
   );

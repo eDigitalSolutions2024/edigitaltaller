@@ -30,6 +30,11 @@ export const getAsesores = async () => {
   return data;
 };
 
+export const getRefaccionarios = async () => {
+  const { data } = await http.get('/users/refaccionarios');
+  return data;
+};
+
 export const verifyAdminPassword = async (password) => {
   const { data } = await http.post('/users/verify-admin-password', { password });
   return data; // { token }

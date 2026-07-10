@@ -17,6 +17,19 @@ router.get('/asesores', proteger, async (req, res) => {
   }
 });
 
+// GET /api/users/refaccionarios — lista de refaccionarios activos (para el campo "Comprador"
+// del formato de Devolución de Refacciones). Accesible a todos los roles autenticados.
+router.get('/refaccionarios', proteger, async (req, res) => {
+  try {
+    const refaccionarios = await User.find({ role: 'refaccionario', isActive: true })
+      .select('_id name username')
+      .sort({ name: 1 });
+    res.json(refaccionarios);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener refaccionarios', error: error.message });
+  }
+});
+
 // GET /api/users
 router.get('/', proteger, requiereRol('admin'), async (req, res) => {
   try {

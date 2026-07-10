@@ -4,6 +4,7 @@ const EntradaInventario = require('../models/EntradaInventario');
 const SalidaInventario  = require('../models/SalidaInventario');
 const AjusteInventario  = require('../models/AjusteInventario');
 const Vehiculo          = require('../models/Vehiculo');
+const { regexBusquedaOS } = require('../utils/ordenServicio');
 
 
 /* ===== Helpers ===== */
@@ -192,9 +193,10 @@ router.get('/ordenes', async (req, res) => {
     // 🔵 Solo queremos que hayan sido iniciadas
     const q = { ordenIniciada: true };
 
-    // Filtro opcional por número de OS
+    // Filtro opcional por número de OS (con o sin guion: "OS023" = "OS-023")
     if (searchOs) {
-      q.ordenServicio = { $regex: searchOs.trim(), $options: 'i' };
+      const rx = regexBusquedaOS(searchOs);
+      if (rx) q.ordenServicio = rx;
     }
 
     // Filtro opcional por texto (cliente, marca, modelo, placas)
