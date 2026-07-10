@@ -5,6 +5,7 @@ const ValeSalida = require('../models/ValeSalida');
 const Vehiculo = require('../models/Vehiculo');
 const Contador = require('../models/Contador');
 const { streamValeSalidaPdf } = require('../service/valeSalidaPdf');
+const { regexBusquedaOS } = require('../utils/ordenServicio');
 
 const CONTADOR_VALE = 'valeSalida';
 const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno';
@@ -64,10 +65,14 @@ router.get('/siguiente-dig', async (req, res) => {
 router.get('/buscar-orden/:noOrden', async (req, res) => {
   try {
     const { noOrden } = req.params;
-    const vehiculo = await Vehiculo.findOne({ ordenServicio: noOrden })
-      .populate('cliente', POPULATE_CLIENTE)
-      .sort({ createdAt: -1 })
-      .lean();
+    // Coincidencia completa del folio, con o sin guion ("OS023" = "OS-023")
+    const rxOrden = regexBusquedaOS(noOrden, { exacto: true });
+    const vehiculo = rxOrden
+      ? await Vehiculo.findOne({ ordenServicio: rxOrden })
+          .populate('cliente', POPULATE_CLIENTE)
+          .sort({ createdAt: -1 })
+          .lean()
+      : null;
 
     if (!vehiculo) {
       return res.json({ ok: true, encontrado: false });
@@ -169,10 +174,13 @@ router.post('/', async (req, res) => {
     if (body.vehiculo) {
       vehiculoDoc = await Vehiculo.findById(body.vehiculo).populate('cliente', POPULATE_CLIENTE).lean();
     } else {
-      vehiculoDoc = await Vehiculo.findOne({ ordenServicio: body.noOrden })
-        .populate('cliente', POPULATE_CLIENTE)
-        .sort({ createdAt: -1 })
-        .lean();
+      const rxNoOrden = regexBusquedaOS(body.noOrden, { exacto: true });
+      vehiculoDoc = rxNoOrden
+        ? await Vehiculo.findOne({ ordenServicio: rxNoOrden })
+            .populate('cliente', POPULATE_CLIENTE)
+            .sort({ createdAt: -1 })
+            .lean()
+        : null;
     }
     const snapshot = snapshotFromVehiculo(vehiculoDoc);
 

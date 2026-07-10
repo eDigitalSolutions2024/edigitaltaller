@@ -4,19 +4,14 @@ import { createVehiculo, updateDatosOrden } from "../../api/vehiculos";
 import { upsertGarageVehiculo, searchGarageVehiculos } from "../../api/garage";
 import VehicleDamageCanvas from "../../components/VehicleDamageCanvas";
 import { getUser } from "../../auth";
-import { getOrdenServicioContador } from "../../api/configuracion";
 
-// 🔹 Helper para generar el folio igual que en el backend
-{/*function generateOrdenServicio() {
-  const ahora = new Date();
-  const yyyy = ahora.getFullYear();
-  const mm = String(ahora.getMonth() + 1).padStart(2, "0");
-  const dd = String(ahora.getDate()).padStart(2, "0");
-  const hh = String(ahora.getHours()).padStart(2, "0");
-  const mi = String(ahora.getMinutes()).padStart(2, "0");
-  const ss = String(ahora.getSeconds()).padStart(2, "0");
-  return `OS-${yyyy}${mm}${dd}-${hh}${mi}${ss}`;
-}*/}
+// 🔹 Normaliza el folio capturado a mano al formato Letra-Número:
+// "os023", "OS 023" y "os-023" → "OS-023". Devuelve null si no cumple.
+function normalizarOrdenServicio(valor) {
+  const limpio = String(valor || "").toUpperCase().replace(/\s+/g, "");
+  const m = limpio.match(/^([A-Z]+)-?(\d+)$/);
+  return m ? `${m[1]}-${m[2]}` : null;
+}
 
 function getTodayInputDate() {
   const ahora = new Date();
@@ -80,6 +75,7 @@ export default function VehiculoNuevoForm({
   readOnly = false,
   onCreated,
   vehiculoGarage,
+  garantia, // { ordenAnterior, motivo } cuando la orden nace de una solicitud de garantía
 }) {
   const esParticular = cliente?.tipoCliente === "Particular";
   const requiereFactura = cliente?.requiereFacturacion === true;
@@ -174,7 +170,6 @@ export default function VehiculoNuevoForm({
   });
 
   const [otrosIndicadoresActivo, setOtrosIndicadoresActivo] = useState(false);
-  const [proximoFolio, setProximoFolio] = useState(null);
 
   const [guardando, setGuardando] = useState(false);
   const [guardado, setGuardado] = useState(false);
@@ -191,8 +186,8 @@ export default function VehiculoNuevoForm({
   const [buscandoSerie, setBuscandoSerie] = useState(false);
   const serieDebounceRef = useRef(null);
 
-  // 🔹 Al montar, si es ALTA (sin initialData), el folio de OS se asigna
-  // hasta guardar; aquí solo mostramos una vista previa del próximo número.
+  // 🔹 Al montar, si es ALTA (sin initialData), el folio de OS se captura
+  // manualmente; solo precargamos fecha y hora de recepción.
   useEffect(() => {
     if (!initialData) {
       setForm((prev) => ({
@@ -201,11 +196,6 @@ export default function VehiculoNuevoForm({
         fechaRecepcion: getTodayInputDate(),
         horaRecepcion: getCurrentInputTime(),
       }));
-
-      setProximoFolio(null);
-      getOrdenServicioContador()
-        .then((res) => setProximoFolio(`P-${Number(res?.valor || 0) + 1}`))
-        .catch(() => setProximoFolio(null));
     }
   }, [initialData]);
 
@@ -438,11 +428,19 @@ export default function VehiculoNuevoForm({
       inspeccionFisica,
       correos: form.correos || [],
       creadoPor: usuario?.name || usuario?.username || "Sin usuario",
+      ...(garantia?.ordenAnterior?._id
+        ? {
+            garantiaSolicitud: {
+              ordenAnteriorId: garantia.ordenAnterior._id,
+              motivo: garantia.motivo,
+            },
+          }
+        : {}),
     };
 
-    console.log("PAYLOAD creadoPor:", payload.creadoPor);
+    // console.log("PAYLOAD creadoPor:", payload.creadoPor);
 
-    console.log(getUser())
+    // console.log(getUser())
 
     // ── Modo edición admin (orden ya existente) ──────────
     if (initialData?._id) {
@@ -468,6 +466,13 @@ export default function VehiculoNuevoForm({
       alert("No hay cliente seleccionado.");
       return;
     }
+
+    const folioOS = normalizarOrdenServicio(form.ordenServicio);
+    if (!folioOS) {
+      alert("Captura el número de orden con el formato Letra-Número (ej. OS-023).");
+      return;
+    }
+    payload.ordenServicio = folioOS;
 
     try {
       setGuardando(true);
@@ -616,18 +621,17 @@ export default function VehiculoNuevoForm({
                 value={form.ordenServicio}
                 onChange={handleChange}
                 readOnly={initialData && efectivoReadOnly}
-                disabled={!initialData}
-                placeholder={
-                  !initialData
-                    ? proximoFolio
-                      ? `${proximoFolio}`
-                      : "Se asignará automáticamente al guardar"
-                    : ""
-                }
+                onBlur={() => {
+                  const folioNorm = normalizarOrdenServicio(form.ordenServicio);
+                  if (folioNorm && folioNorm !== form.ordenServicio) {
+                    setForm((prev) => ({ ...prev, ordenServicio: folioNorm }));
+                  }
+                }}
+                placeholder={!initialData ? "Ej. OS-023" : ""}
               />
               {!initialData && (
                 <small className="text-muted">
-                  El número definitivo se confirma al guardar la orden.
+                  {/* Formato Letra-Número (ej. OS-023); si escribes OS023 el guion se agrega solo. */}
                 </small>
               )}
             </div>

@@ -16,9 +16,33 @@ const ESTADOS_ORDEN = [
   'CANCELADA',
 ];
 
+// ===== Solicitud de Garantía =====
+// Sub-documento embebido en la orden NUEVA que se abre por garantía.
+// default: null → las órdenes normales no llevan garantía.
+const garantiaSchema = new Schema(
+  {
+    estado: {
+      type: String,
+      enum: ['PENDIENTE', 'APROBADA', 'NEGADA'],
+      default: 'PENDIENTE',
+    },
+    motivo: { type: String, default: '' },
+    ordenAnterior: { type: Schema.Types.ObjectId, ref: 'Vehiculo', default: null },
+    ordenAnteriorFolio: { type: String, default: '' },
+    fechaSolicitud: { type: Date, default: null },
+    // "fecha devolución solicitud": se captura al aprobar o negar
+    fechaResolucion: { type: Date, default: null },
+    // Ajuste al total de la orden (SIN IVA); negativo = descuento
+    costoDiferencia: { type: Number, default: 0 },
+    autorizaCarreon: { type: Boolean, default: false },
+    resueltoPor: { type: String, default: '' },
+  },
+  { _id: false }
+);
+
 const vehiculoSchema = new Schema(
   {
-    
+
     // Referencia al cliente dueño del vehículo
     cliente: {
       type: Schema.Types.ObjectId,
@@ -33,6 +57,9 @@ const vehiculoSchema = new Schema(
       default: 'PENDIENTE_CAPTURA',
       index: true,
     },
+
+    // Solicitud de garantía (null = orden normal)
+    garantia: { type: garantiaSchema, default: null },
 
     fechaSolicitudRefacciones: { type: Date, default: null },
     fechaRespuestaRefaccionaria: { type: Date, default: null },
@@ -386,6 +413,7 @@ const vehiculoSchema = new Schema(
         codigoSat: { type: String, default: "" },
         descripcionSat: { type: String, default: "" },
         motivoPrecioCero: { type: String, default: "" }, // justificación cuando precioVenta <= 0
+        esGarantia: { type: Boolean, default: false }, // fila inyectada al aprobar una garantía (no editable)
       },
     ],
 
@@ -405,6 +433,10 @@ const vehiculoSchema = new Schema(
       },
     ],
 
+// ===== IVA (porcentaje editable, normalmente 8%) =====
+ivaPresupuesto: { type: Number, default: 8 },
+ivaVenta: { type: Number, default: 8 },
+
 // ===== Observaciones finales =====
 observacionesExternas: { type: String, default: "" },
 observacionesInternas: { type: String, default: "" },
@@ -423,6 +455,8 @@ pendienteCierre: { type: Boolean, default: false },
   }
 );
 
+
+vehiculoSchema.index({ 'garantia.estado': 1 });
 
 // Generar número de Orden de Servicio automáticamente si no viene
 vehiculoSchema.pre('save', function (next) {

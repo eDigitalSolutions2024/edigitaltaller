@@ -881,6 +881,32 @@ export default function SolicitudTallerDetalle() {
               <input className="form-control form-control-sm" value={orden.placas || ""} disabled />
             </div>
           </div>
+          <div className="row g-2 mt-1">
+            <div className="col-6 col-md-2">
+              <label className="form-label form-label-sm fw-semibold mb-1">Color</label>
+              <input className="form-control form-control-sm" value={orden.color || ""} disabled />
+            </div>
+            <div className="col-6 col-md-2">
+              <label className="form-label form-label-sm fw-semibold mb-1">Serie</label>
+              <input className="form-control form-control-sm" value={orden.serie || ""} disabled />
+            </div>
+            <div className="col-6 col-md-2">
+              <label className="form-label form-label-sm fw-semibold mb-1">KMS/Millas</label>
+              <input className="form-control form-control-sm" value={orden.kmsMillas || ""} disabled />
+            </div>
+            <div className="col-6 col-md-2">
+              <label className="form-label form-label-sm fw-semibold mb-1">Motor</label>
+              <input className="form-control form-control-sm" value={orden.motor || ""} disabled />
+            </div>
+            <div className="col-6 col-md-2">
+              <label className="form-label form-label-sm fw-semibold mb-1">No. Económico</label>
+              <input className="form-control form-control-sm" value={orden.numeroEconomico || ""} disabled />
+            </div>
+            <div className="col-6 col-md-2">
+              <label className="form-label form-label-sm fw-semibold mb-1">Tracción</label>
+              <input className="form-control form-control-sm" value={orden.traccion || ""} disabled />
+            </div>
+          </div>
         </div>
       </div>
 

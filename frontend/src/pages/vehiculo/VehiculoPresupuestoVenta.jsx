@@ -72,6 +72,10 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   const [obsExternas, setObsExternas] = useState("");
   const [obsInternas, setObsInternas] = useState("");
 
+  // ===== IVA (editable, normalmente 8%) =====
+  const [ivaPresupuesto, setIvaPresupuesto] = useState(8);
+  const [ivaVenta, setIvaVenta] = useState(8);
+
   // ===== CARGA INICIAL =====
   useEffect(() => {
     if (!orden) return;
@@ -83,6 +87,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     setMoRows(orden.manoObra || []);
     setObsExternas(orden.observacionesExternas || "");
     setObsInternas(orden.observacionesInternas || "");
+    setIvaPresupuesto(orden.ivaPresupuesto ?? 8);
+    setIvaVenta(orden.ivaVenta ?? 8);
 
     // ===== PRESUPUESTO: reconciliar lo guardado con lo recién aprobado =====
     const presupuestoGuardado = Array.isArray(orden.presupuesto)
@@ -230,6 +236,19 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     [ventaRows]
   );
 
+  // IVA (subtotal * porcentaje) y totales con IVA
+  const ivaMontoPresupuesto = useMemo(
+    () => totalPresupuesto * ((Number(ivaPresupuesto) || 0) / 100),
+    [totalPresupuesto, ivaPresupuesto]
+  );
+  const totalConIvaPresupuesto = totalPresupuesto + ivaMontoPresupuesto;
+
+  const ivaMontoVenta = useMemo(
+    () => totalVentaCliente * ((Number(ivaVenta) || 0) / 100),
+    [totalVentaCliente, ivaVenta]
+  );
+  const totalConIvaVenta = totalVentaCliente + ivaMontoVenta;
+
   // ===== PRESUPUESTO — HANDLERS =====
   const handleUpdatePres = (idx, field, value) => {
     setPresRows((prev) => {
@@ -289,16 +308,21 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       return;
     }
 
-    const nuevasVentas = autorizadas.map((r) => ({
-      cant: r.cant,
-      concepto: r.concepto || r.refaccion || "",
-      precioVenta: 0,
-      observaciones: "",
-      codigoServicio: "",
-      descripcionServicio: "",
-      codigoSat: "",
-      descripcionSat: "",
-    }));
+    const nuevasVentas = [
+      ...autorizadas.map((r) => ({
+        cant: r.cant,
+        concepto: r.concepto || r.refaccion || "",
+        // El precio de la refacción se pasa como Precio Venta (Sin IVA)
+        precioVenta: Number(r.precioVenta || 0),
+        observaciones: "",
+        codigoServicio: "",
+        descripcionServicio: "",
+        codigoSat: "",
+        descripcionSat: "",
+      })),
+      // La fila GARANTÍA nunca se pierde al reenviar a venta
+      ...ventaRows.filter((r) => r.esGarantia),
+    ];
 
     setVentaRows(nuevasVentas);
 
@@ -350,7 +374,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
   const handleUpdateVentaRow = (idx, field, value) => {
     setVentaRows((prev) =>
-      prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r))
+      prev.map((r, i) => (i === idx && !r.esGarantia ? { ...r, [field]: value } : r))
     );
   };
 
@@ -389,7 +413,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   };
 
   const removeVentaRow = (idx) =>
-    setVentaRows((prev) => prev.filter((_, i) => i !== idx));
+    setVentaRows((prev) => prev.filter((r, i) => i !== idx || r.esGarantia));
 
   // ===== GUARDADO / PDF =====
   const buildPayload = (extra = {}) => ({
@@ -402,6 +426,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     departamento,
     observCotizacion,
     requiereFactura,
+    ivaPresupuesto: Number(ivaPresupuesto) || 0,
+    ivaVenta: Number(ivaVenta) || 0,
     ...extra,
   });
 
@@ -431,7 +457,10 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   // Devuelve las filas (posiblemente con motivoPrecioCero agregado) o null si el usuario
   // canceló/no pudo justificar el precio en $0 (en cuyo caso la acción que llamó debe abortar).
   const asegurarPreciosVentaCliente = () => {
-    const filasEnCero = ventaRows.filter((r) => Number(r.precioVenta) <= 0);
+    // La fila GARANTÍA puede ser $0 o negativa por diseño: no requiere justificación
+    const filasEnCero = ventaRows.filter(
+      (r) => !r.esGarantia && Number(r.precioVenta) <= 0
+    );
     if (filasEnCero.length === 0) return ventaRows;
 
     const conceptos = filasEnCero
@@ -455,7 +484,9 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     }
 
     const filasVenta = ventaRows.map((r) =>
-      Number(r.precioVenta) <= 0 ? { ...r, motivoPrecioCero: motivo.trim() } : r
+      !r.esGarantia && Number(r.precioVenta) <= 0
+        ? { ...r, motivoPrecioCero: motivo.trim() }
+        : r
     );
     setVentaRows(filasVenta);
     return filasVenta;
@@ -865,10 +896,37 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
             <tfoot className="table-light">
               <tr>
                 <td colSpan={14} className="text-end fw-bold text-uppercase">
-                  Total Presupuesto:
+                  Subtotal:
+                </td>
+                <td className="text-end fw-bold" style={{ fontSize: "1.05rem" }}>
+                  {formatMoney(totalPresupuesto)}
+                </td>
+                <td colSpan={2}></td>
+              </tr>
+              <tr>
+                <td colSpan={14} className="text-end fw-bold text-uppercase">
+                  <span className="me-2">IVA</span>
+                  <input
+                    type="number"
+                    className="form-control form-control-sm d-inline-block text-end"
+                    style={{ width: 70 }}
+                    value={ivaPresupuesto}
+                    readOnly={readOnly}
+                    onChange={(e) => setIvaPresupuesto(e.target.value)}
+                  />
+                  <span className="ms-1">%:</span>
+                </td>
+                <td className="text-end fw-bold">
+                  {formatMoney(ivaMontoPresupuesto)}
+                </td>
+                <td colSpan={2}></td>
+              </tr>
+              <tr>
+                <td colSpan={14} className="text-end fw-bold text-uppercase">
+                  Total:
                 </td>
                 <td className="text-end fw-bold text-white bg-primary" style={{ fontSize: "1.1rem" }}>
-                  {formatMoney(totalPresupuesto)}
+                  {formatMoney(totalConIvaPresupuesto)}
                 </td>
                 <td colSpan={2}></td>
               </tr>
@@ -1084,14 +1142,16 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                 </tr>
               )}
 
-              {ventaRows.map((r, idx) => (
-                <tr key={idx}>
+              {ventaRows.map((r, idx) => {
+                const filaBloqueada = readOnly || !!r.esGarantia;
+                return (
+                <tr key={idx} className={r.esGarantia ? "table-warning" : ""}>
                   <td className="text-center">
                     <input
                       type="number"
                       className="form-control form-control-sm text-center"
                       value={r.cant ?? ""}
-                      readOnly={readOnly}
+                      readOnly={filaBloqueada}
                       onChange={(e) => handleUpdateVentaRow(idx, "cant", e.target.value)}
                     />
                   </td>
@@ -1100,7 +1160,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       type="text"
                       className="form-control form-control-sm"
                       value={r.concepto ?? ""}
-                      readOnly={readOnly}
+                      readOnly={filaBloqueada}
                       onChange={(e) => handleUpdateVentaRow(idx, "concepto", e.target.value)}
                     />
                   </td>
@@ -1110,7 +1170,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       step="0.01"
                       className="form-control form-control-sm text-end"
                       value={r.precioVenta ?? ""}
-                      readOnly={readOnly}
+                      readOnly={filaBloqueada}
                       onChange={(e) => handleUpdateVentaRow(idx, "precioVenta", e.target.value)}
                     />
                   </td>
@@ -1119,29 +1179,60 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       type="text"
                       className="form-control form-control-sm"
                       value={r.observaciones || ""}
-                      readOnly={readOnly}
+                      readOnly={filaBloqueada}
                       onChange={(e) => handleUpdateVentaRow(idx, "observaciones", e.target.value)}
                     />
                   </td>
                   {!readOnly && (
                     <td className="text-center">
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-danger"
-                        onClick={() => removeVentaRow(idx)}
-                      >
-                        Borrar
-                      </button>
+                      {r.esGarantia ? (
+                        <span
+                          className="badge bg-warning text-dark"
+                          title="Partida generada por garantía aprobada; no se puede editar ni eliminar"
+                        >
+                          GARANTÍA
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          onClick={() => removeVentaRow(idx)}
+                        >
+                          Borrar
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={2} className="text-end fw-bold">Total:</td>
+                <td colSpan={2} className="text-end fw-bold">Sub Total:</td>
                 <td className="text-end fw-bold">{formatMoney(totalVentaCliente)}</td>
-                <td colSpan={2}></td>
+                <td colSpan={readOnly ? 1 : 2}></td>
+              </tr>
+              <tr>
+                <td colSpan={2} className="text-end fw-bold">
+                  <span className="me-2">IVA</span>
+                  <input
+                    type="number"
+                    className="form-control form-control-sm d-inline-block text-end"
+                    style={{ width: 70 }}
+                    value={ivaVenta}
+                    readOnly={readOnly}
+                    onChange={(e) => setIvaVenta(e.target.value)}
+                  />
+                  <span className="ms-1">%:</span>
+                </td>
+                <td className="text-end fw-bold">{formatMoney(ivaMontoVenta)}</td>
+                <td colSpan={readOnly ? 1 : 2}></td>
+              </tr>
+              <tr>
+                <td colSpan={2} className="text-end fw-bold">Total:</td>
+                <td className="text-end fw-bold text-white bg-primary">{formatMoney(totalConIvaVenta)}</td>
+                <td colSpan={readOnly ? 1 : 2}></td>
               </tr>
             </tfoot>
           </table>

@@ -319,13 +319,26 @@ router.get('/refaccion/prefill', async (req, res) => {
       numeroFactura: ent.numero || factura,
       proveedor: ent.proveedorId ? (ent.proveedorId.nombreProveedor || ent.proveedorId.aliasProveedor || '') : '',
       fechaFactura: ent.fechaFactura || ent.createdAt,
+      moneda: ent.moneda || 'MXN',
       numeroOrdenServicio: ent.ordenVinculada?.numeroOrden || '',
+      // Tabla completa de la entrada: cada renglón editable pieza por pieza.
       refacciones: caps.map(c => {
         const raw = String(c.codigoInterno || '');
         const cat = catMap.get(raw);
+        const cantidad = Number(c.cantidad || 0);
+        const costoUnitario = Number(c.costoUnitario ?? c.precioUnitario ?? c.pu ?? 0);
+        const descuentoPct = Number(c.descuentoPct ?? 0);
+        // La captura guarda el descuento en %; en la devolución se maneja como monto ($).
+        const descuento = +((cantidad * costoUnitario) * (descuentoPct / 100)).toFixed(2);
         return {
           codigo: cat ? (cat.numeroParte || cat.codigo || '') : (isObjId(raw) ? '' : raw),
           nombre: c.descripcion || cat?.descripcion || '',
+          tipo: c.tipo || '',
+          unidad: c.unidad || 'Pieza',
+          cantidad,
+          costoUnitario,
+          ivaPct: Number(c.ivaPct ?? 16),
+          descuento,
         };
       }),
     });
@@ -406,11 +419,23 @@ router.post('/refaccion', async (req, res) => {
       fechaDevolucion: toDate(b.fechaDevolucion),
       numeroFactura: b.numeroFactura,
       numeroComprobante: b.numeroComprobante,
-      refacciones: (b.refacciones || []).filter(r => (r.codigo || r.nombre)),
+      refacciones: (b.refacciones || [])
+        .filter(r => (r.codigo || r.nombre))
+        .map(r => ({
+          codigo: r.codigo || '',
+          nombre: r.nombre || '',
+          tipo: r.tipo || '',
+          unidad: r.unidad || '',
+          cantidad: Number(r.cantidad || 0),
+          costoUnitario: Number(r.costoUnitario || 0),
+          ivaPct: Number(r.ivaPct || 0),
+          descuento: Number(r.descuento || 0),
+        })),
       numeroOrdenServicio: b.numeroOrdenServicio,
       cantidadRecuperar: b.cantidadRecuperar || {},
       destinoDevolucion: b.destinoDevolucion || {},
       motivoDevolucion: b.motivoDevolucion || {},
+      firmas: b.firmas || {},
     });
 
     res.status(201).json({ ok: true, folio: dev.folio, devId: dev._id });

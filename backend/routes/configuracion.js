@@ -204,6 +204,44 @@ router.put('/vale-contador', proteger, requiereRol('admin'), async (req, res) =>
 });
 
 // ===============================
+// CONTADOR DE DEVOLUCIÓN DE REFACCIÓN (número consecutivo del formato impreso)
+// ===============================
+
+const DEVOLUCION_REFACCION_CONTADOR = 'devolucionRefaccion';
+
+// GET /api/configuracion/devolucion-refaccion-contador
+router.get('/devolucion-refaccion-contador', proteger, async (req, res) => {
+  try {
+    const contador = await Contador.findOne({ nombre: DEVOLUCION_REFACCION_CONTADOR });
+    res.json({ valor: contador?.valor || 0 });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener el contador de devoluciones de refacción', error: error.message });
+  }
+});
+
+// PUT /api/configuracion/devolucion-refaccion-contador
+router.put('/devolucion-refaccion-contador', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { valor } = req.body;
+    const valorNum = Number(valor);
+
+    if (valor === undefined || valor === null || Number.isNaN(valorNum) || valorNum < 0) {
+      return res.status(400).json({ message: 'El valor debe ser un número mayor o igual a 0' });
+    }
+
+    const contador = await Contador.findOneAndUpdate(
+      { nombre: DEVOLUCION_REFACCION_CONTADOR },
+      { $set: { valor: valorNum } },
+      { new: true, upsert: true }
+    );
+
+    res.json({ valor: contador.valor });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al actualizar el contador de devoluciones de refacción', error: error.message });
+  }
+});
+
+// ===============================
 // MECÁNICOS
 // ===============================
 

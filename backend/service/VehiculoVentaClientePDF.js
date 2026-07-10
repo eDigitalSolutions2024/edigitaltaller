@@ -73,11 +73,13 @@ exports.generarVentaClientePDF = async (res, orden) => {
       ? dayjs(orden.fechaRecepcion).format('DD/MM/YYYY')
       : fechaActual;
 
+    const ivaRate = (Number(orden.ivaVenta ?? 8) || 0) / 100;
+
     const items = (orden.ventaCliente || []).map((item) => {
       const cant = Number(item.cant || 0);
       const precio = Number(item.precioVenta || 0);
       const subtotal = cant * precio;
-      const iva = subtotal * 0.08;
+      const iva = subtotal * ivaRate;
 
       return {
         cant,
@@ -92,7 +94,7 @@ exports.generarVentaClientePDF = async (res, orden) => {
       (acc, item) => acc + Number(item.cant || 0) * Number(item.precio || 0),
       0
     );
-    const iva = subtotal * 0.08;
+    const iva = subtotal * ivaRate;
     const totalFinal = subtotal + iva;
 
     const _dir = ((orden.cliente || {}).direccion) || {};
@@ -318,13 +320,11 @@ exports.generarVentaClientePDF = async (res, orden) => {
 
     <div class="advisor">
       ASESOR: ${escapeHtml(orden.creadoPor || '')}<br>
-      Tel: ${escapeHtml(orden.telefonoAsesor || '')}<br>
-      Correo: ${escapeHtml(orden.correoAsesor || '')}<br>
       Fecha: ${fechaActual}
     </div>
   </div>
 
-  <div class="title">PRESUPUESTO</div>
+  <div class="title">VENTA AL CLIENTE</div>
   <div class="address">
     Paseo Triunfo de la República No. 322-B, Cd. Juárez Chihuahua, Col. San Lorenzo, CP. 32320
     Tels: (656) 6 23 56 51 al 54

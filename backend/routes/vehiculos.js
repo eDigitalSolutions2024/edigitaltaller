@@ -5,8 +5,8 @@ const router = express.Router();
 const Vehiculo = require('../models/Vehiculo');
 const Cliente = require('../models/Cliente');
 const OrdenCompra = require('../models/OrdenCompra');
-const Contador = require('../models/Contador');
 const { proteger, requiereRol } = require('../middleware/auth');
+const { normalizarOrdenServicio, regexBusquedaOS } = require('../utils/ordenServicio');
 const EntradaInventario = require('../models/EntradaInventario');
 const SalidaInventario  = require('../models/SalidaInventario');
 const AjusteInventario  = require('../models/AjusteInventario');
@@ -112,22 +112,6 @@ async function resolveNPtoOid(numerosParteLista) {
   return map;
 }
 
-// 👇 Helper para generar número de Orden de Servicio — auto-increment
-// atómico (igual que un AUTO_INCREMENT de MySQL). El valor actual del
-// contador se administra desde Configuración (colección Contador,
-// nombre: 'ordenServicio').
-const ORDEN_SERVICIO_PREFIJO = 'P-';
-const ORDEN_SERVICIO_CONTADOR = 'ordenServicio';
-
-async function generarOrdenServicio() {
-  const contador = await Contador.findOneAndUpdate(
-    { nombre: ORDEN_SERVICIO_CONTADOR },
-    { $inc: { valor: 1 } },
-    { new: true, upsert: true }
-  );
-  return `${ORDEN_SERVICIO_PREFIJO}${contador.valor}`;
-}
-
 // POST /api/vehiculos  -> registrar nuevo vehículo para un cliente
 router.post('/', async (req, res) => {
   try {
@@ -145,9 +129,72 @@ router.post('/', async (req, res) => {
       ...data,
     };
 
-    // El folio de Orden de Servicio siempre se asigna automáticamente
-    // (auto-increment), no se toma del formulario.
-    payload.ordenServicio = await generarOrdenServicio();
+    // ===== Solicitud de Garantía =====
+    // El sub-objeto garantia nunca se acepta crudo del cliente; se arma aquí
+    // a partir de garantiaSolicitud { ordenAnteriorId, motivo }.
+    delete payload.garantia;
+    delete payload.garantiaSolicitud;
+    if (data.garantiaSolicitud?.ordenAnteriorId) {
+      const ordenAnterior = await Vehiculo.findById(
+        data.garantiaSolicitud.ordenAnteriorId
+      ).select('ordenServicio');
+      if (!ordenAnterior) {
+        return res.status(400).json({
+          ok: false,
+          msg: 'La orden anterior indicada para la garantía no existe.',
+        });
+      }
+
+      const motivoGarantia = String(data.garantiaSolicitud.motivo || '').trim();
+      if (!motivoGarantia) {
+        return res.status(400).json({
+          ok: false,
+          msg: 'El motivo de la solicitud de garantía es obligatorio.',
+        });
+      }
+
+      const solicitudExistente = await Vehiculo.findOne({
+        'garantia.ordenAnterior': ordenAnterior._id,
+        'garantia.estado': 'PENDIENTE',
+      }).select('ordenServicio');
+      if (solicitudExistente) {
+        return res.status(409).json({
+          ok: false,
+          msg: `Ya existe una solicitud de garantía pendiente sobre la orden ${ordenAnterior.ordenServicio} (orden ${solicitudExistente.ordenServicio}).`,
+        });
+      }
+
+      payload.garantia = {
+        estado: 'PENDIENTE',
+        motivo: motivoGarantia,
+        ordenAnterior: ordenAnterior._id,
+        ordenAnteriorFolio: ordenAnterior.ordenServicio || '',
+        fechaSolicitud: new Date(),
+      };
+    }
+
+    // El folio de Orden de Servicio se captura manualmente (por ahora, sin
+    // auto-increment). Se exige el formato Letra-Número; "OS023" se
+    // normaliza a "OS-023".
+    const folioOS = normalizarOrdenServicio(data.ordenServicio);
+    if (!folioOS) {
+      return res.status(400).json({
+        ok: false,
+        msg: 'Captura el número de orden con el formato Letra-Número (ej. OS-023).',
+      });
+    }
+
+    const folioDuplicado = await Vehiculo.findOne({
+      ordenServicio: regexBusquedaOS(folioOS, { exacto: true }),
+    }).select('ordenServicio');
+    if (folioDuplicado) {
+      return res.status(409).json({
+        ok: false,
+        msg: `Ya existe una orden con el número ${folioDuplicado.ordenServicio}.`,
+      });
+    }
+
+    payload.ordenServicio = folioOS;
 
     const vehiculo = new Vehiculo(payload);
     await vehiculo.save();
@@ -240,9 +287,10 @@ router.get('/ordenes', async (req, res) => {
       q.estadoOrden = estado;
     }
 
-    // Buscar por número de orden exacto o parcial
+    // Buscar por número de orden exacto o parcial (con o sin guion: "OS023" = "OS-023")
     if (searchOs) {
-      q.ordenServicio = { $regex: searchOs, $options: 'i' };
+      const rx = regexBusquedaOS(searchOs);
+      if (rx) q.ordenServicio = rx;
     }
 
     // Búsqueda general (placas, marca/modelo)
@@ -409,6 +457,8 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
       departamento,
       requiereFactura,
       observCotizacion,
+      ivaPresupuesto,
+      ivaVenta,
       accionCotizacion,
       crearNuevaVersionCotizacion,
       accionVentaCliente,
@@ -425,7 +475,14 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
     }
 
     if (Array.isArray(ventaCliente)) {
-      vehiculo.ventaCliente = ventaCliente;
+      // La fila GARANTÍA la administra el flujo de solicitudes de garantía:
+      // se ignora cualquier versión enviada por el cliente y se re-inyecta la almacenada.
+      const filaGarantia = (vehiculo.ventaCliente || []).find((r) => r.esGarantia);
+      const filasNormales = ventaCliente.filter((r) => !r.esGarantia);
+      vehiculo.ventaCliente =
+        filaGarantia && vehiculo.garantia?.estado === 'APROBADA'
+          ? [...filasNormales, filaGarantia.toObject()]
+          : filasNormales;
     }
 
     if (Array.isArray(manoObra)) {
@@ -452,6 +509,14 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
       vehiculo.observCotizacion = observCotizacion;
     }
 
+    if (ivaPresupuesto !== undefined && ivaPresupuesto !== null && ivaPresupuesto !== '') {
+      vehiculo.ivaPresupuesto = Number(ivaPresupuesto) || 0;
+    }
+
+    if (ivaVenta !== undefined && ivaVenta !== null && ivaVenta !== '') {
+      vehiculo.ivaVenta = Number(ivaVenta) || 0;
+    }
+
     let inventarioResult = null;
 
     if (estadoOrden === 'REPARACION_EN_CURSO') {
@@ -466,7 +531,7 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
       }
 
       const faltaMotivoPrecioCero = (vehiculo.ventaCliente || []).some(
-        (v) => Number(v.precioVenta) <= 0 && !String(v.motivoPrecioCero || '').trim()
+        (v) => !v.esGarantia && Number(v.precioVenta) <= 0 && !String(v.motivoPrecioCero || '').trim()
       );
       if (faltaMotivoPrecioCero) {
         return res.status(400).json({
@@ -911,6 +976,28 @@ router.put('/:id/datos', async (req, res) => {
 
     if (req.body.inspeccionFisica !== undefined) {
       updateVehiculo.inspeccionFisica = req.body.inspeccionFisica;
+    }
+
+    // Folio editado: si cumple el formato Letra-Número se normaliza ("OS023" →
+    // "OS-023"); folios legados con otro formato se dejan tal cual. En ambos
+    // casos se rechaza si otro documento ya usa ese folio.
+    if (updateVehiculo.ordenServicio !== undefined) {
+      const folioNorm = normalizarOrdenServicio(updateVehiculo.ordenServicio);
+      if (folioNorm) updateVehiculo.ordenServicio = folioNorm;
+
+      const rxFolio = regexBusquedaOS(updateVehiculo.ordenServicio, { exacto: true });
+      if (rxFolio) {
+        const folioDuplicado = await Vehiculo.findOne({
+          _id: { $ne: id },
+          ordenServicio: rxFolio,
+        }).select('ordenServicio');
+        if (folioDuplicado) {
+          return res.status(409).json({
+            ok: false,
+            msg: `Ya existe una orden con el número ${folioDuplicado.ordenServicio}.`,
+          });
+        }
+      }
     }
 
     const vehiculo = await Vehiculo.findByIdAndUpdate(id, updateVehiculo, { new: true })

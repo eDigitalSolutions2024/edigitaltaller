@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listOrdenesServicio, marcarSurtidas } from "../../api/vehiculos";
+import { getUser } from "../../auth";
 
 export default function PorSurtir() {
   const [ordenes, setOrdenes] = useState([]);
@@ -10,6 +11,9 @@ export default function PorSurtir() {
   // { [ordenId]: Set<presupuestoIndex> } — selección local, no modifica el estado de la orden
   const [seleccion, setSeleccion] = useState({});
 
+  const usuario = getUser();
+  const esRefaccionario = usuario?.role === "refaccionario";
+
   const cargar = async () => {
     try {
       setLoading(true);
@@ -17,12 +21,22 @@ export default function PorSurtir() {
         listOrdenesServicio({ estado: "PENDIENTE_SURTIR", limit: 100 }),
         listOrdenesServicio({ estado: "REPARACION_EN_CURSO", limit: 100 }),
       ]);
-      const todas = [...(r1.data?.data || []), ...(r2.data?.data || [])]
+      let todas = [...(r1.data?.data || []), ...(r2.data?.data || [])]
         .sort((a, b) => {
           const fa = new Date(a.fechaEnvioSurtir || a.updatedAt).getTime();
           const fb = new Date(b.fechaEnvioSurtir || b.updatedAt).getTime();
           return fb - fa; // más reciente arriba = menor tiempo transcurrido
         });
+
+      // El refaccionario solo ve las órdenes cuya solicitud de taller atendió él
+      // mismo (devueltoPor). Las órdenes sin atendedor registrado se muestran a
+      // todos para que no queden sin surtir. Los demás roles ven todo.
+      if (esRefaccionario) {
+        todas = todas.filter(
+          (o) => !o.devueltoPor || o.devueltoPor === usuario?.name
+        );
+      }
+
       setOrdenes(todas);
     } catch (err) {
       console.error(err);

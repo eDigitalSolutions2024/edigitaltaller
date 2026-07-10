@@ -73,6 +73,9 @@ import ReporteGarantias from "./pages/auditoria/ReporteGarantias";
 // Vales de Salida
 import ValeSalidaForm from "./pages/vales/ValeSalidaForm";
 
+// Solicitudes de Garantía
+import SolicitudesGarantia from "./pages/garantias/SolicitudesGarantia";
+
 // Facturación
 import FacturacionLayout from "./pages/facturacion/FacturacionLayout";
 import FacturacionPanel from "./pages/facturacion/FacturacionPanel";
@@ -253,6 +256,16 @@ export default function App() {
 
           {/* Vales de Salida (nuevo vale + historial) */}
           <Route path="vales/nuevo" element={<RoleRoute module="vales"><ValeSalidaForm /></RoleRoute>} />
+
+          {/* Solicitudes de Garantía */}
+          <Route
+            path="garantias"
+            element={
+              <RolesRoute roles={['admin', 'jefe', 'asesor_servicio', 'auditoria']}>
+                <SolicitudesGarantia />
+              </RolesRoute>
+            }
+          />
 
           {/* Captura (solo admin y finanzas) */}
           <Route
