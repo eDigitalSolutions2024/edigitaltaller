@@ -2,9 +2,10 @@ const puppeteer = require('puppeteer');
 const dayjs = require('dayjs');
 require('dayjs/locale/es');
 dayjs.locale('es');
+const { dayjsFecha } = require('../utils/fechas');
 
 function fmtFecha(iso) {
-  return dayjs(iso).format('DD-MMM-YY');
+  return dayjsFecha(iso).format('DD-MMM-YY');
 }
 
 function fmtFechaLarga() {

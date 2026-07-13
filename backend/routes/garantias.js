@@ -1,6 +1,7 @@
 // backend/routes/garantias.js
 // Solicitudes de garantía: viven embebidas en la orden (Vehiculo.garantia).
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 
 const Vehiculo = require('../models/Vehiculo');
@@ -11,7 +12,7 @@ const POPULATE_CLIENTE =
   'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares emails rfc direccion asesorResponsable';
 
 const POPULATE_ORDEN_ANTERIOR =
-  'ordenServicio estadoOrden fechaRecepcion fechaCierre marca modelo anio color serie placas kmsMillas creadoPor ventaCliente diagnosticoTecnico';
+  'ordenServicio estadoOrden fechaRecepcion fechaCierre marca modelo anio color serie placas kmsMillas creadoPor ventaCliente ivaVenta manoObra diagnosticoTecnico';
 
 const ESTADOS_GARANTIA = ['PENDIENTE', 'APROBADA', 'NEGADA'];
 
@@ -24,6 +25,9 @@ router.get('/', proteger, async (req, res) => {
       'garantia.estado': ESTADOS_GARANTIA.includes(estado)
         ? estado
         : { $in: ESTADOS_GARANTIA },
+      // Las solicitudes solo son visibles cuando la nueva orden ya está en
+      // proceso de venta al cliente (tiene partidas enviadas a Venta al Cliente).
+      'ventaCliente.0': { $exists: true },
     };
 
     // Búsqueda con o sin guion: "OS023" encuentra "OS-023"
@@ -53,10 +57,41 @@ router.get('/', proteger, async (req, res) => {
   }
 });
 
-// PUT /api/garantias/:id — editar motivo / costo / checkbox mientras está PENDIENTE
+// GET /api/garantias/usadas?ordenIds=a,b,c
+// Devuelve cuáles de esas órdenes ya son origen de una garantía (pendiente o
+// autorizada): no pueden volver a usarse en una nueva solicitud.
+router.get('/usadas', proteger, async (req, res) => {
+  try {
+    const ids = String(req.query.ordenIds || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((id) => mongoose.Types.ObjectId.isValid(id));
+
+    if (!ids.length) return res.json({ ok: true, usadas: [] });
+
+    const docs = await Vehiculo.find({
+      'garantia.ordenAnterior': { $in: ids },
+      'garantia.estado': { $in: ['PENDIENTE', 'APROBADA'] },
+    })
+      .select('ordenServicio garantia.ordenAnterior')
+      .lean();
+
+    const usadas = docs.map((d) => ({
+      ordenAnterior: String(d.garantia.ordenAnterior),
+      ordenServicio: d.ordenServicio || '',
+    }));
+
+    return res.json({ ok: true, usadas });
+  } catch (err) {
+    console.error('Error consultando garantías usadas:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// PUT /api/garantias/:id — editar motivo / checkbox mientras está PENDIENTE
 router.put('/:id', proteger, async (req, res) => {
   try {
-    const { motivo, costoDiferencia, autorizaCarreon } = req.body;
+    const { motivo, autorizaCarreon } = req.body;
 
     const vehiculo = await Vehiculo.findById(req.params.id);
     if (!vehiculo || !vehiculo.garantia) {
@@ -70,9 +105,6 @@ router.put('/:id', proteger, async (req, res) => {
     }
 
     if (typeof motivo === 'string') vehiculo.garantia.motivo = motivo.trim();
-    if (costoDiferencia !== undefined && Number.isFinite(Number(costoDiferencia))) {
-      vehiculo.garantia.costoDiferencia = Number(costoDiferencia);
-    }
     if (typeof autorizaCarreon === 'boolean') {
       vehiculo.garantia.autorizaCarreon = autorizaCarreon;
     }
@@ -88,7 +120,7 @@ router.put('/:id', proteger, async (req, res) => {
 // PUT /api/garantias/:id/resolver — aprobar o negar (solo admin / jefe)
 router.put('/:id/resolver', proteger, requiereRol('admin', 'jefe'), async (req, res) => {
   try {
-    const { accion, motivo, costoDiferencia, autorizaCarreon } = req.body;
+    const { accion, motivo, autorizaCarreon } = req.body;
 
     if (!['APROBAR', 'NEGAR'].includes(accion)) {
       return res.status(400).json({ ok: false, msg: 'Acción inválida. Usa APROBAR o NEGAR.' });
@@ -118,55 +150,31 @@ router.put('/:id/resolver', proteger, requiereRol('admin', 'jefe'), async (req, 
       // Defensivo: nunca debe existir fila garantía sin aprobación
       vehiculo.ventaCliente = (vehiculo.ventaCliente || []).filter((r) => !r.esGarantia);
     } else {
-      // APROBAR: checkbox + motivo + costo son obligatorios
+      // APROBAR: checkbox + motivo son obligatorios
       const motivoFinal = String(motivo ?? vehiculo.garantia.motivo ?? '').trim();
-      const costo = Number(costoDiferencia);
 
       if (autorizaCarreon !== true) {
         return res.status(400).json({
           ok: false,
-          msg: 'Para aprobar es obligatorio confirmar la autorización de SR. CARREON.',
+          msg: 'Para autorizar es obligatorio marcar la casilla Autorizar.',
         });
       }
       if (!motivoFinal) {
         return res.status(400).json({
           ok: false,
-          msg: 'Para aprobar es obligatorio capturar el motivo de la garantía.',
-        });
-      }
-      if (!Number.isFinite(costo)) {
-        return res.status(400).json({
-          ok: false,
-          msg: 'Para aprobar es obligatorio capturar el costo-diferencia o descuento a aplicar.',
+          msg: 'Para autorizar es obligatorio capturar el motivo de la garantía.',
         });
       }
 
       vehiculo.garantia.estado = 'APROBADA';
       vehiculo.garantia.motivo = motivoFinal;
-      vehiculo.garantia.costoDiferencia = costo;
       vehiculo.garantia.autorizaCarreon = true;
       vehiculo.garantia.fechaResolucion = new Date();
       vehiculo.garantia.resueltoPor = resueltoPor;
 
-      // Inyectar/actualizar la fila GARANTÍA en Venta al Cliente (no editable ahí)
-      const filaGarantia = {
-        cant: 1,
-        concepto: 'GARANTÍA',
-        precioVenta: costo,
-        observaciones: `Garantía sobre ${vehiculo.garantia.ordenAnteriorFolio}: ${motivoFinal}`,
-        autorizacionCliente: 'SI',
-        esGarantia: true,
-        motivoPrecioCero:
-          costo <= 0
-            ? `Garantía aprobada (orden ${vehiculo.garantia.ordenAnteriorFolio})`
-            : '',
-      };
-      const idx = (vehiculo.ventaCliente || []).findIndex((r) => r.esGarantia);
-      if (idx >= 0) {
-        vehiculo.ventaCliente[idx] = filaGarantia;
-      } else {
-        vehiculo.ventaCliente.push(filaGarantia);
-      }
+      // La garantía ya no agrega un concepto GARANTÍA en Venta al Cliente;
+      // se limpian filas heredadas de la lógica anterior.
+      vehiculo.ventaCliente = (vehiculo.ventaCliente || []).filter((r) => !r.esGarantia);
     }
 
     await vehiculo.save();

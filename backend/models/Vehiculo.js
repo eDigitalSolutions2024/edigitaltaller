@@ -413,7 +413,7 @@ const vehiculoSchema = new Schema(
         codigoSat: { type: String, default: "" },
         descripcionSat: { type: String, default: "" },
         motivoPrecioCero: { type: String, default: "" }, // justificación cuando precioVenta <= 0
-        esGarantia: { type: Boolean, default: false }, // fila inyectada al aprobar una garantía (no editable)
+        esGarantia: { type: Boolean, default: false }, // legado: ya no se inyectan filas de garantía; solo para limpiar datos viejos
       },
     ],
 

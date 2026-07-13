@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { listOrdenesServicio, listVehiculosByCliente } from "../../api/vehiculos";
+import { getGarantiasUsadas } from "../../api/garantias";
+import { formatFecha as formatFechaBase } from "../../utils/fechas";
 
 // Modal para solicitar una garantía sobre una orden anterior.
-// Al abrir se listan todas las órdenes del cliente seleccionado para elegir una;
-// también se puede buscar por folio cualquier otra orden (p. ej. la misma persona
-// registrada como otro cliente). Al confirmar se continúa el flujo de nueva orden
-// con el vehículo prellenado.
+// Solo se puede aplicar garantía sobre órdenes CERRADAS: al abrir se listan las
+// órdenes cerradas del cliente seleccionado; también se puede buscar por folio
+// cualquier otra orden cerrada (p. ej. la misma persona registrada como otro
+// cliente). Al confirmar se continúa el flujo de nueva orden con el vehículo
+// prellenado.
 export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
   const [ordenesCliente, setOrdenesCliente] = useState([]);
   const [cargandoOrdenes, setCargandoOrdenes] = useState(false);
@@ -31,9 +34,26 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
     let cancelado = false;
     setCargandoOrdenes(true);
     listVehiculosByCliente(cliente._id)
-      .then((res) => {
+      .then(async (res) => {
         if (cancelado) return;
-        setOrdenesCliente(Array.isArray(res.data?.data) ? res.data.data : []);
+        const data = Array.isArray(res.data?.data) ? res.data.data : [];
+        // Solo órdenes cerradas pueden ser origen de una garantía
+        const cerradas = data.filter((o) => o.estadoOrden === "CERRADA");
+
+        // Una orden ya usada en una garantía no se vuelve a ofrecer
+        let idsUsadas = new Set();
+        if (cerradas.length) {
+          try {
+            const resU = await getGarantiasUsadas(cerradas.map((o) => o._id));
+            idsUsadas = new Set(
+              (resU.data?.usadas || []).map((u) => String(u.ordenAnterior))
+            );
+          } catch {
+            // Si la consulta falla se muestran todas; el backend valida al crear
+          }
+        }
+        if (cancelado) return;
+        setOrdenesCliente(cerradas.filter((o) => !idsUsadas.has(String(o._id))));
       })
       .catch((err) => {
         console.error("Error cargando órdenes del cliente:", err);
@@ -71,16 +91,8 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
     );
   };
 
-  const formatFecha = (value) => {
-    if (!value) return "—";
-    const fecha = new Date(value);
-    if (Number.isNaN(fecha.getTime())) return "—";
-    return fecha.toLocaleDateString("es-MX", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  };
+  const formatFecha = (value) =>
+    formatFechaBase(value, { day: "2-digit", month: "short", year: "numeric" }) || "—";
 
   const descVehiculo = (o) =>
     [o.marca, o.modelo, o.anio].filter(Boolean).join(" ") || "Sin datos de vehículo";
@@ -116,6 +128,22 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
 
       if (!exacta) {
         setError(`No se encontró la orden ${folioNorm}.`);
+        return;
+      }
+      if (exacta.estadoOrden !== "CERRADA") {
+        setError(
+          `La orden ${exacta.ordenServicio} aún no está cerrada; solo se puede solicitar garantía sobre órdenes cerradas.`
+        );
+        return;
+      }
+
+      // Una orden ya usada en una garantía no puede volver a usarse
+      const resU = await getGarantiasUsadas([exacta._id]);
+      const usada = (resU.data?.usadas || [])[0];
+      if (usada) {
+        setError(
+          `La orden ${exacta.ordenServicio} ya fue utilizada en una garantía (orden ${usada.ordenServicio}).`
+        );
         return;
       }
       setOrdenAnterior(exacta);
@@ -189,7 +217,7 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
             {/* Órdenes del cliente seleccionado */}
             <div className="mb-2">
               <small className="text-muted">
-                Órdenes de <strong>{nombreCliente(cliente)}</strong>
+                Órdenes cerradas de <strong>{nombreCliente(cliente)}</strong>
                 {cargandoOrdenes ? " — cargando..." : ` (${ordenesFiltradas.length})`}
               </small>
             </div>
@@ -200,7 +228,8 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
             >
               {!cargandoOrdenes && ordenesCliente.length === 0 && (
                 <div className="list-group-item text-muted">
-                  Este cliente no tiene órdenes registradas. Usa el buscador por folio.
+                  Este cliente no tiene órdenes cerradas. Usa el buscador por folio
+                  (solo se aceptan órdenes cerradas).
                 </div>
               )}
 

@@ -137,11 +137,17 @@ router.post('/', async (req, res) => {
     if (data.garantiaSolicitud?.ordenAnteriorId) {
       const ordenAnterior = await Vehiculo.findById(
         data.garantiaSolicitud.ordenAnteriorId
-      ).select('ordenServicio');
+      ).select('ordenServicio estadoOrden');
       if (!ordenAnterior) {
         return res.status(400).json({
           ok: false,
           msg: 'La orden anterior indicada para la garantía no existe.',
+        });
+      }
+      if (ordenAnterior.estadoOrden !== 'CERRADA') {
+        return res.status(400).json({
+          ok: false,
+          msg: `La orden ${ordenAnterior.ordenServicio} aún no está cerrada; solo se puede solicitar garantía sobre órdenes cerradas.`,
         });
       }
 
@@ -153,14 +159,15 @@ router.post('/', async (req, res) => {
         });
       }
 
+      // Una orden solo puede ser origen de una garantía (pendiente o autorizada)
       const solicitudExistente = await Vehiculo.findOne({
         'garantia.ordenAnterior': ordenAnterior._id,
-        'garantia.estado': 'PENDIENTE',
+        'garantia.estado': { $in: ['PENDIENTE', 'APROBADA'] },
       }).select('ordenServicio');
       if (solicitudExistente) {
         return res.status(409).json({
           ok: false,
-          msg: `Ya existe una solicitud de garantía pendiente sobre la orden ${ordenAnterior.ordenServicio} (orden ${solicitudExistente.ordenServicio}).`,
+          msg: `La orden ${ordenAnterior.ordenServicio} ya fue utilizada en una garantía (orden ${solicitudExistente.ordenServicio}).`,
         });
       }
 
@@ -475,14 +482,9 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
     }
 
     if (Array.isArray(ventaCliente)) {
-      // La fila GARANTÍA la administra el flujo de solicitudes de garantía:
-      // se ignora cualquier versión enviada por el cliente y se re-inyecta la almacenada.
-      const filaGarantia = (vehiculo.ventaCliente || []).find((r) => r.esGarantia);
-      const filasNormales = ventaCliente.filter((r) => !r.esGarantia);
-      vehiculo.ventaCliente =
-        filaGarantia && vehiculo.garantia?.estado === 'APROBADA'
-          ? [...filasNormales, filaGarantia.toObject()]
-          : filasNormales;
+      // La garantía ya no agrega un concepto GARANTÍA en Venta al Cliente;
+      // se descartan filas heredadas de la lógica anterior.
+      vehiculo.ventaCliente = ventaCliente.filter((r) => !r.esGarantia);
     }
 
     if (Array.isArray(manoObra)) {

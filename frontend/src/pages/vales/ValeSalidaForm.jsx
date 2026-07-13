@@ -28,7 +28,7 @@ function fmtFechaHora(d) {
 
 function nombreCliente(c) {
   if (!c) return '';
-  if (c.tipoCliente === 'Empresa') return c.empresa || '';
+  if (c.tipoCliente === 'Empresa') return c.empresa?.razonSocial || c.empresa?.contacto?.nombre || '';
   if (c.tipoCliente === 'Gobierno') return c.gobierno?.nombreGobierno || '';
   return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ');
 }

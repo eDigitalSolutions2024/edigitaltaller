@@ -318,6 +318,19 @@ useEffect(() => {
                 <span className="label">Garaje</span>
               </NavLink>
             )}
+            
+
+            {/* === SOLICITUDES DE GARANTÍA === */}
+            {/* Cambiar de personas permitidas a ver*/}
+            {(user?.role === 'admin' /*|| user?.role === 'asesor_servicio'*/) && (
+              <NavLink
+                to="/garantias"
+                className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+              > 
+                <span className="label">Solicitudes de Garantías</span>
+              </NavLink>
+            )}
+
           </div>
         </div>
         )}
@@ -460,13 +473,6 @@ useEffect(() => {
         {/* === FIN GRUPO REFACCIONARIA === */}
 
                   
-
-        {/* === SOLICITUDES DE GARANTÍA === */}
-        {['admin', 'jefe', 'asesor_servicio', 'auditoria'].includes(user?.role) && (
-          <NavLink to="/garantias" className="sidebar__link" title="Solicitudes de Garantía">
-            <span className="emoji">🔧</span><span className="label">Solicitud de Garantías</span>
-          </NavLink>
-        )}
 
         {/* === VALES DE SALIDA === */}
         {canSeeModule(user?.role, 'vales') && (

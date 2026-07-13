@@ -3,6 +3,7 @@
 
 const puppeteer = require('puppeteer');
 const dayjs = require('dayjs');
+const { dayjsFecha } = require('../utils/fechas');
 const Codigo = require('../models/CodigoRefaccion'); // 👈 servicios / refacciones
 
 // Paleta cercana a tu sistema
@@ -14,7 +15,7 @@ const PRIMARY_TEXT = '#FFFFFF';
 
 function fmtFecha(fechaISO) {
   if (!fechaISO) return '';
-  return dayjs(fechaISO).format('DD/MM/YYYY');
+  return dayjsFecha(fechaISO).format('DD/MM/YYYY');
 }
 
 function fmtHora(fechaISO) {

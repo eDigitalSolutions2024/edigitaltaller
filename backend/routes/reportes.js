@@ -1,10 +1,14 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 const Vehiculo = require('../models/Vehiculo');
+const Empleado = require('../models/Empleado');
 const { streamReporteOriginalesPdf } = require('../service/reporteOriginalesPdf');
 const { streamReporteVentasAsesoresPdf } = require('../service/reporteVentasAsesoresPdf');
 const { streamReporteOrdenesAbiertasPdf } = require('../service/reporteOrdenesAbiertasPdf');
 const { streamReporteOriginalesAbiertasPdf } = require('../service/reporteOriginalesAbiertasPdf');
+const { streamReporteGarantiasPdf } = require('../service/reporteGarantiasPdf');
+const { calcImporteHoras } = require('../utils/manoObra');
 
 const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares';
 
@@ -301,6 +305,114 @@ router.get('/originales-abiertas', async (req, res) => {
   } catch (err) {
     console.error('Error reporte originales abiertas:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// ===== Reporte de Garantías =====
+// Órdenes cuya garantía fue autorizada (APROBADA), agrupadas por asesor.
+// Costo = Venta al Cliente (sin IVA) + mano de obra (horas * tarifa).
+
+async function buildReporteGarantias({ desde, hasta, asesor }) {
+  const query = {
+    'garantia.estado': 'APROBADA',
+    ...buildDateFilterAbiertas(desde, hasta),
+  };
+  if (asesor) query.creadoPor = asesor;
+
+  const ordenes = await Vehiculo.find(query)
+    .sort({ creadoPor: 1, fechaRecepcion: 1 })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
+
+  // Mapa id → nombre para mecánicos / carroceros de la mano de obra
+  const idsEmpleados = [
+    ...new Set(
+      ordenes
+        .flatMap((o) => (o.manoObra || []).map((m) => m.esCarroceria ? m.carrocero : m.mecanico))
+        .filter((id) => id && mongoose.Types.ObjectId.isValid(id))
+    ),
+  ];
+  const empleados = idsEmpleados.length
+    ? await Empleado.find({ _id: { $in: idsEmpleados } }).select('nombre').lean()
+    : [];
+  const nombreEmpleado = new Map(empleados.map((e) => [String(e._id), e.nombre]));
+
+  const grupos = {};
+  let totalCosto = 0;
+
+  for (const o of ordenes) {
+    const g = o.garantia || {};
+    const subtotalVenta = calcImporte(o);
+    const totalManoObra = (o.manoObra || []).reduce(
+      (s, m) => s + calcImporteHoras(m.horas),
+      0
+    );
+    const costo = subtotalVenta + totalManoObra;
+    totalCosto += costo;
+
+    const mecanicos = (o.manoObra || []).map((m) => {
+      const id = m.esCarroceria ? m.carrocero : m.mecanico;
+      const nombre = nombreEmpleado.get(String(id)) || id || 'Sin asignar';
+      return `${nombre} - Hrs: ${Number(m.horas || 0)}`;
+    });
+
+    const nombreAsesor = o.creadoPor || 'Sin Asesor';
+    if (!grupos[nombreAsesor]) grupos[nombreAsesor] = [];
+    grupos[nombreAsesor].push({
+      ordenServicio: o.ordenServicio || '',
+      cliente: nombreCliente(o.cliente),
+      ordenAnterior: g.ordenAnteriorFolio || '',
+      fecha: o.fechaRecepcion || null,
+      marca: o.marca || '',
+      modelo: o.anio || '',
+      serie: o.serie || '',
+      asesor: nombreAsesor,
+      costo,
+      motivo: g.motivo || '',
+      fechaGarantia: g.fechaResolucion || g.fechaSolicitud || null,
+      autorizaCarreon: !!g.autorizaCarreon,
+      mecanicos,
+    });
+  }
+
+  const data = Object.entries(grupos).map(([nombreAsesor, items]) => ({
+    asesor: nombreAsesor,
+    ordenes: items,
+    totalAsesor: items.length,
+  }));
+
+  return { data, totalOrdenes: ordenes.length, totalCosto };
+}
+
+// GET /api/reportes/garantias?desde=...&hasta=...&asesor=Nombre
+router.get('/garantias', async (req, res) => {
+  try {
+    const { desde, hasta, asesor } = req.query;
+    if (!desde || !hasta) {
+      return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
+    }
+
+    const resultado = await buildReporteGarantias({ desde, hasta, asesor });
+    return res.json({ ok: true, ...resultado });
+  } catch (err) {
+    console.error('Error reporte garantías:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// GET /api/reportes/garantias-pdf?desde=...&hasta=...&asesor=Nombre
+router.get('/garantias-pdf', async (req, res) => {
+  try {
+    const { desde, hasta, asesor } = req.query;
+    if (!desde || !hasta) {
+      return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
+    }
+
+    const resultado = await buildReporteGarantias({ desde, hasta, asesor });
+    await streamReporteGarantiasPdf(res, resultado, desde, hasta, asesor);
+  } catch (err) {
+    console.error('Error PDF reporte garantías:', err);
+    if (!res.headersSent) res.status(500).json({ ok: false, msg: 'Error generando PDF' });
   }
 });
 

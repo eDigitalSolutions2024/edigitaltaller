@@ -1,12 +1,26 @@
-// src/pages/vehiculo/VehiculosConsultaCanceladas.jsx
+// src/pages/vehiculo/VehiculosConsultaGarantias.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { listOrdenesServicio } from "../../api/vehiculos";
+import { listGarantias } from "../../api/garantias";
 import { formatFecha } from "../../utils/fechas";
 
 const PAGE_SIZE = 10;
 
-export default function VehiculoConsultaCanceladas() {
+const ESTADO_BADGE = {
+  PENDIENTE: "bg-warning text-dark",
+  APROBADA: "bg-success",
+  NEGADA: "bg-danger",
+};
+
+// En pantalla la garantía se maneja como Pendiente / Autorizada / Negada
+// (en la base de datos se conserva APROBADA).
+const ESTADO_LABEL = {
+  PENDIENTE: "PENDIENTE",
+  APROBADA: "AUTORIZADA",
+  NEGADA: "NEGADA",
+};
+
+export default function VehiculosConsultaGarantias() {
   const navigate = useNavigate();
 
   const [rows, setRows] = useState([]);
@@ -14,7 +28,7 @@ export default function VehiculoConsultaCanceladas() {
 
   const [page, setPage] = useState(1);
   const [searchOs, setSearchOs] = useState("");
-  const [search, setSearch] = useState("");
+  const [estado, setEstado] = useState("");
   const [loading, setLoading] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -22,10 +36,9 @@ export default function VehiculoConsultaCanceladas() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const res = await listOrdenesServicio({
-        estado: "CANCELADA",
+      const res = await listGarantias({
+        estado,
         searchOs: searchOs.trim(),
-        search: search.trim(),
         page,
         limit: PAGE_SIZE,
       });
@@ -35,7 +48,7 @@ export default function VehiculoConsultaCanceladas() {
       setTotal(t || 0);
     } catch (err) {
       console.error(err);
-      alert("Error al cargar órdenes canceladas");
+      alert("Error al cargar las órdenes de garantía");
     } finally {
       setLoading(false);
     }
@@ -44,7 +57,7 @@ export default function VehiculoConsultaCanceladas() {
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
+  }, [page, estado]);
 
   const handleBuscar = (e) => {
     e.preventDefault();
@@ -52,14 +65,15 @@ export default function VehiculoConsultaCanceladas() {
     loadData();
   };
 
-  const handleRowDblClick = (ordenId) => {
-    if (!ordenId) return;
-    navigate(`/vehiculo/orden/${ordenId}`);
+  // Abre el menú de Solicitudes de Garantía enfocado en esta orden
+  const handleRowClick = (orden) => {
+    if (!orden?.ordenServicio) return;
+    navigate(`/garantias?os=${encodeURIComponent(orden.ordenServicio)}`);
   };
 
   return (
     <div className="card card-body">
-      <h4 className="mb-3">ÓRDENES CANCELADAS</h4>
+      <h4 className="mb-3">ÓRDENES DE GARANTÍA</h4>
 
       {/* Filtros */}
       <form className="row g-2 align-items-end mb-3" onSubmit={handleBuscar}>
@@ -70,19 +84,25 @@ export default function VehiculoConsultaCanceladas() {
             className="form-control form-control-sm"
             value={searchOs}
             onChange={(e) => setSearchOs(e.target.value)}
-            placeholder="Ej. 12, L6..."
+            placeholder="Orden nueva o anterior. Ej. OS-023"
           />
         </div>
 
         <div className="col-md-3">
-          <label className="form-label">Búsqueda general:</label>
-          <input
-            type="text"
-            className="form-control form-control-sm"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cliente, placas, marca, modelo..."
-          />
+          <label className="form-label">Estatus de la garantía:</label>
+          <select
+            className="form-select form-select-sm"
+            value={estado}
+            onChange={(e) => {
+              setEstado(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">Todas</option>
+            <option value="PENDIENTE">Pendientes</option>
+            <option value="APROBADA">Autorizadas</option>
+            <option value="NEGADA">Negadas</option>
+          </select>
         </div>
 
         <div className="col-md-2">
@@ -97,7 +117,7 @@ export default function VehiculoConsultaCanceladas() {
 
         <div className="col-md-4 text-end">
           <small className="text-muted">
-            Doble clic en una fila para abrir la orden.
+            Clic en una fila para abrir la solicitud de garantía.
           </small>
         </div>
       </form>
@@ -109,29 +129,32 @@ export default function VehiculoConsultaCanceladas() {
             <tr>
               <th style={{ width: 90 }}>Orden de Servicio</th>
               <th>Cliente</th>
+              <th style={{ width: 100 }}>Orden Anterior</th>
               <th>Marca / Modelo</th>
               <th style={{ width: 70 }}>Año</th>
-              <th style={{ width: 120 }}>Placas</th>
-              <th style={{ width: 130 }}>Fecha Recepción</th>
-              <th style={{ width: 140 }}>Teléfono</th>
-              <th style={{ width: 150 }}>Asesor</th>
-              <th style={{ width: 130 }}>Fecha Cancelación</th>
-              <th style={{ width: 110 }}>Estatus</th>
+              <th style={{ width: 110 }}>Placas</th>
+              <th style={{ width: 120 }}>Fecha Recepción</th>
+              <th style={{ width: 120 }}>Fecha Solicitud</th>
+              <th style={{ width: 130 }}>Teléfono</th>
+              <th style={{ width: 140 }}>Asesor</th>
+              <th style={{ width: 110 }}>Estatus Garantía</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && !loading && (
               <tr>
-                <td colSpan={10} className="text-center">
-                  No hay órdenes canceladas que coincidan con la búsqueda.
+                <td colSpan={11} className="text-center">
+                  No hay órdenes de garantía que coincidan con la búsqueda.
                 </td>
               </tr>
             )}
 
             {rows.map((o) => {
               const c = o.cliente || {};
+              const g = o.garantia || {};
               const clienteNombre =
                 c.gobierno?.nombreGobierno ||
+                c.empresa?.razonSocial ||
                 [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") ||
                 "";
 
@@ -145,21 +168,27 @@ export default function VehiculoConsultaCanceladas() {
               return (
                 <tr
                   key={o._id}
-                  onDoubleClick={() => handleRowDblClick(o._id)}
+                  onClick={() => handleRowClick(o)}
                   style={{ cursor: "pointer" }}
+                  title="Abrir en Solicitudes de Garantía"
                 >
                   <td>{o.ordenServicio || o._id}</td>
                   <td>{clienteNombre}</td>
+                  <td className="fw-semibold">{g.ordenAnteriorFolio || "—"}</td>
                   <td>
                     {(o.marca || "") + (o.modelo ? ` / ${o.modelo}` : "")}
                   </td>
                   <td>{o.anio}</td>
                   <td>{o.placas}</td>
                   <td>{formatFecha(o.fechaRecepcion)}</td>
+                  <td>{formatFecha(g.fechaSolicitud)}</td>
                   <td>{telefono}</td>
                   <td>{o.asesorServicio || o.creadoPor}</td>
-                  <td>{formatFecha(o.updatedAt)}</td>
-                  <td>{o.estadoOrden || ""}</td>
+                  <td>
+                    <span className={`badge ${ESTADO_BADGE[g.estado] || "bg-secondary"}`}>
+                      {ESTADO_LABEL[g.estado] || g.estado || "—"}
+                    </span>
+                  </td>
                 </tr>
               );
             })}
@@ -187,9 +216,7 @@ export default function VehiculoConsultaCanceladas() {
             type="button"
             className="btn btn-outline-secondary"
             disabled={page >= totalPages}
-            onClick={() =>
-              setPage((p) => (p < totalPages ? p + 1 : p))
-            }
+            onClick={() => setPage((p) => (p < totalPages ? p + 1 : p))}
           >
             Siguiente
           </button>

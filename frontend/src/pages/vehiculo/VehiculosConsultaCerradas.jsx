@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listOrdenesServicio } from "../../api/vehiculos";
+import { formatFecha } from "../../utils/fechas";
 
 const PAGE_SIZE = 10;
 
@@ -156,18 +157,10 @@ export default function VehiculoConsultaCerradas() {
                   </td>
                   <td>{o.anio}</td>
                   <td>{o.placas}</td>
-                  <td>
-                    {o.fechaRecepcion
-                      ? new Date(o.fechaRecepcion).toLocaleDateString("es-MX")
-                      : ""}
-                  </td>
+                  <td>{formatFecha(o.fechaRecepcion)}</td>
                   <td>{telefono}</td>
                   <td>{o.asesorServicio || o.creadoPor}</td>
-                  <td>
-                    {o.fechaCierre
-                      ? new Date(o.fechaCierre).toLocaleDateString("es-MX")
-                      : ""}
-                  </td>
+                  <td>{formatFecha(o.fechaCierre)}</td>
                   {/* 👇 muestra estadoOrden (debería salir CERRADA) */}
                   <td>{o.estadoOrden || ""}</td>
                 </tr>
