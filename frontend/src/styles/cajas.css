@@ -1,0 +1,177 @@
+/* === Módulo Cajas === */
+
+.caja-header-wrap {
+  margin-bottom: 1rem;
+}
+
+.caja-header-wrap .breadcrumb {
+  font-size: 0.82rem;
+  margin-bottom: 0.2rem;
+  --bs-breadcrumb-divider-color: #94a3b8;
+  --bs-breadcrumb-item-active-color: #475569;
+}
+
+.caja-header-wrap .breadcrumb-item a {
+  color: #2d2a6b;
+  text-decoration: none;
+}
+
+.caja-header-wrap .breadcrumb-item a:hover {
+  text-decoration: underline;
+}
+
+.caja-page-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 0;
+  letter-spacing: 0.01em;
+}
+
+.caja-page-subtitle {
+  font-size: 0.82rem;
+  color: #64748b;
+  margin-bottom: 0;
+}
+
+/* Toolbar del módulo */
+.caja-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.caja-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.caja-filters label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 0.2rem;
+  display: block;
+}
+
+/* Estado badges — paleta estándar del sistema */
+.badge-estado-activo    { background-color: #16a34a; color: #fff; }
+.badge-estado-pendiente { background-color: #d97706; color: #fff; }
+.badge-estado-cancelado { background-color: #dc2626; color: #fff; }
+.badge-estado-pagado    { background-color: #2d2a6b; color: #fff; }
+
+/* Empty state dentro de la tabla */
+.caja-empty-state {
+  color: #94a3b8;
+  padding: 3rem 0;
+}
+
+.caja-empty-state .empty-icon {
+  font-size: 2.2rem;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+/* ─────────────────────────────────────────────
+   Formulario de Anticipo
+──────────────────────────────────────────────*/
+
+/* Labels del formulario */
+.caja-form-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 0.3rem;
+  display: block;
+}
+
+/* Títulos de sección dentro del form */
+.caja-seccion-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  margin: 0;
+}
+
+/* Campos de solo lectura — fondo neutro diferenciado */
+.caja-readonly {
+  background-color: #f8fafc !important;
+  color: #475569 !important;
+  cursor: default;
+  border-color: #e2e8f0 !important;
+}
+
+/* Input principal del importe — más grande para destacar */
+.caja-importe-input {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #1e293b;
+  letter-spacing: -0.01em;
+}
+
+/* ─── Resumen financiero (3 tarjetas) ─── */
+.caja-resumen-financiero {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+}
+
+.caja-resumen-item {
+  background: #f8fafc;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.caja-resumen-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+
+.caja-resumen-valor {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #1e293b;
+  line-height: 1.2;
+}
+
+/* Total abonado — verde */
+.caja-resumen-abonado {
+  color: #16a34a;
+}
+
+/* Saldo pendiente — tarjeta destacada con el degradado del sistema */
+.caja-resumen-saldo {
+  background: linear-gradient(
+    135deg,
+    rgba(45, 42, 107, 0.07),
+    rgba(211, 75, 63, 0.07)
+  );
+  border-color: rgba(211, 75, 63, 0.2);
+}
+
+.caja-resumen-saldo-valor {
+  color: #d34b3f;
+}
+
+/* Responsive: en móviles el saldo ocupa fila completa */
+@media (max-width: 600px) {
+  .caja-resumen-financiero {
+    grid-template-columns: 1fr 1fr;
+  }
+  .caja-resumen-saldo {
+    grid-column: span 2;
+  }
+}

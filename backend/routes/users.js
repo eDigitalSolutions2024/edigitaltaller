@@ -17,6 +17,18 @@ router.get('/asesores', proteger, async (req, res) => {
   }
 });
 
+// GET /api/users/cajas — lista de personal de cajas activo (accesible a todos los roles autenticados)
+router.get('/cajas', proteger, async (req, res) => {
+  try {
+    const usuariosCajas = await User.find({ role: 'cajas', isActive: true })
+      .select('_id name username')
+      .sort({ name: 1 });
+    res.json(usuariosCajas);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener personal de cajas', error: error.message });
+  }
+});
+
 // GET /api/users
 router.get('/', proteger, requiereRol('admin'), async (req, res) => {
   try {

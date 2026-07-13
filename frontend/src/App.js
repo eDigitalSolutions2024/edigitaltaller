@@ -79,6 +79,11 @@ import ValeSalidaForm from "./pages/vales/ValeSalidaForm";
 
 // Facturación
 import FacturacionLayout from "./pages/facturacion/FacturacionLayout";
+
+// Cajas
+import Anticipos from "./pages/cajas/Anticipos";
+import AnticipoCliente from "./pages/cajas/AnticipoCliente";
+import PagoCredito from "./pages/cajas/PagoCredito";
 import FacturacionPanel from "./pages/facturacion/FacturacionPanel";
 import NuevaFactura from "./pages/facturacion/NuevaFactura";
 import ConsultarFacturas from "./pages/facturacion/ConsultarFacturas";
@@ -284,6 +289,11 @@ export default function App() {
             <Route path="originales" element={<ReporteOriginalesAuditoria />} />
             <Route path="garantias" element={<ReporteGarantias />} />
           </Route>
+
+          {/* Cajas */}
+          <Route path="cajas/anticipos" element={<RoleRoute module="cajas"><Anticipos /></RoleRoute>} />
+          <Route path="cajas/anticipo-cliente" element={<RoleRoute module="cajas"><AnticipoCliente /></RoleRoute>} />
+          <Route path="cajas/pago-credito" element={<RoleRoute module="cajas"><PagoCredito /></RoleRoute>} />
 
           {/* Facturación */}
           <Route path="facturacion/*" element={<FacturacionLayout />}>

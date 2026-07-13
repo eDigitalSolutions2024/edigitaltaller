@@ -107,6 +107,14 @@ useEffect(() => {
   if (location.pathname.startsWith('/facturacion')) setFactOpen(true);
 }, [location.pathname]);
 
+// === CAJAS ===
+const [cajasOpen, setCajasOpen] = useState(
+  location.pathname.startsWith('/cajas')
+);
+useEffect(() => {
+  if (location.pathname.startsWith('/cajas')) setCajasOpen(true);
+}, [location.pathname]);
+
 useEffect(() => {
   if (location.pathname.startsWith('/admin')) {
     setAdminOpen(true);
@@ -380,6 +388,46 @@ useEffect(() => {
         </div>
         )}
         {/* === FIN GRUPO FACTURACIÓN === */}
+
+        {/* === GRUPO: CAJAS === */}
+        {canSeeModule(user?.role, 'cajas') && (
+        <div className={`sidebar__group ${cajasOpen ? 'open' : ''}`}>
+          <button
+            type="button"
+            className="sidebar__link sidebar__group-toggle"
+            onClick={() => setCajasOpen(o => !o)}
+            aria-expanded={cajasOpen}
+            aria-controls="submenu-cajas"
+            title="Cajas"
+          >
+            <span className="emoji">💰</span>
+            <span className="label">Cajas</span>
+            {!collapsed && <span className="chev" aria-hidden>▾</span>}
+          </button>
+
+          <div id="submenu-cajas" className="sidebar__sublinks">
+            <NavLink
+              to="/cajas/anticipos"
+              className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+            >
+              <span className="label">Anticipo</span>
+            </NavLink>
+            <NavLink
+              to="/cajas/anticipo-cliente"
+              className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+            >
+              <span className="label">Anticipo a Cliente</span>
+            </NavLink>
+            <NavLink
+              to="/cajas/pago-credito"
+              className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+            >
+              <span className="label">Pago Crédito</span>
+            </NavLink>
+          </div>
+        </div>
+        )}
+        {/* === FIN GRUPO CAJAS === */}
 
 
         {/* === GRUPO: REFACCIONARIA === */}
