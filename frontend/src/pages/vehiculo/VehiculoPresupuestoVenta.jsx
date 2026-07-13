@@ -9,6 +9,7 @@ import {
 } from "../../api/vehiculos";
 import { fetchServiciosTaller } from "../../api/codigos";
 import http from "../../api/http";
+import { TARIFA_HORA, calcImporteHoras } from "../../utils/manoObra";
 
 export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparacion, readOnly = false }) {
   const navigate = useNavigate();
@@ -249,6 +250,11 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   );
   const totalConIvaVenta = totalVentaCliente + ivaMontoVenta;
 
+  const nombreManoObra = (m) =>
+    m.esCarroceria
+      ? carroceros.find((x) => x._id === m.carrocero)?.nombre || m.carrocero || "—"
+      : mecanicos.find((x) => x._id === m.mecanico)?.nombre || m.mecanico || "—";
+
   // ===== PRESUPUESTO — HANDLERS =====
   const handleUpdatePres = (idx, field, value) => {
     setPresRows((prev) => {
@@ -308,21 +314,17 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       return;
     }
 
-    const nuevasVentas = [
-      ...autorizadas.map((r) => ({
-        cant: r.cant,
-        concepto: r.concepto || r.refaccion || "",
-        // El precio de la refacción se pasa como Precio Venta (Sin IVA)
-        precioVenta: Number(r.precioVenta || 0),
-        observaciones: "",
-        codigoServicio: "",
-        descripcionServicio: "",
-        codigoSat: "",
-        descripcionSat: "",
-      })),
-      // La fila GARANTÍA nunca se pierde al reenviar a venta
-      ...ventaRows.filter((r) => r.esGarantia),
-    ];
+    const nuevasVentas = autorizadas.map((r) => ({
+      cant: r.cant,
+      concepto: r.concepto || r.refaccion || "",
+      // El precio de la refacción se pasa como Precio Venta (Sin IVA)
+      precioVenta: Number(r.precioVenta || 0),
+      observaciones: "",
+      codigoServicio: "",
+      descripcionServicio: "",
+      codigoSat: "",
+      descripcionSat: "",
+    }));
 
     setVentaRows(nuevasVentas);
 
@@ -374,7 +376,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
   const handleUpdateVentaRow = (idx, field, value) => {
     setVentaRows((prev) =>
-      prev.map((r, i) => (i === idx && !r.esGarantia ? { ...r, [field]: value } : r))
+      prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r))
     );
   };
 
@@ -413,7 +415,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   };
 
   const removeVentaRow = (idx) =>
-    setVentaRows((prev) => prev.filter((r, i) => i !== idx || r.esGarantia));
+    setVentaRows((prev) => prev.filter((r, i) => i !== idx));
 
   // ===== GUARDADO / PDF =====
   const buildPayload = (extra = {}) => ({
@@ -457,9 +459,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   // Devuelve las filas (posiblemente con motivoPrecioCero agregado) o null si el usuario
   // canceló/no pudo justificar el precio en $0 (en cuyo caso la acción que llamó debe abortar).
   const asegurarPreciosVentaCliente = () => {
-    // La fila GARANTÍA puede ser $0 o negativa por diseño: no requiere justificación
     const filasEnCero = ventaRows.filter(
-      (r) => !r.esGarantia && Number(r.precioVenta) <= 0
+      (r) => Number(r.precioVenta) <= 0
     );
     if (filasEnCero.length === 0) return ventaRows;
 
@@ -484,7 +485,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     }
 
     const filasVenta = ventaRows.map((r) =>
-      !r.esGarantia && Number(r.precioVenta) <= 0
+      Number(r.precioVenta) <= 0
         ? { ...r, motivoPrecioCero: motivo.trim() }
         : r
     );
@@ -1142,16 +1143,14 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                 </tr>
               )}
 
-              {ventaRows.map((r, idx) => {
-                const filaBloqueada = readOnly || !!r.esGarantia;
-                return (
-                <tr key={idx} className={r.esGarantia ? "table-warning" : ""}>
+              {ventaRows.map((r, idx) => (
+                <tr key={idx}>
                   <td className="text-center">
                     <input
                       type="number"
                       className="form-control form-control-sm text-center"
                       value={r.cant ?? ""}
-                      readOnly={filaBloqueada}
+                      readOnly={readOnly}
                       onChange={(e) => handleUpdateVentaRow(idx, "cant", e.target.value)}
                     />
                   </td>
@@ -1160,7 +1159,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       type="text"
                       className="form-control form-control-sm"
                       value={r.concepto ?? ""}
-                      readOnly={filaBloqueada}
+                      readOnly={readOnly}
                       onChange={(e) => handleUpdateVentaRow(idx, "concepto", e.target.value)}
                     />
                   </td>
@@ -1170,7 +1169,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       step="0.01"
                       className="form-control form-control-sm text-end"
                       value={r.precioVenta ?? ""}
-                      readOnly={filaBloqueada}
+                      readOnly={readOnly}
                       onChange={(e) => handleUpdateVentaRow(idx, "precioVenta", e.target.value)}
                     />
                   </td>
@@ -1179,33 +1178,23 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       type="text"
                       className="form-control form-control-sm"
                       value={r.observaciones || ""}
-                      readOnly={filaBloqueada}
+                      readOnly={readOnly}
                       onChange={(e) => handleUpdateVentaRow(idx, "observaciones", e.target.value)}
                     />
                   </td>
                   {!readOnly && (
                     <td className="text-center">
-                      {r.esGarantia ? (
-                        <span
-                          className="badge bg-warning text-dark"
-                          title="Partida generada por garantía aprobada; no se puede editar ni eliminar"
-                        >
-                          GARANTÍA
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-danger"
-                          onClick={() => removeVentaRow(idx)}
-                        >
-                          Borrar
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        onClick={() => removeVentaRow(idx)}
+                      >
+                        Borrar
+                      </button>
                     </td>
                   )}
                 </tr>
-                );
-              })}
+              ))}
             </tbody>
             <tfoot>
               <tr>
@@ -1260,6 +1249,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                 <th>Reparación y/o Servicio</th>
                 <th>Mecánico / Carrocero</th>
                 <th>Horas</th>
+                <th>Total x Horas ({formatMoney(TARIFA_HORA)} / hora)</th>
                 <th>Fecha de Pago</th>
                 <th>Observaciones</th>
               </tr>
@@ -1267,7 +1257,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
             <tbody>
               {moRows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center text-muted">
+                  <td colSpan={6} className="text-center text-muted">
                     No hay registros de mano de obra.
                   </td>
                 </tr>
@@ -1275,12 +1265,9 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                 moRows.map((m, idx) => (
                   <tr key={idx}>
                     <td>{m.concepto}</td>
-                    <td className="text-center">
-                      {m.esCarroceria
-                        ? carroceros.find((x) => x._id === m.carrocero)?.nombre || m.carrocero || "—"
-                        : mecanicos.find((x) => x._id === m.mecanico)?.nombre || m.mecanico || "—"}
-                    </td>
+                    <td className="text-center">{nombreManoObra(m)}</td>
                     <td className="text-center">{m.horas}</td>
+                    <td className="text-center fw-bold">{formatMoney(calcImporteHoras(m.horas))}</td>
                     <td className="text-center">{formatFecha(m.fechaPago)}</td>
                     <td>{m.observaciones}</td>
                   </tr>

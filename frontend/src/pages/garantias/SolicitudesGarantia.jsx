@@ -1,8 +1,11 @@
 // src/pages/garantias/SolicitudesGarantia.jsx
-import React, { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { listGarantias, updateGarantia, resolverGarantia } from "../../api/garantias";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { listGarantias, resolverGarantia } from "../../api/garantias";
 import { getUser } from "../../auth";
+import http from "../../api/http";
+import { TARIFA_HORA, calcImporteHoras } from "../../utils/manoObra";
+import { formatFecha as formatFechaBase } from "../../utils/fechas";
 
 const LIMIT = 10;
 
@@ -10,6 +13,14 @@ const ESTADO_BADGE = {
   PENDIENTE: "bg-warning text-dark",
   APROBADA: "bg-success",
   NEGADA: "bg-danger",
+};
+
+// En pantalla la garantía se maneja como Pendiente / Autorizada / Negada
+// (en la base de datos se conserva APROBADA).
+const ESTADO_LABEL = {
+  PENDIENTE: "PENDIENTE",
+  APROBADA: "AUTORIZADA",
+  NEGADA: "NEGADA",
 };
 
 function formatMoney(n) {
@@ -21,14 +32,9 @@ function formatMoney(n) {
 }
 
 function formatFecha(value) {
-  if (!value) return "—";
-  const fecha = new Date(value);
-  if (Number.isNaN(fecha.getTime())) return "—";
-  return fecha.toLocaleDateString("es-MX", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  return (
+    formatFechaBase(value, { day: "2-digit", month: "short", year: "numeric" }) || "—"
+  );
 }
 
 function nombreCliente(c) {
@@ -42,12 +48,14 @@ function nombreCliente(c) {
 }
 
 // Tabla de venta al cliente de una orden (misma información que ve el asesor)
-function TablaVenta({ ventaCliente }) {
+function TablaVenta({ ventaCliente, iva }) {
   const filas = Array.isArray(ventaCliente) ? ventaCliente : [];
-  const total = filas.reduce(
+  const subtotal = filas.reduce(
     (acc, r) => acc + Number(r.cant || 0) * Number(r.precioVenta || 0),
     0
   );
+  const ivaPct = Number(iva ?? 8) || 0;
+  const ivaMonto = subtotal * (ivaPct / 100);
 
   return (
     <div className="table-responsive">
@@ -69,14 +77,9 @@ function TablaVenta({ ventaCliente }) {
             </tr>
           )}
           {filas.map((r, i) => (
-            <tr key={i} className={r.esGarantia ? "table-warning" : ""}>
+            <tr key={i}>
               <td className="text-center">{r.cant}</td>
-              <td>
-                {r.concepto}
-                {r.esGarantia && (
-                  <span className="badge bg-warning text-dark ms-2">GARANTÍA</span>
-                )}
-              </td>
+              <td>{r.concepto}</td>
               <td className="text-end">{formatMoney(r.precioVenta)}</td>
               <td>{r.observaciones}</td>
             </tr>
@@ -84,7 +87,66 @@ function TablaVenta({ ventaCliente }) {
         </tbody>
         <tfoot>
           <tr>
+            <td colSpan={2} className="text-end fw-bold">Sub Total:</td>
+            <td className="text-end fw-bold">{formatMoney(subtotal)}</td>
+            <td></td>
+          </tr>
+          <tr>
+            <td colSpan={2} className="text-end fw-bold">IVA {ivaPct}%:</td>
+            <td className="text-end fw-bold">{formatMoney(ivaMonto)}</td>
+            <td></td>
+          </tr>
+          <tr>
             <td colSpan={2} className="text-end fw-bold">Total:</td>
+            <td className="text-end fw-bold">{formatMoney(subtotal + ivaMonto)}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+// Mano de obra de una orden (importe siempre recalculado con la tarifa vigente)
+function TablaManoObra({ manoObra, nombreManoObra }) {
+  const filas = Array.isArray(manoObra) ? manoObra : [];
+  const total = filas.reduce((acc, m) => acc + calcImporteHoras(m.horas), 0);
+
+  return (
+    <div className="table-responsive">
+      <table className="table table-bordered table-sm align-middle mb-0">
+        <thead className="table-light text-center">
+          <tr>
+            <th>Reparación y/o Servicio</th>
+            <th style={{ width: 160 }}>Mecánico / Carrocero</th>
+            <th style={{ width: 70 }}>Horas</th>
+            <th style={{ width: 140 }}>
+              Importe ({formatMoney(TARIFA_HORA)} / hora)
+            </th>
+            <th>Observaciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.length === 0 && (
+            <tr>
+              <td colSpan={5} className="text-center text-muted">
+                Sin registros de mano de obra.
+              </td>
+            </tr>
+          )}
+          {filas.map((m, i) => (
+            <tr key={i}>
+              <td>{m.concepto}</td>
+              <td className="text-center">{nombreManoObra(m)}</td>
+              <td className="text-center">{m.horas}</td>
+              <td className="text-end">{formatMoney(calcImporteHoras(m.horas))}</td>
+              <td>{m.observaciones}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colSpan={3} className="text-end fw-bold">Total:</td>
             <td className="text-end fw-bold">{formatMoney(total)}</td>
             <td></td>
           </tr>
@@ -98,6 +160,12 @@ export default function SolicitudesGarantia() {
   const user = getUser();
   const puedeResolver = ["admin", "jefe"].includes(user?.role);
 
+  // Folio recibido desde la consulta de garantías (/garantias?os=OS-023):
+  // prefiltra la lista y expande esa solicitud al cargar.
+  const [searchParams] = useSearchParams();
+  const osParam = searchParams.get("os") || "";
+  const autoExpandRef = useRef(!!osParam);
+
   const [solicitudes, setSolicitudes] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -105,18 +173,43 @@ export default function SolicitudesGarantia() {
   const [error, setError] = useState("");
 
   const [filtroEstado, setFiltroEstado] = useState("");
-  const [searchOs, setSearchOs] = useState("");
-  const [searchDebounced, setSearchDebounced] = useState("");
+  const [searchOs, setSearchOs] = useState(osParam);
+  const [searchDebounced, setSearchDebounced] = useState(osParam.trim());
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(searchOs.trim()), 400);
     return () => clearTimeout(t);
   }, [searchOs]);
 
-  // Edición local por solicitud: { [id]: { motivo, costoDiferencia, autorizaCarreon } }
+  // Edición local por solicitud: { [id]: { motivo, autorizaCarreon } }
   const [edits, setEdits] = useState({});
   const [expandida, setExpandida] = useState(null);
   const [procesando, setProcesando] = useState(null);
+
+  // Para mostrar nombres en la mano de obra de las órdenes
+  const [mecanicos, setMecanicos] = useState([]);
+  const [carroceros, setCarroceros] = useState([]);
+
+  useEffect(() => {
+    const cargarEmpleados = async () => {
+      try {
+        const [resMec, resCar] = await Promise.all([
+          http.get("/empleados?puesto=mecanico&activo=true"),
+          http.get("/empleados?puesto=carrocero&activo=true"),
+        ]);
+        setMecanicos(resMec.data || []);
+        setCarroceros(resCar.data || []);
+      } catch (err) {
+        console.error("Error cargando empleados:", err);
+      }
+    };
+    cargarEmpleados();
+  }, []);
+
+  const nombreManoObra = (m) =>
+    m.esCarroceria
+      ? carroceros.find((x) => x._id === m.carrocero)?.nombre || m.carrocero || "—"
+      : mecanicos.find((x) => x._id === m.mecanico)?.nombre || m.mecanico || "—";
 
   const cargar = useCallback(async () => {
     try {
@@ -138,19 +231,29 @@ export default function SolicitudesGarantia() {
         for (const v of data) {
           next[v._id] = {
             motivo: v.garantia?.motivo || "",
-            costoDiferencia: v.garantia?.costoDiferencia ?? 0,
             autorizaCarreon: !!v.garantia?.autorizaCarreon,
           };
         }
         return next;
       });
+
+      // Expande la solicitud cuando se llegó desde la consulta de garantías
+      if (autoExpandRef.current && osParam) {
+        const match = data.find(
+          (v) =>
+            String(v.ordenServicio || "").toUpperCase() ===
+            osParam.trim().toUpperCase()
+        );
+        if (match) setExpandida(match._id);
+        autoExpandRef.current = false;
+      }
     } catch (err) {
       console.error("Error cargando solicitudes de garantía:", err);
       setError("No se pudieron cargar las solicitudes de garantía.");
     } finally {
       setLoading(false);
     }
-  }, [filtroEstado, searchDebounced, page]);
+  }, [filtroEstado, searchDebounced, page, osParam]);
 
   useEffect(() => {
     cargar();
@@ -169,53 +272,26 @@ export default function SolicitudesGarantia() {
       ...prev,
       [vehiculoActualizado._id]: {
         motivo: vehiculoActualizado.garantia?.motivo || "",
-        costoDiferencia: vehiculoActualizado.garantia?.costoDiferencia ?? 0,
         autorizaCarreon: !!vehiculoActualizado.garantia?.autorizaCarreon,
       },
     }));
   };
 
-  const handleGuardar = async (v) => {
+  const handleAutorizar = async (v) => {
     const e = edits[v._id] || {};
-    try {
-      setProcesando(v._id);
-      await updateGarantia(v._id, {
-        motivo: e.motivo,
-        costoDiferencia: Number(e.costoDiferencia) || 0,
-        autorizaCarreon: !!e.autorizaCarreon,
-      });
-      alert("Solicitud de garantía actualizada.");
-      cargar();
-    } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.msg || "Error al guardar los cambios.");
-    } finally {
-      setProcesando(null);
-    }
-  };
 
-  const handleAprobar = async (v) => {
-    const e = edits[v._id] || {};
-    const costo = Number(e.costoDiferencia);
-
-    // Para aprobar es obligatorio: checkbox + motivo + costo (espejo del backend)
+    // Para autorizar es obligatorio: checkbox + motivo (espejo del backend)
     if (!e.autorizaCarreon) {
-      alert("Para aprobar es obligatorio marcar la autorización de SR. CARREON.");
+      alert("Para autorizar es obligatorio marcar la casilla Autorizar.");
       return;
     }
     if (!String(e.motivo || "").trim()) {
-      alert("Para aprobar es obligatorio capturar el motivo.");
-      return;
-    }
-    if (!Number.isFinite(costo)) {
-      alert("Para aprobar es obligatorio capturar el costo-diferencia o descuento.");
+      alert("Para autorizar es obligatorio capturar el motivo.");
       return;
     }
 
     const ok = window.confirm(
-      `¿Aprobar la garantía de la orden ${v.ordenServicio} (sobre ${v.garantia?.ordenAnteriorFolio})?\n\n` +
-        `Costo-diferencia: ${formatMoney(costo)}\n` +
-        "Se agregará el servicio GARANTÍA en Venta al Cliente de la nueva orden."
+      `¿Autorizar la garantía de la orden ${v.ordenServicio} (sobre ${v.garantia?.ordenAnteriorFolio})?`
     );
     if (!ok) return;
 
@@ -224,36 +300,13 @@ export default function SolicitudesGarantia() {
       const res = await resolverGarantia(v._id, {
         accion: "APROBAR",
         motivo: e.motivo.trim(),
-        costoDiferencia: costo,
         autorizaCarreon: true,
       });
       if (res.data?.vehiculo) reemplazarSolicitud(res.data.vehiculo);
-      alert("Garantía aprobada.");
+      alert("Garantía autorizada.");
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.msg || "Error al aprobar la garantía.");
-    } finally {
-      setProcesando(null);
-    }
-  };
-
-  const handleNegar = async (v) => {
-    const ok = window.confirm(
-      `¿Negar la solicitud de garantía de la orden ${v.ordenServicio} (sobre ${v.garantia?.ordenAnteriorFolio})?`
-    );
-    if (!ok) return;
-
-    try {
-      setProcesando(v._id);
-      const res = await resolverGarantia(v._id, {
-        accion: "NEGAR",
-        motivo: edits[v._id]?.motivo,
-      });
-      if (res.data?.vehiculo) reemplazarSolicitud(res.data.vehiculo);
-      alert("Solicitud de garantía negada.");
-    } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.msg || "Error al negar la garantía.");
+      alert(err.response?.data?.msg || "Error al autorizar la garantía.");
     } finally {
       setProcesando(null);
     }
@@ -281,7 +334,7 @@ export default function SolicitudesGarantia() {
               >
                 <option value="">Todas</option>
                 <option value="PENDIENTE">Pendientes</option>
-                <option value="APROBADA">Aprobadas</option>
+                <option value="APROBADA">Autorizadas</option>
                 <option value="NEGADA">Negadas</option>
               </select>
             </div>
@@ -329,15 +382,14 @@ export default function SolicitudesGarantia() {
                   <th>Fecha Solicitud</th>
                   <th>Estado</th>
                   <th style={{ minWidth: 220 }}>Motivo</th>
-                  <th style={{ width: 130 }}>Costo-Diferencia</th>
-                  <th style={{ width: 110 }}>Autoriza SR. CARREON</th>
+                  <th style={{ width: 110 }}>Autorizar</th>
                   <th style={{ width: 210 }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {!loading && solicitudes.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="text-center text-muted py-4">
+                    <td colSpan={9} className="text-center text-muted py-4">
                       No hay solicitudes de garantía.
                     </td>
                   </tr>
@@ -380,7 +432,7 @@ export default function SolicitudesGarantia() {
                         <td className="text-center">{formatFecha(g.fechaSolicitud)}</td>
                         <td className="text-center">
                           <span className={`badge ${ESTADO_BADGE[g.estado] || "bg-secondary"}`}>
-                            {g.estado}
+                            {ESTADO_LABEL[g.estado] || g.estado}
                           </span>
                         </td>
                         <td>
@@ -390,19 +442,6 @@ export default function SolicitudesGarantia() {
                             value={e.motivo ?? ""}
                             readOnly={!editable}
                             onChange={(ev) => setEdit(v._id, "motivo", ev.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="number"
-                            step="0.01"
-                            className="form-control form-control-sm text-end"
-                            title="Negativo = descuento; positivo = cargo adicional"
-                            value={e.costoDiferencia ?? ""}
-                            readOnly={!editable}
-                            onChange={(ev) =>
-                              setEdit(v._id, "costoDiferencia", ev.target.value)
-                            }
                           />
                         </td>
                         <td className="text-center">
@@ -418,36 +457,19 @@ export default function SolicitudesGarantia() {
                         </td>
                         <td className="text-center">
                           {pendiente ? (
-                            <div className="d-flex gap-1 justify-content-center flex-wrap">
+                            puedeResolver ? (
                               <button
                                 type="button"
-                                className="btn btn-sm btn-outline-secondary"
+                                className="btn btn-success btn-sm py-0"
+                                style={{ fontSize: 12 }}
                                 disabled={procesando === v._id}
-                                onClick={() => handleGuardar(v)}
+                                onClick={() => handleAutorizar(v)}
                               >
-                                Guardar
+                                Autorizar
                               </button>
-                              {puedeResolver && (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="btn btn-sm btn-success"
-                                    disabled={procesando === v._id}
-                                    onClick={() => handleAprobar(v)}
-                                  >
-                                    Aprobar
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn btn-sm btn-danger"
-                                    disabled={procesando === v._id}
-                                    onClick={() => handleNegar(v)}
-                                  >
-                                    Negar
-                                  </button>
-                                </>
-                              )}
-                            </div>
+                            ) : (
+                              <small className="text-muted">Pendiente de autorizar</small>
+                            )
                           ) : (
                             <small className="text-muted">
                               {formatFecha(g.fechaResolucion)}
@@ -459,7 +481,7 @@ export default function SolicitudesGarantia() {
 
                       {abierta && (
                         <tr>
-                          <td colSpan={10} className="bg-light">
+                          <td colSpan={9} className="bg-light">
                             <div className="row g-3 p-2">
                               {/* Orden original */}
                               <div className="col-12 col-lg-6">
@@ -499,7 +521,17 @@ export default function SolicitudesGarantia() {
                                         <div className="fw-semibold small mb-1">
                                           Venta al Cliente:
                                         </div>
-                                        <TablaVenta ventaCliente={ordenAnterior.ventaCliente} />
+                                        <TablaVenta
+                                          ventaCliente={ordenAnterior.ventaCliente}
+                                          iva={ordenAnterior.ivaVenta}
+                                        />
+                                        <div className="fw-semibold small mb-1 mt-3">
+                                          Mano de Obra:
+                                        </div>
+                                        <TablaManoObra
+                                          manoObra={ordenAnterior.manoObra}
+                                          nombreManoObra={nombreManoObra}
+                                        />
                                         <div className="mt-2">
                                           <Link
                                             to={`/vehiculo/orden/${ordenAnterior._id}?tab=general`}
@@ -543,7 +575,14 @@ export default function SolicitudesGarantia() {
                                     <div className="fw-semibold small mb-1">
                                       Venta al Cliente:
                                     </div>
-                                    <TablaVenta ventaCliente={v.ventaCliente} />
+                                    <TablaVenta ventaCliente={v.ventaCliente} iva={v.ivaVenta} />
+                                    <div className="fw-semibold small mb-1 mt-3">
+                                      Mano de Obra:
+                                    </div>
+                                    <TablaManoObra
+                                      manoObra={v.manoObra}
+                                      nombreManoObra={nombreManoObra}
+                                    />
                                     <div className="mt-2">
                                       <Link
                                         to={`/vehiculo/orden/${v._id}?tab=general`}
@@ -595,8 +634,8 @@ export default function SolicitudesGarantia() {
           </div>
 
           <p className="mt-2 text-muted mb-0" style={{ fontSize: 12 }}>
-            * El costo-diferencia se aplica en Venta al Cliente de la nueva orden al aprobar
-            (negativo = descuento). Al negar no es necesario llenar los campos.
+            * La información es solo de consulta. Al autorizar se confirma que la orden fue
+            una garantía y se toma en cuenta para el Reporte de Garantías (auditoría).
           </p>
         </div>
       </div>

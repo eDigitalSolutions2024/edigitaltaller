@@ -34,3 +34,12 @@ export const openReporteOriginalesAbiertasPdf = (desde, hasta, asesor) => {
   if (asesor) url += `&asesor=${encodeURIComponent(asesor)}`;
   window.open(url, '_blank', 'noopener');
 };
+
+export const getReporteGarantias = (desde, hasta, asesor) =>
+  http.get('/reportes/garantias', { params: { desde, hasta, asesor: asesor || undefined } });
+
+export const openReporteGarantiasPdf = (desde, hasta, asesor) => {
+  let url = `${BASE_URL}/reportes/garantias-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
+  if (asesor) url += `&asesor=${encodeURIComponent(asesor)}`;
+  window.open(url, '_blank', 'noopener');
+};

@@ -2,6 +2,7 @@ const puppeteer = require('puppeteer');
 const dayjs = require('dayjs');
 const path = require('path');
 const fs = require('fs');
+const { dayjsFecha } = require('../utils/fechas');
 
 const assetPath = (...parts) =>
   path.join(__dirname, '..', 'assets', 'pdf', ...parts);
@@ -65,7 +66,7 @@ exports.generarPresupuestoPDF = async (res, orden) => {
     const fechaActual = dayjs().format('DD/MM/YYYY');
     const horaRecepcion = orden.horaRecepcion || '';
     const fechaRecepcion = orden.fechaRecepcion
-      ? dayjs(orden.fechaRecepcion).format('DD/MM/YYYY')
+      ? dayjsFecha(orden.fechaRecepcion).format('DD/MM/YYYY')
       : fechaActual;
 
     const ivaRate = (Number(orden.ivaPresupuesto ?? 8) || 0) / 100;

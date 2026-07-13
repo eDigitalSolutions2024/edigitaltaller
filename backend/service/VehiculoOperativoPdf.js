@@ -8,6 +8,7 @@ const puppeteer = require('puppeteer');
 const dayjs = require('dayjs');
 const fs = require('fs');
 const path = require('path');
+const { dayjsFecha } = require('../utils/fechas');
 
 // Carga el logo una sola vez al iniciar el módulo
 let LOGO_DATA_URL = '';
@@ -21,7 +22,7 @@ try {
 
 function fmtFecha(fechaISO) {
   if (!fechaISO) return '';
-  return dayjs(fechaISO).format('DD/MM/YYYY');
+  return dayjsFecha(fechaISO).format('DD/MM/YYYY');
 }
 
 function esc(str) {

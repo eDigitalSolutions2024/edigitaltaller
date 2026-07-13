@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { listOrdenesServicio } from "../../api/vehiculos";
 import { useNavigate } from "react-router-dom";
 import { getUser } from "../../auth";
+import { formatFecha } from "../../utils/fechas";
 
 
 const TABS = [
@@ -363,9 +364,7 @@ export default function VehiculosConsultaOrdenes() {
       <td className="text-center">{r.anio || "-"}</td>
       <td className="text-center">{r.placas || "-"}</td>
       <td className="text-center">
-        {r.fechaRecepcion
-          ? new Date(r.fechaRecepcion).toLocaleDateString()
-          : "-"}
+        {formatFecha(r.fechaRecepcion) || "-"}
       </td>
       <td className="text-center">{(r.cliente?.telefonos?.[0]?.numero) || "-"}</td>
       <td className="text-center">{r.creadoPor || "-"}</td>

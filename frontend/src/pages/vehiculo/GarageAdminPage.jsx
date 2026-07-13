@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { getGarageVehiculosDetalle, importarVehiculosCerrados } from "../../api/garage";
 import { getUser } from "../../auth";
+import { formatFecha as formatFechaBase } from "../../utils/fechas";
 
 function getNombreCliente(c) {
   if (!c) return "Sin nombre";
@@ -11,10 +12,9 @@ function getNombreCliente(c) {
 }
 
 function formatFecha(valor) {
-  if (!valor) return "—";
-  const d = new Date(valor);
-  if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("es-MX", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return (
+    formatFechaBase(valor, { day: "2-digit", month: "2-digit", year: "numeric" }) || "—"
+  );
 }
 
 export default function GarageAdminPage() {

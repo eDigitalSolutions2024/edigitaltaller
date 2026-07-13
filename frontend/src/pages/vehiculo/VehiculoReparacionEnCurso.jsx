@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { fetchServiciosTaller } from "../../api/codigos";
 import { saveRequisicionDiagnostico } from "../../api/vehiculos";
 import http from "../../api/http";
+import { TARIFA_HORA, calcImporteHoras } from "../../utils/manoObra";
 
 function formatMoney(n) {
   if (n === "" || n === null || n === undefined) return "-";
@@ -76,17 +77,31 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral,
 
   const manoObra = orden.manoObra || [];
 
+  // Costo de venta (misma información que Venta al Cliente en el cierre; solo consulta)
+  const ventaCliente = orden.ventaCliente || [];
+  const subtotalVenta = ventaCliente.reduce(
+    (s, r) => s + Number(r.cant || 0) * Number(r.precioVenta || 0),
+    0
+  );
+  const ivaVentaPct = Number(orden.ivaVenta ?? 8) || 0;
+  const ivaVentaMonto = subtotalVenta * (ivaVentaPct / 100);
+
   const getNombreMecanico = (id) =>
     mecanicos.find((m) => m._id === id)?.nombre || id || "—";
 
   const getNombreCarrocero = (id) =>
     carroceros.find((c) => c._id === id)?.nombre || id || "—";
 
+  const nombreManoObra = (m) =>
+    m.esCarroceria ? getNombreCarrocero(m.carrocero) : getNombreMecanico(m.mecanico);
+
   const personalRows = manoObra
     .map((m) => ({
       rol: m.esCarroceria ? "Carrocero" : "Mecánico",
-      nombre: m.esCarroceria ? getNombreCarrocero(m.carrocero) : getNombreMecanico(m.mecanico),
+      nombre: nombreManoObra(m),
       concepto: m.concepto || "—",
+      horas: Number(m.horas || 0),
+      importe: calcImporteHoras(m.horas),
     }))
     .sort((a, b) => (a.rol === b.rol ? 0 : a.rol === "Mecánico" ? -1 : 1));
 
@@ -170,19 +185,38 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral,
                       <td>{orden.devueltoPor}</td>
                     </tr>
                   )}
-                  {personalRows.map((p, i) => (
-                    <tr key={i}>
-                      <td className="ps-2 fw-semibold">{p.rol}</td>
-                      <td>{p.nombre}</td>
-                    </tr>
-                  ))}
                   {!orden.creadoPor && !orden.devueltoPor && personalRows.length === 0 && (
                     <tr>
-                      <td colSpan={3} className="text-center text-muted">Sin personal asignado.</td>
+                      <td colSpan={2} className="text-center text-muted">Sin personal asignado.</td>
                     </tr>
                   )}
                 </tbody>
               </table>
+
+              {personalRows.length > 0 && (
+                <table className="table table-sm table-bordered mb-0">
+                  <thead className="table-light">
+                    <tr>
+                      <th className="ps-2">Reparación y/o Servicio</th>
+                      <th>Mecánico/Carrocero</th>
+                      <th className="text-center">Horas</th>
+                      <th className="text-end pe-2">
+                        Total x Horas ({formatMoney(TARIFA_HORA)} / hora)
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {personalRows.map((p, i) => (
+                      <tr key={i}>
+                        <td className="ps-2">{p.concepto}</td>
+                        <td>{p.nombre}</td>
+                        <td className="text-center">{p.horas}</td>
+                        <td className="text-end pe-2 fw-bold">{formatMoney(p.importe)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>
@@ -266,6 +300,55 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral,
               </tr>
             ))}
           </tbody>
+        </table>
+      </div>
+
+      {/* ── COSTO DE VENTA (Venta al Cliente, solo consulta) ── */}
+      <h5 className="fw-semibold mt-4 mb-2">Costo de Venta</h5>
+      <div className="table-responsive mb-4">
+        <table className="table table-sm table-bordered align-middle">
+          <thead className="table-light text-center">
+            <tr>
+              <th style={{ width: "70px" }}>Cant.</th>
+              <th>Concepto, Servicio y/o Reparación</th>
+              <th style={{ width: "150px" }}>Precio Venta (Sin IVA)</th>
+              <th>Observaciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ventaCliente.length === 0 && (
+              <tr>
+                <td colSpan={4} className="text-center text-muted">
+                  Sin partidas de venta al cliente.
+                </td>
+              </tr>
+            )}
+            {ventaCliente.map((r, i) => (
+              <tr key={i}>
+                <td className="text-center">{r.cant}</td>
+                <td>{r.concepto}</td>
+                <td className="text-end">{formatMoney(r.precioVenta)}</td>
+                <td>{r.observaciones}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={2} className="text-end fw-bold">Sub Total:</td>
+              <td className="text-end fw-bold">{formatMoney(subtotalVenta)}</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td colSpan={2} className="text-end fw-bold">IVA {ivaVentaPct}%:</td>
+              <td className="text-end fw-bold">{formatMoney(ivaVentaMonto)}</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td colSpan={2} className="text-end fw-bold">Total:</td>
+              <td className="text-end fw-bold">{formatMoney(subtotalVenta + ivaVentaMonto)}</td>
+              <td></td>
+            </tr>
+          </tfoot>
         </table>
       </div>
 

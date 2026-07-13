@@ -4,14 +4,11 @@ import { useSearchParams } from "react-router-dom";
 import TablaCapturaEntrada from "./components/TablaCapturaEntrada";
 import ModalAltaProveedor from "./components/ModalAltaProveedor";
 import ModalAltaCodigo from "./components/ModalAltaCodigo";
+import { formatFecha } from "../../utils/fechas";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 
-const fmtFecha = (iso) => {
-  if (!iso) return "—";
-  try { return new Intl.DateTimeFormat("es-MX").format(new Date(iso)); }
-  catch { return iso; }
-};
+const fmtFecha = (iso) => formatFecha(iso) || "—";
 
 // ─── Modal buscar orden de servicio ──────────────────────────────────────────
 function ModalBuscarOrden({ onSelect, onClose }) {

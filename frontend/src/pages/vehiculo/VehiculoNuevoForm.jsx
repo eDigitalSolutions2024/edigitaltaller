@@ -53,9 +53,13 @@ function formatDateForInput(value) {
 
 function nombreClienteGarage(c) {
   if (!c) return "";
-  if (c.empresa) return c.empresa;
+  if (c.empresa?.razonSocial) return c.empresa.razonSocial;
   if (c.gobierno?.nombreGobierno) return c.gobierno.nombreGobierno;
-  return [c.nombre, c.apellidoPaterno].filter(Boolean).join(" ");
+  return (
+    [c.nombre, c.apellidoPaterno].filter(Boolean).join(" ") ||
+    c.empresa?.contacto?.nombre ||
+    ""
+  );
 }
 
 const INSPECCION_FIELDS = [
@@ -480,7 +484,7 @@ export default function VehiculoNuevoForm({
       setGuardado(true);
       const vehiculoCreado = res.data?.vehiculo || res.data;
       window.dispatchEvent(new CustomEvent('orden-creada'));
-      console.log("Vehiculo guardado:", res.data || res);
+      // console.log("Vehiculo guardado:", res.data || res);
 
       // Guardar automáticamente en el garaje si tiene serie (sin pedir confirmación)
       if (form.serie?.trim()) {

@@ -15,12 +15,13 @@ export default function VehiculosLayout() {
         <NavLink to={`${base}/consulta-ordenes`} className={tab}>Consulta Órdenes</NavLink>
         <NavLink to={`${base}/consulta-ordenes-cerradas`} className={tab}>Consulta Órdenes Cerradas</NavLink>
         <NavLink to={`${base}/consulta-ordenes-canceladas`} className={tab}>Consulta Órdenes Canceladas</NavLink>
+        {/* <NavLink to={`${base}/garantias`} className={tab}>Garantías</NavLink> */}
         <NavLink to={`${base}/exportar`} className={tab}>Exportar</NavLink>
       </div>
 
       <div className="card shadow-sm">
         <div className="card-body">
-          <Outlet />
+          <Outlet/>
         </div>
       </div>
     </div>

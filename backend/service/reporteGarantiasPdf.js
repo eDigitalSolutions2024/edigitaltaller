@@ -1,55 +1,88 @@
+// Reporte de Garantías (auditoría): órdenes con garantía autorizada,
+// agrupadas por asesor, con mecánicos y costo (venta + mano de obra).
+// Mismo formato general que el reporte de órdenes abiertas.
 const puppeteer = require('puppeteer');
 const dayjs = require('dayjs');
 require('dayjs/locale/es');
 dayjs.locale('es');
 const { dayjsFecha } = require('../utils/fechas');
 
-function fmt(n) {
-  return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n || 0);
-}
-
 function fmtFecha(iso) {
   return dayjsFecha(iso).format('DD-MMM-YY');
+}
+
+function fmtFechaCorta(iso) {
+  return dayjsFecha(iso).format('DD/MM/YYYY');
 }
 
 function fmtFechaLarga() {
   return dayjs().format('dddd, D [de] MMMM [de] YYYY');
 }
 
-function buildHtml(resultado, desde, hasta) {
+function fmtMoney(n) {
+  return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n || 0);
+}
+
+function esc(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function observacionesGarantia(o) {
+  const lineas = ['***GARANTIA***'];
+  if (o.motivo) lineas.push(`MOTIVO: ${esc(o.motivo)}`);
+  if (o.fechaGarantia) lineas.push(`FECHA: ${fmtFechaCorta(o.fechaGarantia)}`);
+  if (o.autorizaCarreon) lineas.push('AUTORIZA SR. CARREON');
+  return lineas.join('<br>');
+}
+
+function buildHtml(resultado, desde, hasta, asesor) {
   const grupos = resultado.data
     .map((grupo) => {
       const filas = grupo.ordenes
         .map(
           (o) => `
           <tr class="body-style">
-            <td>${o.ordenServicio || ''}</td>
-            <td>${o.nombreCliente || ''}</td>
-            <td>${o.marca || ''}</td>
-            <td>${o.tipo || ''}</td>
-            <td class="text-right">${fmt(o.importe)}</td>
+            <td>${esc(o.ordenServicio)}</td>
+            <td>${esc(o.cliente)}</td>
+            <td>${esc(o.ordenAnterior)}</td>
+            <td>${o.fecha ? fmtFecha(o.fecha) : ''}</td>
+            <td>${esc(o.marca)}</td>
+            <td>${esc(o.modelo)}</td>
+            <td>${esc(o.serie)}</td>
+            <td>${esc(o.asesor)}</td>
+            <td class="num">${fmtMoney(o.costo)}</td>
+            <td class="obs">${observacionesGarantia(o)}</td>
+          </tr>
+          <tr class="mecanicos-row">
+            <td colspan="10"><em><b>Mecánicos:</b></em>&nbsp;&nbsp;${esc(o.mecanicos.join('; '))}${o.mecanicos.length ? ';' : 'Sin mano de obra registrada.'}</td>
           </tr>`
         )
         .join('');
 
       return `
-        <div class="asesor-header">Asesor: ${grupo.asesor}</div>
+        <div class="asesor-header">Asesor: ${esc(grupo.asesor)}</div>
         <table class="data">
           <thead>
             <tr>
               <th>No Orden</th>
-              <th>Nombre</th>
+              <th>Cliente</th>
+              <th>Ord. Ant</th>
+              <th>Fecha</th>
               <th>Marca</th>
-              <th>Tipo</th>
-              <th class="text-right">Importe</th>
+              <th>Modelo</th>
+              <th>Serie</th>
+              <th>Asesor</th>
+              <th class="num">Costo</th>
+              <th class="obs">Observaciones</th>
             </tr>
           </thead>
           <tbody>${filas}</tbody>
           <tfoot>
             <tr class="subtotal-row">
-              <td colspan="2" style="font-style:italic; font-weight:bold;">Total de Ordenes: ${grupo.ordenes.length}</td>
-              <td colspan="2" class="text-right" style="font-style:italic; font-weight:bold;">Total por Asesor</td>
-              <td class="text-right" style="font-weight:bold;">${fmt(grupo.totalAsesor)}</td>
+              <td colspan="10" style="font-style:italic; font-weight:bold;">Cant. Ordenes: ${grupo.totalAsesor}</td>
             </tr>
           </tfoot>
         </table>`;
@@ -85,8 +118,6 @@ function buildHtml(resultado, desde, hasta) {
     .titulo { font-size: 13pt; font-weight: bold; font-style: italic; }
     .fechas { text-align: right; font-size: 9pt; line-height: 1.7; }
 
-    hr { border: none; border-top: 1px solid #000; margin: 5px 0 8px; }
-
     /* ── TABLAS ── */
     table.data { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
     table.data th {
@@ -96,8 +127,9 @@ function buildHtml(resultado, desde, hasta) {
       padding: 3px 4px;
       text-align: left;
     }
-    table.data td { font-size: 8.5pt; padding: 2px 4px; }
-    .text-right { text-align: right; }
+    table.data td { font-size: 8.5pt; padding: 2px 4px; vertical-align: top; }
+    table.data .num { text-align: right; white-space: nowrap; }
+    table.data .obs { width: 30%; }
 
     /* ── GRUPOS ASESOR ── */
     .asesor-header {
@@ -108,22 +140,24 @@ function buildHtml(resultado, desde, hasta) {
       margin-bottom: 3px;
       border-bottom: 1px solid #000;
     }
-    .subtotal-row td { 
-      font-size: 9pt;
-      // border-top: 1px solid #000; 
+    .subtotal-row td { font-size: 9pt; border-top: 1px solid #555; }
+    .mecanicos-row td {
+      font-size: 8.5pt;
+      border-bottom: .5px solid #35353590;
+      padding: 2px 4px 4px;
     }
+    .body-style td { padding-top: 4px; }
 
     /* ── GRAN TOTAL ── */
     .gran-total {
       display: flex;
-      justify-content: flex-end;
-      gap: 30px;
+      justify-content: space-between;
       margin-top: 12px;
       padding-top: 6px;
       border-top: 1px solid #000;
       font-size: 10pt;
+      font-weight: bold;
     }
-    .gran-total .label { font-style: italic; font-weight: bold; font-size: 9pt; }
 
     /* ── PIE ── */
     .pie {
@@ -138,13 +172,7 @@ function buildHtml(resultado, desde, hasta) {
       padding-top: 3px;
     }
 
-    /* tr ordenes */
-    .body-style{
-      border-bottom: .1px solid #35353590;
-      padding: 4px;
-    } 
-
-    @page { size: A4 portrait; margin: 14mm; }
+    @page { size: A4 landscape; margin: 14mm; }
   </style>
 </head>
 <body>
@@ -155,32 +183,32 @@ function buildHtml(resultado, desde, hasta) {
   </table>
 
   <div class="titulo-row">
-    <div class="titulo">Reporte de Ventas (Asesores)</div>
+    <div class="titulo">Reporte de Garantías</div>
     <div class="fechas">
       <div><strong>Desde:</strong>&nbsp;${fmtFecha(desde)}</div>
       <div><strong>Hasta:</strong>&nbsp;${fmtFecha(hasta)}</div>
+      ${asesor ? `<div><strong>Asesor:</strong>&nbsp;${esc(asesor)}</div>` : ''}
     </div>
   </div>
-  
 
-  ${grupos}
+  ${grupos || '<p style="font-size:9pt;">No se encontraron garantías autorizadas en el período seleccionado.</p>'}
 
   <div class="gran-total">
-    <span class="label">Total de Ordenes: ${resultado.totalOrdenes}</span>
-    <span><strong>Gran Total:</strong>&nbsp;&nbsp;${fmt(resultado.totalGeneral)}</span>
+    <span>Total de Ordenes: ${resultado.totalOrdenes}</span>
+    <span>Costo total: ${fmtMoney(resultado.totalCosto)}</span>
   </div>
 
   <div class="pie">
     <span>${fmtFechaLarga()}</span>
-    <span>Page 1 of 1</span>
+    <span>Reporte de Garantías</span>
   </div>
 
 </body>
 </html>`;
 }
 
-async function streamReporteVentasAsesoresPdf(res, resultado, desde, hasta) {
-  const html = buildHtml(resultado, desde, hasta);
+async function streamReporteGarantiasPdf(res, resultado, desde, hasta, asesor) {
+  const html = buildHtml(resultado, desde, hasta, asesor);
 
   const browser = await puppeteer.launch({
     headless: 'new',
@@ -192,6 +220,7 @@ async function streamReporteVentasAsesoresPdf(res, resultado, desde, hasta) {
 
   const pdfBuffer = await page.pdf({
     format: 'A4',
+    landscape: true,
     printBackground: true,
     margin: { top: '13mm', bottom: '13mm', left: '13mm', right: '13mm' },
   });
@@ -199,8 +228,8 @@ async function streamReporteVentasAsesoresPdf(res, resultado, desde, hasta) {
   await browser.close();
 
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', 'inline; filename="reporte_ventas_asesores.pdf"');
+  res.setHeader('Content-Disposition', 'inline; filename="reporte_garantias.pdf"');
   res.send(pdfBuffer);
 }
 
-module.exports = { streamReporteVentasAsesoresPdf };
+module.exports = { streamReporteGarantiasPdf };

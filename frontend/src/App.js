@@ -40,6 +40,7 @@ import VehiculoConsultaCerradas from "./pages/vehiculo/VehiculosConsultaCerradas
 import VehiculoExportar from "./pages/vehiculo/VehiculosExportar";
 import VehiculoOrdenDetalle from "./pages/vehiculo/VehiculoOrdenDetalle";
 import VehiculoConsultaCanceladas from "./pages/vehiculo/VehiculosConsultaCanceladas";
+import VehiculosConsultaGarantias from "./pages/vehiculo/VehiculosConsultaGarantias";
 import GarageAdminPage from "./pages/vehiculo/GarageAdminPage";
 
 // Devoluciones
@@ -210,6 +211,7 @@ export default function App() {
             <Route path="consulta-ordenes" element={<VehiculoConsultaOrdenes />} />
             <Route path="consulta-ordenes-cerradas" element={<VehiculoConsultaCerradas />} />
             <Route path="consulta-ordenes-canceladas" element={<VehiculoConsultaCanceladas />} />
+            <Route path="garantias" element={<VehiculosConsultaGarantias />} />
             <Route path="exportar" element={<VehiculoExportar />} />
             <Route path="garaje" element={<GarageAdminPage />} />
             <Route path="orden/:id" element={<VehiculoOrdenDetalle />} />

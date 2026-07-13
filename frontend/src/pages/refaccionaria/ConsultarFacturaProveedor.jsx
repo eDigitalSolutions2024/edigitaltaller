@@ -3,16 +3,12 @@ import { useNavigate } from "react-router-dom";
 import http from "../../api/http";
 import { getUser } from "../../auth";
 import ModalSeleccionarCodigo from "./components/ModalSeleccionarCodigo";
+import { formatFecha } from "../../utils/fechas";
 
-const fmtFechaLarga = (iso) => {
-  if (!iso) return "—";
-  try { return new Intl.DateTimeFormat("es-MX", { dateStyle: "medium" }).format(new Date(iso)); }
-  catch { return iso; }
-};
+const fmtFechaLarga = (iso) => formatFecha(iso, { dateStyle: "medium" }) || "—";
 
 const API    = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 const SERVER = API.replace(/\/api$/, "");
-const fmt    = new Intl.DateTimeFormat("es-MX");
 
 // ─── Modal para subir foto a una entrada sin fotografía ───────────────────────
 function ModalSubirFoto({ entrada, onClose, onFotoGuardada }) {
@@ -93,7 +89,7 @@ function ModalSubirFoto({ entrada, onClose, onFotoGuardada }) {
         <div className="alert alert-warning py-2 mb-3 small">
           <strong>Factura:</strong> {entrada.factura} &nbsp;·&nbsp;
           <strong>Proveedor:</strong> {entrada.proveedor || "—"} &nbsp;·&nbsp;
-          <strong>Fecha:</strong> {entrada.fecha ? fmt.format(new Date(entrada.fecha)) : "—"}
+          <strong>Fecha:</strong> {formatFecha(entrada.fecha) || "—"}
         </div>
 
         <div className="mb-3">
@@ -247,7 +243,7 @@ function ModalVerDetalle({ entrada, onClose }) {
             </div>
             <div className="col-6 col-md-4">
               <small className="text-muted d-block">Fecha</small>
-              <strong>{entrada.fechaFactura ? fmt.format(new Date(entrada.fechaFactura)) : "—"}</strong>
+              <strong>{formatFecha(entrada.fechaFactura) || "—"}</strong>
             </div>
             <div className="col-6 col-md-4">
               <small className="text-muted d-block">Proveedor</small>
@@ -997,7 +993,7 @@ export default function ConsultarFacturaProveedor() {
                     <td className="text-truncate" style={{ maxWidth: 380 }}>
                       {r.proveedor || "—"}
                     </td>
-                    <td>{r.fecha ? fmt.format(new Date(r.fecha)) : "—"}</td>
+                    <td>{formatFecha(r.fecha) || "—"}</td>
                     <td>
                       {r.estado === "finalizada" ? "🟢 Finalizada" : "🟡 Borrador"}
                     </td>

@@ -3,13 +3,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { closeOrden } from "../../api/vehiculos";
 import http from "../../api/http";
-
-function formatFecha(fechaIso) {
-  if (!fechaIso) return "";
-  const d = new Date(fechaIso);
-  if (isNaN(d.getTime())) return fechaIso;
-  return d.toLocaleDateString("es-MX");
-}
+import { formatFecha } from "../../utils/fechas";
 
 function formatMoney(n) {
   if (n === "" || n === null || n === undefined) return "";
