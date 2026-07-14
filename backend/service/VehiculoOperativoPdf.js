@@ -229,6 +229,7 @@ function buildPagina3() {
 // ---------- HTML PRINCIPAL ----------
 
 function buildHtml(vehiculo) {
+  const asesor = vehiculo.creadoPor || '';
   const insp = vehiculo.inspeccionFisica || {};
   const sr   = vehiculo.servicioReparacion || {};
   const mm   = sr.mantenimientoMotor || {};
@@ -376,9 +377,9 @@ function buildHtml(vehiculo) {
 <table class="nb" style="margin-bottom:2px;">
   <tr>
     <td style="width:22%;vertical-align:top;">
-      <div style="padding:3px;font-size:9px;">
-        <div></div>
-        <div></div>
+      <div style="padding:3px; padding-left:0px;font-size:10px;">
+        <div style="font-weight:bold;color:#1E40AF;">ASESOR</div>
+        <div style="font-size:15px;font-weight:bold;">${esc(asesor) || '—'}</div>
       </div>
     </td>
     <td style="text-align:center;vertical-align:middle;padding:0 10px;">
