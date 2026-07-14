@@ -280,6 +280,8 @@ router.get('/ordenes', async (req, res) => {
     const {
       estado = '',
       pendienteCierre,
+      devueltoPor = '',
+      conPendientesSurtir,
       searchOs = '',
       search = '',
       page = 1,
@@ -292,6 +294,29 @@ router.get('/ordenes', async (req, res) => {
       q.pendienteCierre = true;
     } else if (estado) {
       q.estadoOrden = estado;
+    }
+
+    // El refaccionario solo ve las órdenes que atendió él mismo; las que no
+    // tienen atendedor registrado se muestran a todos para que no queden sin surtir.
+    if (devueltoPor) {
+      q.$and = [
+        ...(q.$and || []),
+        {
+          $or: [
+            { devueltoPor },
+            { devueltoPor: '' },
+            { devueltoPor: null },
+            { devueltoPor: { $exists: false } },
+          ],
+        },
+      ];
+    }
+
+    // Solo órdenes con al menos una refacción autorizada que sigue sin surtirse
+    if (conPendientesSurtir === 'true') {
+      q.presupuesto = {
+        $elemMatch: { autorizado: true, surtida: { $ne: true } },
+      };
     }
 
     // Buscar por número de orden exacto o parcial (con o sin guion: "OS023" = "OS-023")

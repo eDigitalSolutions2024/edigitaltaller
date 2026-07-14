@@ -73,7 +73,7 @@ useEffect(() => {
   if (user?.role !== 'refaccionario') return;
   const fetch = async () => {
     try {
-      const { solicitudes, porSurtir } = await getRefaccionariaAlerts();
+      const { solicitudes, porSurtir } = await getRefaccionariaAlerts(user?.name);
       setSolicitudesCount(solicitudes);
       setPorSurtirCount(porSurtir);
     } catch (_) {}
@@ -81,7 +81,7 @@ useEffect(() => {
   fetch();
   const id = setInterval(fetch, 30_000);
   return () => clearInterval(id);
-}, [user?.role]);
+}, [user?.role, user?.name]);
 
 // === ADMINISTRACIÓN ===
 const [adminOpen, setAdminOpen] = useState(

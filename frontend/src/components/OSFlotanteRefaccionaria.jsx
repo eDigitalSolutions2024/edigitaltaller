@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listOrdenesServicio } from '../api/vehiculos';
+import { listOrdenesServicio, filtrosPorSurtir } from '../api/vehiculos';
 import { getUser } from '../auth';
 import '../styles/OSFlotante.css';
 
@@ -53,12 +53,15 @@ export default function OSFlotanteRefaccionaria() {
   const offset = useRef({ x: 0, y: 0 });
   const widgetRef = useRef(null);
 
+  const nombre = user?.name;
+
   const cargar = useCallback(async () => {
     try {
+      const surtir = filtrosPorSurtir(nombre);
       const [r1, r2, r3] = await Promise.all([
         listOrdenesServicio({ estado: 'PENDIENTE_REFACCIONARIA', limit: 50 }),
-        listOrdenesServicio({ estado: 'PENDIENTE_SURTIR', limit: 50 }),
-        listOrdenesServicio({ estado: 'REPARACION_EN_CURSO', limit: 50 }),
+        listOrdenesServicio({ ...surtir, estado: 'PENDIENTE_SURTIR', limit: 50 }),
+        listOrdenesServicio({ ...surtir, estado: 'REPARACION_EN_CURSO', limit: 50 }),
       ]);
       setOrdenes({
         solicitudes: r1.data?.data || [],
@@ -72,7 +75,7 @@ export default function OSFlotanteRefaccionaria() {
     } catch {
       // silencioso
     }
-  }, []);
+  }, [nombre]);
 
   useEffect(() => {
     if (!esRefaccionario) return;

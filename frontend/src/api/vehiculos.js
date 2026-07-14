@@ -77,13 +77,23 @@ export const updateDatosOrden = (id, payload) =>
 export const getMisOrdenes = () =>
   http.get('/vehiculos/mis-ordenes');
 
-export const getRefaccionariaAlerts = () =>
-  Promise.all([
+// Filtros que definen lo que un refaccionario tiene realmente por surtir:
+// sus propias órdenes (o las que nadie atendió) y que aún traigan refacciones
+// autorizadas sin surtir.
+export const filtrosPorSurtir = (nombreRefaccionario) => ({
+  conPendientesSurtir: true,
+  ...(nombreRefaccionario ? { devueltoPor: nombreRefaccionario } : {}),
+});
+
+export const getRefaccionariaAlerts = (nombreRefaccionario) => {
+  const surtir = filtrosPorSurtir(nombreRefaccionario);
+  return Promise.all([
     http.get('/vehiculos/ordenes', { params: { estado: 'PENDIENTE_REFACCIONARIA', limit: 1 } }),
-    http.get('/vehiculos/ordenes', { params: { estado: 'PENDIENTE_SURTIR', limit: 1 } }),
-    http.get('/vehiculos/ordenes', { params: { estado: 'REPARACION_EN_CURSO', limit: 1 } }),
+    http.get('/vehiculos/ordenes', { params: { ...surtir, estado: 'PENDIENTE_SURTIR', limit: 1 } }),
+    http.get('/vehiculos/ordenes', { params: { ...surtir, estado: 'REPARACION_EN_CURSO', limit: 1 } }),
   ]).then(([sol, ps, ric]) => ({
     solicitudes: sol.data.total ?? 0,
     porSurtir: (ps.data.total ?? 0) + (ric.data.total ?? 0),
   }));
+};
 
