@@ -66,6 +66,11 @@ export default function PorSurtir() {
     return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") || "Sin cliente";
   };
 
+  const nombreAsesor = (orden) => {
+    const asesor = orden.creadoPor || '';
+    return asesor || "Sin asesor";
+  }
+
   const toggleSeleccion = (ordenId, realIdx) => {
     setSeleccion((prev) => {
       const current = new Set(prev[ordenId] || []);
@@ -144,8 +149,11 @@ export default function PorSurtir() {
               return (
                 <div key={orden._id} className="card mb-3">
                   <div className="card-header d-flex justify-content-between align-items-center">
-                    <div>
-                      <strong>{orden.ordenServicio}</strong>
+                    <div className="flex-grow-1 me-3">
+                      <div className="inf-ord-surtir d-flex justify-content-between align-items-center">
+                        <strong>{orden.ordenServicio}</strong>
+                        <strong>{nombreAsesor(orden)}</strong>
+                      </div>
                       <span className="ms-3 text-muted">{nombreCliente(orden)}</span>
                       <span className="ms-3 text-muted">
                         {[orden.marca, orden.modelo, orden.anio].filter(Boolean).join(" ")}
