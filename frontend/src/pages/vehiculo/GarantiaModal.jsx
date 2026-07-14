@@ -5,25 +5,28 @@ import { formatFecha as formatFechaBase } from "../../utils/fechas";
 
 // Modal para solicitar una garantía sobre una orden anterior.
 // Solo se puede aplicar garantía sobre órdenes CERRADAS: al abrir se listan las
-// órdenes cerradas del cliente seleccionado; también se puede buscar por folio
-// cualquier otra orden cerrada (p. ej. la misma persona registrada como otro
-// cliente). Al confirmar se continúa el flujo de nueva orden con el vehículo
-// prellenado.
+// órdenes cerradas del cliente seleccionado; la búsqueda se hace por NÚMERO DE
+// SERIE del vehículo, tanto para filtrar las órdenes del cliente como para
+// buscar cualquier otra orden cerrada (p. ej. la misma persona registrada como
+// otro cliente). Al confirmar se continúa el flujo de nueva orden con el
+// vehículo prellenado.
 export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
   const [ordenesCliente, setOrdenesCliente] = useState([]);
   const [cargandoOrdenes, setCargandoOrdenes] = useState(false);
 
-  const [folio, setFolio] = useState("");
+  const [serie, setSerie] = useState("");
   const [motivo, setMotivo] = useState("");
   const [ordenAnterior, setOrdenAnterior] = useState(null);
+  const [resultadosBusqueda, setResultadosBusqueda] = useState([]);
   const [buscando, setBuscando] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!show) return;
-    setFolio("");
+    setSerie("");
     setMotivo("");
     setOrdenAnterior(null);
+    setResultadosBusqueda([]);
     setError("");
 
     if (!cliente?._id) {
@@ -68,15 +71,9 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
 
   if (!show) return null;
 
-  const normalizarFolio = (valor) => {
-    const limpio = valor.trim().toUpperCase();
-    if (!limpio) return "";
-    // Si el asesor teclea solo dígitos, anteponemos el prefijo P-
-    return /^\d+$/.test(limpio) ? `P-${limpio}` : limpio;
-  };
-
-  // Para comparar folios sin importar el guion: "OS023" = "OS-023"
-  const folioSinGuiones = (valor) =>
+  // Normaliza series y folios para comparar sin importar mayúsculas,
+  // espacios ni guiones ("OS023" = "OS-023")
+  const norm = (valor) =>
     String(valor || "").toUpperCase().replace(/[-\s]/g, "");
 
   const nombreCliente = (c) => {
@@ -97,58 +94,89 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
   const descVehiculo = (o) =>
     [o.marca, o.modelo, o.anio].filter(Boolean).join(" ") || "Sin datos de vehículo";
 
-  // Filtra la lista del cliente mientras se escribe en el buscador
-  // (ignorando guiones: "OS023" encuentra "OS-023")
-  const termino = folioSinGuiones(folio);
+  // Filtra la lista del cliente por número de serie o de orden mientras se escribe
+  const termino = norm(serie);
   const ordenesFiltradas = termino
-    ? ordenesCliente.filter((o) =>
-        folioSinGuiones(o.ordenServicio).includes(termino)
+    ? ordenesCliente.filter(
+        (o) =>
+          norm(o.serie).includes(termino) ||
+          norm(o.ordenServicio).includes(termino)
       )
     : ordenesCliente;
 
-  // Búsqueda global por folio (por si la orden está bajo otro registro del cliente)
+  // Lista mostrada: órdenes del cliente + resultados de la búsqueda global
+  // (sin duplicar las que ya aparecen entre las del cliente)
+  const idsCliente = new Set(ordenesFiltradas.map((o) => String(o._id)));
+  const listaMostrada = [
+    ...ordenesFiltradas,
+    ...resultadosBusqueda.filter((o) => !idsCliente.has(String(o._id))),
+  ];
+
+  // Búsqueda global por número de serie o de orden (por si la orden está bajo
+  // otro registro del cliente). Una serie puede tener varias órdenes cerradas,
+  // así que se muestran todas las coincidencias disponibles para elegir.
   const handleBuscar = async () => {
-    const folioNorm = normalizarFolio(folio);
-    if (!folioNorm) {
-      setError("Captura el número de la orden anterior.");
+    const term = serie.trim();
+    if (!term) {
+      setError("Captura el número de serie o de orden a buscar.");
       return;
     }
 
     try {
       setBuscando(true);
       setError("");
+      setResultadosBusqueda([]);
 
-      const res = await listOrdenesServicio({ searchOs: folioNorm, limit: 20 });
-      const data = Array.isArray(res.data?.data) ? res.data.data : [];
-      // searchOs es regex parcial (P-1 matchea P-10, P-100...): exigimos match
-      // exacto, ignorando guiones ("OS023" = "OS-023")
-      const exacta = data.find(
-        (o) => folioSinGuiones(o.ordenServicio) === folioSinGuiones(folioNorm)
+      // Se busca en paralelo por serie (search) y por folio de orden (searchOs)
+      const [resSerie, resFolio] = await Promise.all([
+        listOrdenesServicio({ search: term, limit: 50 }),
+        listOrdenesServicio({ searchOs: term, limit: 50 }),
+      ]);
+
+      // Combina ambos resultados quitando duplicados por _id
+      const porId = new Map();
+      for (const o of [
+        ...(Array.isArray(resSerie.data?.data) ? resSerie.data.data : []),
+        ...(Array.isArray(resFolio.data?.data) ? resFolio.data.data : []),
+      ]) {
+        porId.set(String(o._id), o);
+      }
+
+      const t = norm(term);
+      // Solo órdenes cerradas cuya serie o folio coincide con lo buscado
+      const cerradas = [...porId.values()].filter(
+        (o) =>
+          o.estadoOrden === "CERRADA" &&
+          (norm(o.serie).includes(t) || norm(o.ordenServicio).includes(t))
       );
 
-      if (!exacta) {
-        setError(`No se encontró la orden ${folioNorm}.`);
+      if (!cerradas.length) {
+        setError(`No se encontraron órdenes cerradas con "${term}".`);
         return;
       }
-      if (exacta.estadoOrden !== "CERRADA") {
+
+      // Excluir las órdenes ya usadas en una garantía
+      let idsUsadas = new Set();
+      try {
+        const resU = await getGarantiasUsadas(cerradas.map((o) => o._id));
+        idsUsadas = new Set(
+          (resU.data?.usadas || []).map((u) => String(u.ordenAnterior))
+        );
+      } catch {
+        // Si la consulta falla se muestran todas; el backend valida al crear
+      }
+
+      const disponibles = cerradas.filter((o) => !idsUsadas.has(String(o._id)));
+      if (!disponibles.length) {
         setError(
-          `La orden ${exacta.ordenServicio} aún no está cerrada; solo se puede solicitar garantía sobre órdenes cerradas.`
+          `Las órdenes cerradas que coinciden con "${term}" ya fueron utilizadas en una garantía.`
         );
         return;
       }
 
-      // Una orden ya usada en una garantía no puede volver a usarse
-      const resU = await getGarantiasUsadas([exacta._id]);
-      const usada = (resU.data?.usadas || [])[0];
-      if (usada) {
-        setError(
-          `La orden ${exacta.ordenServicio} ya fue utilizada en una garantía (orden ${usada.ordenServicio}).`
-        );
-        return;
-      }
-      setOrdenAnterior(exacta);
+      setResultadosBusqueda(disponibles);
     } catch (err) {
-      console.error("Error buscando orden anterior:", err);
+      console.error("Error buscando por serie u orden:", err);
       setError("Error al buscar la orden. Intenta de nuevo.");
     } finally {
       setBuscando(false);
@@ -187,15 +215,17 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
           </div>
 
           <div className="modal-body">
-            <label className="form-label fw-semibold">Orden anterior</label>
+            <label className="form-label fw-semibold">
+              Orden anterior (buscar por serie o número de orden)
+            </label>
             <div className="input-group mb-2">
               <input
                 type="text"
                 className="form-control"
-                placeholder="Filtrar las órdenes del cliente o buscar otro folio (Ej. P-123)"
-                value={folio}
+                placeholder="Filtrar por serie o número de orden (Ej. 3N1AB7... o P-123)"
+                value={serie}
                 autoFocus
-                onChange={(e) => setFolio(e.target.value)}
+                onChange={(e) => setSerie(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
@@ -208,7 +238,7 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
                 className="btn btn-outline-primary"
                 onClick={handleBuscar}
                 disabled={buscando}
-                title="Busca el folio en todas las órdenes (por si es la misma persona con otro registro)"
+                title="Busca la serie o el número de orden en todas las órdenes (por si es la misma persona con otro registro)"
               >
                 {buscando ? "Buscando..." : "Buscar"}
               </button>
@@ -218,7 +248,7 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
             <div className="mb-2">
               <small className="text-muted">
                 Órdenes cerradas de <strong>{nombreCliente(cliente)}</strong>
-                {cargandoOrdenes ? " — cargando..." : ` (${ordenesFiltradas.length})`}
+                {cargandoOrdenes ? " — cargando..." : ` (${listaMostrada.length})`}
               </small>
             </div>
 
@@ -226,21 +256,21 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
               className="list-group mb-3"
               style={{ maxHeight: 260, overflowY: "auto" }}
             >
-              {!cargandoOrdenes && ordenesCliente.length === 0 && (
+              {!cargandoOrdenes && listaMostrada.length === 0 && ordenesCliente.length === 0 && (
                 <div className="list-group-item text-muted">
-                  Este cliente no tiene órdenes cerradas. Usa el buscador por folio
-                  (solo se aceptan órdenes cerradas).
+                  Este cliente no tiene órdenes cerradas. Usa el buscador por serie
+                  o número de orden (solo se aceptan órdenes cerradas).
                 </div>
               )}
 
-              {!cargandoOrdenes && ordenesCliente.length > 0 && ordenesFiltradas.length === 0 && (
+              {!cargandoOrdenes && ordenesCliente.length > 0 && listaMostrada.length === 0 && (
                 <div className="list-group-item text-muted">
-                  Ninguna orden del cliente coincide con "{folio.trim()}". Usa el botón
-                  Buscar para consultar el folio en todas las órdenes.
+                  Ninguna orden del cliente coincide con "{serie.trim()}".
+                  Usa el botón Buscar para consultar en todas las órdenes.
                 </div>
               )}
 
-              {ordenesFiltradas.map((o) => {
+              {listaMostrada.map((o) => {
                 const activa = ordenAnterior?._id === o._id;
                 return (
                   <button
@@ -250,10 +280,13 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
                     onClick={() => handleSeleccionar(o)}
                   >
                     <div className="d-flex justify-content-between align-items-center">
-                      <span className="fw-bold">{o.ordenServicio}</span>
+                      <span className="fw-bold">
+                        Serie: {o.serie || "—"}
+                      </span>
                       <small>{formatFecha(o.fechaRecepcion || o.createdAt)}</small>
                     </div>
                     <small>
+                      {o.ordenServicio ? `${o.ordenServicio} · ` : ""}
                       {descVehiculo(o)}
                       {o.placas ? ` · Placas: ${o.placas}` : ""}
                       {" · "}
@@ -268,9 +301,12 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
             {ordenAnterior && (
               <div className="alert alert-success py-2 mb-3">
                 <div className="fw-bold">
-                  {ordenAnterior.ordenServicio} — {nombreCliente(ordenAnterior.cliente)}
+                  Serie: {ordenAnterior.serie || "—"}
+                  {ordenAnterior.ordenServicio ? ` — ${ordenAnterior.ordenServicio}` : ""}
                 </div>
                 <div className="small">
+                  {nombreCliente(ordenAnterior.cliente)}
+                  {" · "}
                   {descVehiculo(ordenAnterior)}
                   {ordenAnterior.placas ? ` · Placas: ${ordenAnterior.placas}` : ""}
                   {" · Estatus: "}

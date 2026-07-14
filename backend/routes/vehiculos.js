@@ -300,9 +300,10 @@ router.get('/ordenes', async (req, res) => {
       if (rx) q.ordenServicio = rx;
     }
 
-    // Búsqueda general (placas, marca/modelo)
+    // Búsqueda general (serie, placas, marca/modelo)
     if (search) {
       q.$or = [
+        { serie: { $regex: search, $options: 'i' } },
         { placas: { $regex: search, $options: 'i' } },
         { marca: { $regex: search, $options: 'i' } },
         { modelo: { $regex: search, $options: 'i' } },

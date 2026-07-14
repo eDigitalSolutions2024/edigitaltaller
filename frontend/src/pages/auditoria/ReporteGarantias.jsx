@@ -112,7 +112,7 @@ export default function ReporteGarantias() {
                       <tr>
                         <th>No Orden</th><th>Cliente</th><th>Ord. Ant</th><th>Fecha</th>
                         <th>Marca</th><th>Modelo</th><th>Serie</th>
-                        <th className="text-end">Costo</th><th>Motivo</th><th>Mecánicos</th>
+                        <th className="text-end">Costo c/IVA</th><th>Motivo</th><th>Mecánicos</th>
                       </tr>
                     </thead>
                     <tbody>
