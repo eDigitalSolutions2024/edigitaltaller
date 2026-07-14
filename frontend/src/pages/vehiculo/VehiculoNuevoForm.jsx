@@ -184,6 +184,11 @@ export default function VehiculoNuevoForm({
   // Si es admin y activó edición, el form se desbloquea aunque venga readOnly=true
   const efectivoReadOnly = readOnly && !(isAdmin && editandoAdmin);
 
+  // En la entrada de vehículos (creación de una orden nueva) ciertos datos del
+  // vehículo son obligatorios. No se exige al editar órdenes ya existentes para
+  // no bloquear la corrección de datos heredados.
+  const requiereDatosVehiculo = !initialData?._id;
+
   // ── Serie: autocompletado buscando en el garaje ──────────
   const [sugerenciasSerie, setSugerenciasSerie] = useState([]);
   const [mostrarSugerenciasSerie, setMostrarSugerenciasSerie] = useState(false);
@@ -997,7 +1002,8 @@ export default function VehiculoNuevoForm({
               <div className="row g-2">
                 <div className="col-12">
                   <label className="form-label">
-                    Nombre Usuario Deja Vehículo
+                    Nombre Usuario Deja Vehículo{" "}
+                    {requiereDatosVehiculo && <span className="text-danger">*</span>}
                   </label>
                   <input
                     type="text"
@@ -1005,52 +1011,67 @@ export default function VehiculoNuevoForm({
                     name="nombreUsuarioDejaVehiculo"
                     value={form.nombreUsuarioDejaVehiculo}
                     onChange={handleChange}
+                    required={requiereDatosVehiculo}
                   />
                 </div>
 
                 <div className="col-md-6">
-                  <label className="form-label">Marca</label>
+                  <label className="form-label">
+                    Marca {requiereDatosVehiculo && <span className="text-danger">*</span>}
+                  </label>
                   <input
                     type="text"
                     className="form-control"
                     name="marca"
                     value={form.marca}
                     onChange={handleChange}
+                    required={requiereDatosVehiculo}
                   />
                 </div>
                 <div className="col-md-6">
-                  <label className="form-label">Modelo</label>
+                  <label className="form-label">
+                    Modelo {requiereDatosVehiculo && <span className="text-danger">*</span>}
+                  </label>
                   <input
                     type="text"
                     className="form-control"
                     name="modelo"
                     value={form.modelo}
                     onChange={handleChange}
+                    required={requiereDatosVehiculo}
                   />
                 </div>
 
                 <div className="col-md-4">
-                  <label className="form-label">Año</label>
+                  <label className="form-label">
+                    Año {requiereDatosVehiculo && <span className="text-danger">*</span>}
+                  </label>
                   <input
                     type="text"
                     className="form-control"
                     name="anio"
                     value={form.anio}
                     onChange={handleChange}
+                    required={requiereDatosVehiculo}
                   />
                 </div>
                 <div className="col-md-4">
-                  <label className="form-label">Color</label>
+                  <label className="form-label">
+                    Color {requiereDatosVehiculo && <span className="text-danger">*</span>}
+                  </label>
                   <input
                     type="text"
                     className="form-control"
                     name="color"
                     value={form.color}
                     onChange={handleChange}
+                    required={requiereDatosVehiculo}
                   />
                 </div>
                 <div className="col-md-4 position-relative">
-                  <label className="form-label">Serie</label>
+                  <label className="form-label">
+                    Serie {requiereDatosVehiculo && <span className="text-danger">*</span>}
+                  </label>
                   <input
                     type="text"
                     className="form-control"
@@ -1060,6 +1081,7 @@ export default function VehiculoNuevoForm({
                     onFocus={() => sugerenciasSerie.length > 0 && setMostrarSugerenciasSerie(true)}
                     onBlur={() => setTimeout(() => setMostrarSugerenciasSerie(false), 150)}
                     autoComplete="off"
+                    required={requiereDatosVehiculo}
                   />
                   {buscandoSerie && <div className="form-text">Buscando…</div>}
                   {mostrarSugerenciasSerie && sugerenciasSerie.length > 0 && (
@@ -1081,57 +1103,72 @@ export default function VehiculoNuevoForm({
                 </div>
 
                 <div className="col-md-6">
-                  <label className="form-label">Placas</label>
+                  <label className="form-label">
+                    Placas {requiereDatosVehiculo && <span className="text-danger">*</span>}
+                  </label>
                   <input
                     type="text"
                     className="form-control"
                     name="placas"
                     value={form.placas}
                     onChange={handleChange}
+                    required={requiereDatosVehiculo}
                   />
                 </div>
 
                 <div className="col-md-6">
-                  <label className="form-label">KMS/Millas</label>
+                  <label className="form-label">
+                    KMS/Millas {requiereDatosVehiculo && <span className="text-danger">*</span>}
+                  </label>
                   <input
                     type="text"
                     className="form-control"
                     name="kmsMillas"
                     value={form.kmsMillas}
                     onChange={handleChange}
+                    required={requiereDatosVehiculo}
                   />
                 </div>
 
                 <div className="col-md-6">
-                  <label className="form-label">Nacionalidad</label>
+                  <label className="form-label">
+                    Nacionalidad {requiereDatosVehiculo && <span className="text-danger">*</span>}
+                  </label>
                   <input
                     type="text"
                     className="form-control"
                     name="nacionalidad"
                     value={form.nacionalidad}
                     onChange={handleChange}
+                    required={requiereDatosVehiculo}
                   />
                 </div>
 
                 <div className="col-md-6">
-                  <label className="form-label">Motor</label>
+                  <label className="form-label">
+                    Motor {requiereDatosVehiculo && <span className="text-danger">*</span>}
+                  </label>
                   <input
                     type="text"
                     className="form-control"
                     name="motor"
                     value={form.motor}
                     onChange={handleChange}
+                    required={requiereDatosVehiculo}
                   />
                 </div>
 
                 <div className="col-md-6">
-                  <label className="form-label">Número Económico</label>
+                  <label className="form-label">
+                    Número Económico {requiereDatosVehiculo && <span className="text-danger">*</span>}
+                  </label>
                   <input
                     type="text"
                     className="form-control"
                     name="numeroEconomico"
                     value={form.numeroEconomico}
                     onChange={handleChange}
+                    required={requiereDatosVehiculo}
                   />
                 </div>
 
@@ -1155,12 +1192,15 @@ export default function VehiculoNuevoForm({
                 </div>
 
                 <div className="col-12">
-                  <label className="form-label">Tracción</label>
+                  <label className="form-label">
+                    Tracción {requiereDatosVehiculo && <span className="text-danger">*</span>}
+                  </label>
                   <select
                     className="form-select"
                     name="traccion"
                     value={form.traccion}
                     onChange={handleChange}
+                    required={requiereDatosVehiculo}
                   >
                     <option value="">Select an Option</option>
                     <option value="4x2">4x2</option>

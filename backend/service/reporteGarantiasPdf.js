@@ -34,7 +34,7 @@ function observacionesGarantia(o) {
   const lineas = ['***GARANTIA***'];
   if (o.motivo) lineas.push(`MOTIVO: ${esc(o.motivo)}`);
   if (o.fechaGarantia) lineas.push(`FECHA: ${fmtFechaCorta(o.fechaGarantia)}`);
-  if (o.autorizaCarreon) lineas.push('AUTORIZA SR. CARREON');
+  if (o.autorizaCarreon) lineas.push('AUTORIZADO');
   return lineas.join('<br>');
 }
 
@@ -113,7 +113,7 @@ function buildHtml(resultado, desde, hasta, asesor) {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      margin-bottom: 20px;
+      margin-bottom: 5px;
     }
     .titulo { font-size: 13pt; font-weight: bold; font-style: italic; }
     .fechas { text-align: right; font-size: 9pt; line-height: 1.7; }

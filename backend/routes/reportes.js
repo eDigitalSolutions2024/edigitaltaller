@@ -315,6 +315,8 @@ router.get('/originales-abiertas', async (req, res) => {
 async function buildReporteGarantias({ desde, hasta, asesor }) {
   const query = {
     'garantia.estado': 'APROBADA',
+    // Solo se reportan garantías cuya orden nueva ya está cerrada
+    estadoOrden: 'CERRADA',
     ...buildDateFilterAbiertas(desde, hasta),
   };
   if (asesor) query.creadoPor = asesor;
@@ -343,11 +345,14 @@ async function buildReporteGarantias({ desde, hasta, asesor }) {
   for (const o of ordenes) {
     const g = o.garantia || {};
     const subtotalVenta = calcImporte(o);
+    // IVA aplicado solo a la Venta al Cliente (la mano de obra va sin IVA)
+    const ivaVentaPct = Number(o.ivaVenta ?? 8) || 0;
+    const ivaVentaMonto = subtotalVenta * (ivaVentaPct / 100);
     const totalManoObra = (o.manoObra || []).reduce(
       (s, m) => s + calcImporteHoras(m.horas),
       0
     );
-    const costo = subtotalVenta + totalManoObra;
+    const costo = subtotalVenta + ivaVentaMonto + totalManoObra;
     totalCosto += costo;
 
     const mecanicos = (o.manoObra || []).map((m) => {

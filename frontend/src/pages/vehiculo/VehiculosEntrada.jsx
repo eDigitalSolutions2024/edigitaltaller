@@ -9,8 +9,8 @@ import GarantiaModal from "./GarantiaModal";
 import { getUser } from "../../auth";
 
 export default function VehiculoEntrada() {
-  // Garantías aún en ajustes: el botón solo está disponible para admins
-  const esAdmin = getUser()?.role === "admin";
+  // El botón de Garantía está disponible para admins y asesores de servicio
+  const puedeSolicitarGarantia = ["admin", "asesor_servicio"].includes(getUser()?.role);
   const [q, setQ] = useState("");
   const [clientes, setClientes] = useState([]);
   const [filtrados, setFiltrados] = useState([]);
@@ -251,13 +251,13 @@ export default function VehiculoEntrada() {
               >
                 Nuevo Carro
               </button>
-              <button
+              {/* <button
                 type="button"
                 className="btn btn-secondary me-2"
                 onClick={handleSinCarro}
               >
                 Sin Carro
-              </button>
+              </button> */}
               <button
                 type="button"
                 className="btn btn-success me-2"
@@ -265,7 +265,7 @@ export default function VehiculoEntrada() {
               >
                 Garaje
               </button>
-              {esAdmin && (
+              {puedeSolicitarGarantia && (
                 <button
                   type="button"
                   className="btn btn-warning"

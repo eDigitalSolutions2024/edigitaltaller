@@ -86,6 +86,11 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral,
   const ivaVentaPct = Number(orden.ivaVenta ?? 8) || 0;
   const ivaVentaMonto = subtotalVenta * (ivaVentaPct / 100);
 
+  // Grúa capturada en la inspección física (se muestra como línea aparte
+  // encima del Costo de Venta cuando se escogió grúa con un precio)
+  const tieneGrua = orden.inspeccionFisica?.grua === "SI";
+  const precioGrua = Number(orden.inspeccionFisica?.precioGrua || 0);
+
   const getNombreMecanico = (id) =>
     mecanicos.find((m) => m._id === id)?.nombre || id || "—";
 
@@ -302,6 +307,17 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral,
           </tbody>
         </table>
       </div>
+
+      {/* ── GRÚA (capturada en la entrada, línea aparte encima del costo) ── */}
+      {tieneGrua && precioGrua > 0 && (
+        <div
+          className="d-flex justify-content-between align-items-center border rounded bg-light px-3 py-2 mt-4 mb-2"
+          style={{ maxWidth: 360 }}
+        >
+          <span className="fw-semibold">Grúa</span>
+          <span className="fw-bold">{formatMoney(precioGrua)}</span>
+        </div>
+      )}
 
       {/* ── COSTO DE VENTA (Venta al Cliente, solo consulta) ── */}
       <h5 className="fw-semibold mt-4 mb-2">Costo de Venta</h5>
