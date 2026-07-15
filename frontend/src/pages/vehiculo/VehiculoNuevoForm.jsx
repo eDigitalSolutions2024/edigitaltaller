@@ -77,6 +77,7 @@ export default function VehiculoNuevoForm({
   cliente,
   initialData,
   readOnly = false,
+  puedeEditar = false, // en modo detalle, muestra el botón Editar (admin o asesor dueño)
   onCreated,
   vehiculoGarage,
   garantia, // { ordenAnterior, motivo } cuando la orden nace de una solicitud de garantía
@@ -178,11 +179,11 @@ export default function VehiculoNuevoForm({
   const [guardando, setGuardando] = useState(false);
   const [guardado, setGuardado] = useState(false);
 
-  // ── Admin edit ──────────────────────────────────────────
-  const isAdmin = getUser()?.role === "admin";
-  const [editandoAdmin, setEditandoAdmin] = useState(false);
-  // Si es admin y activó edición, el form se desbloquea aunque venga readOnly=true
-  const efectivoReadOnly = readOnly && !(isAdmin && editandoAdmin);
+  // ── Edición sobre orden existente ────────────────────────
+  const [editando, setEditando] = useState(false);
+  // Si puede editar (admin o asesor dueño) y activó edición,
+  // el form se desbloquea aunque venga readOnly=true
+  const efectivoReadOnly = readOnly && !(puedeEditar && editando);
 
   // En la entrada de vehículos (creación de una orden nueva) ciertos datos del
   // vehículo son obligatorios. No se exige al editar órdenes ya existentes para
@@ -451,14 +452,14 @@ export default function VehiculoNuevoForm({
 
     // console.log(getUser())
 
-    // ── Modo edición admin (orden ya existente) ──────────
+    // ── Modo edición (orden ya existente) ────────────────
     if (initialData?._id) {
       try {
         setGuardando(true);
         const res = await updateDatosOrden(initialData._id, payload);
         const vehiculoActualizado = res.data?.vehiculo || res.data;
         if (onCreated) onCreated(vehiculoActualizado);
-        setEditandoAdmin(false);
+        setEditando(false);
         alert("Datos actualizados correctamente.");
       } catch (err) {
         console.error("Error actualizando datos:", err);
@@ -1755,19 +1756,19 @@ export default function VehiculoNuevoForm({
             </button>
           )}
 
-          {/* Admin sobre orden existente — botón Editar */}
-          {readOnly && isAdmin && !editandoAdmin && (
+          {/* Orden existente (admin o asesor dueño) — botón Editar */}
+          {readOnly && puedeEditar && !editando && (
             <button
               type="button"
               className="btn btn-warning px-5"
-              onClick={() => setEditandoAdmin(true)}
+              onClick={() => setEditando(true)}
             >
               Editar
             </button>
           )}
 
-          {/* Admin sobre orden existente — Guardar cambios / Cancelar */}
-          {readOnly && isAdmin && editandoAdmin && (
+          {/* Orden existente (admin o asesor dueño) — Guardar cambios / Cancelar */}
+          {readOnly && puedeEditar && editando && (
             <div className="d-flex gap-2">
               <button
                 type="submit"
@@ -1780,7 +1781,7 @@ export default function VehiculoNuevoForm({
                 type="button"
                 className="btn btn-secondary px-4"
                 disabled={guardando}
-                onClick={() => setEditandoAdmin(false)}
+                onClick={() => setEditando(false)}
               >
                 Cancelar
               </button>

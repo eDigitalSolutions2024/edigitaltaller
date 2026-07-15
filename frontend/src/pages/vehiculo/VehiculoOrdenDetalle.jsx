@@ -292,7 +292,12 @@ export default function VehiculoOrdenDetalle() {
 
       {/* Contenido de tabs */}
       {tab === "datos" && (
-        <VehiculoNuevoForm cliente={null} initialData={orden} readOnly />
+        <VehiculoNuevoForm
+          cliente={null}
+          initialData={orden}
+          readOnly
+          puedeEditar={esAdmin || (esPropia && !esCerrada && !esCancelada)}
+        />
       )}
 
       {tab === "servicio" && (
