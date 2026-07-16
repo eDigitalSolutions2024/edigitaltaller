@@ -103,7 +103,17 @@ export default function VehiculoOrdenDetalle() {
         }
 
         if (!tabFromUrl && v?.estadoOrden && ESTADO_TO_TAB[v.estadoOrden]) {
-          changeTab(ESTADO_TO_TAB[v.estadoOrden]);
+          let initialTab = ESTADO_TO_TAB[v.estadoOrden];
+          // Orden sin refacciones (omitidas): no hay nada que hacer en
+          // Requisición, se va directo al presupuesto
+          if (
+            initialTab === "req" &&
+            v?.refaccionesOmitidas &&
+            (v?.refaccionesSolicitadas?.length ?? 0) === 0
+          ) {
+            initialTab = "presupuesto";
+          }
+          changeTab(initialTab);
         }
       } catch (err) {
         console.error(err);
@@ -153,7 +163,19 @@ export default function VehiculoOrdenDetalle() {
 
   const handleServicioSaved = (vehiculoActualizado) => {
     setOrden(vehiculoActualizado);
-    changeTab("req");
+    if ((vehiculoActualizado?.presupuesto?.length ?? 0) > 0) {
+      setPresupuestoDesbloqueado(true);
+    }
+    // Al omitir refacciones la orden brinca directo al presupuesto;
+    // al solicitar refacciones sigue el flujo normal por Requisición
+    if (
+      vehiculoActualizado?.refaccionesOmitidas &&
+      (vehiculoActualizado?.refaccionesSolicitadas?.length ?? 0) === 0
+    ) {
+      changeTab("presupuesto");
+    } else {
+      changeTab("req");
+    }
   };
 
   // Se llama desde VehiculoRequisicionDiagnostico al pulsar "Continuar a Presupuesto"

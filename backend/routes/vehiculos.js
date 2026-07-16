@@ -313,9 +313,10 @@ router.get('/ordenes', async (req, res) => {
     }
 
     // Solo órdenes con al menos una refacción autorizada que sigue sin surtirse
+    // (las partidas de servicio no requieren surtido)
     if (conPendientesSurtir === 'true') {
       q.presupuesto = {
-        $elemMatch: { autorizado: true, surtida: { $ne: true } },
+        $elemMatch: { autorizado: true, surtida: { $ne: true }, esServicio: { $ne: true } },
       };
     }
 
@@ -475,6 +476,76 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
   }
 });
 
+// PUT /api/vehiculos/:id/omitir-refacciones
+// El asesor continúa sin pedir refacciones: los servicios capturados entran
+// al presupuesto como partidas esServicio y la orden brinca directo a
+// PENDIENTE_AUTORIZACION_CLIENTE sin pasar por refaccionaria.
+router.put('/:id/omitir-refacciones', async (req, res) => {
+  try {
+    const { servicios, manoObra } = req.body;
+
+    const validos = (Array.isArray(servicios) ? servicios : [])
+      .map((s) => ({
+        concepto: String(s.concepto || '').trim(),
+        cant: Number(s.cant) || 1,
+      }))
+      .filter((s) => s.concepto);
+
+    if (validos.length === 0) {
+      return res.status(400).json({
+        ok: false,
+        msg: 'Captura al menos un servicio a realizar.',
+      });
+    }
+
+    // Mano de obra opcional capturada desde el mismo modal
+    const moValidas = (Array.isArray(manoObra) ? manoObra : [])
+      .map((m) => ({
+        concepto: String(m.concepto || '').trim(),
+        mecanico: String(m.mecanico || ''),
+        horas: Number(m.horas) || 0,
+        fechaPago: String(m.fechaPago || ''),
+        observaciones: String(m.observaciones || ''),
+        esCarroceria: !!m.esCarroceria,
+        carrocero: String(m.carrocero || ''),
+        precioCarroceria: Number(m.precioCarroceria) || 0,
+      }))
+      .filter((m) => m.concepto);
+
+    const vehiculo = await Vehiculo.findById(req.params.id);
+    if (!vehiculo) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+
+    for (const s of validos) {
+      vehiculo.presupuesto.push({
+        cant: s.cant,
+        concepto: s.concepto,
+        esServicio: true,
+        precioCompra: 0,
+        precioVenta: 0,
+        autorizado: false,
+      });
+    }
+
+    for (const m of moValidas) {
+      vehiculo.manoObra.push(m);
+    }
+
+    vehiculo.refaccionesOmitidas = true;
+    vehiculo.ordenIniciada = true;
+    vehiculo.estadoOrden = 'PENDIENTE_AUTORIZACION_CLIENTE';
+
+    await vehiculo.save();
+
+    const vehiculoConCliente = await Vehiculo.findById(vehiculo._id).populate('cliente', POPULATE_CLIENTE);
+    return res.json({ ok: true, vehiculo: vehiculoConCliente });
+  } catch (err) {
+    console.error('Error omitiendo refacciones:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
 // PUT /api/vehiculos/:id/presupuesto-venta
 router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
   try {
@@ -572,8 +643,15 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
 
     if (estadoOrden) {
       if (estadoOrden === 'PENDIENTE_SURTIR') {
+        // Las partidas de servicio no pasan por refaccionaria: quedan surtidas
+        for (const p of vehiculo.presupuesto) {
+          if (p.autorizado && p.esServicio && !p.surtida) {
+            p.surtida = true;
+          }
+        }
+
         // Verificar inventario por cada partida autorizada que tenga código
-        const autorizadas = (vehiculo.presupuesto || []).filter(p => p.autorizado && p.codigo);
+        const autorizadas = (vehiculo.presupuesto || []).filter(p => p.autorizado && !p.esServicio && p.codigo);
         let autoSurtidas = 0;
 
         if (autorizadas.length > 0) {
@@ -582,7 +660,7 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
           const partidasSalida = [];
 
           for (const p of vehiculo.presupuesto) {
-            if (!p.autorizado || !p.codigo) continue;
+            if (!p.autorizado || !p.codigo || p.esServicio) continue;
             const stock = stockMap.get(String(p.codigo)) || 0;
             const qty   = Number(p.cant) || 1;
             if (stock >= qty) {
@@ -616,20 +694,19 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
           }
         }
 
-        // Si TODAS las partidas autorizadas ya están surtidas → saltar a reparación
-        const todasSurtidas = (vehiculo.presupuesto || [])
-          .filter(p => p.autorizado)
-          .every(p => p.surtida);
+        // Solo las refacciones (no servicios) cuentan como pendientes de surtir.
+        // Si no queda ninguna pendiente → saltar a reparación (una orden de
+        // puros servicios pasa directo, sin visitar refaccionaria).
+        const hayAutorizadas = (vehiculo.presupuesto || []).some(p => p.autorizado);
+        const pendientesSurtir = (vehiculo.presupuesto || [])
+          .filter(p => p.autorizado && !p.esServicio && !p.surtida).length;
 
-        if (todasSurtidas && autorizadas.length > 0) {
+        if (hayAutorizadas && pendientesSurtir === 0) {
           vehiculo.estadoOrden = 'REPARACION_EN_CURSO';
         } else {
           vehiculo.estadoOrden     = 'PENDIENTE_SURTIR';
           vehiculo.fechaEnvioSurtir = new Date();
         }
-
-        const pendientesSurtir = (vehiculo.presupuesto || [])
-          .filter(p => p.autorizado && !p.surtida).length;
 
         inventarioResult = { autoSurtidas, pendientesSurtir };
       } else {
@@ -1182,8 +1259,9 @@ router.put('/:id/surtir', proteger, async (req, res) => {
     }
 
     // Líneas recién surtidas que tienen código → crear SalidaInventario
+    // (las partidas de servicio no tocan inventario)
     const nuevamenteSurtidas = (vehiculo.presupuesto || []).filter(
-      (p, i) => p.surtida && p.codigo && !prevSurtidasIds.has(i)
+      (p, i) => p.surtida && p.codigo && !p.esServicio && !prevSurtidasIds.has(i)
     );
 
     if (nuevamenteSurtidas.length > 0) {
@@ -1210,8 +1288,9 @@ router.put('/:id/surtir', proteger, async (req, res) => {
       }
     }
 
-    // Si todas las partidas autorizadas ya están surtidas → Reparación en curso
-    const autorizadas = vehiculo.presupuesto.filter(p => p.autorizado);
+    // Si todas las refacciones autorizadas ya están surtidas → Reparación en curso
+    // (los servicios no cuentan: no requieren surtido)
+    const autorizadas = vehiculo.presupuesto.filter(p => p.autorizado && !p.esServicio);
     const todasSurtidas = autorizadas.length > 0 && autorizadas.every(p => p.surtida);
 
     if (todasSurtidas) {

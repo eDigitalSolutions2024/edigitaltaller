@@ -573,7 +573,8 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
   };
 
   const handleContinuarPresupuesto = async () => {
-    if (getSeleccionadas().length === 0) {
+    // Una orden sin refacciones (omitidas) puede continuar sin selección
+    if (getSeleccionadas().length === 0 && !orden?.refaccionesOmitidas) {
       alert("Selecciona al menos una refacción para continuar al presupuesto.");
       return;
     }

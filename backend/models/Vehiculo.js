@@ -63,6 +63,8 @@ const vehiculoSchema = new Schema(
 
     fechaSolicitudRefacciones: { type: Date, default: null },
     fechaRespuestaRefaccionaria: { type: Date, default: null },
+    // El asesor decidió continuar sin solicitar refacciones a refaccionaria
+    refaccionesOmitidas: { type: Boolean, default: false },
     fechaEnvioSurtir: { type: Date, default: null },
     creadoPor: { type: String, default: "" },
     devueltoPor: { type: String, default: "" },
@@ -393,6 +395,8 @@ const vehiculoSchema = new Schema(
         },
         autorizado: { type: Boolean, default: false }, // ← asesor marcó ✓
         surtida: { type: Boolean, default: false },     // ← refaccionaria surtió
+        // Partida de servicio/mano de obra: no pasa por refaccionaria ni surtido
+        esServicio: { type: Boolean, default: false },
       },
     ],
 
@@ -414,6 +418,7 @@ const vehiculoSchema = new Schema(
         descripcionSat: { type: String, default: "" },
         motivoPrecioCero: { type: String, default: "" }, // justificación cuando precioVenta <= 0
         esGarantia: { type: Boolean, default: false }, // legado: ya no se inyectan filas de garantía; solo para limpiar datos viejos
+        esGrua: { type: Boolean, default: false }, // marca la línea auto-generada a partir del precio de grúa
       },
     ],
 
