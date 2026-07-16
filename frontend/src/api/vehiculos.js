@@ -26,6 +26,11 @@ export const updateServicioReparacion = (id, servicioReparacion) =>
 export const saveRequisicionDiagnostico = (id, payload) =>
   http.put(`/vehiculos/${id}/requisicion-diagnostico`, payload);
 
+// Continuar sin refacciones: los servicios capturados entran al presupuesto
+// (y la mano de obra opcional a manoObra); la orden no pasa por refaccionaria.
+export const omitirRefacciones = (id, { servicios, manoObra = [] }) =>
+  http.put(`/vehiculos/${id}/omitir-refacciones`, { servicios, manoObra });
+
 
 
 // 🔹 NUEVO: guardar presupuesto + venta al cliente

@@ -87,9 +87,11 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral,
   const ivaVentaMonto = subtotalVenta * (ivaVentaPct / 100);
 
   // Grúa capturada en la inspección física (se muestra como línea aparte
-  // encima del Costo de Venta cuando se escogió grúa con un precio)
+  // encima del Costo de Venta solo si aún no quedó capturada como partida
+  // dentro de Venta al Cliente, para no duplicar el importe visualmente)
   const tieneGrua = orden.inspeccionFisica?.grua === "SI";
   const precioGrua = Number(orden.inspeccionFisica?.precioGrua || 0);
+  const gruaEnVenta = ventaCliente.some((r) => r.esGrua);
 
   const getNombreMecanico = (id) =>
     mecanicos.find((m) => m._id === id)?.nombre || id || "—";
@@ -297,9 +299,11 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral,
                 <td>{p.proveedor || ""}</td>
                 <td className="text-end">{formatMoney(p.precioCompra)}</td>
                 <td className="text-center">
-                  {p.surtida
-                    ? <span className="badge bg-success">Surtida</span>
-                    : <span className="badge bg-secondary">Pendiente</span>
+                  {p.esServicio
+                    ? <span className="badge bg-info text-dark">Servicio</span>
+                    : p.surtida
+                      ? <span className="badge bg-success">Surtida</span>
+                      : <span className="badge bg-secondary">Pendiente</span>
                   }
                 </td>
               </tr>
@@ -309,7 +313,7 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral,
       </div>
 
       {/* ── GRÚA (capturada en la entrada, línea aparte encima del costo) ── */}
-      {tieneGrua && precioGrua > 0 && (
+      {tieneGrua && precioGrua > 0 && !gruaEnVenta && (
         <div
           className="d-flex justify-content-between align-items-center border rounded bg-light px-3 py-2 mt-4 mb-2"
           style={{ maxWidth: 360 }}

@@ -51,6 +51,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     precioVenta: "",
     observInt: "",
     autorizado: false,
+    esServicio: false,
   });
 
   // ===== VENTA AL CLIENTE =====
@@ -150,8 +151,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       ...nuevasDesdeAprobadas,
     ]);
 
-    // Venta al cliente ya guardada
-    setVentaRows(orden.ventaCliente || []);
+    // Venta al cliente ya guardada (agrega la grúa si aplica y no está capturada)
+    setVentaRows(ensureGruaEnVenta(orden.ventaCliente || [], orden));
   }, [orden]);
 
   // Servicios SAT
@@ -207,6 +208,32 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre",
     ];
     return `${day}-${meses[Number(month) - 1]}-${year}`;
+  };
+
+  // Si la orden tiene grúa con precio capturado en la inspección física,
+  // asegura que exista su línea en Venta al Cliente (Cierre) sin duplicarla.
+  const ensureGruaEnVenta = (rows, ordenObj) => {
+    const precioGrua =
+      ordenObj?.inspeccionFisica?.grua === "SI"
+        ? Number(ordenObj.inspeccionFisica.precioGrua || 0)
+        : 0;
+    if (precioGrua <= 0) return rows;
+    if (rows.some((r) => r.esGrua)) return rows;
+
+    return [
+      ...rows,
+      {
+        cant: 1,
+        concepto: "GRÚA",
+        precioVenta: precioGrua,
+        observaciones: "",
+        codigoServicio: "",
+        descripcionServicio: "",
+        codigoSat: "",
+        descripcionSat: "",
+        esGrua: true,
+      },
+    ];
   };
 
   const serviciosFiltrados = useMemo(() => {
@@ -293,6 +320,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         precioVenta,
         horasMO: Number(newPresLine.horasMO) || 0,
         autorizado: false,
+        esServicio: !!newPresLine.esServicio,
         manual: true,
       },
     ]);
@@ -301,7 +329,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       cant: "",concepto: "",refaccion: "",tipo: "",marca: "",
       proveedor: "",codigo: "",precioCompra: "",moneda: "MN",
       tipoCambio: "",tiempoEntrega: "",horasMO: "",precioVenta: "",
-      observInt: "",autorizado: false,
+      observInt: "",autorizado: false,esServicio: false,
     });
   };
 
@@ -314,17 +342,20 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       return;
     }
 
-    const nuevasVentas = autorizadas.map((r) => ({
-      cant: r.cant,
-      concepto: r.concepto || r.refaccion || "",
-      // El precio de la refacción se pasa como Precio Venta (Sin IVA)
-      precioVenta: Number(r.precioVenta || 0),
-      observaciones: "",
-      codigoServicio: "",
-      descripcionServicio: "",
-      codigoSat: "",
-      descripcionSat: "",
-    }));
+    const nuevasVentas = ensureGruaEnVenta(
+      autorizadas.map((r) => ({
+        cant: r.cant,
+        concepto: r.concepto || r.refaccion || "",
+        // El precio de la refacción se pasa como Precio Venta (Sin IVA)
+        precioVenta: Number(r.precioVenta || 0),
+        observaciones: "",
+        codigoServicio: "",
+        descripcionServicio: "",
+        codigoSat: "",
+        descripcionSat: "",
+      })),
+      orden
+    );
 
     setVentaRows(nuevasVentas);
 
@@ -350,6 +381,11 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
           alert(
             `${autorizadas.length} partida(s) enviada(s) a Venta al Cliente.\n` +
             `✅ ${inv.autoSurtidas} partida(s) cubiertas desde inventario. La orden avanzó a Reparación en Curso.`
+          );
+        } else if (inv.pendientesSurtir === 0) {
+          alert(
+            `${autorizadas.length} partida(s) enviada(s) a Venta al Cliente.\n` +
+            `✅ Sin refacciones pendientes de surtir. La orden avanzó a Reparación en Curso.`
           );
         } else if (inv.autoSurtidas > 0) {
           alert(
@@ -667,7 +703,13 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       onChange={(e) => handleUpdatePres(idx, "concepto", e.target.value)}
                     />
                   </td>
-                  <td>{r.refaccion}</td>
+                  <td>
+                    {r.esServicio ? (
+                      <span className="badge bg-info text-dark">SERVICIO</span>
+                    ) : (
+                      r.refaccion
+                    )}
+                  </td>
                   <td className="text-center">{r.tipo}</td>
                   <td>{r.marca}</td>
                   <td>{r.codigo}</td>        
@@ -750,6 +792,23 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       setNewPresLine({ ...newPresLine, concepto: e.target.value })
                     }
                   />
+                  <div className="form-check mt-1 mb-0">
+                    <input
+                      className="form-check-input"
+                      type="checkbox"
+                      id="newPresEsServicio"
+                      checked={!!newPresLine.esServicio}
+                      onChange={(e) =>
+                        setNewPresLine({ ...newPresLine, esServicio: e.target.checked })
+                      }
+                    />
+                    <label
+                      className="form-check-label small text-muted"
+                      htmlFor="newPresEsServicio"
+                    >
+                      Servicio (no requiere surtido)
+                    </label>
+                  </div>
                 </td>
                 <td>
                   <input
