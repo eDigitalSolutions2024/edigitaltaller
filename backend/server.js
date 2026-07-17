@@ -76,5 +76,7 @@ app.use('/api/reportes', require('./routes/reportes'));
 
 app.use('/api/vales', require('./routes/vales'));
 
+app.use('/api/cajas', require('./routes/cajas'));
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`🚀 Server en http://localhost:${PORT}`));

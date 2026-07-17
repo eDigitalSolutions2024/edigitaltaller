@@ -77,6 +77,11 @@ import ValeSalidaForm from "./pages/vales/ValeSalidaForm";
 // Solicitudes de Garantía
 import SolicitudesGarantia from "./pages/garantias/SolicitudesGarantia";
 
+// Cajas
+import CajasLayout from "./pages/cajas/CajasLayout";
+import CajasBuscarOrden from "./pages/cajas/CajasBuscarOrden";
+import CajaOrdenDetalle from "./pages/cajas/CajaOrdenDetalle";
+
 // Facturación
 import FacturacionLayout from "./pages/facturacion/FacturacionLayout";
 import FacturacionPanel from "./pages/facturacion/FacturacionPanel";
@@ -215,6 +220,13 @@ export default function App() {
             <Route path="exportar" element={<VehiculoExportar />} />
             <Route path="garaje" element={<GarageAdminPage />} />
             <Route path="orden/:id" element={<VehiculoOrdenDetalle />} />
+          </Route>
+
+          {/* Cajas */}
+          <Route path="cajas/*" element={<RoleRoute module="cajas"><CajasLayout /></RoleRoute>}>
+            <Route index element={<Navigate to="buscar" replace />} />
+            <Route path="buscar" element={<CajasBuscarOrden />} />
+            <Route path="orden/:id" element={<CajaOrdenDetalle />} />
           </Route>
 
           {/* Refaccionaria */}

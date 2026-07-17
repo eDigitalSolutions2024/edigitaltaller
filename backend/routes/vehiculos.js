@@ -280,18 +280,29 @@ router.get('/ordenes', async (req, res) => {
     const {
       estado = '',
       pendienteCierre,
+      incluirGarantias,
       devueltoPor = '',
       conPendientesSurtir,
       searchOs = '',
       search = '',
+      fechaDesde = '',
+      fechaHasta = '',
       page = 1,
       limit = 10,
     } = req.query;
 
     const q = {};
+    // Las condiciones que usan $or se acumulan aquí (en vez de sobreescribir
+    // q.$or directamente) para poder combinar varias sin que choquen entre sí.
+    const andConditions = [];
 
     if (pendienteCierre === 'true') {
       q.pendienteCierre = true;
+    } else if (estado && incluirGarantias === 'true') {
+      // Además del estado pedido, se incluyen todas las órdenes de garantía
+      // sin importar en qué estado se encuentren (p. ej. Cajas también debe
+      // poder localizar una orden de garantía ya cerrada o en cualquier otro paso).
+      andConditions.push({ $or: [{ estadoOrden: estado }, { garantia: { $ne: null } }] });
     } else if (estado) {
       q.estadoOrden = estado;
     }
@@ -299,17 +310,14 @@ router.get('/ordenes', async (req, res) => {
     // El refaccionario solo ve las órdenes que atendió él mismo; las que no
     // tienen atendedor registrado se muestran a todos para que no queden sin surtir.
     if (devueltoPor) {
-      q.$and = [
-        ...(q.$and || []),
-        {
-          $or: [
-            { devueltoPor },
-            { devueltoPor: '' },
-            { devueltoPor: null },
-            { devueltoPor: { $exists: false } },
-          ],
-        },
-      ];
+      andConditions.push({
+        $or: [
+          { devueltoPor },
+          { devueltoPor: '' },
+          { devueltoPor: null },
+          { devueltoPor: { $exists: false } },
+        ],
+      });
     }
 
     // Solo órdenes con al menos una refacción autorizada que sigue sin surtirse
@@ -326,15 +334,46 @@ router.get('/ordenes', async (req, res) => {
       if (rx) q.ordenServicio = rx;
     }
 
-    // Búsqueda general (serie, placas, marca/modelo)
+    // Búsqueda general unificada: folio de orden, serie, placas, marca/modelo
+    // o nombre/razón social del cliente — todo contra un solo término.
     if (search) {
-      q.$or = [
-        { serie: { $regex: search, $options: 'i' } },
-        { placas: { $regex: search, $options: 'i' } },
-        { marca: { $regex: search, $options: 'i' } },
-        { modelo: { $regex: search, $options: 'i' } },
-      ];
+      const rxSearch = { $regex: search, $options: 'i' };
+      const rxOS = regexBusquedaOS(search);
+      const clientesMatch = await Cliente.find({
+        $or: [
+          { nombre: rxSearch },
+          { apellidoPaterno: rxSearch },
+          { apellidoMaterno: rxSearch },
+          { 'empresa.razonSocial': rxSearch },
+          { 'gobierno.nombreGobierno': rxSearch },
+        ],
+      }).select('_id');
+      const clienteIdsMatch = clientesMatch.map((c) => c._id);
+
+      andConditions.push({
+        $or: [
+          { serie: rxSearch },
+          { placas: rxSearch },
+          { marca: rxSearch },
+          { modelo: rxSearch },
+          ...(rxOS ? [{ ordenServicio: rxOS }] : []),
+          ...(clienteIdsMatch.length ? [{ cliente: { $in: clienteIdsMatch } }] : []),
+        ],
+      });
     }
+
+    // Filtro por rango de fecha de recepción
+    if (fechaDesde || fechaHasta) {
+      q.fechaRecepcion = {};
+      if (fechaDesde) q.fechaRecepcion.$gte = new Date(fechaDesde);
+      if (fechaHasta) {
+        const hasta = new Date(fechaHasta);
+        hasta.setHours(23, 59, 59, 999);
+        q.fechaRecepcion.$lte = hasta;
+      }
+    }
+
+    if (andConditions.length) q.$and = andConditions;
 
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 10;

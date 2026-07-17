@@ -41,3 +41,15 @@ export const getDevolucionRefaccionContador = () =>
 
 export const actualizarDevolucionRefaccionContador = (valor) =>
   http.put('/configuracion/devolucion-refaccion-contador', { valor }).then(r => r.data);
+
+export const getNotaVentaContador = () =>
+  http.get('/configuracion/nota-venta-contador').then(r => r.data);
+
+export const actualizarNotaVentaContador = (valor) =>
+  http.put('/configuracion/nota-venta-contador', { valor }).then(r => r.data);
+
+export const getRemisionContador = () =>
+  http.get('/configuracion/remision-contador').then(r => r.data);
+
+export const actualizarRemisionContador = (valor) =>
+  http.put('/configuracion/remision-contador', { valor }).then(r => r.data);

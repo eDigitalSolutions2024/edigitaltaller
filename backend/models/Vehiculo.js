@@ -16,6 +16,10 @@ const ESTADOS_ORDEN = [
   'CANCELADA',
 ];
 
+// ===== Cajas: catálogos =====
+const BANCOS_CAJA = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER', 'DOLARES', 'EFECTIVOS'];
+const TIPO_NOTA = ['Contado', 'Credito', 'Cancelada'];
+
 // ===== Solicitud de Garantía =====
 // Sub-documento embebido en la orden NUEVA que se abre por garantía.
 // default: null → las órdenes normales no llevan garantía.
@@ -454,6 +458,55 @@ pendienteCierre: { type: Boolean, default: false },
       dig: { type: Number, default: 0 },
       fecha: { type: Date, default: null },
     },
+
+    // ===== Cajas: pagos / abonos =====
+    // Cada pago lleva su propio comprobante (Nota de Venta o Remisión), con
+    // folio propio asignado al momento de registrarlo — un mismo pago no
+    // puede tener ambos comprobantes.
+    pagos: [
+      {
+        fecha: { type: Date, default: Date.now },
+        tipoPago: { type: String, enum: ['COMPLETO', 'ABONO', 'ANTICIPO'], default: 'ABONO' },
+        comprobante: { type: String, enum: ['NOTA_VENTA', 'REMISION'], required: true },
+        montoPesos: { type: Number, default: 0 },
+        montoDolares: { type: Number, default: 0 },
+        tipoCambio: { type: Number, default: 0 },
+        // monto total ya convertido a MN = montoPesos + montoDolares*tipoCambio
+        monto: { type: Number, default: 0 },
+        referencia: { type: String, default: '' },
+        observaciones: { type: String, default: '' },
+        registradoPor: { type: String, default: '' },
+
+        // Presente solo si comprobante === 'NOTA_VENTA'
+        notaVenta: {
+          numero: { type: Number, default: null },
+          banco: { type: String, enum: BANCOS_CAJA },
+          tipo: { type: String, enum: TIPO_NOTA, default: 'Contado' },
+        },
+
+        // Presente solo si comprobante === 'REMISION'
+        remision: {
+          numero: { type: Number, default: null },
+          tipo: { type: String, enum: TIPO_NOTA, default: 'Contado' },
+          fechaPagada: { type: Date, default: null },
+        },
+      },
+    ],
+
+    // ===== Cajas: Descuentos (globales a la orden o sobre una pieza/servicio) =====
+    descuentos: [
+      {
+        tipo: { type: String, enum: ['PORCENTAJE', 'MONTO'], default: 'MONTO' },
+        valor: { type: Number, default: 0 },
+        motivo: { type: String, default: '' },
+        activo: { type: Boolean, default: true },
+        aplicadoPor: { type: String, default: '' },
+        fecha: { type: Date, default: null },
+        // null = descuento global a toda la orden; si trae valor, referencia
+        // el _id de la partida en ventaCliente sobre la que aplica.
+        lineaId: { type: Schema.Types.ObjectId, default: null },
+      },
+    ],
   },
   {
     timestamps: true, // createdAt, updatedAt
@@ -462,6 +515,8 @@ pendienteCierre: { type: Boolean, default: false },
 
 
 vehiculoSchema.index({ 'garantia.estado': 1 });
+vehiculoSchema.index({ 'pagos.notaVenta.numero': 1 }, { unique: true, sparse: true });
+vehiculoSchema.index({ 'pagos.remision.numero': 1 }, { unique: true, sparse: true });
 
 // Generar número de Orden de Servicio automáticamente si no viene
 vehiculoSchema.pre('save', function (next) {
@@ -482,3 +537,5 @@ vehiculoSchema.pre('save', function (next) {
 
 
 module.exports = mongoose.model('Vehiculo', vehiculoSchema);
+module.exports.BANCOS_CAJA = BANCOS_CAJA;
+module.exports.TIPO_NOTA = TIPO_NOTA;

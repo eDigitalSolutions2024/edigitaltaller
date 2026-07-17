@@ -6,6 +6,7 @@ const ROLE_MODULES = {
   refaccionario:   ['refaccionaria'],
   asesor_servicio: ['clientes', 'vehiculo'],
   captura:         ['reportes'],
+  cajas:           ['cajas', 'vehiculo'],
 };
 
 /**
@@ -25,5 +26,6 @@ export function defaultRouteForRole(role) {
   if (role === 'asesor_servicio') return '/clientes/consulta';
   if (role === 'captura')         return '/reportes';
   if (role === 'auditoria')       return '/reportes';
+  if (role === 'cajas')           return '/cajas/buscar';
   return '/dashboard';
 }

@@ -242,6 +242,83 @@ router.put('/devolucion-refaccion-contador', proteger, requiereRol('admin'), asy
 });
 
 // ===============================
+// CONTADOR DE NOTA DE VENTA (folio consecutivo de comprobantes de Caja)
+// ===============================
+
+// Debe coincidir con CONTADOR_NOTA_VENTA / CONTADOR_REMISION en routes/cajas.js
+const NOTA_VENTA_CONTADOR = 'notaVenta';
+
+// GET /api/configuracion/nota-venta-contador
+router.get('/nota-venta-contador', proteger, async (req, res) => {
+  try {
+    const contador = await Contador.findOne({ nombre: NOTA_VENTA_CONTADOR });
+    res.json({ valor: contador?.valor || 0 });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener el contador de notas de venta', error: error.message });
+  }
+});
+
+// PUT /api/configuracion/nota-venta-contador
+router.put('/nota-venta-contador', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { valor } = req.body;
+    const valorNum = Number(valor);
+
+    if (valor === undefined || valor === null || Number.isNaN(valorNum) || valorNum < 0) {
+      return res.status(400).json({ message: 'El valor debe ser un número mayor o igual a 0' });
+    }
+
+    const contador = await Contador.findOneAndUpdate(
+      { nombre: NOTA_VENTA_CONTADOR },
+      { $set: { valor: valorNum } },
+      { new: true, upsert: true }
+    );
+
+    res.json({ valor: contador.valor });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al actualizar el contador de notas de venta', error: error.message });
+  }
+});
+
+// ===============================
+// CONTADOR DE REMISIÓN (folio consecutivo de comprobantes de Caja)
+// ===============================
+
+const REMISION_CONTADOR = 'remision';
+
+// GET /api/configuracion/remision-contador
+router.get('/remision-contador', proteger, async (req, res) => {
+  try {
+    const contador = await Contador.findOne({ nombre: REMISION_CONTADOR });
+    res.json({ valor: contador?.valor || 0 });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener el contador de remisiones', error: error.message });
+  }
+});
+
+// PUT /api/configuracion/remision-contador
+router.put('/remision-contador', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { valor } = req.body;
+    const valorNum = Number(valor);
+
+    if (valor === undefined || valor === null || Number.isNaN(valorNum) || valorNum < 0) {
+      return res.status(400).json({ message: 'El valor debe ser un número mayor o igual a 0' });
+    }
+
+    const contador = await Contador.findOneAndUpdate(
+      { nombre: REMISION_CONTADOR },
+      { $set: { valor: valorNum } },
+      { new: true, upsert: true }
+    );
+
+    res.json({ valor: contador.valor });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al actualizar el contador de remisiones', error: error.message });
+  }
+});
+
+// ===============================
 // MECÁNICOS
 // ===============================
 
