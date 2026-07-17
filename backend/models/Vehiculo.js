@@ -478,15 +478,19 @@ pendienteCierre: { type: Boolean, default: false },
         registradoPor: { type: String, default: '' },
 
         // Presente solo si comprobante === 'NOTA_VENTA'
+        // numero sin default: si se le pone `default: null`, Mongoose lo agrega
+        // también a los pagos por REMISION (aplica defaults del subdocumento
+        // completo en $push), y ese `null` explícito rompe el índice unique+sparse
+        // de abajo porque sparse solo excluye campos ausentes, no en null.
         notaVenta: {
-          numero: { type: Number, default: null },
+          numero: { type: Number },
           banco: { type: String, enum: BANCOS_CAJA },
           tipo: { type: String, enum: TIPO_NOTA, default: 'Contado' },
         },
 
-        // Presente solo si comprobante === 'REMISION'
+        // Presente solo si comprobante === 'REMISION' (ver nota arriba)
         remision: {
-          numero: { type: Number, default: null },
+          numero: { type: Number },
           tipo: { type: String, enum: TIPO_NOTA, default: 'Contado' },
           fechaPagada: { type: Date, default: null },
         },
