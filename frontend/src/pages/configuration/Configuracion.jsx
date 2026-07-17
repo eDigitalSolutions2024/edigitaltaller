@@ -14,6 +14,10 @@ import {
   actualizarValeContador,
   getDevolucionRefaccionContador,
   actualizarDevolucionRefaccionContador,
+  getNotaVentaContador,
+  actualizarNotaVentaContador,
+  getRemisionContador,
+  actualizarRemisionContador,
 } from "../../api/configuracion";
 
 import "../../styles/configuracion.css";
@@ -29,6 +33,8 @@ export default function Configuracion() {
   const [ordenServicioContador, setOrdenServicioContador] = useState(0);
   const [valeContador, setValeContador] = useState(0);
   const [devolucionRefaccionContador, setDevolucionRefaccionContador] = useState(0);
+  const [notaVentaContador, setNotaVentaContador] = useState(0);
+  const [remisionContador, setRemisionContador] = useState(0);
 
   const [tipoCambioForm, setTipoCambioForm] = useState({
     valor: "",
@@ -38,6 +44,8 @@ export default function Configuracion() {
   const [ordenServicioForm, setOrdenServicioForm] = useState("");
   const [valeForm, setValeForm] = useState("");
   const [devolucionRefaccionForm, setDevolucionRefaccionForm] = useState("");
+  const [notaVentaForm, setNotaVentaForm] = useState("");
+  const [remisionForm, setRemisionForm] = useState("");
 
   const [unidadForm, setUnidadForm] = useState({
     nombre: "",
@@ -53,13 +61,15 @@ export default function Configuracion() {
       setLoading(true);
       setError("");
 
-      const [tipos, unidadesData, mecanicosData, ordenServicioData, valeData, devolucionData] = await Promise.all([
+      const [tipos, unidadesData, mecanicosData, ordenServicioData, valeData, devolucionData, notaVentaData, remisionData] = await Promise.all([
         getTiposCambio(),
         getUnidadesMedida(),
         getMecanicos(),
         getOrdenServicioContador(),
         getValeContador(),
         getDevolucionRefaccionContador(),
+        getNotaVentaContador(),
+        getRemisionContador(),
       ]);
 
       setTiposCambio(tipos);
@@ -68,6 +78,8 @@ export default function Configuracion() {
       setOrdenServicioContador(ordenServicioData?.valor || 0);
       setValeContador(valeData?.valor || 0);
       setDevolucionRefaccionContador(devolucionData?.valor || 0);
+      setNotaVentaContador(notaVentaData?.valor || 0);
+      setRemisionContador(remisionData?.valor || 0);
     } catch (err) {
       setError(err.message || "Error al cargar configuración");
     } finally {
@@ -107,6 +119,26 @@ export default function Configuracion() {
     }
   };
 
+  const refrescarNotaVentaContador = async () => {
+    try {
+      const data = await getNotaVentaContador();
+      setNotaVentaContador(data?.valor || 0);
+    } catch {
+      // Falla silenciosa: no interrumpe la vista si el refresco en segundo
+      // plano no se pudo completar.
+    }
+  };
+
+  const refrescarRemisionContador = async () => {
+    try {
+      const data = await getRemisionContador();
+      setRemisionContador(data?.valor || 0);
+    } catch {
+      // Falla silenciosa: no interrumpe la vista si el refresco en segundo
+      // plano no se pudo completar.
+    }
+  };
+
   useEffect(() => {
     cargarDatos();
   }, []);
@@ -119,6 +151,8 @@ export default function Configuracion() {
         refrescarOrdenServicioContador();
         refrescarValeContador();
         refrescarDevolucionRefaccionContador();
+        refrescarNotaVentaContador();
+        refrescarRemisionContador();
       }
     };
 
@@ -126,6 +160,8 @@ export default function Configuracion() {
       refrescarOrdenServicioContador();
       refrescarValeContador();
       refrescarDevolucionRefaccionContador();
+      refrescarNotaVentaContador();
+      refrescarRemisionContador();
     };
 
     document.addEventListener("visibilitychange", handleVisibility);
@@ -208,6 +244,38 @@ export default function Configuracion() {
       setDevolucionRefaccionForm("");
 
       mostrarMensaje("Número actual de Devolución de Refacción actualizado correctamente");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleGuardarNotaVentaContador = async (e) => {
+    e.preventDefault();
+
+    try {
+      setError("");
+
+      const res = await actualizarNotaVentaContador(notaVentaForm);
+      setNotaVentaContador(res?.valor || 0);
+      setNotaVentaForm("");
+
+      mostrarMensaje("Número actual de Nota de Venta actualizado correctamente");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleGuardarRemisionContador = async (e) => {
+    e.preventDefault();
+
+    try {
+      setError("");
+
+      const res = await actualizarRemisionContador(remisionForm);
+      setRemisionContador(res?.valor || 0);
+      setRemisionForm("");
+
+      mostrarMensaje("Número actual de Remisión actualizado correctamente");
     } catch (err) {
       setError(err.message);
     }
@@ -426,6 +494,80 @@ export default function Configuracion() {
                   value={devolucionRefaccionForm}
                   onChange={(e) => setDevolucionRefaccionForm(e.target.value)}
                   placeholder={`Ej. ${devolucionRefaccionContador}`}
+                  required
+                />
+              </label>
+
+              <button type="submit">Guardar</button>
+            </form>
+          </section>
+
+          {/* Contador de Nota de Venta */}
+          <section className="config-card">
+            <div className="config-card-header">
+              <div>
+                <h2>Folio de Nota de Venta</h2>
+              </div>
+              <div className="config-icon">🧾</div>
+            </div>
+
+            <div className="config-current">
+              <span>Número actual</span>
+              <strong>{notaVentaContador}</strong>
+            </div>
+
+            <p className="text-muted small mb-2">
+              La próxima nota de venta se imprimirá con el número{" "}
+              <strong>{Number(notaVentaContador) + 1}</strong>.
+            </p>
+
+            <form onSubmit={handleGuardarNotaVentaContador} className="config-form">
+              <label>
+                Redefinir número actual
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={notaVentaForm}
+                  onChange={(e) => setNotaVentaForm(e.target.value)}
+                  placeholder={`Ej. ${notaVentaContador}`}
+                  required
+                />
+              </label>
+
+              <button type="submit">Guardar</button>
+            </form>
+          </section>
+
+          {/* Contador de Remisión */}
+          <section className="config-card">
+            <div className="config-card-header">
+              <div>
+                <h2>Folio de Remisión</h2>
+              </div>
+              <div className="config-icon">📄</div>
+            </div>
+
+            <div className="config-current">
+              <span>Número actual</span>
+              <strong>{remisionContador}</strong>
+            </div>
+
+            <p className="text-muted small mb-2">
+              La próxima remisión se imprimirá con el número{" "}
+              <strong>{Number(remisionContador) + 1}</strong>.
+            </p>
+
+            <form onSubmit={handleGuardarRemisionContador} className="config-form">
+              <label>
+                Redefinir número actual
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={remisionForm}
+                  onChange={(e) => setRemisionForm(e.target.value)}
+                  placeholder={`Ej. ${remisionContador}`}
                   required
                 />
               </label>

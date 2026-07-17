@@ -190,6 +190,13 @@ useEffect(() => {
           </NavLink>
         )}
 
+        {/* === CAJAS === */}
+        {canSeeModule(user?.role, 'cajas') && (
+          <NavLink to="/cajas/buscar" className="sidebar__link" title="Cajas">
+            <span className="emoji">💰</span><span className="label">Cajas</span>
+          </NavLink>
+        )}
+
         {/* === GRUPO: CLIENTES === */}
         {canSeeModule(user?.role, 'clientes') && (
         <div className={`sidebar__group ${clientesOpen ? 'open' : ''}`}>
