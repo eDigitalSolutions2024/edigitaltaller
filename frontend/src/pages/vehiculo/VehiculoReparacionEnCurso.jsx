@@ -20,6 +20,15 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral,
   const [mecanicos, setMecanicos] = useState([]);
   const [carroceros, setCarroceros] = useState([]);
 
+  // Si la orden es de un grupo, se muestran todos los asesores del equipo
+  // (el que la creó va primero, sigue siendo el "principal" por ahora).
+  const miembrosGrupo = Array.isArray(orden?.grupoId?.miembros)
+    ? orden.grupoId.miembros.map((m) => m.name)
+    : [];
+  const asesoresNombres = miembrosGrupo.length
+    ? [...new Set([orden?.creadoPor, ...miembrosGrupo].filter(Boolean))]
+    : [orden?.creadoPor].filter(Boolean);
+
   const handleReparacionCompletada = async () => {
     if (!window.confirm("¿Confirmar que la reparación está completada?")) return;
     try {
@@ -180,10 +189,10 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral,
                   </tr>
                 </thead> */}
                 <tbody>
-                  {orden.creadoPor && (
+                  {asesoresNombres.length > 0 && (
                     <tr>
-                      <td className="ps-2 fw-semibold">Asesor</td>
-                      <td>{orden.creadoPor}</td>
+                      <td className="ps-2 fw-semibold">Asesor{asesoresNombres.length > 1 ? "es" : ""}</td>
+                      <td>{asesoresNombres.join(", ")}</td>
                     </tr>
                   )}
                   {orden.devueltoPor && (

@@ -8,7 +8,9 @@
 export function esFechaSoloDia(value) {
   return (
     typeof value === "string" &&
-    (/^\d{4}-\d{2}-\d{2}$/.test(value) || /T00:00:00(\.000)?Z$/.test(value))
+    (/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+      /T00:00:00(\.000)?Z$/.test(value) ||
+      /T23:59:59\.999Z$/.test(value))
   );
 }
 

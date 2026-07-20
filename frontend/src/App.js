@@ -53,6 +53,7 @@ import OrdenesCompraList from "./pages/OrdenesCompraList";
 //Administracion
 import Usuarios from "./pages/admin/Usuarios";
 import Personal from "./pages/admin/Personal";
+import Grupos from "./pages/admin/Grupos";
 
 //Configuracion
 import Configuracion from "./pages/configuration/Configuracion";
@@ -257,6 +258,9 @@ export default function App() {
 
           {/* Personal unificado */}
           <Route path="admin/personal" element={<Personal />} />
+
+          {/* Grupos de trabajo */}
+          <Route path="admin/grupos" element={<Grupos />} />
 
           {/* Órdenes de compra */}
           <Route path="ordenes-compra" element={<OrdenesCompraList />} />

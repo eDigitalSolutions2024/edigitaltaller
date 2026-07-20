@@ -172,6 +172,12 @@ useEffect(() => {
                 >
                   <span className="label">Personal</span>
                 </NavLink>
+                <NavLink
+                  to="/admin/grupos"
+                  className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+                >
+                  <span className="label">Grupos</span>
+                </NavLink>
               </div>
 
             </div>

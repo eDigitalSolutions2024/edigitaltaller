@@ -88,6 +88,7 @@ export default function ReporteVentasAsesores() {
                           <th>Nombre Cliente</th>
                           <th>Marca</th>
                           <th>Tipo</th>
+                          <th>Asesores</th>
                           <th className="text-end">Importe</th>
                         </tr>
                       </thead>
@@ -99,13 +100,14 @@ export default function ReporteVentasAsesores() {
                             <td>{o.nombreCliente || '—'}</td>
                             <td>{o.marca || '—'}</td>
                             <td>{o.tipo || '—'}</td>
+                            <td>{o.asesores?.length ? o.asesores.join(', ') : grupo.asesor}</td>
                             <td className="text-end">{fmt(o.importe)}</td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot className="table-warning">
                         <tr>
-                          <td colSpan={5} className="text-end fw-bold">
+                          <td colSpan={6} className="text-end fw-bold">
                             Total {grupo.asesor}:
                           </td>
                           <td className="text-end fw-bold">{fmt(grupo.totalAsesor)}</td>

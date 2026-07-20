@@ -159,7 +159,17 @@ export default function VehiculoConsultaCerradas() {
                   <td>{o.placas}</td>
                   <td>{formatFecha(o.fechaRecepcion)}</td>
                   <td>{telefono}</td>
-                  <td>{o.asesorServicio || o.creadoPor}</td>
+                  <td>
+                    {o.asesorServicio || o.creadoPor}
+                    {o.grupoId?.nombre && (
+                      <div className="small text-muted">
+                        Grupo: {o.grupoId.nombre}
+                        {Array.isArray(o.grupoId.miembros) && o.grupoId.miembros.length > 0 && (
+                          <> ({o.grupoId.miembros.map((m) => m.name).join(", ")})</>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td>{formatFecha(o.fechaCierre)}</td>
                   {/* 👇 muestra estadoOrden (debería salir CERRADA) */}
                   <td>{o.estadoOrden || ""}</td>

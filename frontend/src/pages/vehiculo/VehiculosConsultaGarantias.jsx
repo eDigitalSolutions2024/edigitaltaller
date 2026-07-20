@@ -183,7 +183,17 @@ export default function VehiculosConsultaGarantias() {
                   <td>{formatFecha(o.fechaRecepcion)}</td>
                   <td>{formatFecha(g.fechaSolicitud)}</td>
                   <td>{telefono}</td>
-                  <td>{o.asesorServicio || o.creadoPor}</td>
+                  <td>
+                    {o.asesorServicio || o.creadoPor}
+                    {o.grupoId?.nombre && (
+                      <div className="small text-muted">
+                        Grupo: {o.grupoId.nombre}
+                        {Array.isArray(o.grupoId.miembros) && o.grupoId.miembros.length > 0 && (
+                          <> ({o.grupoId.miembros.map((m) => m.name).join(", ")})</>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td>
                     <span className={`badge ${ESTADO_BADGE[g.estado] || "bg-secondary"}`}>
                       {ESTADO_LABEL[g.estado] || g.estado || "—"}

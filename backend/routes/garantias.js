@@ -14,6 +14,8 @@ const POPULATE_CLIENTE =
 const POPULATE_ORDEN_ANTERIOR =
   'ordenServicio estadoOrden fechaRecepcion fechaCierre marca modelo anio color serie placas kmsMillas creadoPor ventaCliente ivaVenta manoObra diagnosticoTecnico';
 
+const POPULATE_GRUPO = { path: 'grupoId', select: 'nombre miembros', populate: { path: 'miembros', select: 'name' } };
+
 const ESTADOS_GARANTIA = ['PENDIENTE', 'APROBADA', 'NEGADA'];
 
 // GET /api/garantias?estado=&searchOs=&page=1&limit=10
@@ -46,7 +48,8 @@ router.get('/', proteger, async (req, res) => {
         .skip(skip)
         .limit(limitNum)
         .populate('cliente', POPULATE_CLIENTE)
-        .populate('garantia.ordenAnterior', POPULATE_ORDEN_ANTERIOR),
+        .populate('garantia.ordenAnterior', POPULATE_ORDEN_ANTERIOR)
+        .populate(POPULATE_GRUPO),
       Vehiculo.countDocuments(q),
     ]);
 

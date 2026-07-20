@@ -54,6 +54,8 @@ app.use('/api/salidas', require('./routes/salidas'));
 
 app.use('/api/empleados', empleadosRoutes);
 
+app.use('/api/grupos', require('./routes/grupos'));
+
 app.use('/api/devoluciones', require('./routes/devoluciones'));
 
 app.use('/api/garantias', require('./routes/garantias'));

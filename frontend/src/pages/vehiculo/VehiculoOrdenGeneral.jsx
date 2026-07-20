@@ -106,6 +106,14 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
 
   // Asesor: asesor asignado al cliente → quien creó la orden
   const asesorServicio = c.asesorResponsable || orden.asesorServicio || orden.creadoPor || "";
+  // Si la orden es de un grupo, se muestran todos los asesores del equipo
+  // (el que la creó va primero, sigue siendo el "principal" por ahora).
+  const miembrosGrupo = Array.isArray(orden.grupoId?.miembros)
+    ? orden.grupoId.miembros.map((m) => m.name)
+    : [];
+  const asesoresNombres = miembrosGrupo.length
+    ? [...new Set([asesorServicio, ...miembrosGrupo].filter(Boolean))]
+    : [asesorServicio].filter(Boolean);
 
   // Refaccionario: persona que respondió la solicitud de taller
   const refaccionario = orden.refaccionario || orden.devueltoPor || "";
@@ -236,7 +244,8 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
       <h5 className="mt-3 mb-2 text-center">USUARIOS</h5>
       <div className="row mb-3">
         <div className="col-md-4">
-          <strong>Asesor de Servicio:</strong> {asesorServicio}
+          <strong>Asesor{asesoresNombres.length > 1 ? "es" : ""} de Servicio:</strong>{" "}
+          {asesoresNombres.join(", ") || "—"}
         </div>
         <div className="col-md-4">
           <strong>Refaccionario:</strong> {refaccionario}

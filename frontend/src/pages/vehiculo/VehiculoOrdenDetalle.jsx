@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { getVehiculoById, openOperativoPdf } from "../../api/vehiculos";
+import { getMisGrupos } from "../../api/grupos";
 import { getUser } from "../../auth";
 import VehiculoNuevoForm from "./VehiculoNuevoForm";
 import ServicioReparacionTab from "./ServicioReparacionTab";
@@ -52,6 +53,7 @@ export default function VehiculoOrdenDetalle() {
   const [orden, setOrden] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [misGrupoIds, setMisGrupoIds] = useState([]);
   const tabFromUrl = searchParams.get("tab");
   const [tab, setTab] = useState(tabFromUrl || "datos");
 
@@ -77,16 +79,27 @@ export default function VehiculoOrdenDetalle() {
   const esCerrada = orden?.estadoOrden === "CERRADA";
   const esCancelada = orden?.estadoOrden === "CANCELADA";
 
-  // Solo el admin puede editar órdenes de otros asesores; el dueño puede editar la suya
+  // Solo el admin puede editar órdenes de otros asesores; el dueño (o un
+  // compañero de su mismo grupo de trabajo) puede editar la suya
   const usuario = getUser();
   const miNombre = usuario?.name || usuario?.username || "";
   const esAdmin = usuario?.role === "admin";
-  const esPropia = orden?.creadoPor === miNombre;
+  const grupoOrdenId = orden?.grupoId?._id || orden?.grupoId || null;
+  const esDeMiGrupo = !!grupoOrdenId && misGrupoIds.includes(String(grupoOrdenId));
+  const esPropia = orden?.creadoPor === miNombre || esDeMiGrupo;
   const soloConsulta = !esAdmin && !esPropia;
   const soloLectura = esCerrada || esCancelada || soloConsulta;
 
   const currentStep = ESTADO_STEP[orden?.estadoOrden] ?? 0;
   const isPast = (tabKey) => !orden ? false : TAB_STEP[tabKey] < currentStep;
+
+  useEffect(() => {
+    if (esAdmin) return;
+    getMisGrupos()
+      .then(setMisGrupoIds)
+      .catch((err) => console.error("Error cargando mis-grupos:", err));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const load = async () => {

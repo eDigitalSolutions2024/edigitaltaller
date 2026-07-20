@@ -7,7 +7,11 @@ const dayjs = require('dayjs');
 
 function esFechaSoloDia(valor) {
   if (typeof valor === 'string') {
-    return /^\d{4}-\d{2}-\d{2}$/.test(valor) || /T00:00:00(\.000)?Z$/.test(valor);
+    return (
+      /^\d{4}-\d{2}-\d{2}$/.test(valor) ||
+      /T00:00:00(\.000)?Z$/.test(valor) ||
+      /T23:59:59\.999Z$/.test(valor)
+    );
   }
   return valor instanceof Date && valor.getTime() % 86400000 === 0;
 }

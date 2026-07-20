@@ -5,6 +5,8 @@ const router = express.Router();
 const Vehiculo = require('../models/Vehiculo');
 const Cliente = require('../models/Cliente');
 const OrdenCompra = require('../models/OrdenCompra');
+const User = require('../models/User');
+const Grupo = require('../models/Grupo');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { normalizarOrdenServicio, regexBusquedaOS } = require('../utils/ordenServicio');
 const EntradaInventario = require('../models/EntradaInventario');
@@ -13,6 +15,10 @@ const AjusteInventario  = require('../models/AjusteInventario');
 const CodigoRefaccion   = require('../models/CodigoRefaccion');
 
 const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares emails rfc direccion asesorResponsable';
+
+// Grupo timbrado en la orden: nombre + miembros (solo informativo, para
+// mostrar junto al asesor en listados/detalle/impresos).
+const POPULATE_GRUPO = { path: 'grupoId', select: 'nombre miembros', populate: { path: 'miembros', select: 'name' } };
 
 const { streamVehiculoOperativoPdf } = require('../service/VehiculoOperativoPdf');
 const { streamVehiculoOrdenPdf } = require('../service/vehiculoOrdenPdf');
@@ -204,6 +210,24 @@ router.post('/', async (req, res) => {
     payload.ordenServicio = folioOS;
     payload.sinVehiculo = data.sinVehiculo === true;
 
+    // Si quien crea la orden pertenece a un grupo de trabajo activo, se
+    // timbra la orden con ese grupo para que el resto de sus miembros la vean
+    // como propia (en mis-ordenes / OSFlotante), incluso si el grupo se
+    // separa más adelante.
+    if (payload.creadoPor) {
+      const creador = await User.findOne({
+        $or: [{ name: payload.creadoPor }, { username: payload.creadoPor }],
+      }).select('_id role');
+      if (creador) {
+        const grupoActivo = await Grupo.findOne({
+          activo: true,
+          rol: creador.role,
+          miembros: creador._id,
+        }).select('_id');
+        if (grupoActivo) payload.grupoId = grupoActivo._id;
+      }
+    }
+
     const vehiculo = new Vehiculo(payload);
     await vehiculo.save();
 
@@ -385,7 +409,8 @@ router.get('/ordenes', async (req, res) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum)
-        .populate('cliente', POPULATE_CLIENTE),
+        .populate('cliente', POPULATE_CLIENTE)
+        .populate(POPULATE_GRUPO),
       Vehiculo.countDocuments(q),
     ]);
 
@@ -406,12 +431,26 @@ router.get('/ordenes', async (req, res) => {
 router.get('/mis-ordenes', proteger, requiereRol('asesor_servicio', 'admin'), async (req, res) => {
   try {
     const nombreUsuario = req.user.name || req.user.username;
+
+    // Acceso permanente: si el usuario alguna vez perteneció a un grupo de
+    // trabajo (aunque hoy ya no sea miembro o el grupo esté desactivado),
+    // sigue viendo las órdenes que se timbraron con ese grupo.
+    const grupos = await Grupo.find({
+      rol: req.user.role,
+      historialMiembros: req.user._id,
+    }).select('_id');
+    const grupoIds = grupos.map((g) => g._id);
+
     const ordenes = await Vehiculo.find({
-      creadoPor: nombreUsuario,
       estadoOrden: { $nin: ['CERRADA', 'CANCELADA'] },
+      $or: [
+        { creadoPor: nombreUsuario },
+        ...(grupoIds.length ? [{ grupoId: { $in: grupoIds } }] : []),
+      ],
     })
-      .select('ordenServicio estadoOrden marca modelo anio color createdAt cliente')
+      .select('ordenServicio estadoOrden marca modelo anio color createdAt cliente creadoPor grupoId')
       .populate('cliente', POPULATE_CLIENTE)
+      .populate(POPULATE_GRUPO)
       .sort({ createdAt: -1 })
       .lean();
 
@@ -1055,7 +1094,9 @@ router.get('/stats/dashboard', async (req, res) => {
 // GET /api/vehiculos/:id  -> detalle de una orden
 router.get('/:id', async (req, res) => {
   try {
-    const vehiculo = await Vehiculo.findById(req.params.id).populate('cliente', POPULATE_CLIENTE);
+    const vehiculo = await Vehiculo.findById(req.params.id)
+      .populate('cliente', POPULATE_CLIENTE)
+      .populate(POPULATE_GRUPO);
     if (!vehiculo) {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     }
@@ -1085,7 +1126,10 @@ router.get('/:id/operativo-pdf', async (req, res) => {
     }
 
     const papel = ['carta', 'oficio', 'a4'].includes(req.query.papel) ? req.query.papel : 'a4';
-    await streamVehiculoOperativoPdf(res, vehiculo, papel);
+    // Si la orden pertenece a un grupo, el asesor mostrado en el PDF es quien
+    // lo está imprimiendo (el que presiona el botón), no quien creó la orden.
+    const asesorOverride = vehiculo.grupoId ? String(req.query.asesor || '').trim() : '';
+    await streamVehiculoOperativoPdf(res, vehiculo, papel, asesorOverride);
   } catch (err) {
     console.error('Error generando PDF operativo', err);
     res

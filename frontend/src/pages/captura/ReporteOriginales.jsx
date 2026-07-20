@@ -85,7 +85,7 @@ export default function ReporteOriginales() {
                       <td>{o.serie || '—'}</td>
                       <td>{o.marca || '—'}</td>
                       <td>{o.tipo || '—'}</td>
-                      <td>{o.asesor || '—'}</td>
+                      <td>{o.asesores?.length ? o.asesores.join(', ') : (o.asesor || '—')}</td>
                     </tr>
                   ))}
                 </tbody>

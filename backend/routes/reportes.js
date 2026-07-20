@@ -11,6 +11,7 @@ const { streamReporteGarantiasPdf } = require('../service/reporteGarantiasPdf');
 const { calcImporteHoras } = require('../utils/manoObra');
 
 const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares';
+const POPULATE_GRUPO = { path: 'grupoId', select: 'nombre miembros', populate: { path: 'miembros', select: 'name' } };
 
 function buildDateFilter(desde, hasta) {
   // El frontend envía ISO completo con timezone correcto del cliente
@@ -76,6 +77,17 @@ function formatUltVale(o) {
   return `${uv.noVale}-${uv.dig ?? 0}`;
 }
 
+// Asesores que trabajaron una orden: si pertenece a un grupo, el equipo
+// completo (el creador va primero, sigue siendo el "principal" para efectos
+// de agrupar/sumar); si no, solo el creador. No afecta las sumas/totales,
+// que se siguen calculando una sola vez por orden agrupando por creadoPor.
+function resolverAsesores(o) {
+  const creador = o.creadoPor || '';
+  const miembrosGrupo = o.grupoId && Array.isArray(o.grupoId.miembros) ? o.grupoId.miembros : [];
+  const nombres = [creador, ...miembrosGrupo.map((m) => m.name)].filter(Boolean);
+  return [...new Set(nombres)];
+}
+
 // GET /api/reportes/originales?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
 router.get('/originales', async (req, res) => {
   try {
@@ -88,6 +100,7 @@ router.get('/originales', async (req, res) => {
     const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter })
       .sort({ fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
+      .populate(POPULATE_GRUPO)
       .lean();
 
     const data = ordenes.map((o) => ({
@@ -98,6 +111,7 @@ router.get('/originales', async (req, res) => {
       marca: o.marca || '',
       tipo: o.modelo || '',
       asesor: o.creadoPor || '',
+      asesores: resolverAsesores(o),
     }));
 
     return res.json({ ok: true, data, total: data.length });
@@ -119,9 +133,11 @@ router.get('/ventas-asesores', async (req, res) => {
     const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter })
       .sort({ creadoPor: 1, fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
+      .populate(POPULATE_GRUPO)
       .lean();
 
-    // Agrupar por asesor
+    // Agrupar por asesor (el creador sigue siendo el "principal" para la
+    // suma; asesores del grupo solo se listan de forma informativa)
     const grupos = {};
     for (const o of ordenes) {
       const asesor = o.creadoPor || 'Sin Asesor';
@@ -132,6 +148,7 @@ router.get('/ventas-asesores', async (req, res) => {
         marca: o.marca || '',
         tipo: o.modelo || '',
         importe: calcImporte(o),
+        asesores: resolverAsesores(o),
       });
     }
 
@@ -237,6 +254,7 @@ router.get('/ordenes-abiertas', async (req, res) => {
     const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter })
       .sort({ creadoPor: 1, fechaRecepcion: 1 })
       .populate('cliente', POPULATE_CLIENTE)
+      .populate(POPULATE_GRUPO)
       .lean();
 
     const grupos = {};
@@ -254,6 +272,7 @@ router.get('/ordenes-abiertas', async (req, res) => {
         marca: o.marca || '',
         tipo: o.modelo || '',
         observaciones: observacionesOrden(o),
+        asesores: resolverAsesores(o),
       });
     }
 
@@ -286,6 +305,7 @@ router.get('/originales-abiertas', async (req, res) => {
     const ordenes = await Vehiculo.find(query)
       .sort({ fechaRecepcion: 1 })
       .populate('cliente', POPULATE_CLIENTE)
+      .populate(POPULATE_GRUPO)
       .lean();
 
     const data = ordenes.map((o) => ({
@@ -298,6 +318,7 @@ router.get('/originales-abiertas', async (req, res) => {
       marca: o.marca || '',
       tipo: o.modelo || '',
       asesor: o.creadoPor || '',
+      asesores: resolverAsesores(o),
       ultVale: formatUltVale(o),
     }));
 
@@ -324,6 +345,7 @@ async function buildReporteGarantias({ desde, hasta, asesor }) {
   const ordenes = await Vehiculo.find(query)
     .sort({ creadoPor: 1, fechaRecepcion: 1 })
     .populate('cliente', POPULATE_CLIENTE)
+    .populate(POPULATE_GRUPO)
     .lean();
 
   // Mapa id → nombre para mecánicos / carroceros de la mano de obra
@@ -372,6 +394,7 @@ async function buildReporteGarantias({ desde, hasta, asesor }) {
       modelo: o.anio || '',
       serie: o.serie || '',
       asesor: nombreAsesor,
+      asesores: resolverAsesores(o),
       costo,
       motivo: g.motivo || '',
       fechaGarantia: g.fechaResolucion || g.fechaSolicitud || null,

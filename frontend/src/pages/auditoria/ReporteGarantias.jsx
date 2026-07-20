@@ -55,7 +55,7 @@ export default function ReporteGarantias() {
         El costo es la suma de Venta al Cliente (sin IVA) más la mano de obra.
       </p> */}
 
-      <PeriodoSelector onBuscar={handleBuscar} cargando={cargando} />
+      <PeriodoSelector onBuscar={handleBuscar} cargando={cargando} soloDia />
 
       <div className="mb-3" style={{ maxWidth: 280 }}>
         <label className="form-label mb-1 fw-semibold small">Asesor</label>
@@ -77,7 +77,7 @@ export default function ReporteGarantias() {
         <>
           <div className="d-flex justify-content-between align-items-center mb-2">
             <span className="text-muted small">
-              Período: <strong>{new Date(rango.desde).toLocaleDateString('es-MX')}</strong> — <strong>{new Date(rango.hasta).toLocaleDateString('es-MX')}</strong>
+              Período: <strong>{formatFecha(rango.desde, { timeZone: 'UTC' })}</strong> — <strong>{formatFecha(rango.hasta, { timeZone: 'UTC' })}</strong>
             </span>
             <div className="d-flex align-items-center gap-2">
               <span className="badge bg-primary fs-6">
@@ -112,7 +112,7 @@ export default function ReporteGarantias() {
                       <tr>
                         <th>No Orden</th><th>Cliente</th><th>Ord. Ant</th><th>Fecha</th>
                         <th>Marca</th><th>Modelo</th><th>Serie</th>
-                        <th className="text-end">Costo c/IVA</th><th>Motivo</th><th>Mecánicos</th>
+                        <th className="text-end">Costo c/IVA</th><th>Motivo</th><th>Mecánicos</th><th>Asesores</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -128,12 +128,13 @@ export default function ReporteGarantias() {
                           <td className="text-end">{formatMoney(o.costo)}</td>
                           <td>{o.motivo || '—'}</td>
                           <td>{o.mecanicos?.length ? o.mecanicos.join('; ') : '—'}</td>
+                          <td>{o.asesores?.length ? o.asesores.join(', ') : grupo.asesor}</td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot className="table-secondary">
                       <tr>
-                        <td colSpan={10} className="fst-italic fw-bold">
+                        <td colSpan={11} className="fst-italic fw-bold">
                           Cant. Ordenes: {grupo.totalAsesor}
                         </td>
                       </tr>
