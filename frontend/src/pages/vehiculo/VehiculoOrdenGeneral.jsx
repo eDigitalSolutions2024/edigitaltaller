@@ -200,27 +200,35 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
           <div className="mb-1">
             <strong>Hora:</strong> {orden.horaRecepcion || ""}
           </div>
-          <div className="mb-1">
-            <strong>Marca:</strong> {orden.marca || ""}
-          </div>
-          <div className="mb-1">
-            <strong>Modelo:</strong> {orden.modelo || ""}
-          </div>
-          <div className="mb-1">
-            <strong>Año:</strong> {orden.anio || ""}
-          </div>
-          <div className="mb-1">
-            <strong>Color:</strong> {orden.color || ""}
-          </div>
-          <div className="mb-1">
-            <strong>Serie:</strong> {orden.serie || ""}
-          </div>
-          <div className="mb-1">
-            <strong>Placas:</strong> {orden.placas || ""}
-          </div>
-          <div className="mb-1">
-            <strong>KMS/Millas:</strong> {orden.kmsMillas || ""}
-          </div>
+          {orden.sinVehiculo ? (
+            <div className="mb-1">
+              <span className="badge bg-secondary">Sin vehículo registrado</span>
+            </div>
+          ) : (
+            <>
+              <div className="mb-1">
+                <strong>Marca:</strong> {orden.marca || ""}
+              </div>
+              <div className="mb-1">
+                <strong>Modelo:</strong> {orden.modelo || ""}
+              </div>
+              <div className="mb-1">
+                <strong>Año:</strong> {orden.anio || ""}
+              </div>
+              <div className="mb-1">
+                <strong>Color:</strong> {orden.color || ""}
+              </div>
+              <div className="mb-1">
+                <strong>Serie:</strong> {orden.serie || ""}
+              </div>
+              <div className="mb-1">
+                <strong>Placas:</strong> {orden.placas || ""}
+              </div>
+              <div className="mb-1">
+                <strong>KMS/Millas:</strong> {orden.kmsMillas || ""}
+              </div>
+            </>
+          )}
         </div>
       </div>
 

@@ -81,6 +81,7 @@ export default function VehiculoNuevoForm({
   onCreated,
   vehiculoGarage,
   garantia, // { ordenAnterior, motivo } cuando la orden nace de una solicitud de garantía
+  sinVehiculo = false,
 }) {
   const esParticular = cliente?.tipoCliente === "Particular";
   const requiereFactura = cliente?.requiereFacturacion === true;
@@ -188,7 +189,7 @@ export default function VehiculoNuevoForm({
   // En la entrada de vehículos (creación de una orden nueva) ciertos datos del
   // vehículo son obligatorios. No se exige al editar órdenes ya existentes para
   // no bloquear la corrección de datos heredados.
-  const requiereDatosVehiculo = !initialData?._id;
+  const requiereDatosVehiculo = !initialData?._id && !sinVehiculo;
 
   // ── Serie: autocompletado buscando en el garaje ──────────
   const [sugerenciasSerie, setSugerenciasSerie] = useState([]);
@@ -438,6 +439,7 @@ export default function VehiculoNuevoForm({
       inspeccionFisica,
       correos: form.correos || [],
       creadoPor: usuario?.name || usuario?.username || "Sin usuario",
+      sinVehiculo: !!sinVehiculo,
       ...(garantia?.ordenAnterior?._id
         ? {
             garantiaSolicitud: {
@@ -849,6 +851,25 @@ export default function VehiculoNuevoForm({
                   />
                 </div>
 
+                {/* Correos del cliente (solo lectura, tomados del alta) */}
+                <div className="col-md-6">
+                  <label className="form-label">Correo(s)</label>
+                  {form.correos && form.correos.length > 0 ? (
+                    form.correos.map((c, i) => (
+                      <input
+                        key={i}
+                        type="email"
+                        className={`form-control${i > 0 ? " mt-1" : ""}`}
+                        value={c}
+                        readOnly
+                        placeholder="Sin correo"
+                      />
+                    ))
+                  ) : (
+                    <input type="email" className="form-control" value="" readOnly placeholder="Sin correo" />
+                  )}
+                </div>
+
                 {/* Dirección */}
                 <div className="col-12">
                   <label className="form-label">Dirección (Calle)</label>
@@ -966,6 +987,7 @@ export default function VehiculoNuevoForm({
                 </div>
 
                 {/* Grua */}
+                {!sinVehiculo && (
                 <div className="col-12">
                   <label className="form-label">Grua</label>
                   <select
@@ -979,9 +1001,10 @@ export default function VehiculoNuevoForm({
                     <option value="NO">NO</option>
                   </select>
                 </div>
+                )}
 
                 {/* 🔹 Campo precioGrua solo si grua === "SI" */}
-                {form.grua === "SI" && (
+                {!sinVehiculo && form.grua === "SI" && (
                   <div className="col-12">
                     <label className="form-label">Precio de la grúa</label>
                     <input
@@ -999,6 +1022,7 @@ export default function VehiculoNuevoForm({
             </div>
 
             {/* -------- COLUMNA DERECHA (VEHÍCULO) -------- */}
+            {!sinVehiculo && (
             <div className="col-md-6">
               <div className="row g-2">
                 <div className="col-12">
@@ -1173,25 +1197,6 @@ export default function VehiculoNuevoForm({
                   />
                 </div>
 
-                {/* Correos del cliente (solo lectura, tomados del alta) */}
-                <div className="col-md-6">
-                  <label className="form-label">Correo(s)</label>
-                  {form.correos && form.correos.length > 0 ? (
-                    form.correos.map((c, i) => (
-                      <input
-                        key={i}
-                        type="email"
-                        className={`form-control${i > 0 ? " mt-1" : ""}`}
-                        value={c}
-                        readOnly
-                        placeholder="Sin correo"
-                      />
-                    ))
-                  ) : (
-                    <input type="email" className="form-control" value="" readOnly placeholder="Sin correo" />
-                  )}
-                </div>
-
                 <div className="col-12">
                   <label className="form-label">
                     Tracción {requiereDatosVehiculo && <span className="text-danger">*</span>}
@@ -1211,8 +1216,11 @@ export default function VehiculoNuevoForm({
                 </div>
               </div>
             </div>
+            )}
           </div>
 
+          {!sinVehiculo && (
+          <>
           {/* ====== ACCESORIOS / CHECKBOXES ====== */}
           <hr className="my-3" />
           {!efectivoReadOnly && (
@@ -1744,6 +1752,8 @@ export default function VehiculoNuevoForm({
               />
             </div>
           </div>
+          </>
+          )}
 
           {/* Modo creación normal */}
           {!readOnly && (

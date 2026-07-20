@@ -356,6 +356,10 @@ exports.generarVentaClientePDF = async (res, orden) => {
       <td class="label">DIRECCION:</td>
       <td colspan="5">${escapeHtml(direccion)}</td>
     </tr>
+    ${orden.sinVehiculo ? `
+    <tr>
+      <td colspan="6" align="center"><b>SIN VEHÍCULO — venta de refacciones/servicio</b></td>
+    </tr>` : `
     <tr>
       <td align="center"><b>MARCA</b><br>${escapeHtml(orden.marca || '')}</td>
       <td align="center"><b>MODELO</b><br>${escapeHtml(orden.modelo || '')}</td>
@@ -371,7 +375,7 @@ exports.generarVentaClientePDF = async (res, orden) => {
       <td align="center"><b>DIRIGIDO A:</b><br>${escapeHtml(orden.dirigidoA || '')}</td>
       <td align="center"><b>NUMERO ECONOMICO:</b><br>${escapeHtml(orden.numeroEconomico || '')}</td>
       <td></td>
-    </tr>
+    </tr>`}
   </table>
 
   <table class="items">
