@@ -17,31 +17,42 @@ function rangoLocal(fechaInicio, fechaFin) {
   return { desde: d.toISOString(), hasta: h.toISOString() };
 }
 
-function calcularRango(periodo) {
+// Para filtrar campos "solo día" (p. ej. fechaRecepcion, guardados como
+// medianoche UTC del día capturado). Usa el año/mes/día LOCAL de las fechas
+// recibidas pero construye los límites en UTC, para coincidir con cómo se
+// guardan esos campos y no perder el día actual por el offset del navegador.
+function rangoUTC(fechaInicio, fechaFin) {
+  const d = new Date(Date.UTC(fechaInicio.getFullYear(), fechaInicio.getMonth(), fechaInicio.getDate(), 0, 0, 0, 0));
+  const h = new Date(Date.UTC(fechaFin.getFullYear(), fechaFin.getMonth(), fechaFin.getDate(), 23, 59, 59, 999));
+  return { desde: d.toISOString(), hasta: h.toISOString() };
+}
+
+function calcularRango(periodo, soloDia) {
+  const rango = soloDia ? rangoUTC : rangoLocal;
   const hoy = new Date();
   const y = hoy.getFullYear();
   const m = hoy.getMonth();
   const d = hoy.getDate();
 
   if (periodo === 'hoy') {
-    return rangoLocal(new Date(y, m, d), new Date(y, m, d));
+    return rango(new Date(y, m, d), new Date(y, m, d));
   }
   if (periodo === 'semanal') {
     const diffLun = (hoy.getDay() + 6) % 7;
     const lun = new Date(y, m, d - diffLun);
     const dom = new Date(y, m, d - diffLun + 6);
-    return rangoLocal(lun, dom);
+    return rango(lun, dom);
   }
   if (periodo === 'mensual') {
-    return rangoLocal(new Date(y, m, 1), new Date(y, m + 1, 0));
+    return rango(new Date(y, m, 1), new Date(y, m + 1, 0));
   }
   if (periodo === 'anual') {
-    return rangoLocal(new Date(y, 0, 1), new Date(y, 11, 31));
+    return rango(new Date(y, 0, 1), new Date(y, 11, 31));
   }
   return null;
 }
 
-export default function PeriodoSelector({ onBuscar, cargando }) {
+export default function PeriodoSelector({ onBuscar, cargando, soloDia = false }) {
   const [periodo, setPeriodo] = useState('mensual');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -60,9 +71,9 @@ export default function PeriodoSelector({ onBuscar, cargando }) {
         return;
       }
       // Convertir YYYY-MM-DD a inicio/fin del día en hora local → UTC
-      rango = rangoLocal(new Date(desde + 'T00:00:00'), new Date(hasta + 'T00:00:00'));
+      rango = (soloDia ? rangoUTC : rangoLocal)(new Date(desde + 'T00:00:00'), new Date(hasta + 'T00:00:00'));
     } else {
-      rango = calcularRango(periodo);
+      rango = calcularRango(periodo, soloDia);
     }
     onBuscar(rango.desde, rango.hasta);
   };

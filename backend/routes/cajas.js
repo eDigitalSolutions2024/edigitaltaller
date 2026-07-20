@@ -8,13 +8,16 @@ const { calcularTotalesOrden } = require('../utils/cajaTotales');
 const { generarComprobanteCajaPDF } = require('../service/cajaComprobantePdf');
 
 const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares emails rfc direccion asesorResponsable';
+const POPULATE_GRUPO = { path: 'grupoId', select: 'nombre miembros', populate: { path: 'miembros', select: 'name' } };
 const CONTADOR_NOTA_VENTA = 'notaVenta';
 const CONTADOR_REMISION = 'remision';
 
 // GET /api/cajas/:id -> detalle de la orden + totales ya calculados
 router.get('/:id', proteger, async (req, res) => {
   try {
-    const vehiculo = await Vehiculo.findById(req.params.id).populate('cliente', POPULATE_CLIENTE);
+    const vehiculo = await Vehiculo.findById(req.params.id)
+      .populate('cliente', POPULATE_CLIENTE)
+      .populate(POPULATE_GRUPO);
     if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     return res.json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo) });
   } catch (err) {

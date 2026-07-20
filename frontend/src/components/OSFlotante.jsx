@@ -51,6 +51,7 @@ function nombreCliente(orden) {
 export default function OSFlotante() {
   const user = getUser();
   const esAsesor = user?.role === 'asesor_servicio';
+  const miNombre = user?.name || user?.username || '';
   const navigate = useNavigate();
 
   const [ordenes, setOrdenes] = useState([]);
@@ -139,6 +140,8 @@ export default function OSFlotante() {
 
   if (!esAsesor) return null;
 
+  const grupoNombre = ordenes.find(os => os.grupoId?.nombre)?.grupoId?.nombre || '';
+
   return (
     <div
       ref={widgetRef}
@@ -151,7 +154,7 @@ export default function OSFlotante() {
         onClick={() => { if (!hasDragged.current) setMinimizado(m => !m); }}
       >
         <span className="os-flotante__titulo">
-          ⠿ Mis OS
+          ⠿ {grupoNombre ? `OS · ${grupoNombre}` : 'Mis OS'}
           <span className="os-flotante__badge">{ordenes.length}</span>
         </span>
         <button
@@ -184,6 +187,9 @@ export default function OSFlotante() {
                       {ESTADO_LABEL[os.estadoOrden] || os.estadoOrden}
                     </span>
                   </div>
+                  {os.creadoPor && os.creadoPor !== miNombre && (
+                    <div className="os-flotante__asesor">👤 {os.creadoPor}</div>
+                  )}
                   <div className="os-flotante__cliente">{nombreCliente(os)}</div>
                   <div className="os-flotante__vehiculo">
                     {[os.marca, os.modelo, os.anio].filter(Boolean).join(' ')}

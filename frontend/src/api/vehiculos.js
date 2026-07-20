@@ -1,6 +1,7 @@
 // src/api/vehiculos.js
 import http from "./http";
 import axios from "axios"
+import { getUser } from "../auth";
 const API = process.env.REACT_APP_API_URL || "http://localhost:8010";
 
 
@@ -42,7 +43,11 @@ export const savePresupuestoVenta = (id, payload) =>
 // 👇 nuevo ayudante
 // papel: 'a4' | 'carta' | 'oficio'
 export const openOperativoPdf = (id, papel = 'a4') => {
-  const url = `${API}/vehiculos/${id}/operativo-pdf?papel=${papel}`;
+  const usuario = getUser();
+  const asesor = usuario?.name || usuario?.username || '';
+  // El backend solo usa este nombre si la orden pertenece a un grupo (para
+  // mostrar en el PDF a quien lo está imprimiendo, no a quien la creó).
+  const url = `${API}/vehiculos/${id}/operativo-pdf?papel=${papel}&asesor=${encodeURIComponent(asesor)}`;
   window.open(url, "_blank", "noopener");
 };
 

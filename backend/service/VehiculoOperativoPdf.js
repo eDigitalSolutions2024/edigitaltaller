@@ -228,8 +228,10 @@ function buildPagina3() {
 
 // ---------- HTML PRINCIPAL ----------
 
-function buildHtml(vehiculo) {
-  const asesor = vehiculo.creadoPor || '';
+function buildHtml(vehiculo, asesorOverride = '') {
+  // Si la orden es de un grupo, en el PDF se muestra quién lo está
+  // imprimiendo (quien presionó el botón), no necesariamente quien la creó.
+  const asesor = asesorOverride || vehiculo.creadoPor || '';
   const insp = vehiculo.inspeccionFisica || {};
   const sr   = vehiculo.servicioReparacion || {};
   const mm   = sr.mantenimientoMotor || {};
@@ -699,8 +701,8 @@ ${buildPagina3()}
 
 // ---------- FUNCIÓN PRINCIPAL ----------
 
-async function streamVehiculoOperativoPdf(res, vehiculo, papel = 'a4') {
-  const html = buildHtml(vehiculo);
+async function streamVehiculoOperativoPdf(res, vehiculo, papel = 'a4', asesorOverride = '') {
+  const html = buildHtml(vehiculo, asesorOverride);
 
   const formatMap = {
     a4:     'A4',

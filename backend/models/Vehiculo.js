@@ -78,6 +78,9 @@ const vehiculoSchema = new Schema(
     fechaEnvioSurtir: { type: Date, default: null },
     creadoPor: { type: String, default: "" },
     devueltoPor: { type: String, default: "" },
+    // Grupo de trabajo (si existía uno activo) del usuario que creó la orden.
+    // Se conserva aunque el grupo luego se desactive o cambie de miembros.
+    grupoId: { type: mongoose.Schema.Types.ObjectId, ref: 'Grupo', default: null },
 
     //---- FECHA DE CIERRE -----
     fechaCierre:{ type: Date, default: null},

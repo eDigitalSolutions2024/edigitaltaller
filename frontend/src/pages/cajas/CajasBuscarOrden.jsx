@@ -145,7 +145,17 @@ export default function CajasBuscarOrden() {
                   <td className="text-center">{r.serie || "-"}</td>
                   <td className="text-center">{r.placas || "-"}</td>
                   <td className="text-center">{formatFecha(r.fechaRecepcion) || "-"}</td>
-                  <td className="text-center">{r.creadoPor || "-"}</td>
+                  <td className="text-center">
+                    {r.creadoPor || "-"}
+                    {r.grupoId?.nombre && (
+                      <div className="small text-muted">
+                        Grupo: {r.grupoId.nombre}
+                        {Array.isArray(r.grupoId.miembros) && r.grupoId.miembros.length > 0 && (
+                          <> ({r.grupoId.miembros.map((m) => m.name).join(", ")})</>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td className="text-center">
                     {r.garantia && (
                       <span className="badge bg-info text-dark me-1">Garantía</span>

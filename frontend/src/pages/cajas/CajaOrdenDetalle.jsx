@@ -201,7 +201,17 @@ export default function CajaOrdenDetalle() {
                   <tbody>
                     <tr>
                       <th className="ps-2" style={{ width: "40%" }}>Asesor de Servicio</th>
-                      <td>{orden.creadoPor || "-"}</td>
+                      <td>
+                        {orden.creadoPor || "-"}
+                        {orden.grupoId?.nombre && (
+                          <div className="small text-muted">
+                            Grupo: {orden.grupoId.nombre}
+                            {Array.isArray(orden.grupoId.miembros) && orden.grupoId.miembros.length > 0 && (
+                              <> ({orden.grupoId.miembros.map((m) => m.name).join(", ")})</>
+                            )}
+                          </div>
+                        )}
+                      </td>
                     </tr>
                     <tr>
                       <th className="ps-2">Refaccionario</th>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { listOrdenesServicio } from "../../api/vehiculos";
+import { getMisGrupos } from "../../api/grupos";
 import { useNavigate } from "react-router-dom";
 import { getUser } from "../../auth";
 import { formatFecha } from "../../utils/fechas";
@@ -43,6 +44,21 @@ const TAB_MAP = {
 export default function VehiculosConsultaOrdenes() {
   const usuario = getUser();
   const miNombre = usuario?.name || usuario?.username || "";
+  const [misGrupoIds, setMisGrupoIds] = useState([]);
+
+  useEffect(() => {
+    if (usuario?.role === "admin") return;
+    getMisGrupos()
+      .then(setMisGrupoIds)
+      .catch((err) => console.error("Error cargando mis-grupos:", err));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const esMiOrden = (r) => {
+    if (r.creadoPor === miNombre) return true;
+    const gid = r.grupoId?._id || r.grupoId;
+    return !!gid && misGrupoIds.includes(String(gid));
+  };
 
   const [tab, setTab] = useState("PENDIENTE_CAPTURA");
   const [rows, setRows] = useState([]);
@@ -346,7 +362,7 @@ export default function VehiculosConsultaOrdenes() {
   {rows.map((r) => (
     <tr
       key={r._id}
-      className={r.creadoPor === miNombre ? "fila-propia" : ""}
+      className={esMiOrden(r) ? "fila-propia" : ""}
       style={{ cursor: "pointer" }}
       onClick={() => irAOrden(r)}
     >
@@ -367,7 +383,17 @@ export default function VehiculosConsultaOrdenes() {
         {formatFecha(r.fechaRecepcion) || "-"}
       </td>
       <td className="text-center">{(r.cliente?.telefonos?.[0]?.numero) || "-"}</td>
-      <td className="text-center">{r.creadoPor || "-"}</td>
+      <td className="text-center">
+        {r.creadoPor || "-"}
+        {r.grupoId?.nombre && (
+          <div className="small text-muted">
+            Grupo: {r.grupoId.nombre}
+            {Array.isArray(r.grupoId.miembros) && r.grupoId.miembros.length > 0 && (
+              <> ({r.grupoId.miembros.map((m) => m.name).join(", ")})</>
+            )}
+          </div>
+        )}
+      </td>
     </tr>
   ))}
 </tbody>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import PeriodoSelector from '../captura/PeriodoSelector';
 import { getReporteOriginalesAbiertas, openReporteOriginalesAbiertasPdf } from '../../api/reportes';
 import { getAsesores } from '../../api/users';
+import { formatFecha } from '../../utils/fechas';
 
 export default function ReporteOriginalesAuditoria() {
   const [cargando, setCargando] = useState(false);
@@ -45,7 +46,7 @@ export default function ReporteOriginalesAuditoria() {
         Muestra todas las órdenes abiertas (no cerradas ni canceladas) en el período seleccionado, según su fecha de recepción.
       </p> */}
 
-      <PeriodoSelector onBuscar={handleBuscar} cargando={cargando} />
+      <PeriodoSelector onBuscar={handleBuscar} cargando={cargando} soloDia />
 
       <div className="mb-3" style={{ maxWidth: 280 }}>
         <label className="form-label mb-1 fw-semibold small">Asesor</label>
@@ -67,7 +68,7 @@ export default function ReporteOriginalesAuditoria() {
         <>
           <div className="d-flex justify-content-between align-items-center mb-2">
             <span className="text-muted small">
-              Período: <strong>{new Date(rango.desde).toLocaleDateString('es-MX')}</strong> — <strong>{new Date(rango.hasta).toLocaleDateString('es-MX')}</strong>
+              Período: <strong>{formatFecha(rango.desde, { timeZone: 'UTC' })}</strong> — <strong>{formatFecha(rango.hasta, { timeZone: 'UTC' })}</strong>
             </span>
             <div className="d-flex align-items-center gap-2">
               <span className="badge bg-primary fs-6">
@@ -101,14 +102,14 @@ export default function ReporteOriginalesAuditoria() {
                     <tr key={i}>
                       <td className="text-center text-muted">{i + 1}</td>
                       <td className="fw-semibold">{o.ordenServicio}</td>
-                      <td>{o.fecha ? new Date(o.fecha).toLocaleDateString('es-MX') : '—'}</td>
+                      <td>{formatFecha(o.fecha) || '—'}</td>
                       <td>{o.nombre || '—'}</td>
                       <td>{o.telefono || '—'}</td>
                       <td>{o.placas || '—'}</td>
                       <td>{o.serie || '—'}</td>
                       <td>{o.marca || '—'}</td>
                       <td>{o.tipo || '—'}</td>
-                      <td>{o.asesor || '—'}</td>
+                      <td>{o.asesores?.length ? o.asesores.join(', ') : (o.asesor || '—')}</td>
                       <td>{o.ultVale || '—'}</td>
                     </tr>
                   ))}
