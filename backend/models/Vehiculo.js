@@ -54,6 +54,12 @@ const vehiculoSchema = new Schema(
       required: true,
     },
 
+    // Orden "Sin Vehículo": cliente walk-in que compra refacciones sueltas o
+    // recibe un servicio sin registrar vehículo. Se decide en la creación;
+    // no se incluye en el whitelist de PUT /:id/datos, por lo que es
+    // inmutable después de creada la orden.
+    sinVehiculo: { type: Boolean, default: false },
+
     // NUEVO: estado de la orden
     estadoOrden: {
       type: String,

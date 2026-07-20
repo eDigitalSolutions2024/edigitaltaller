@@ -202,6 +202,7 @@ router.post('/', async (req, res) => {
     }
 
     payload.ordenServicio = folioOS;
+    payload.sinVehiculo = data.sinVehiculo === true;
 
     const vehiculo = new Vehiculo(payload);
     await vehiculo.save();
@@ -1075,6 +1076,12 @@ router.get('/:id/operativo-pdf', async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: 'Orden no encontrada' });
+    }
+    if (vehiculo.sinVehiculo) {
+      return res.status(400).json({
+        success: false,
+        message: 'El Formato Operativo no aplica para órdenes sin vehículo.',
+      });
     }
 
     const papel = ['carta', 'oficio', 'a4'].includes(req.query.papel) ? req.query.papel : 'a4';

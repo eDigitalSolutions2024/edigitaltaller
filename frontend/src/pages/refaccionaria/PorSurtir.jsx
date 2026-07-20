@@ -152,7 +152,7 @@ export default function PorSurtir() {
                       </div>
                       <span className="ms-3 text-muted">{nombreCliente(orden)}</span>
                       <span className="ms-3 text-muted">
-                        {[orden.marca, orden.modelo, orden.anio].filter(Boolean).join(" ")}
+                        {[orden.marca, orden.modelo, orden.anio].filter(Boolean).join(" ") || "Sin vehículo"}
                       </span>
                       <span className="ms-3 badge bg-secondary">{orden.placas || "Sin placas"}</span>
                       <span className={`ms-3 ${tiempo.className}`}>⏱ {tiempo.texto}</span>

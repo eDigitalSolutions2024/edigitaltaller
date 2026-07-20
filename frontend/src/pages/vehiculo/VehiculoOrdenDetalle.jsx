@@ -319,6 +319,7 @@ export default function VehiculoOrdenDetalle() {
           initialData={orden}
           readOnly
           puedeEditar={esAdmin || (esPropia && !esCerrada && !esCancelada)}
+          sinVehiculo={orden.sinVehiculo}
         />
       )}
 
@@ -329,6 +330,7 @@ export default function VehiculoOrdenDetalle() {
           existingRefacciones={orden.refaccionesSolicitadas || []}
           onSaved={handleServicioSaved}
           readOnly={soloLectura}
+          sinVehiculo={orden.sinVehiculo}
         />
       )}
 
@@ -393,7 +395,7 @@ export default function VehiculoOrdenDetalle() {
       )}
 
       {/* Botón PDF Operativo — visible en tab de datos y servicio */}
-      {(tab === "datos" || tab === "servicio") && orden._id && (
+      {(tab === "datos" || tab === "servicio") && orden._id && !orden.sinVehiculo && (
         <div className="text-center my-4">
           <div className="btn-group">
             <button

@@ -32,7 +32,7 @@ const PDF_SECTIONS = [
   { label: "Sistema de enfriamiento",                textKey: "sistemaEnfriamiento" },
 ];
 
-export default function ServicioReparacionTab({ ordenId, initialData, existingRefacciones = [], onSaved, readOnly = false }) {
+export default function ServicioReparacionTab({ ordenId, initialData, existingRefacciones = [], onSaved, readOnly = false, sinVehiculo = false }) {
   const [form, setForm] = useState(emptyForm);
   const [activePdf, setActivePdf] = useState({
     fallasMotorOtros: false,
@@ -350,6 +350,8 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
           <div className="card-body">
 
             {/* ===== SERVICIOS DESDE BD CÓDIGOS ===== */}
+            {!sinVehiculo && (
+            <>
             <div className="mb-4">
               <h6 className="fw-bold text-uppercase mb-3 border-bottom pb-2">
                 Servicios realizados
@@ -452,6 +454,8 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
                 }
               />
             </div>
+            </>
+            )}
 
             {/* ===== OBSERVACIONES GENERALES ===== */}
             <div className="mb-4">
@@ -471,7 +475,7 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
             </div>
 
             {/* ===== CAMPOS PARA EL PDF OPERATIVO ===== */}
-            {PDF_SECTIONS.map(({ label, textKey }) => (
+            {!sinVehiculo && PDF_SECTIONS.map(({ label, textKey }) => (
               <div className="mb-3" key={textKey}>
                 <div className="form-check border-bottom pb-2 mb-2">
                   <input

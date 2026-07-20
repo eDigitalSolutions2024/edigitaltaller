@@ -22,6 +22,7 @@ export default function VehiculoEntrada() {
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
   const [mostrarAcciones, setMostrarAcciones] = useState(false);
   const [mostrarFormNuevoCarro, setMostrarFormNuevoCarro] = useState(false);
+  const [sinVehiculo, setSinVehiculo] = useState(false);
 
   const [showGarageModal, setShowGarageModal] = useState(false);
   const [vehiculoGarage, setVehiculoGarage] = useState(null);
@@ -88,6 +89,7 @@ export default function VehiculoEntrada() {
     setMostrarFormNuevoCarro(false);
     setVehiculoGarage(null);
     setGarantiaInfo(null);
+    setSinVehiculo(false);
 
     const nombre =
       cliente.gobierno?.nombreGobierno ||
@@ -101,11 +103,15 @@ export default function VehiculoEntrada() {
   const handleNuevoCarro = () => {
     setVehiculoGarage(null);
     setGarantiaInfo(null);
+    setSinVehiculo(false);
     setMostrarFormNuevoCarro(true);
   };
 
-  const handleSinCarro = () => {
-    console.log("Orden sin carro para cliente:", clienteSeleccionado);
+  const handleSinVehiculo = () => {
+    setVehiculoGarage(null);
+    setGarantiaInfo(null);
+    setSinVehiculo(true);
+    setMostrarFormNuevoCarro(true);
   };
 
   const handleGaraje = () => {
@@ -115,6 +121,7 @@ export default function VehiculoEntrada() {
   const handleVehiculoDesdeGarage = (v) => {
     setVehiculoGarage(v);
     setGarantiaInfo(null);
+    setSinVehiculo(false);
     setMostrarFormNuevoCarro(true);
     setShowGarageModal(false);
   };
@@ -128,6 +135,7 @@ export default function VehiculoEntrada() {
   const handleGarantiaSolicitada = ({ ordenAnterior, motivo }) => {
     setGarantiaInfo({ ordenAnterior, motivo });
     setVehiculoGarage(ordenAnterior);
+    setSinVehiculo(false);
     setMostrarFormNuevoCarro(true);
     setShowGarantiaModal(false);
   };
@@ -170,6 +178,7 @@ export default function VehiculoEntrada() {
                   setMostrarFormNuevoCarro(false);
                   setVehiculoGarage(null);
                   setGarantiaInfo(null);
+                  setSinVehiculo(false);
                 }}
               />
             </div>
@@ -251,13 +260,13 @@ export default function VehiculoEntrada() {
               >
                 Nuevo Carro
               </button>
-              {/* <button
+              <button
                 type="button"
                 className="btn btn-secondary me-2"
-                onClick={handleSinCarro}
+                onClick={handleSinVehiculo}
               >
-                Sin Carro
-              </button> */}
+                Sin Vehículo
+              </button>
               <button
                 type="button"
                 className="btn btn-success me-2"
@@ -288,12 +297,20 @@ export default function VehiculoEntrada() {
         </div>
       )}
 
+      {/* Aviso de orden sin vehículo */}
+      {mostrarFormNuevoCarro && clienteSeleccionado && sinVehiculo && (
+        <div className="alert alert-secondary mt-3 mb-0">
+          Orden <strong>Sin Vehículo</strong>: se omiten los datos de vehículo y el Formato Operativo.
+        </div>
+      )}
+
       {/* Formulario de nuevo vehículo */}
       {mostrarFormNuevoCarro && clienteSeleccionado && (
         <VehiculoNuevoForm
           cliente={clienteSeleccionado}
           vehiculoGarage={vehiculoGarage}
           garantia={garantiaInfo}
+          sinVehiculo={sinVehiculo}
           onCreated={handleVehiculoCreado}
         />
       )}
