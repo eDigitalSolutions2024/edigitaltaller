@@ -101,6 +101,49 @@ async function getStockMapLocal(numerosParteLista) {
   return result;
 }
 
+// El arreglo `presupuesto` se guarda completo desde dos pantallas distintas
+// (Presupuesto y Venta del asesor, y Por Surtir del refaccionario) que pueden
+// tener abierta cada una su propia copia local desactualizada. Si cualquiera
+// de las dos reemplaza el arreglo tal cual, borra silenciosamente lo que la
+// otra ya haya guardado mientras tanto (p. ej. el refaccionario surte una
+// pieza y el asesor, con su copia vieja, la vuelve a dejar como pendiente).
+// `mergePresupuestoArray` evita esto: para las filas que ya existían (mismo
+// _id) conserva del documento actual en BD los campos que le pertenecen "al
+// otro lado" del flujo, y solo dejar pasar del payload entrante los campos
+// que sí le corresponden a quien está guardando.
+function mergePresupuestoArray(existingArr, incomingArr, camposAProteger) {
+  const existentesPorId = new Map(
+    (existingArr || [])
+      .filter((r) => r && r._id)
+      .map((r) => [String(r._id), r])
+  );
+
+  return (incomingArr || []).map((row) => {
+    const existente = row._id ? existentesPorId.get(String(row._id)) : null;
+    if (!existente) return row; // fila nueva (sin _id previo): se toma tal cual
+
+    const merged = { ...row };
+    for (const campo of camposAProteger) {
+      merged[campo] = existente[campo];
+    }
+    return merged;
+  });
+}
+
+// Campos que solo captura/edita refaccionaria (cotización + surtido); el
+// asesor nunca los edita desde Presupuesto y Venta, solo los muestra.
+const CAMPOS_PRESUPUESTO_REFACCIONARIA = [
+  'surtida', 'marca', 'proveedor', 'codigo', 'precioCompra',
+  'unidad', 'moneda', 'tipoCambio', 'core', 'precioCore',
+  'tiempoEntrega', 'cant', 'tipo',
+];
+
+// Campos que solo captura/edita el asesor desde Presupuesto y Venta; Por
+// Surtir nunca los edita, solo los lee.
+const CAMPOS_PRESUPUESTO_ASESOR = [
+  'concepto', 'refaccion', 'precioVenta', 'observInt', 'autorizado', 'esServicio',
+];
+
 /**
  * Dado un array de numeroParte, devuelve un mapa: numeroParte → ObjectId del CodigoRefaccion.
  * Útil para guardar codigoInterno correcto en SalidaInventario.
@@ -735,7 +778,13 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
     }
 
     if (Array.isArray(presupuesto)) {
-      vehiculo.presupuesto = presupuesto;
+      // No pisar surtida/marca/proveedor/código/etc. si refaccionaria ya los
+      // guardó desde Por Surtir mientras el asesor tenía esta pestaña abierta.
+      vehiculo.presupuesto = mergePresupuestoArray(
+        vehiculo.presupuesto,
+        presupuesto,
+        CAMPOS_PRESUPUESTO_REFACCIONARIA
+      );
     }
 
     if (Array.isArray(ventaCliente)) {
@@ -1419,7 +1468,13 @@ router.put('/:id/surtir', proteger, async (req, res) => {
     );
 
     if (Array.isArray(presupuesto)) {
-      vehiculo.presupuesto = presupuesto;
+      // No pisar autorizado/precioVenta/concepto/etc. si el asesor los cambió
+      // en Presupuesto y Venta mientras refaccionaria tenía Por Surtir abierto.
+      vehiculo.presupuesto = mergePresupuestoArray(
+        vehiculo.presupuesto,
+        presupuesto,
+        CAMPOS_PRESUPUESTO_ASESOR
+      );
     }
 
     // Las refacciones que vinieron de un Servicio de catálogo brincaron la
