@@ -1,7 +1,6 @@
 // src/pages/vehiculo/VehiculoOrdenGeneral.jsx
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { closeOrden } from "../../api/vehiculos";
+import { closeOrden, openVentaClientePdf } from "../../api/vehiculos";
 import http from "../../api/http";
 import { formatFecha } from "../../utils/fechas";
 
@@ -15,7 +14,6 @@ function formatMoney(n) {
 }
 
 export default function VehiculoOrdenGeneral({ orden, onClosed }) {
-  const navigate = useNavigate();
   const [cerrando, setCerrando] = useState(false);
   const [mecMap, setMecMap] = useState({}); // id → nombre del mecánico
 
@@ -50,7 +48,6 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
       const vAct = res.data.vehiculo;
 
       if (onClosed) onClosed(vAct);
-      navigate("/vehiculo/consulta-ordenes");
     } catch (err) {
       console.error(err);
       alert("Error al cerrar la orden.");
@@ -153,15 +150,27 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
       <div className="d-flex justify-content-between align-items-center mb-3">
         <h4 className="mb-0">VISTA GENERAL DE LA ORDEN DE SERVICIO</h4>
 
-        <button
-          type="button"
-          className="btn btn-danger btn-sm"
-          onClick={handleCerrarOrden}
-          disabled={cerrando || yaCerrada || !puedesCerrar}
-          title={!puedesCerrar && !yaCerrada ? "La reparación aún no ha sido completada" : undefined}
-        >
-          {yaCerrada ? "Orden cerrada" : cerrando ? "Cerrando..." : "Cerrar orden"}
-        </button>
+        <div className="d-flex gap-2">
+          {yaCerrada && (
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              onClick={() => openVentaClientePdf(orden._id)}
+            >
+              Imprimir Venta Cliente
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="btn btn-danger btn-sm"
+            onClick={handleCerrarOrden}
+            disabled={cerrando || yaCerrada || !puedesCerrar}
+            title={!puedesCerrar && !yaCerrada ? "La reparación aún no ha sido completada" : undefined}
+          >
+            {yaCerrada ? "Orden cerrada" : cerrando ? "Cerrando..." : "Cerrar orden"}
+          </button>
+        </div>
       </div>
 
       {/* ESTATUS */}

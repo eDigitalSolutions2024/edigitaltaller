@@ -71,7 +71,12 @@ exports.generarPresupuestoPDF = async (res, orden) => {
 
     const ivaRate = (Number(orden.ivaPresupuesto ?? 8) || 0) / 100;
 
-    const items = (orden.presupuesto || []).map((item) => {
+    // Las refacciones incluidas en un Servicio de catálogo (origenServicioCatalogo)
+    // no se imprimen por separado: ya están cubiertas por la línea del servicio
+    // que las agrupa (servicioGrupoId), como si el servicio ya las incluyera.
+    const items = (orden.presupuesto || [])
+      .filter((item) => !item.origenServicioCatalogo)
+      .map((item) => {
       const cant = Number(item.cant || 0);
       const precio = Number(item.precioVenta || 0);
       const subtotal = cant * precio;

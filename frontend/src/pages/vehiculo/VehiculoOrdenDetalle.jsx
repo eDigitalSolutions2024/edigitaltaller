@@ -341,6 +341,7 @@ export default function VehiculoOrdenDetalle() {
           ordenId={orden._id}
           initialData={orden.servicioReparacion}
           existingRefacciones={orden.refaccionesSolicitadas || []}
+          serviciosCatalogoSeleccionados={orden.serviciosCatalogoSeleccionados || []}
           onSaved={handleServicioSaved}
           readOnly={soloLectura}
           sinVehiculo={orden.sinVehiculo}
@@ -404,7 +405,10 @@ export default function VehiculoOrdenDetalle() {
       )}
 
       {tab === "general" && ordenIniciada && (
-        <VehiculoOrdenGeneral orden={orden} />
+        <VehiculoOrdenGeneral
+          orden={orden}
+          onClosed={(vActualizado) => setOrden(vActualizado)}
+        />
       )}
 
       {/* Botón PDF Operativo — visible en tab de datos y servicio */}
