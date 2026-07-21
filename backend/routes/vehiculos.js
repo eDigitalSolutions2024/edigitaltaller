@@ -1118,13 +1118,6 @@ router.get('/:id/operativo-pdf', async (req, res) => {
         .status(404)
         .json({ success: false, message: 'Orden no encontrada' });
     }
-    if (vehiculo.sinVehiculo) {
-      return res.status(400).json({
-        success: false,
-        message: 'El Formato Operativo no aplica para órdenes sin vehículo.',
-      });
-    }
-
     const papel = ['carta', 'oficio', 'a4'].includes(req.query.papel) ? req.query.papel : 'a4';
     // Si la orden pertenece a un grupo, el asesor mostrado en el PDF es quien
     // lo está imprimiendo (el que presiona el botón), no quien creó la orden.
