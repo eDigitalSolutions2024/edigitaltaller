@@ -215,6 +215,27 @@ const vehiculoSchema = new Schema(
     revisionFallas: { type: String, default: "" },
   },
 
+    // ===== Servicios de catálogo seleccionados (snapshot, no referencia viva) =====
+    // Cada entrada es una copia congelada de un ServicioCatalogo al momento en que
+    // el asesor lo seleccionó y envió; cambios posteriores al catálogo no afectan
+    // órdenes ya emitidas. Se llena únicamente desde PUT /:id/omitir-refacciones,
+    // nunca desde PUT /:id/servicio (que reemplaza servicioReparacion completo).
+    serviciosCatalogoSeleccionados: [
+      {
+        servicioId: { type: Schema.Types.ObjectId, ref: 'ServicioCatalogo', default: null },
+        nombre: { type: String, default: "" },
+        refacciones: [
+          {
+            nombre: { type: String, default: "" },
+            obligatoria: { type: Boolean, default: false },
+            incluida: { type: Boolean, default: true },
+            observacion: { type: String, default: "" },
+          },
+        ],
+        fechaSeleccion: { type: Date, default: Date.now },
+      },
+    ],
+
     // indica si la orden ya fue “iniciada” desde Servicio/Reparación
     ordenIniciada: {
       type: Boolean,
@@ -382,6 +403,14 @@ const vehiculoSchema = new Schema(
         horasMO: { type: Number, default: 0 },
         precioVenta: { type: Number, default: 0 },
         observInt: { type: String, default: "" },
+        // Campos de cotización (mismo detalle que refaccionesSolicitadas.opciones),
+        // capturados al completar el detalle de una refacción de Servicio de
+        // catálogo antes de poder surtirla (ver PorSurtir.jsx "Completar").
+        unidad: { type: String, default: "" },
+        moneda: { type: String, default: "MN" },
+        tipoCambio: { type: Number, default: 0 },
+        core: { type: String, default: "" },
+        precioCore: { type: Number, default: 0 },
         estatusCotizacion: {
           type: String,
           enum: [
@@ -410,6 +439,16 @@ const vehiculoSchema = new Schema(
         surtida: { type: Boolean, default: false },     // ← refaccionaria surtió
         // Partida de servicio/mano de obra: no pasa por refaccionaria ni surtido
         esServicio: { type: Boolean, default: false },
+        // Refacción que vino de un Servicio de catálogo (brincó refaccionaria):
+        // Por Surtir exige capturar marca/proveedor/código antes de poder surtirla.
+        origenServicioCatalogo: { type: Boolean, default: false },
+        // Agrupa la fila esServicio de un Servicio de catálogo con las
+        // refacciones que trae incluidas (mismo id = mismo paquete). En la
+        // fila esServicio vale su propio _id; en las refacciones hijas vale
+        // el _id de esa fila padre. Permite mostrarlas colapsadas en
+        // Presupuesto y excluirlas del PDF/Venta al Cliente (solo se ve/factura
+        // el servicio que las agrupa).
+        servicioGrupoId: { type: Schema.Types.ObjectId, default: null },
       },
     ],
 

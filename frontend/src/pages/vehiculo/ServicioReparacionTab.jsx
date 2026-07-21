@@ -1,18 +1,8 @@
 // src/pages/vehiculo/ServicioReparacionTab.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { updateServicioReparacion, saveRequisicionDiagnostico, omitirRefacciones } from "../../api/vehiculos";
-import { fetchServiciosTaller } from "../../api/codigos";
+import { listServiciosCatalogoOptions } from "../../api/serviciosCatalogo";
 import http from "../../api/http";
-
-// Etiquetas legibles por grupo
-const GRUPO_LABELS = {
-  motor: "Mantenimiento del motor",
-  lubricacion: "Lubricación",
-  revision: "Revisión",
-  otros: "Otros servicios",
-};
-
-const GRUPO_ORDER = ["motor", "lubricacion", "revision", "otros"];
 
 const emptyForm = {
   serviciosSeleccionados: [],
@@ -32,7 +22,7 @@ const PDF_SECTIONS = [
   { label: "Sistema de enfriamiento",                textKey: "sistemaEnfriamiento" },
 ];
 
-export default function ServicioReparacionTab({ ordenId, initialData, existingRefacciones = [], onSaved, readOnly = false, sinVehiculo = false }) {
+export default function ServicioReparacionTab({ ordenId, initialData, existingRefacciones = [], serviciosCatalogoSeleccionados = [], onSaved, readOnly = false, sinVehiculo = false }) {
   const [form, setForm] = useState(emptyForm);
   const [activePdf, setActivePdf] = useState({
     fallasMotorOtros: false,
@@ -41,9 +31,13 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
     sistemaEnfriamiento: false,
   });
 
-  // Catálogo de servicios desde BD Códigos
-  const [catalogoServicios, setCatalogoServicios] = useState([]);
-  const [cargandoServicios, setCargandoServicios] = useState(false);
+  // Catálogo de Servicios (paquetes de refacciones) — Refaccionaria → Servicios
+  const [catalogoBundles, setCatalogoBundles] = useState([]);
+  const [cargandoBundles, setCargandoBundles] = useState(false);
+  // Selección de trabajo en esta pestaña: copia local (snapshot) de los bundles
+  // elegidos, editable (excluir opcionales, agregar observación) antes de enviar.
+  const [seleccionBundles, setSeleccionBundles] = useState([]);
+  const [enviandoCatalogo, setEnviandoCatalogo] = useState(false);
 
   // Modal de solicitud de refacciones
   const [showModal, setShowModal] = useState(false);
@@ -91,17 +85,17 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
     }
   }, [initialData]);
 
-  // Cargar catálogo de servicios
+  // Cargar catálogo de Servicios (paquetes de refacciones)
   useEffect(() => {
     const cargar = async () => {
       try {
-        setCargandoServicios(true);
-        const servicios = await fetchServiciosTaller();
-        setCatalogoServicios(servicios);
+        setCargandoBundles(true);
+        const { data } = await listServiciosCatalogoOptions();
+        setCatalogoBundles(data?.data || []);
       } catch (err) {
-        console.error("Error cargando servicios:", err);
+        console.error("Error cargando catálogo de servicios:", err);
       } finally {
-        setCargandoServicios(false);
+        setCargandoBundles(false);
       }
     };
     cargar();
@@ -124,25 +118,82 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
     cargarEmpleados();
   }, []);
 
-  // Agrupar servicios por grupoServicio
-  const serviciosPorGrupo = GRUPO_ORDER.reduce((acc, grupo) => {
-    const items = catalogoServicios.filter(
-      (s) => (s.grupoServicio || "otros") === grupo
-    );
-    if (items.length > 0) acc[grupo] = items;
-    return acc;
-  }, {});
+  // ===== Selección de Servicios de catálogo (paquetes de refacciones) =====
+  const bundleSeleccionado = (servicioId) =>
+    seleccionBundles.find((b) => b.servicioId === servicioId);
 
-  const toggleServicio = (codigo) => {
-    setForm((prev) => {
-      const yaEsta = prev.serviciosSeleccionados.includes(codigo);
-      return {
+  const toggleBundle = (bundle) => {
+    setSeleccionBundles((prev) => {
+      const yaEsta = prev.some((b) => b.servicioId === bundle._id);
+      if (yaEsta) {
+        return prev.filter((b) => b.servicioId !== bundle._id);
+      }
+      // Snapshot local: copia independiente del catálogo, editable sin afectarlo.
+      return [
         ...prev,
-        serviciosSeleccionados: yaEsta
-          ? prev.serviciosSeleccionados.filter((c) => c !== codigo)
-          : [...prev.serviciosSeleccionados, codigo],
-      };
+        {
+          servicioId: bundle._id,
+          nombre: bundle.nombre,
+          refacciones: (bundle.refacciones || []).map((r) => ({
+            nombre: r.nombre,
+            obligatoria: !!r.obligatoria,
+            incluida: true,
+            observacion: "",
+          })),
+        },
+      ];
     });
+  };
+
+  const toggleRefaccionIncluida = (servicioId, refIdx) => {
+    setSeleccionBundles((prev) =>
+      prev.map((b) => {
+        if (b.servicioId !== servicioId) return b;
+        return {
+          ...b,
+          refacciones: b.refacciones.map((r, i) =>
+            i === refIdx && !r.obligatoria ? { ...r, incluida: !r.incluida } : r
+          ),
+        };
+      })
+    );
+  };
+
+  const cambiarObservacionRefaccion = (servicioId, refIdx, value) => {
+    setSeleccionBundles((prev) =>
+      prev.map((b) => {
+        if (b.servicioId !== servicioId) return b;
+        return {
+          ...b,
+          refacciones: b.refacciones.map((r, i) =>
+            i === refIdx ? { ...r, observacion: value } : r
+          ),
+        };
+      })
+    );
+  };
+
+  const handleEnviarServiciosCatalogo = async () => {
+    if (!ordenId || seleccionBundles.length === 0) return;
+    try {
+      setEnviandoCatalogo(true);
+      await updateServicioReparacion(ordenId, form);
+      const res = await omitirRefacciones(ordenId, { serviciosCatalogo: seleccionBundles });
+
+      alert(
+        "Servicios registrados. La orden continúa directo a presupuesto sin pasar por refaccionaria."
+      );
+      setSeleccionBundles([]);
+
+      if (onSaved && res?.data?.vehiculo) {
+        onSaved(res.data.vehiculo);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error al enviar los servicios seleccionados.");
+    } finally {
+      setEnviandoCatalogo(false);
+    }
   };
 
   // ===== Auto-guardado =====
@@ -349,71 +400,132 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
 
           <div className="card-body">
 
-            {/* ===== SERVICIOS DESDE BD CÓDIGOS ===== */}
+            {/* ===== SERVICIOS (paquetes de refacciones) ===== */}
             {!sinVehiculo && (
             <>
             <div className="mb-4">
               <h6 className="fw-bold text-uppercase mb-3 border-bottom pb-2">
-                Servicios realizados
+                Servicios
               </h6>
 
-              {cargandoServicios && (
-                <p className="text-muted">Cargando servicios...</p>
-              )}
-
-              {!cargandoServicios && catalogoServicios.length === 0 && (
-                <div className="alert alert-warning py-2">
-                  No hay servicios dados de alta en BD de Códigos. Da de alta
-                  servicios en el módulo <strong>Refaccionaria → BD Códigos</strong>.
+              {serviciosCatalogoSeleccionados.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-muted small fw-semibold text-uppercase mb-2">
+                    Servicios ya enviados a presupuesto
+                  </p>
+                  {serviciosCatalogoSeleccionados.map((s, idx) => (
+                    <div key={idx} className="border rounded p-2 mb-2 bg-light text-muted">
+                      <div className="text-decoration-line-through fw-semibold">{s.nombre}</div>
+                      <ul className="mb-0 ps-3">
+                        {(s.refacciones || []).filter((r) => r.incluida !== false).map((r, i) => (
+                          <li key={i} className="text-decoration-line-through small">
+                            {r.nombre}
+                            {r.observacion ? ` — ${r.observacion}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
                 </div>
               )}
 
-              {!cargandoServicios &&
-                Object.entries(serviciosPorGrupo).map(([grupo, items]) => (
-                  <div key={grupo} className="mb-3">
-                    <p className="text-muted small fw-semibold text-uppercase mb-2">
-                      {GRUPO_LABELS[grupo] || grupo}
-                    </p>
-                    <div className="d-flex flex-wrap gap-2">
-                      {items.map((srv) => {
-                        const activo = form.serviciosSeleccionados.includes(srv.codigo);
-                        return (
-                          <button
-                            key={srv._id || srv.codigo}
-                            type="button"
-                            onClick={() => !readOnly && toggleServicio(srv.codigo)}
-                            disabled={readOnly}
-                            className={
-                              "btn btn-sm " +
-                              (activo
-                                ? "btn-primary"
-                                : "btn-outline-secondary")
-                            }
-                            title={srv.descripcion}
-                          >
-                            <span>{srv.descripcion || srv.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+              {cargandoBundles && (
+                <p className="text-muted">Cargando servicios...</p>
+              )}
 
-              {/* Resumen de seleccionados */}
-              {form.serviciosSeleccionados.length > 0 && (
-                <div className="mt-2 p-2 bg-light rounded border">
-                  <small className="text-muted fw-semibold">
-                    Seleccionados:{" "}
-                  </small>
-                  {form.serviciosSeleccionados.map((codigo) => {
-                    const srv = catalogoServicios.find((s) => s.codigo === codigo);
+              {/* {!cargandoBundles && catalogoBundles.length === 0 && (
+                <div className="alert alert-warning py-2">
+                  No hay servicios dados de alta en el catálogo. Da de alta
+                  servicios en el módulo <strong>Refaccionaria → Servicios</strong> (solo admins).
+                </div>
+              )} */}
+
+              {!cargandoBundles && catalogoBundles.length > 0 && (
+                <div className="d-flex flex-wrap gap-2">
+                  {catalogoBundles.map((bundle) => {
+                    const seleccion = bundleSeleccionado(bundle._id);
+                    const activo = !!seleccion;
                     return (
-                      <span key={codigo} className="badge bg-primary me-1">
-                        {codigo}
-                        {srv ? ` - ${srv.descripcion}` : ""}
-                      </span>
+                      <div
+                        key={bundle._id}
+                        role="button"
+                        onClick={() => !readOnly && toggleBundle(bundle)}
+                        className={
+                          "border rounded p-2 " +
+                          (activo ? "border-success bg-success-subtle" : "border-secondary")
+                        }
+                        style={{ cursor: readOnly ? "default" : "pointer", minWidth: 180 }}
+                      >
+                        <div className="fw-semibold">{bundle.nombre}</div>
+                        <small className="text-muted">
+                          {(bundle.refacciones || []).length} refacción(es)
+                        </small>
+                      </div>
                     );
                   })}
+                </div>
+              )}
+
+              {/* Detalle de refacciones de los servicios seleccionados */}
+              {seleccionBundles.map((b) => (
+                <div key={b.servicioId} className="border rounded p-3 mt-3">
+                  <div className="fw-bold mb-2">{b.nombre}</div>
+                  <table className="table table-sm table-bordered align-middle mb-0">
+                    <thead className="table-light">
+                      <tr>
+                        <th>Refacción</th>
+                        <th style={{ width: 110 }} className="text-center">Incluir</th>
+                        <th>Observación</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {b.refacciones.map((r, idx) => (
+                        <tr key={idx}>
+                          <td>
+                            {r.nombre}{" "}
+                            {r.obligatoria && (
+                              <span className="badge bg-primary ms-1">Obligatoria</span>
+                            )}
+                          </td>
+                          <td className="text-center">
+                            <input
+                              type="checkbox"
+                              checked={r.incluida}
+                              disabled={r.obligatoria || readOnly}
+                              onChange={() => toggleRefaccionIncluida(b.servicioId, idx)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              className="form-control form-control-sm"
+                              placeholder="Observación opcional..."
+                              value={r.observacion}
+                              disabled={readOnly}
+                              onChange={(e) =>
+                                cambiarObservacionRefaccion(b.servicioId, idx, e.target.value)
+                              }
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+
+              {!readOnly && seleccionBundles.length > 0 && (
+                <div className="d-flex justify-content-end mt-3">
+                  <button
+                    type="button"
+                    className="btn btn-success px-4"
+                    onClick={handleEnviarServiciosCatalogo}
+                    disabled={enviandoCatalogo}
+                  >
+                    {enviandoCatalogo
+                      ? "Enviando..."
+                      : "Enviar servicios seleccionados a presupuesto →"}
+                  </button>
                 </div>
               )}
             </div>

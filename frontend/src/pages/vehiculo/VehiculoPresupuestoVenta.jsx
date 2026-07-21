@@ -35,6 +35,9 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
   // ===== PRESUPUESTO =====
   const [presRows, setPresRows] = useState([]);
+  // Filas de refacciones incluidas en un Servicio de catálogo, colapsadas bajo
+  // su fila esServicio (mismo servicioGrupoId); se expanden solo para consulta.
+  const [expandedGroups, setExpandedGroups] = useState({});
   const [newPresLine, setNewPresLine] = useState({
     cant: "",
     concepto: "",
@@ -291,16 +294,39 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     });
   };
 
+  // Una fila esServicio que agrupa refacciones de un Servicio de catálogo se
+  // referencia a sí misma en servicioGrupoId (ver backend omitir-refacciones).
+  const esGrupoPadre = (r) =>
+    !!r.esServicio && !!r.servicioGrupoId && String(r.servicioGrupoId) === String(r._id);
+
+  const esHijoDeGrupo = (r) => !!r.origenServicioCatalogo && !!r.servicioGrupoId;
+
   const toggleAutorizado = (idx) => {
-    setPresRows((prev) =>
-      prev.map((r, i) =>
-        i === idx ? { ...r, autorizado: !r.autorizado } : r
-      )
-    );
+    setPresRows((prev) => {
+      const row = prev[idx];
+      const nuevoValor = !row.autorizado;
+      const esPadre = esGrupoPadre(row);
+      return prev.map((r, i) => {
+        if (i === idx) return { ...r, autorizado: nuevoValor };
+        if (esPadre && esHijoDeGrupo(r) && String(r.servicioGrupoId) === String(row.servicioGrupoId)) {
+          return { ...r, autorizado: nuevoValor };
+        }
+        return r;
+      });
+    });
   };
 
   const removePresRow = (idx) =>
-    setPresRows((prev) => prev.filter((_, i) => i !== idx));
+    setPresRows((prev) => {
+      const row = prev[idx];
+      if (!esGrupoPadre(row)) return prev.filter((_, i) => i !== idx);
+      // Borrar el servicio borra también las refacciones que agrupa.
+      return prev.filter((r, i) => {
+        if (i === idx) return false;
+        if (esHijoDeGrupo(r) && String(r.servicioGrupoId) === String(row.servicioGrupoId)) return false;
+        return true;
+      });
+    });
 
   const addManualPresRow = () => {
     if (!newPresLine.concepto.trim()) {
@@ -342,8 +368,12 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       return;
     }
 
+    // Las refacciones de un Servicio de catálogo no se facturan por separado:
+    // ya están incluidas en la línea del servicio que las agrupa.
+    const autorizadasParaVenta = autorizadas.filter((r) => !esHijoDeGrupo(r));
+
     const nuevasVentas = ensureGruaEnVenta(
-      autorizadas.map((r) => ({
+      autorizadasParaVenta.map((r) => ({
         cant: r.cant,
         concepto: r.concepto || r.refaccion || "",
         // El precio de la refacción se pasa como Precio Venta (Sin IVA)
@@ -379,24 +409,24 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       if (inv) {
         if (inv.pendientesSurtir === 0 && inv.autoSurtidas > 0) {
           alert(
-            `${autorizadas.length} partida(s) enviada(s) a Venta al Cliente.\n` +
+            `${autorizadasParaVenta.length} partida(s) enviada(s) a Venta al Cliente.\n` +
             `✅ ${inv.autoSurtidas} partida(s) cubiertas desde inventario. La orden avanzó a Reparación en Curso.`
           );
         } else if (inv.pendientesSurtir === 0) {
           alert(
-            `${autorizadas.length} partida(s) enviada(s) a Venta al Cliente.\n` +
+            `${autorizadasParaVenta.length} partida(s) enviada(s) a Venta al Cliente.\n` +
             `✅ Sin refacciones pendientes de surtir. La orden avanzó a Reparación en Curso.`
           );
         } else if (inv.autoSurtidas > 0) {
           alert(
-            `${autorizadas.length} partida(s) enviada(s) a Venta al Cliente.\n` +
+            `${autorizadasParaVenta.length} partida(s) enviada(s) a Venta al Cliente.\n` +
             `✅ ${inv.autoSurtidas} cubiertas desde inventario. ⏳ ${inv.pendientesSurtir} pendiente(s) de surtir manualmente.`
           );
         } else {
-          alert(`${autorizadas.length} partida(s) enviada(s) a Venta al Cliente. Pendientes de surtir.`);
+          alert(`${autorizadasParaVenta.length} partida(s) enviada(s) a Venta al Cliente. Pendientes de surtir.`);
         }
       } else {
-        alert(`${autorizadas.length} partida(s) enviada(s) a Venta al Cliente.`);
+        alert(`${autorizadasParaVenta.length} partida(s) enviada(s) a Venta al Cliente.`);
       }
     } catch (err) {
       console.error(err);
@@ -600,7 +630,6 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         buildPayload({ estadoOrden: "CANCELADA" })
       );
       if (onSaved) onSaved(res.data.vehiculo);
-      navigate("/vehiculo/consulta-ordenes");
     } catch (err) {
       console.error(err);
       alert("Error al cancelar la orden.");
@@ -680,8 +709,26 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                 </tr>
               )}
 
-              {presRows.map((r, idx) => (
-                <tr key={idx} className={r.autorizado ? "table-success" : ""}>
+              {presRows.map((r, idx) => {
+                // Las refacciones incluidas en un Servicio de catálogo se
+                // muestran colapsadas bajo su fila esServicio, no como filas
+                // sueltas (ver "Ver refacciones" más abajo).
+                if (esHijoDeGrupo(r)) return null;
+
+                const grupoId = esGrupoPadre(r) ? String(r.servicioGrupoId) : null;
+                const hijos = grupoId
+                  ? presRows
+                      .map((row, i) => ({ row, i }))
+                      .filter(
+                        ({ row }) =>
+                          esHijoDeGrupo(row) && String(row.servicioGrupoId) === grupoId
+                      )
+                  : [];
+                const expandido = grupoId ? !!expandedGroups[grupoId] : false;
+
+                return (
+                <React.Fragment key={idx}>
+                <tr className={r.autorizado ? "table-success" : ""}>
                   {/* Checkbox autorizado */}
                   <td className="text-center">
                     <input
@@ -705,16 +752,34 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                   </td>
                   <td>
                     {r.esServicio ? (
-                      <span className="badge bg-info text-dark">SERVICIO</span>
+                      <>
+                        <span className="badge bg-info text-dark">SERVICIO</span>
+                        {hijos.length > 0 && (
+                          <button
+                            type="button"
+                            className="btn btn-link btn-sm p-0 ms-2"
+                            onClick={() =>
+                              setExpandedGroups((prev) => ({
+                                ...prev,
+                                [grupoId]: !prev[grupoId],
+                              }))
+                            }
+                          >
+                            {expandido
+                              ? "▲ Ocultar refacciones"
+                              : `▼ Ver refacciones (${hijos.length})`}
+                          </button>
+                        )}
+                      </>
                     ) : (
                       r.refaccion
                     )}
                   </td>
                   <td className="text-center">{r.tipo}</td>
                   <td>{r.marca}</td>
-                  <td>{r.codigo}</td>        
-                  <td>{r.proveedor}</td>     
-                  <td>{r.tiempoEntrega}</td> 
+                  <td>{r.codigo}</td>
+                  <td>{r.proveedor}</td>
+                  <td>{r.tiempoEntrega}</td>
                   <td className="text-end">{formatMoney(r.precioCompra)}</td>
                   <td className="text-center">{r.moneda || "MN"}</td>
                   <td className="text-end">
@@ -768,7 +833,31 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                     </td>
                   )}
                 </tr>
-              ))}
+
+                {grupoId && expandido && hijos.map(({ row: hijo, i: hijoIdx }) => (
+                  <tr key={hijoIdx} className="table-light">
+                    <td></td>
+                    <td className="text-center text-muted">
+                      <small>{hijo.cant}</small>
+                    </td>
+                    <td colSpan={2} className="text-muted">
+                      <small>
+                        ↳ {hijo.concepto || hijo.refaccion}
+                        {hijo.obligatoria === false && (
+                          <span className="badge bg-secondary ms-1">Opcional</span>
+                        )}
+                      </small>
+                    </td>
+                    <td colSpan={11}></td>
+                    <td className="text-muted">
+                      <small>{hijo.observInt}</small>
+                    </td>
+                    <td></td>
+                  </tr>
+                ))}
+                </React.Fragment>
+                );
+              })}
 
               {/* Fila de captura manual */}
               {!readOnly && <tr className="table-info">
@@ -1286,17 +1375,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
           </table>
         </div>
 
-        {/* Botones Venta al Cliente */}
-        <div className="d-flex justify-content-end gap-2 mb-4">
-          <button
-            type="button"
-            className="btn btn-danger btn-sm"
-            onClick={handleImprimirVentaCliente}
-            disabled={ventaRows.length === 0}
-          >
-            Imprimir Venta Cliente
-          </button>
-        </div>
+        {/* Botón "Imprimir Venta Cliente" oculto temporalmente:
+            ahora se imprime desde la pestaña General al cerrar la orden. */}
 
         {/* ===== MANO DE OBRA (solo lectura) ===== */}
         <h5 className="text-center mb-2 fw-bold">MANO DE OBRA</h5>

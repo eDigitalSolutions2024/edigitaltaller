@@ -22,6 +22,7 @@ import SalidaRefaccion from "./pages/refaccionaria/SalidaRefaccion";
 import ConsultarInventario from "./pages/refaccionaria/ConsultarInventario";
 import ConsultarFacturaProveedor from "./pages/refaccionaria/ConsultarFacturaProveedor.jsx";
 import BDCodigos from "./pages/refaccionaria/BDCodigos";
+import ServiciosCatalogo from "./pages/refaccionaria/ServiciosCatalogo";
 import SolicitudesTaller from "./pages/refaccionaria/SolicitudesTaller";
 import SolicitudTallerDetalle from "./pages/refaccionaria/SolicitudTallerDetalle";
 import PorSurtir from "./pages/refaccionaria/PorSurtir";
@@ -248,6 +249,12 @@ export default function App() {
             <Route path="consultar" element={<ConsultarInventario />} />
             <Route path="factura-proveedor" element={<ConsultarFacturaProveedor />} />
             <Route path="bd-codigos" element={<BDCodigos />} />
+            {/* Catálogo de paquetes de servicio (servicio + refacciones necesarias),
+                distinto de BD Códigos → tipo "servicio" (SAT/facturación). Solo admin. */}
+            <Route
+              path="servicios"
+              element={<RolesRoute roles={['admin']}><ServiciosCatalogo /></RolesRoute>}
+            />
           </Route>
 
           {/* Empleados (mantener por compatibilidad, redirige a personal) */}

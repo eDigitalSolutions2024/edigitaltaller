@@ -49,6 +49,7 @@ app.use('/api/inventario', require('./routes/inventario'));
 
 // MONTA LAS RUTAS
 app.use('/api/codigos', require('./routes/codigos'));  // <— IMPORTANTE
+app.use('/api/servicios-catalogo', require('./routes/serviciosCatalogo'));
 
 app.use('/api/salidas', require('./routes/salidas'));
 

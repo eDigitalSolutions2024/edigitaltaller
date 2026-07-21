@@ -561,7 +561,7 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
 // PENDIENTE_AUTORIZACION_CLIENTE sin pasar por refaccionaria.
 router.put('/:id/omitir-refacciones', async (req, res) => {
   try {
-    const { servicios, manoObra } = req.body;
+    const { servicios, manoObra, serviciosCatalogo } = req.body;
 
     const validos = (Array.isArray(servicios) ? servicios : [])
       .map((s) => ({
@@ -570,10 +570,32 @@ router.put('/:id/omitir-refacciones', async (req, res) => {
       }))
       .filter((s) => s.concepto);
 
-    if (validos.length === 0) {
+    // Servicios de catálogo: cada uno trae su propio bundle de refacciones
+    // (obligatorias/opcionales), ya resuelto/editado por el asesor en la orden.
+    const catalogoValidos = (Array.isArray(serviciosCatalogo) ? serviciosCatalogo : [])
+      .map((s) => ({
+        servicioId: s.servicioId || null,
+        nombre: String(s.nombre || '').trim(),
+        refacciones: (Array.isArray(s.refacciones) ? s.refacciones : [])
+          .map((r) => {
+            const obligatoria = !!r.obligatoria;
+            return {
+              nombre: String(r.nombre || '').trim(),
+              obligatoria,
+              // una refacción obligatoria nunca puede llegar excluida, sin
+              // confiar únicamente en lo que mande el frontend
+              incluida: obligatoria ? true : !!r.incluida,
+              observacion: String(r.observacion || '').trim(),
+            };
+          })
+          .filter((r) => r.nombre),
+      }))
+      .filter((s) => s.nombre);
+
+    if (validos.length === 0 && catalogoValidos.length === 0) {
       return res.status(400).json({
         ok: false,
-        msg: 'Captura al menos un servicio a realizar.',
+        msg: 'Captura al menos un servicio a realizar o selecciona un servicio del catálogo.',
       });
     }
 
@@ -604,6 +626,65 @@ router.put('/:id/omitir-refacciones', async (req, res) => {
         precioCompra: 0,
         precioVenta: 0,
         autorizado: false,
+      });
+    }
+
+    // Servicios de catálogo: 1 renglón esServicio (mano de obra) + 1 renglón
+    // por cada refacción incluida (necesita surtido normal), más el snapshot
+    // para trazabilidad/PDF operativo.
+    for (const bundle of catalogoValidos) {
+      vehiculo.presupuesto.push({
+        cant: 1,
+        concepto: bundle.nombre,
+        esServicio: true,
+        precioCompra: 0,
+        precioVenta: 0,
+        autorizado: false,
+      });
+      // La fila esServicio agrupa sus refacciones: se referencia a sí misma
+      // para que el frontend pueda encontrar el grupo a partir de cualquiera
+      // de sus filas (padre o hijas) con el mismo servicioGrupoId.
+      const servicioRow = vehiculo.presupuesto[vehiculo.presupuesto.length - 1];
+      servicioRow.servicioGrupoId = servicioRow._id;
+
+      const refaccionesSnapshot = [];
+      for (const r of bundle.refacciones) {
+        if (!r.incluida) {
+          refaccionesSnapshot.push({
+            nombre: r.nombre,
+            obligatoria: r.obligatoria,
+            incluida: false,
+            observacion: r.observacion,
+          });
+          continue;
+        }
+
+        vehiculo.presupuesto.push({
+          cant: 1,
+          concepto: r.nombre,
+          refaccion: r.nombre,
+          esServicio: false,
+          origenServicioCatalogo: true,
+          servicioGrupoId: servicioRow._id,
+          observInt: r.observacion,
+          precioCompra: 0,
+          precioVenta: 0,
+          autorizado: false,
+        });
+
+        refaccionesSnapshot.push({
+          nombre: r.nombre,
+          obligatoria: r.obligatoria,
+          incluida: true,
+          observacion: r.observacion,
+        });
+      }
+
+      vehiculo.serviciosCatalogoSeleccionados.push({
+        servicioId: bundle.servicioId,
+        nombre: bundle.nombre,
+        refacciones: refaccionesSnapshot,
+        fechaSeleccion: new Date(),
       });
     }
 
@@ -1339,6 +1420,24 @@ router.put('/:id/surtir', proteger, async (req, res) => {
 
     if (Array.isArray(presupuesto)) {
       vehiculo.presupuesto = presupuesto;
+    }
+
+    // Las refacciones que vinieron de un Servicio de catálogo brincaron la
+    // cotización de refaccionaria, así que no tienen marca/proveedor/precio
+    // capturados de antemano (el código, igual que en esa cotización, es
+    // opcional). No se pueden marcar como surtidas sin antes completar ese
+    // detalle (ver PorSurtir.jsx "Completar").
+    const faltaDetalle = (vehiculo.presupuesto || []).find(
+      (p) =>
+        p.surtida &&
+        p.origenServicioCatalogo &&
+        (!p.marca || !p.proveedor || !(Number(p.precioCompra) > 0))
+    );
+    if (faltaDetalle) {
+      return res.status(400).json({
+        ok: false,
+        msg: 'Completa marca, proveedor y precio unitario antes de marcar esa partida como surtida.',
+      });
     }
 
     // Líneas recién surtidas que tienen código → crear SalidaInventario

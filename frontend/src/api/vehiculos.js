@@ -29,8 +29,10 @@ export const saveRequisicionDiagnostico = (id, payload) =>
 
 // Continuar sin refacciones: los servicios capturados entran al presupuesto
 // (y la mano de obra opcional a manoObra); la orden no pasa por refaccionaria.
-export const omitirRefacciones = (id, { servicios, manoObra = [] }) =>
-  http.put(`/vehiculos/${id}/omitir-refacciones`, { servicios, manoObra });
+// serviciosCatalogo: bundles seleccionados del catálogo de Servicios (con sus
+// refacciones incluidas/excluidas y observaciones), también saltan refaccionaria.
+export const omitirRefacciones = (id, { servicios = [], manoObra = [], serviciosCatalogo = [] }) =>
+  http.put(`/vehiculos/${id}/omitir-refacciones`, { servicios, manoObra, serviciosCatalogo });
 
 
 

@@ -271,12 +271,30 @@ function buildHtml(vehiculo, asesorOverride = '') {
   const es4x4 = vehiculo.traccion === '4x4';
   const es4x2 = vehiculo.traccion === '4x2';
 
-  const lineasReparacion = Array.from({ length: 12 }, (_, i) => `
+  // Servicios de catálogo seleccionados: se muestran tachados para indicar que
+  // ya se movieron a presupuesto/venta y no deben repetirse en el taller.
+  const snapshotLineas = [];
+  for (const bundle of (vehiculo.serviciosCatalogoSeleccionados || [])) {
+    snapshotLineas.push(bundle.nombre);
+    for (const r of (bundle.refacciones || [])) {
+      if (r.incluida === false) continue;
+      snapshotLineas.push(r.observacion ? `${r.nombre} — ${r.observacion}` : r.nombre);
+    }
+  }
+
+  const totalLineasReparacion = Math.max(12, snapshotLineas.length);
+  const lineasReparacion = Array.from({ length: totalLineasReparacion }, (_, i) => {
+    const texto = snapshotLineas[i];
+    const contenido = texto
+      ? `<span style="text-decoration:line-through;color:#666;">${esc(texto)}</span>`
+      : '&nbsp;';
+    return `
     <tr>
       <td style="width:20px;padding:2px 3px;border:none;">${i + 1}.-</td>
-      <td style="border:none;border-bottom:0.7px solid #bbb;height:22px;padding:2px 4px;">&nbsp;</td>
+      <td style="border:none;border-bottom:0.7px solid #bbb;height:22px;padding:2px 4px;">${contenido}</td>
       <td style="width:40px;border:none;border-bottom:0.7px solid #bbb;text-align:right;padding:2px 3px;color:#555;">hrs</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   const sinVehiculo = !!vehiculo.sinVehiculo;
 
