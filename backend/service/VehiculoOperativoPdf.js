@@ -110,6 +110,9 @@ function buildPaginaResumen(vehiculo, fechaRecepcion) {
   const anio  = esc(vehiculo.anio  || '');
   const color = esc(vehiculo.color || '');
   const orden = esc(vehiculo.ordenServicio || '');
+  const sinVehiculo = !!vehiculo.sinVehiculo;
+  const totalCols = sinVehiculo ? 3 : 6;
+  const pieColspan = sinVehiculo ? 1 : 2;
 
   return `
 <!-- ==================== PÁGINA 3: RESUMEN VEHÍCULO ==================== -->
@@ -121,29 +124,31 @@ function buildPaginaResumen(vehiculo, fechaRecepcion) {
           ? `<img src="${LOGO_DATA_URL}" style="max-height:54px;max-width:170px;object-fit:contain;"/>`
           : `<span style="font-size:14px;font-weight:800;color:#1E40AF;">Servicompactos</span>`}
       </td>
+      ${sinVehiculo ? '' : `
       <td style="border:1.5px solid #000;padding:3px 5px;font-weight:bold;text-align:center;font-size:9px;">VEHÍCULO/MARCA</td>
       <td style="border:1.5px solid #000;padding:3px 5px;font-weight:bold;text-align:center;font-size:9px;">AÑO</td>
-      <td style="border:1.5px solid #000;padding:3px 5px;font-weight:bold;text-align:center;font-size:9px;">COLOR</td>
+      <td style="border:1.5px solid #000;padding:3px 5px;font-weight:bold;text-align:center;font-size:9px;">COLOR</td>`}
       <td style="border:1.5px solid #000;padding:3px 5px;font-weight:bold;text-align:center;font-size:9px;">FECHA DE INGRESO</td>
       <td style="border:1.5px solid #000;padding:3px 5px;font-weight:bold;text-align:center;font-size:13px;color:#E07B00;">ORDEN No.</td>
     </tr>
     <tr>
+      ${sinVehiculo ? '' : `
       <td style="border:1.5px solid #000;padding:3px 5px;font-size:9px;text-align:center;">${marca}</td>
       <td style="border:1.5px solid #000;padding:3px 5px;font-size:9px;text-align:center;">${anio}</td>
-      <td style="border:1.5px solid #000;padding:3px 5px;font-size:9px;text-align:center;">${color}</td>
+      <td style="border:1.5px solid #000;padding:3px 5px;font-size:9px;text-align:center;">${color}</td>`}
       <td style="border:1.5px solid #000;padding:3px 5px;font-size:9px;text-align:center;">${fechaRecepcion}</td>
       <td style="border:1.5px solid #000;padding:3px 5px;font-size:18px;text-align:center;font-weight:bold;color:#E07B00;">O-${orden}</td>
     </tr>
     <tr>
-      <td colspan="6" style="border:1.5px solid #000;padding:4px 8px;font-size:8px;font-weight:bold;text-align:center;line-height:1.4;">
+      <td colspan="${totalCols}" style="border:1.5px solid #000;padding:4px 8px;font-size:8px;font-weight:bold;text-align:center;line-height:1.4;">
         UNA VEZ CONCLUIDA LA REPARACIÓN DE SU VEHÍCULO, DEBERÁ SER RECOGIDO DENTRO DE LAS SIGUIENTES 24 HORAS.
         DESPUÉS DE ESE PLAZO, SE GENERARÁ UN CARGO POR RESGUARDO DE $260.00 PESOS POR DIA
       </td>
     </tr>
     <tr>
-      <td colspan="2" style="border:1.5px solid #000;padding:4px 6px;font-size:9px;font-weight:bold;background:#1E40AF;color:#fff;">Su...Asesor con espíritu de Servicio</td>
-      <td colspan="2" style="border:1.5px solid #000;padding:4px 6px;font-size:9px;font-weight:bold;background:#1E40AF;color:#fff;text-align:center;">CELULAR</td>
-      <td colspan="2" style="border:1.5px solid #000;padding:4px 6px;font-size:9px;font-weight:bold;background:#1E40AF;color:#fff;text-align:right;">Tels: (656) 6 23 56 51 al 54</td>
+      <td colspan="${pieColspan}" style="border:1.5px solid #000;padding:4px 6px;font-size:9px;font-weight:bold;background:#1E40AF;color:#fff;">Su...Asesor con espíritu de Servicio</td>
+      <td colspan="${pieColspan}" style="border:1.5px solid #000;padding:4px 6px;font-size:9px;font-weight:bold;background:#1E40AF;color:#fff;text-align:center;">CELULAR</td>
+      <td colspan="${pieColspan}" style="border:1.5px solid #000;padding:4px 6px;font-size:9px;font-weight:bold;background:#1E40AF;color:#fff;text-align:right;">Tels: (656) 6 23 56 51 al 54</td>
     </tr>
   </table>
 </div>
@@ -272,6 +277,72 @@ function buildHtml(vehiculo, asesorOverride = '') {
       <td style="border:none;border-bottom:0.7px solid #bbb;height:22px;padding:2px 4px;">&nbsp;</td>
       <td style="width:40px;border:none;border-bottom:0.7px solid #bbb;text-align:right;padding:2px 3px;color:#555;">hrs</td>
     </tr>`).join('');
+
+  const sinVehiculo = !!vehiculo.sinVehiculo;
+
+  const condicionesConceptoHtml = `
+  <table style="height:200mm;">
+    <tr style="vertical-align:top;">
+
+      <td class="condiciones-s"style="width:44%;padding:8px 10px;vertical-align:top;">
+        <div style="font-weight:bold;text-align:center;font-size:11px;margin-bottom:8px;border-bottom:1px solid #000;padding-bottom:4px;">
+          CONDICIONES DE SERVICIO
+        </div>
+        <p>
+          ACEPTO QUE EN CASO DE REQUERIR COMBUSTIBLE PARA PRUEBA Y REACONDICIONAMIENTO
+          DE MI VEHÍCULO SEA CARGADO A MI CUENTA EN TODA OCASIÓN.
+        </p>
+        <p >
+          IMPORTANTE: ACEPTO QUE SERVICOMPACTOS DE JUÁREZ S.A. DE C.V Y/O SUS REPRESENTANTES NO SE HACEN RESPONSABLES POR OBJETOS DE VALOR OLVIDADOS O NO DEPOSITADOS EN LA RECEPCIÓN O LA CAJA, CON RECIBO, POR  ESCRITO, ASI COMO TAMPOCO SE RESPONSABILIZAN POR ROBO, INCENDIO, UNIDADES SIN ANTICONGELANTE O CUALQUIER OTRO SUSESO EXTRAÑO QUE AFECTE MIS INTERESES Y QUE ESTE FUERA DEL CONTROL DE LA EMPRESA, Y SUS REPRESENTANTES Y/O QUE NO SEA IMPUTABLE A LOS MISMOS.
+        </p>
+        <p >
+          DECLARO: QUE SOY EL PROPIETARIO Y/O SOY REPRESENTANTE Y AUTORIZO LAS REPARACIONES O SERVICIOS DESCRITOS EN LA PRESENTE ORDEN, ASÍ COMO EL USO DE REFACCIONES, ACCESORIOS, LUBRICANTES Y OTROS MATERIALES NECESARIOS PARA LLEVAR A CABO LA REPARACIÓN O SERVICIO SOLICITADO MISMO QUE ACEPTO LIQUIDAR ANTES O EN EL MOMENTO QUE ME SEA ENTREGADO MI VEHÍCULO.
+        </p>
+        <p >
+          ASÍ COMO QUE SE ME GARANTICEN LAS REFACCIONES POR NOVENTA DÍAS O MIL QUINIENTOS KMS. LO QUE PRIMERO OCURRA EN CONDICIONES DE USO NORMAL, EXCEPTO EN PARTES ELÉCTRICAS USADAS Y/O SURTIDAS POR EL MISMO.
+        </p>
+        <p >
+          SI NO AUTORIZO LA REPARACIÓN Y/O ABANDONO DE MI VEHICULO POR CUALQUIER CIRCUNSTANCIA, EL TALLER PODRA APLICAR LA CONDICIÓN No. 9 DEL CONTRATO DE PRESTACIÓN DE SERVICIOS, EL CUAL PONDRA EL VEHICULO A DISPOSICIÓN LA AUTORIDAD CORRESPONDIENTE, SIN RESPONSABILIDAD ALGUNA PARA SERVICOMPACTOS DE JUÁREZ, S.A DE C.V.
+        </p>
+        <p>
+          ESTOY DEACUERDO QUE UNA VEZ NOTIFICADO POR EL ASESOR DE SERVICIO QUE MI VEHICULO YA ESTA TERMINADO, DEBO RECOGERLO EN UN LAPSO NO MAYOR DE 24 HRS, DE LO CONTRARIO PAGARE UN HOSPEDAJE DE DOSCIENTOS SESENTA PESOS DIARIOS
+        </p>
+
+        <div style="margin-top:60px;font-size:10px;">
+          <div style="border-top:1.5px solid #000;margin-bottom:6px;"></div>
+          <div style="text-align:center;font-weight:bold;font-size:9px;line-height:1.4;">
+            AUTORIZACIÓN Y FIRMA DEL CLIENTE Y/O SUS REPRESENTANTES
+          </div>
+        </div>
+      </td>
+
+      <td style="width:56%;padding:8px 10px;vertical-align:top;border-left:0.7px solid #000;">
+        <div style="font-weight:bold;text-align:center;font-size:11px;margin-bottom:8px;border-bottom:1px solid #000;padding-bottom:4px;">
+          CONCEPTO DE LAS REPARACIONES EFECTUADAS
+        </div>
+        <table style="width:100%;font-size:10px;border-collapse:collapse;">
+          <tr>
+            <td style="width:20px;border:none;padding:2px 3px;font-weight:bold;">#</td>
+            <td style="border:none;border-bottom:1px solid #000;padding:3px 4px;font-weight:bold;">DESCRIPCIÓN</td>
+            <td style="width:42px;border:none;border-bottom:1px solid #000;text-align:right;padding:3px 4px;font-weight:bold;">HRS</td>
+          </tr>
+          ${lineasReparacion}
+          <tr>
+            <td colspan="2" style="border:none;border-top:1px solid #000;text-align:right;padding:4px 6px;font-weight:bold;font-size:10px;">TOTAL:</td>
+            <td style="border:none;border-top:1px solid #000;text-align:right;padding:4px 4px;font-weight:bold;"></td>
+          </tr>
+        </table>
+
+        <div style="margin-top:60px;font-size:10px;">
+          <div style="border-top:1.5px solid #000;margin-bottom:6px;"></div>
+          <div style="text-align:center;font-weight:bold;font-size:9px;line-height:1.4;">
+            FIRMA DEL ASESOR O QUIEN LEVANTA LA ORDEN DE SERVICIO
+          </div>
+        </div>
+      </td>
+
+    </tr>
+  </table>`;
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -439,6 +510,7 @@ function buildHtml(vehiculo, asesorOverride = '') {
   </tr>
 </table>
 
+${vehiculo.sinVehiculo ? '' : `
 <!-- DATOS DEL VEHÍCULO -->
 <table style="margin-bottom:2px;">
   <tr>
@@ -471,8 +543,9 @@ function buildHtml(vehiculo, asesorOverride = '') {
     <td class="gh c" colspan="2" style="font-size:9px;">NOMBRE QUIEN DEJA VEHÍCULO</td>
     <td colspan="8" style="font-size:9px;">${esc(vehiculo.nombreUsuarioDejaVehiculo || '')}</td>
   </tr>
-</table>
+</table>`}
 
+${vehiculo.sinVehiculo ? '' : `
 <!-- ACCESORIOS + CANVAS + GASOLINA -->
 <table style="margin-bottom:2px;">
   <tr>
@@ -520,8 +593,9 @@ function buildHtml(vehiculo, asesorOverride = '') {
       </div>
     </td>
   </tr>
-</table>
+</table>`}
 
+${sinVehiculo ? condicionesConceptoHtml : `
 <!-- SERVICIO -->
 <div class="sh">S &nbsp; E &nbsp; R &nbsp; V &nbsp; I &nbsp; C &nbsp; I &nbsp; O</div>
 <table>
@@ -605,10 +679,11 @@ function buildHtml(vehiculo, asesorOverride = '') {
       </table>
     </td>
   </tr>
-</table>
+</table>`}
 
 </div>
 
+${sinVehiculo ? '' : `
 <!-- ==================== PÁGINA 2 (REVERSO) ==================== -->
 <div class="page2">
 
@@ -627,70 +702,9 @@ function buildHtml(vehiculo, asesorOverride = '') {
     </tr>
   </table>
 
-  <table style="height:200mm;">
-    <tr style="vertical-align:top;">
+  ${condicionesConceptoHtml}
 
-      <td class="condiciones-s"style="width:44%;padding:8px 10px;vertical-align:top;">
-        <div style="font-weight:bold;text-align:center;font-size:11px;margin-bottom:8px;border-bottom:1px solid #000;padding-bottom:4px;">
-          CONDICIONES DE SERVICIO
-        </div>
-        <p>
-          ACEPTO QUE EN CASO DE REQUERIR COMBUSTIBLE PARA PRUEBA Y REACONDICIONAMIENTO
-          DE MI VEHÍCULO SEA CARGADO A MI CUENTA EN TODA OCASIÓN.
-        </p>
-        <p >
-          IMPORTANTE: ACEPTO QUE SERVICOMPACTOS DE JUÁREZ S.A. DE C.V Y/O SUS REPRESENTANTES NO SE HACEN RESPONSABLES POR OBJETOS DE VALOR OLVIDADOS O NO DEPOSITADOS EN LA RECEPCIÓN O LA CAJA, CON RECIBO, POR  ESCRITO, ASI COMO TAMPOCO SE RESPONSABILIZAN POR ROBO, INCENDIO, UNIDADES SIN ANTICONGELANTE O CUALQUIER OTRO SUSESO EXTRAÑO QUE AFECTE MIS INTERESES Y QUE ESTE FUERA DEL CONTROL DE LA EMPRESA, Y SUS REPRESENTANTES Y/O QUE NO SEA IMPUTABLE A LOS MISMOS.
-        </p>
-        <p >
-          DECLARO: QUE SOY EL PROPIETARIO Y/O SOY REPRESENTANTE Y AUTORIZO LAS REPARACIONES O SERVICIOS DESCRITOS EN LA PRESENTE ORDEN, ASÍ COMO EL USO DE REFACCIONES, ACCESORIOS, LUBRICANTES Y OTROS MATERIALES NECESARIOS PARA LLEVAR A CABO LA REPARACIÓN O SERVICIO SOLICITADO MISMO QUE ACEPTO LIQUIDAR ANTES O EN EL MOMENTO QUE ME SEA ENTREGADO MI VEHÍCULO.
-        </p>
-        <p >
-          ASÍ COMO QUE SE ME GARANTICEN LAS REFACCIONES POR NOVENTA DÍAS O MIL QUINIENTOS KMS. LO QUE PRIMERO OCURRA EN CONDICIONES DE USO NORMAL, EXCEPTO EN PARTES ELÉCTRICAS USADAS Y/O SURTIDAS POR EL MISMO.
-        </p>
-        <p >
-          SI NO AUTORIZO LA REPARACIÓN Y/O ABANDONO DE MI VEHICULO POR CUALQUIER CIRCUNSTANCIA, EL TALLER PODRA APLICAR LA CONDICIÓN No. 9 DEL CONTRATO DE PRESTACIÓN DE SERVICIOS, EL CUAL PONDRA EL VEHICULO A DISPOSICIÓN LA AUTORIDAD CORRESPONDIENTE, SIN RESPONSABILIDAD ALGUNA PARA SERVICOMPACTOS DE JUÁREZ, S.A DE C.V.
-        </p>
-        <p>
-          ESTOY DEACUERDO QUE UNA VEZ NOTIFICADO POR EL ASESOR DE SERVICIO QUE MI VEHICULO YA ESTA TERMINADO, DEBO RECOGERLO EN UN LAPSO NO MAYOR DE 24 HRS, DE LO CONTRARIO PAGARE UN HOSPEDAJE DE DOSCIENTOS SESENTA PESOS DIARIOS
-        </p>
-
-        <div style="margin-top:60px;font-size:10px;">
-          <div style="border-top:1.5px solid #000;margin-bottom:6px;"></div>
-          <div style="text-align:center;font-weight:bold;font-size:9px;line-height:1.4;">
-            AUTORIZACIÓN Y FIRMA DEL CLIENTE Y/O SUS REPRESENTANTES
-          </div>
-        </div>
-      </td>
-
-      <td style="width:56%;padding:8px 10px;vertical-align:top;border-left:0.7px solid #000;">
-        <div style="font-weight:bold;text-align:center;font-size:11px;margin-bottom:8px;border-bottom:1px solid #000;padding-bottom:4px;">
-          CONCEPTO DE LAS REPARACIONES EFECTUADAS
-        </div>
-        <table style="width:100%;font-size:10px;border-collapse:collapse;">
-          <tr>
-            <td style="width:20px;border:none;padding:2px 3px;font-weight:bold;">#</td>
-            <td style="border:none;border-bottom:1px solid #000;padding:3px 4px;font-weight:bold;">DESCRIPCIÓN</td>
-            <td style="width:42px;border:none;border-bottom:1px solid #000;text-align:right;padding:3px 4px;font-weight:bold;">HRS</td>
-          </tr>
-          ${lineasReparacion}
-          <tr>
-            <td colspan="2" style="border:none;border-top:1px solid #000;text-align:right;padding:4px 6px;font-weight:bold;font-size:10px;">TOTAL:</td>
-            <td style="border:none;border-top:1px solid #000;text-align:right;padding:4px 4px;font-weight:bold;"></td>
-          </tr>
-        </table>
-
-        <div style="margin-top:60px;font-size:10px;">
-          <div style="border-top:1.5px solid #000;margin-bottom:6px;"></div>
-          <div style="text-align:center;font-weight:bold;font-size:9px;line-height:1.4;">
-            FIRMA DEL ASESOR O QUIEN LEVANTA LA ORDEN DE SERVICIO
-          </div>
-        </div>
-      </td>
-
-    </tr>
-  </table>
-
-</div>
+</div>`}
 
 ${buildPaginaResumen(vehiculo, fechaRecepcion)}
 ${buildPagina3()}
