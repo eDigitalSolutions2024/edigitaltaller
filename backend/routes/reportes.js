@@ -49,7 +49,7 @@ function calcImporte(v) {
 const ESTADOS_CERRADOS = ['CERRADA', 'CANCELADA'];
 
 const ESTADO_LABELS = {
-  PENDIENTE_CAPTURA:              'Pendiente Captura',
+  INGRESO:                        'Ingreso',
   PENDIENTE_REFACCIONARIA:        'Pendiente Refaccionaria',
   PENDIENTE_AUTORIZACION_CLIENTE: 'Pendiente Autorización Cliente',
   PENDIENTE_SURTIR:               'Pendiente Surtir',

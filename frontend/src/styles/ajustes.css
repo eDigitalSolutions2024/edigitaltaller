@@ -2,3 +2,48 @@
     display:flex;
     flex-direction:column;
 }
+
+/* ===== Tarjetas de "Servicios Creados" (ServiciosCatalogo.jsx) ===== */
+.servicio-card {
+  border: 2px solid transparent;
+  border-radius: 12px;
+  color: #000 !important;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+.servicio-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+.servicio-card .servicio-count {
+  display: inline-block;
+  font-weight: 600;
+  color: #000;
+  transition: transform 0.18s ease;
+}
+.servicio-card:hover .servicio-count {
+  transform: scale(1.08);
+}
+
+.servicio-card-0 { background: #FFEBEE !important; border-color: #FFAEB9 !important; }
+.servicio-card-0:hover { background: #FFD9DF !important; }
+
+.servicio-card-1 { background: #FFF3E0 !important; border-color: #FFCC80 !important; }
+.servicio-card-1:hover { background: #FFE0B2 !important; }
+
+.servicio-card-2 { background: #FFFDE7 !important; border-color: #FFE066 !important; }
+.servicio-card-2:hover { background: #FFF59D !important; }
+
+.servicio-card-3 { background: #E8F5E9 !important; border-color: #A5D6A7 !important; }
+.servicio-card-3:hover { background: #C8E6C9 !important; }
+
+.servicio-card-4 { background: #E0F7FA !important; border-color: #80DEEA !important; }
+.servicio-card-4:hover { background: #B2EBF2 !important; }
+
+.servicio-card-5 { background: #E3F2FD !important; border-color: #90CAF9 !important; }
+.servicio-card-5:hover { background: #BBDEFB !important; }
+
+.servicio-card-6 { background: #F3E5F5 !important; border-color: #CE93D8 !important; }
+.servicio-card-6:hover { background: #E1BEE7 !important; }
+
+.servicio-card-7 { background: #FCE4EC !important; border-color: #F48FB1 !important; }
+.servicio-card-7:hover { background: #F8BBD0 !important; }

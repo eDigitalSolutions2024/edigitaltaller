@@ -7,7 +7,7 @@ const PAGE_SIZE = 10;
 const DEBOUNCE_MS = 600;
 
 const ESTADO_LABELS = {
-  PENDIENTE_CAPTURA: "Pendiente Captura",
+  INGRESO: "Ingreso",
   PENDIENTE_REFACCIONARIA: "Pendiente Refaccionaria",
   PENDIENTE_AUTORIZACION_CLIENTE: "Pendiente Autorización Cliente",
   PENDIENTE_SURTIR: "Pendiente Surtir",
