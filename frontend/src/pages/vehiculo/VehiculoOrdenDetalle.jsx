@@ -14,7 +14,7 @@ import VehiculoReparacionEnCurso from "./VehiculoReparacionEnCurso";
 // PENDIENTE_AUTORIZACION_CLIENTE va al tab req (el asesor selecciona opciones),
 // el tab de presupuesto solo se habilita al pulsar "Continuar a Presupuesto"
 const ESTADO_TO_TAB = {
-  PENDIENTE_CAPTURA:              "servicio",
+  INGRESO:                        "servicio",
   PENDIENTE_REFACCIONARIA:        "req",
   PENDIENTE_AUTORIZACION_CLIENTE: "req",
   PENDIENTE_SURTIR:               "presupuesto",
@@ -27,7 +27,7 @@ const ESTADO_TO_TAB = {
 
 const TAB_STEP = { datos: 0, servicio: 1, req: 2, presupuesto: 3, reparacion: 4, general: 5 };
 const ESTADO_STEP = {
-  PENDIENTE_CAPTURA:              0,
+  INGRESO:                        0,
   PENDIENTE_REFACCIONARIA:        2,
   PENDIENTE_AUTORIZACION_CLIENTE: 3,
   PENDIENTE_SURTIR:               3,

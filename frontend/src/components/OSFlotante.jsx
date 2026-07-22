@@ -5,7 +5,7 @@ import { getUser } from '../auth';
 import '../styles/OSFlotante.css';
 
 const ESTADO_LABEL = {
-  PENDIENTE_CAPTURA: 'Captura',
+  INGRESO: 'Ingreso',
   PENDIENTE_REFACCIONARIA: 'Refaccionaria',
   PENDIENTE_AUTORIZACION_CLIENTE: 'Aut. Cliente',
   PENDIENTE_SURTIR: 'Por surtir',
@@ -18,7 +18,7 @@ const ESTADO_LABEL = {
 };
 
 const ESTADO_COLOR = {
-  PENDIENTE_CAPTURA: '#6c757d',
+  INGRESO: '#6c757d',
   PENDIENTE_REFACCIONARIA: '#0d6efd',
   PENDIENTE_AUTORIZACION_CLIENTE: '#fd7e14',
   PENDIENTE_SURTIR: '#6610f2',

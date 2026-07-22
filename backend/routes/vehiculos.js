@@ -342,7 +342,7 @@ router.get('/cliente/:clienteId', async (req, res) => {
   }
 });
 
-// GET /api/vehiculos/ordenes?estado=PENDIENTE_CAPTURA&searchOs=&search=&page=1&limit=10
+// GET /api/vehiculos/ordenes?estado=INGRESO&searchOs=&search=&page=1&limit=10
 router.get('/ordenes', async (req, res) => {
   try {
     const {
@@ -1196,7 +1196,7 @@ router.get('/stats/dashboard', async (req, res) => {
       Vehiculo.countDocuments({
         estadoOrden: {
           $in: [
-            'PENDIENTE_CAPTURA',
+            'INGRESO',
             'PENDIENTE_REFACCIONARIA',
             'PENDIENTE_AUTORIZACION_CLIENTE',
             'PENDIENTE_SURTIR',

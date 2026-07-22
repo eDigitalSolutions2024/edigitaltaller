@@ -4,7 +4,7 @@ const { Schema } = mongoose;
 
 // al inicio, antes del schema:
 const ESTADOS_ORDEN = [
-  'PENDIENTE_CAPTURA',
+  'INGRESO',
   'PENDIENTE_REFACCIONARIA',
   'PENDIENTE_AUTORIZACION_CLIENTE',
   'PENDIENTE_SURTIR',
@@ -64,7 +64,7 @@ const vehiculoSchema = new Schema(
     estadoOrden: {
       type: String,
       enum: ESTADOS_ORDEN,
-      default: 'PENDIENTE_CAPTURA',
+      default: 'INGRESO',
       index: true,
     },
 

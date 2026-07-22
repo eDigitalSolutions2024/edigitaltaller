@@ -13,6 +13,16 @@ import "../../styles/ajustes.css";
 
 const emptyRefaccion = () => ({ nombre: "", obligatoria: true });
 
+const SERVICIO_COLORES = 8;
+const colorServicio = (id) => {
+  const str = String(id || "");
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+  }
+  return `servicio-card-${hash % SERVICIO_COLORES}`;
+};
+
 export default function ServiciosCatalogo() {
   const [servicios, setServicios] = useState([]);
   const [cargando, setCargando] = useState(false);
@@ -270,11 +280,11 @@ export default function ServiciosCatalogo() {
                     <div className="col" key={s._id}>
                       <button
                         type="button"
-                        className="btn btn-outline-secondary w-100 h-100 text-start p-3 card-center"
+                        className={`btn w-100 h-100 text-start p-3 card-center servicio-card ${colorServicio(s._id)}`}
                         onClick={() => abrirModal(s)}
                       >
                         <div className="fw-bold">{s.nombre}<br/></div>
-                        <small className="text-muted">
+                        <small className="servicio-count">
                           {(s.refacciones || []).length} refacción(es)
                         </small>
                       </button>

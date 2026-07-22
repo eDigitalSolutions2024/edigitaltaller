@@ -7,7 +7,7 @@ import { formatFecha } from "../../utils/fechas";
 
 
 const TABS = [
-  { key: "PENDIENTE_CAPTURA",              label: "PENDIENTE CAPTURA" },
+  { key: "INGRESO",                        label: "INGRESO" },
   { key: "PENDIENTE_REFACCIONARIA",        label: "PENDIENTE REFACCIONARIA" },
   { key: "PENDIENTE_AUTORIZACION_CLIENTE", label: "PENDIENTE AUTORIZACION CLIENTE" },
   { key: "PENDIENTE_SURTIR",              label: "PENDIENTE SURTIR" },
@@ -16,7 +16,7 @@ const TABS = [
 ];
 
 const ESTADO_LABELS = {
-  PENDIENTE_CAPTURA:              "Pendiente Captura",
+  INGRESO:                        "Ingreso",
   PENDIENTE_REFACCIONARIA:        "Pendiente Refaccionaria",
   PENDIENTE_AUTORIZACION_CLIENTE: "Pendiente Autorización Cliente",
   PENDIENTE_SURTIR:               "Pendiente Surtir",
@@ -29,7 +29,7 @@ const ESTADO_LABELS = {
 };
 
 const TAB_MAP = {
-  PENDIENTE_CAPTURA:              "datos",
+  INGRESO:                        "datos",
   PENDIENTE_REFACCIONARIA:        "req",
   PENDIENTE_AUTORIZACION_CLIENTE: "req",
   PENDIENTE_SURTIR:               "presupuesto",
@@ -60,7 +60,7 @@ export default function VehiculosConsultaOrdenes() {
     return !!gid && misGrupoIds.includes(String(gid));
   };
 
-  const [tab, setTab] = useState("PENDIENTE_CAPTURA");
+  const [tab, setTab] = useState("INGRESO");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
