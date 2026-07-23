@@ -13,7 +13,9 @@ const { proteger, requiereRol } = require('../middleware/auth');
 // ===============================
 
 // GET /api/configuracion/tipo-cambio
-router.get('/tipo-cambio', proteger, requiereRol('admin'), async (req, res) => {
+// (sin restricción de rol: cualquier usuario autenticado puede consultar el
+// historial, por ejemplo la pantalla de Configuración al cargar)
+router.get('/tipo-cambio', proteger, async (req, res) => {
   try {
     const tipos = await TipoCambio.find().sort({ fecha: -1, createdAt: -1 });
     res.json(tipos);
@@ -23,7 +25,9 @@ router.get('/tipo-cambio', proteger, requiereRol('admin'), async (req, res) => {
 });
 
 // GET /api/configuracion/tipo-cambio/ultimo
-router.get('/tipo-cambio/ultimo', proteger, requiereRol('admin'), async (req, res) => {
+// (sin restricción de rol: lo consultan formularios de Caja, Facturación y
+// Refaccionaria para tomar el tipo de cambio vigente sin poder editarlo ahí)
+router.get('/tipo-cambio/ultimo', proteger, async (req, res) => {
   try {
     const ultimo = await TipoCambio.findOne().sort({ fecha: -1, createdAt: -1 });
     res.json(ultimo);

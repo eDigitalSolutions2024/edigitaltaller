@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import useTipoCambioActual from "../../../hooks/useTipoCambioActual";
 
 const BANCOS = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER", "DOLARES", "EFECTIVOS"];
 const TIPOS_NOTA = ["Contado", "Credito", "Cancelada"];
@@ -36,6 +37,12 @@ export default function CajaModalPago({ show, saldoPendiente, onClose, onSubmit 
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
 
+  const { tipoCambio: tipoCambioConfig, loading: cargandoTipoCambio } = useTipoCambioActual();
+
+  useEffect(() => {
+    setTipoCambio(tipoCambioConfig ? String(tipoCambioConfig) : "");
+  }, [tipoCambioConfig]);
+
   if (!show) return null;
 
   const totalPago = Number(montoPesos || 0) + Number(montoDolares || 0) * Number(tipoCambio || 0);
@@ -43,6 +50,10 @@ export default function CajaModalPago({ show, saldoPendiente, onClose, onSubmit 
   const handleSubmit = async () => {
     if (totalPago <= 0) {
       setError("Captura una cantidad en pesos o en dólares mayor a 0.");
+      return;
+    }
+    if (Number(montoDolares) > 0 && !Number(tipoCambio)) {
+      setError("No hay un tipo de cambio configurado. Regístralo en Configuración.");
       return;
     }
     try {
@@ -176,9 +187,15 @@ export default function CajaModalPago({ show, saldoPendiente, onClose, onSubmit 
                 step="0.0001"
                 className="form-control"
                 value={tipoCambio}
-                disabled={!Number(montoDolares)}
-                onChange={(e) => setTipoCambio(e.target.value)}
+                disabled
+                readOnly
+                title="Se toma del tipo de cambio definido en Configuración"
               />
+              {!cargandoTipoCambio && !tipoCambioConfig && Number(montoDolares) > 0 && (
+                <small className="text-danger">
+                  No hay un tipo de cambio configurado. Regístralo en Configuración.
+                </small>
+              )}
             </div>
 
             <div className="mb-2">

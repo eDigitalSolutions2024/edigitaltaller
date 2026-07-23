@@ -919,6 +919,9 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
 
         inventarioResult = { autoSurtidas, pendientesSurtir };
       } else {
+        if (estadoOrden === 'CANCELADA' && vehiculo.estadoOrden !== 'CANCELADA') {
+          vehiculo.estadoAnterior = vehiculo.estadoOrden;
+        }
         vehiculo.estadoOrden = estadoOrden;
       }
     }
@@ -1401,6 +1404,7 @@ router.put('/:id/cerrar', async (req, res) => {
     }
 
     // marcar como cerrada
+    vehiculo.estadoAnterior = vehiculo.estadoOrden;
     vehiculo.estadoOrden = 'CERRADA';
     vehiculo.pendienteCierre = false;
     vehiculo.fechaCierre = new Date();
@@ -1419,6 +1423,50 @@ router.put('/:id/cerrar', async (req, res) => {
     return res.json({ ok: true, vehiculo });
   } catch (err) {
     console.error('Error cerrando orden:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// PUT /api/vehiculos/:id/restablecer -> (solo admin) reabre una orden
+// cerrada o cancelada, regresándola al estado en que estaba antes.
+router.put('/:id/restablecer', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const vehiculo = await Vehiculo.findById(id);
+    if (!vehiculo) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+
+    if (vehiculo.estadoOrden !== 'CERRADA' && vehiculo.estadoOrden !== 'CANCELADA') {
+      return res.status(400).json({ ok: false, msg: 'Solo se pueden restablecer órdenes cerradas o canceladas.' });
+    }
+
+    const estadoPrevio = vehiculo.estadoOrden;
+
+    // Órdenes cerradas/canceladas antes de que existiera este campo no
+    // tienen estadoAnterior guardado; en ese caso se usa un estado por
+    // defecto razonable según el tipo de orden.
+    const ESTADO_ANTERIOR_FALLBACK = {
+      CERRADA: 'PENDIENTE_CERRAR',
+      CANCELADA: 'PENDIENTE_AUTORIZACION_CLIENTE',
+    };
+
+    vehiculo.estadoOrden = vehiculo.estadoAnterior || ESTADO_ANTERIOR_FALLBACK[estadoPrevio];
+    vehiculo.estadoAnterior = null;
+
+    if (estadoPrevio === 'CERRADA') {
+      vehiculo.fechaCierre = null;
+      if (vehiculo.estadoOrden === 'PENDIENTE_CERRAR') {
+        vehiculo.pendienteCierre = true;
+      }
+    }
+
+    await vehiculo.save();
+
+    return res.json({ ok: true, vehiculo });
+  } catch (err) {
+    console.error('Error restableciendo orden:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });

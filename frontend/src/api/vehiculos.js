@@ -75,6 +75,10 @@ export const openPresupuestoPdf = (id) => {
 export const closeOrden = (id) =>
   http.put(`/vehiculos/${id}/cerrar`);
 
+// Restablecer orden cerrada/cancelada a su estado anterior (solo admin)
+export const restoreOrden = (id) =>
+  http.put(`/vehiculos/${id}/restablecer`);
+
 export const openVentaClientePdf = (id) => {
   const url = `${API}/vehiculos/${id}/venta-cliente-pdf`;
   window.open(url, "_blank", "noopener");

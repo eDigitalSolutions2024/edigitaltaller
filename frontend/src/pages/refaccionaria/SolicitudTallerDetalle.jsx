@@ -5,6 +5,7 @@ import {
   saveRequisicionDiagnostico,
 } from "../../api/vehiculos";
 import { getUnidadesMedida } from "../../api/configuracion";
+import useTipoCambioActual from "../../hooks/useTipoCambioActual";
 import ModalSeleccionarCodigo from "./components/ModalSeleccionarCodigo";
 import ModalInventarioAlmacen from "./components/ModalInventarioAlmacen";
 
@@ -382,6 +383,7 @@ export default function SolicitudTallerDetalle() {
   const [unidades, setUnidades]               = useState([]);
   const [modalCodigoIndex, setModalCodigoIndex] = useState(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const { tipoCambio: tipoCambioConfig, loading: cargandoTipoCambio } = useTipoCambioActual();
   const [filtroOpcion, setFiltroOpcion] = useState(null);
   const [modalInventarioOpen, setModalInventarioOpen] = useState(false);
 
@@ -547,8 +549,8 @@ export default function SolicitudTallerDetalle() {
           nuevaOpcion.precioCore = "";
         }
 
-        if (field === "moneda" && value !== "USD") {
-          nuevaOpcion.tipoCambio = "";
+        if (field === "moneda") {
+          nuevaOpcion.tipoCambio = value === "USD" ? (tipoCambioConfig ? String(tipoCambioConfig) : "") : "";
           nuevaOpcion._errores = nuevaOpcion._errores?.filter((f) => f !== "tipoCambio");
         }
 
@@ -1001,8 +1003,15 @@ export default function SolicitudTallerDetalle() {
                           className={`form-control form-control-sm ${itemSeleccionado.nuevaOpcion?._errores?.includes("tipoCambio") ? "is-invalid" : ""}`}
                           placeholder="Ej. 17.25"
                           value={itemSeleccionado.nuevaOpcion?.tipoCambio || ""}
-                          onChange={(e) => cambiarNuevaOpcion(selectedIndex, "tipoCambio", e.target.value)}
+                          disabled
+                          readOnly
+                          title="Se toma del tipo de cambio definido en Configuración"
                         />
+                        {!cargandoTipoCambio && !tipoCambioConfig && (
+                          <small className="text-danger">
+                            No hay un tipo de cambio configurado.
+                          </small>
+                        )}
                       </div>
                     )}
 

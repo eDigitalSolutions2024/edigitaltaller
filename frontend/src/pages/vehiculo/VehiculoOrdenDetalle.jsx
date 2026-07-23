@@ -407,7 +407,9 @@ export default function VehiculoOrdenDetalle() {
       {tab === "general" && ordenIniciada && (
         <VehiculoOrdenGeneral
           orden={orden}
+          esAdmin={esAdmin}
           onClosed={(vActualizado) => setOrden(vActualizado)}
+          onRestored={(vActualizado) => setOrden(vActualizado)}
         />
       )}
 

@@ -10,6 +10,7 @@ import {
 import { fetchServiciosTaller } from "../../api/codigos";
 import http from "../../api/http";
 import { TARIFA_HORA, calcImporteHoras } from "../../utils/manoObra";
+import useTipoCambioActual from "../../hooks/useTipoCambioActual";
 
 export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparacion, readOnly = false }) {
   const navigate = useNavigate();
@@ -56,6 +57,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     autorizado: false,
     esServicio: false,
   });
+  const { tipoCambio: tipoCambioConfig, loading: cargandoTipoCambio } = useTipoCambioActual();
 
   // ===== VENTA AL CLIENTE =====
   const [ventaRows, setVentaRows] = useState([]);
@@ -976,9 +978,14 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                   <select
                     className="form-select form-select-sm"
                     value={newPresLine.moneda || "MN"}
-                    onChange={(e) =>
-                      setNewPresLine({ ...newPresLine, moneda: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const moneda = e.target.value;
+                      setNewPresLine({
+                        ...newPresLine,
+                        moneda,
+                        tipoCambio: moneda === "USD" ? (tipoCambioConfig ? String(tipoCambioConfig) : "") : "",
+                      });
+                    }}
                   >
                     <option value="MN">MN</option>
                     <option value="USD">USD</option>
@@ -986,14 +993,19 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                 </td>
                 <td>
                   {(newPresLine.moneda || "MN") === "USD" ? (
-                    <input
-                      type="number"
-                      className="form-control form-control-sm"
-                      value={newPresLine.tipoCambio || ""}
-                      onChange={(e) =>
-                        setNewPresLine({ ...newPresLine, tipoCambio: e.target.value })
-                      }
-                    />
+                    <>
+                      <input
+                        type="number"
+                        className="form-control form-control-sm"
+                        value={newPresLine.tipoCambio || ""}
+                        disabled
+                        readOnly
+                        title="Se toma del tipo de cambio definido en Configuración"
+                      />
+                      {!cargandoTipoCambio && !tipoCambioConfig && (
+                        <small className="text-danger d-block">Sin configurar</small>
+                      )}
+                    </>
                   ) : (
                     <span className="text-muted">-</span>
                   )}

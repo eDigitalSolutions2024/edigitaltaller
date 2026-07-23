@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getUnidadesMedida } from "../../../api/configuracion";
+import useTipoCambioActual from "../../../hooks/useTipoCambioActual";
 import ModalInventarioAlmacen from "./ModalInventarioAlmacen";
 
 // Mismo formulario que "Cotizar opción" en SolicitudTallerDetalle.jsx, para que
@@ -26,11 +27,22 @@ export default function ModalCotizarSurtido({ refaccionNombre, cant, vehiculo, p
   const [errores, setErrores] = useState([]);
   const [modalInventarioOpen, setModalInventarioOpen] = useState(false);
 
+  const { tipoCambio: tipoCambioConfig, loading: cargandoTipoCambio } = useTipoCambioActual();
+
   useEffect(() => {
     getUnidadesMedida()
       .then((data) => setUnidades((data || []).filter((u) => u.activo)))
       .catch(() => setUnidades([]));
   }, []);
+
+  useEffect(() => {
+    if (detalle.moneda === "USD") {
+      setDetalle((prev) => ({
+        ...prev,
+        tipoCambio: tipoCambioConfig ? String(tipoCambioConfig) : "",
+      }));
+    }
+  }, [detalle.moneda, tipoCambioConfig]);
 
   const cambiar = (field, value) => {
     setDetalle((prev) => {
@@ -297,8 +309,15 @@ export default function ModalCotizarSurtido({ refaccionNombre, cant, vehiculo, p
                   className={`form-control form-control-sm ${errores.includes("tipoCambio") ? "is-invalid" : ""}`}
                   placeholder="Ej. 17.25"
                   value={detalle.tipoCambio}
-                  onChange={(e) => cambiar("tipoCambio", e.target.value)}
+                  disabled
+                  readOnly
+                  title="Se toma del tipo de cambio definido en Configuración"
                 />
+                {!cargandoTipoCambio && !tipoCambioConfig && (
+                  <small className="text-danger">
+                    No hay un tipo de cambio configurado.
+                  </small>
+                )}
               </div>
             )}
 
