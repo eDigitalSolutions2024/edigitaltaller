@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { buscarClientesFacturacion } from "../../api/customers";
 import { generarVistaPreviaPDF } from "../../api/facturacion";
 import api from "../../api/http";
+import useTipoCambioActual from "../../hooks/useTipoCambioActual";
 
 /* =======================
    CATÁLOGOS
@@ -259,6 +260,7 @@ export default function NuevaFactura() {
   const [formaPago, setFormaPago] = useState("03");
   const [moneda, setMoneda] = useState("MXN");
   const [tipoCambio, setTipoCambio] = useState("");
+  const { tipoCambio: tipoCambioConfig, loading: cargandoTipoCambio } = useTipoCambioActual();
   const [oc, setOc] = useState("");
   const [comentarios, setComentarios] = useState("");
 
@@ -275,6 +277,14 @@ export default function NuevaFactura() {
     [subtotal, aplicarRetencionIsr]
   );
   const total = useMemo(() => subtotal + iva - isr, [subtotal, iva, isr]);
+
+  useEffect(() => {
+    if (moneda === "USD") {
+      setTipoCambio(tipoCambioConfig ? String(tipoCambioConfig) : "");
+    } else {
+      setTipoCambio("");
+    }
+  }, [moneda, tipoCambioConfig]);
 
   const puedePreview = useMemo(() => {
     if (!pasoClienteOk) return false;
@@ -776,10 +786,16 @@ export default function NuevaFactura() {
             <input
               className="form-control"
               value={tipoCambio}
-              onChange={(e) => setTipoCambio(e.target.value)}
-              disabled={disabledSteps || moneda !== "USD"}
+              disabled
+              readOnly
               placeholder="Ej. 17.23"
+              title="Se toma del tipo de cambio definido en Configuración"
             />
+            {moneda === "USD" && !cargandoTipoCambio && !tipoCambioConfig && (
+              <small className="text-danger">
+                No hay un tipo de cambio configurado. Regístralo en Configuración.
+              </small>
+            )}
           </div>
 
           <div className="col-12 col-md-4">

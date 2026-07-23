@@ -57,7 +57,6 @@ export default function VehiculoConsultaCerradas() {
   navigate(`/vehiculo/orden/${ordenId}`);  // 👈 igualito que en la otra tabla
 };
 
-
   return (
     <div className="card card-body">
       <h4 className="mb-3">ÓRDENES CERRADAS</h4>

@@ -1,6 +1,6 @@
 // src/pages/vehiculo/VehiculoOrdenGeneral.jsx
 import React, { useState, useEffect } from "react";
-import { closeOrden, openVentaClientePdf } from "../../api/vehiculos";
+import { closeOrden, restoreOrden, openVentaClientePdf } from "../../api/vehiculos";
 import http from "../../api/http";
 import { formatFecha } from "../../utils/fechas";
 
@@ -13,8 +13,9 @@ function formatMoney(n) {
   }).format(Number(n) || 0);
 }
 
-export default function VehiculoOrdenGeneral({ orden, onClosed }) {
+export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAdmin }) {
   const [cerrando, setCerrando] = useState(false);
+  const [restableciendo, setRestableciendo] = useState(false);
   const [mecMap, setMecMap] = useState({}); // id → nombre del mecánico
 
   // Cargar empleados mecánicos para resolver IDs en manoObra
@@ -32,7 +33,9 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
   if (!orden) return null;
 
   const yaCerrada = orden.estadoOrden === "CERRADA";
+  const yaCancelada = orden.estadoOrden === "CANCELADA";
   const puedesCerrar = orden.estadoOrden === "PENDIENTE_CERRAR";
+  const puedeRestablecer = esAdmin && (yaCerrada || yaCancelada);
 
   const handleCerrarOrden = async () => {
     if (yaCerrada || !puedesCerrar) return;
@@ -53,6 +56,28 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
       alert("Error al cerrar la orden.");
     } finally {
       setCerrando(false);
+    }
+  };
+
+  const handleRestablecerOrden = async () => {
+    if (!puedeRestablecer) return;
+
+    const ok = window.confirm(
+      `¿Restablecer esta orden ${yaCerrada ? "cerrada" : "cancelada"}? Regresará al estado en el que se encontraba anteriormente.`
+    );
+    if (!ok) return;
+
+    try {
+      setRestableciendo(true);
+      const res = await restoreOrden(orden._id);
+      const vAct = res.data.vehiculo;
+
+      if (onRestored) onRestored(vAct);
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.msg || "Error al restablecer la orden.");
+    } finally {
+      setRestableciendo(false);
     }
   };
 
@@ -158,6 +183,19 @@ export default function VehiculoOrdenGeneral({ orden, onClosed }) {
               onClick={() => openVentaClientePdf(orden._id)}
             >
               Imprimir Venta Cliente
+            </button>
+          )}
+
+          {puedeRestablecer && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}
+              onClick={handleRestablecerOrden}
+              disabled={restableciendo}
+              title="Restablecer la orden al estado en que se encontraba antes de cerrarse/cancelarse"
+            >
+              {restableciendo ? "Restableciendo..." : "Restablecer orden"}
             </button>
           )}
 

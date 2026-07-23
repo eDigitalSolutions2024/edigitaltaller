@@ -6,6 +6,9 @@ export const getTiposCambio = () =>
 export const crearTipoCambio = (payload) =>
   http.post('/configuracion/tipo-cambio', payload).then(r => r.data);
 
+export const getUltimoTipoCambio = () =>
+  http.get('/configuracion/tipo-cambio/ultimo').then(r => r.data);
+
 export const getUnidadesMedida = () =>
   http.get('/configuracion/unidades-medida').then(r => r.data);
 

@@ -68,6 +68,14 @@ const vehiculoSchema = new Schema(
       index: true,
     },
 
+    // Estado en el que se encontraba la orden justo antes de cerrarse o
+    // cancelarse. Permite a un admin "restablecerla" a ese estado.
+    estadoAnterior: {
+      type: String,
+      enum: ESTADOS_ORDEN,
+      default: null,
+    },
+
     // Solicitud de garantía (null = orden normal)
     garantia: { type: garantiaSchema, default: null },
 
