@@ -73,6 +73,9 @@ import OrdenesAbiertas from "./pages/auditoria/OrdenesAbiertas";
 import ReporteOriginalesAuditoria from "./pages/auditoria/ReporteOriginalesAuditoria";
 import ReporteGarantias from "./pages/auditoria/ReporteGarantias";
 
+// Reporte de Cajas (Reportes)
+import ReporteCajasIngresos from "./pages/reportes/cajas/ReporteCajasIngresos";
+
 // Vales de Salida
 import ValeSalidaForm from "./pages/vales/ValeSalidaForm";
 
@@ -312,6 +315,12 @@ export default function App() {
             <Route path="originales" element={<ReporteOriginalesAuditoria />} />
             <Route path="garantias" element={<ReporteGarantias />} />
           </Route>
+
+          {/* Reporte de Cajas (solo admin y finanzas) */}
+          <Route
+            path="reportes/cajas"
+            element={<RolesRoute roles={['admin', 'finanzas']}><ReporteCajasIngresos /></RolesRoute>}
+          />
 
           {/* Facturación */}
           <Route path="facturacion/*" element={<FacturacionLayout />}>

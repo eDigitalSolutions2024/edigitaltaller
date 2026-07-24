@@ -19,6 +19,14 @@ const SECCIONES = [
     to: '/auditoria/ordenes-abiertas',
     roles: ['admin', 'auditoria'],
   },
+  {
+    key: 'reporte-cajas',
+    emoji: '💰',
+    title: 'Reporte de Cajas',
+    desc: 'Ingresos diarios: facturas y remisiones',
+    to: '/reportes/cajas',
+    roles: ['admin', 'finanzas'],
+  },
 ];
 
 export default function ReportesDashboard() {

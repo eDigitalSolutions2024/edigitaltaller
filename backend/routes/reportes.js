@@ -8,6 +8,7 @@ const { streamReporteVentasAsesoresPdf } = require('../service/reporteVentasAses
 const { streamReporteOrdenesAbiertasPdf } = require('../service/reporteOrdenesAbiertasPdf');
 const { streamReporteOriginalesAbiertasPdf } = require('../service/reporteOriginalesAbiertasPdf');
 const { streamReporteGarantiasPdf } = require('../service/reporteGarantiasPdf');
+const { streamReporteCajasIngresosPdf } = require('../service/reporteCajasIngresosPdf');
 const { calcImporteHoras } = require('../utils/manoObra');
 
 const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares';
@@ -440,6 +441,88 @@ router.get('/garantias-pdf', async (req, res) => {
     await streamReporteGarantiasPdf(res, resultado, desde, hasta, asesor);
   } catch (err) {
     console.error('Error PDF reporte garantías:', err);
+    if (!res.headersSent) res.status(500).json({ ok: false, msg: 'Error generando PDF' });
+  }
+});
+
+// ===== Reporte de Cajas: Ingresos (Facturas / Remisiones) =====
+// Aplana los pagos de todas las órdenes cuyo comprobante y fecha caigan en el
+// rango pedido. `tipo` es el mismo enum de pagos.comprobante.
+
+const TIPOS_COMPROBANTE_CAJA = ['NOTA_VENTA', 'REMISION'];
+
+async function buildReporteCajasIngresos({ desde, hasta, tipo }) {
+  const d = new Date(desde);
+  const h = new Date(hasta);
+
+  const ordenes = await Vehiculo.find({
+    pagos: { $elemMatch: { comprobante: tipo, fecha: { $gte: d, $lte: h } } },
+  })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
+
+  const data = [];
+  for (const o of ordenes) {
+    for (const p of o.pagos || []) {
+      if (p.comprobante !== tipo) continue;
+      const f = new Date(p.fecha);
+      if (f < d || f > h) continue;
+      data.push({
+        fecha: p.fecha,
+        ordenServicio: o.ordenServicio || '',
+        cliente: nombreCliente(o.cliente),
+        folio: tipo === 'NOTA_VENTA' ? p.notaVenta?.numero ?? null : p.remision?.numero ?? null,
+        tipoPago: p.tipoPago || '',
+        montoPesos: p.montoPesos || 0,
+        montoDolares: p.montoDolares || 0,
+        tipoCambio: p.tipoCambio || 0,
+        monto: p.monto || 0,
+        referencia: p.referencia || '',
+        registradoPor: p.registradoPor || '',
+      });
+    }
+  }
+
+  data.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  const totalMonto = data.reduce((s, r) => s + r.monto, 0);
+
+  return { data, total: data.length, totalMonto };
+}
+
+// GET /api/reportes/cajas-ingresos?desde=...&hasta=...&tipo=NOTA_VENTA|REMISION
+router.get('/cajas-ingresos', async (req, res) => {
+  try {
+    const { desde, hasta, tipo } = req.query;
+    if (!desde || !hasta) {
+      return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
+    }
+    if (!TIPOS_COMPROBANTE_CAJA.includes(tipo)) {
+      return res.status(400).json({ ok: false, msg: 'Parámetro tipo inválido' });
+    }
+
+    const resultado = await buildReporteCajasIngresos({ desde, hasta, tipo });
+    return res.json({ ok: true, ...resultado });
+  } catch (err) {
+    console.error('Error reporte cajas ingresos:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// GET /api/reportes/cajas-ingresos-pdf?desde=...&hasta=...&tipo=NOTA_VENTA|REMISION
+router.get('/cajas-ingresos-pdf', async (req, res) => {
+  try {
+    const { desde, hasta, tipo } = req.query;
+    if (!desde || !hasta) {
+      return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
+    }
+    if (!TIPOS_COMPROBANTE_CAJA.includes(tipo)) {
+      return res.status(400).json({ ok: false, msg: 'Parámetro tipo inválido' });
+    }
+
+    const resultado = await buildReporteCajasIngresos({ desde, hasta, tipo });
+    await streamReporteCajasIngresosPdf(res, resultado, desde, hasta, tipo);
+  } catch (err) {
+    console.error('Error PDF reporte cajas ingresos:', err);
     if (!res.headersSent) res.status(500).json({ ok: false, msg: 'Error generando PDF' });
   }
 });

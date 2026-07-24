@@ -43,3 +43,11 @@ export const openReporteGarantiasPdf = (desde, hasta, asesor) => {
   if (asesor) url += `&asesor=${encodeURIComponent(asesor)}`;
   window.open(url, '_blank', 'noopener');
 };
+
+export const getReporteCajasIngresos = (desde, hasta, tipo) =>
+  http.get('/reportes/cajas-ingresos', { params: { desde, hasta, tipo } });
+
+export const openReporteCajasIngresosPdf = (desde, hasta, tipo) => {
+  const url = `${BASE_URL}/reportes/cajas-ingresos-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}&tipo=${encodeURIComponent(tipo)}`;
+  window.open(url, '_blank', 'noopener');
+};
