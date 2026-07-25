@@ -2,12 +2,11 @@
 import http from "./http";
 const API = process.env.REACT_APP_API_URL || "http://localhost:8010";
 
-// Búsqueda unificada: folio de orden, cliente o serie, en REPARACION_EN_CURSO
-// más todas las órdenes de garantía sin importar su estatus.
-export const listOrdenesEnCurso = (params) =>
-  http.get("/vehiculos/ordenes", {
-    params: { estado: "REPARACION_EN_CURSO", incluirGarantias: true, ...params },
-  });
+// Lista de órdenes para Cajas: todas las órdenes sin importar su estadoOrden,
+// salvo las canceladas y las ya liquidadas (ver backend/routes/cajas.js).
+// params.vista: "activas" (default) | "liquidadas" | "garantias".
+export const listOrdenesCaja = (params) =>
+  http.get("/cajas", { params });
 
 // Detalle de la orden + totales ya calculados (total, abonado, saldo)
 export const getOrdenCaja = (id) =>

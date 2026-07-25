@@ -60,7 +60,7 @@ export default function BDCodigos() {
           fetch(`${API}/codigos/options`, { credentials: "include" })
             .then((r) => r.json())
             .catch(() => ({})),
-          fetch(`${API}/codigos`, { credentials: "include" })
+          fetch(`${API}/codigos?limit=1000`, { credentials: "include" })
             .then((r) => r.json())
             .catch(() => ({})),
         ]);

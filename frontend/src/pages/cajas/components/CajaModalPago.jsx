@@ -4,7 +4,7 @@ import useTipoCambioActual from "../../../hooks/useTipoCambioActual";
 const BANCOS = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER", "DOLARES", "EFECTIVOS"];
 const TIPOS_NOTA = ["Contado", "Credito", "Cancelada"];
 const TIPOS_PAGO = [
-  { value: "COMPLETO", label: "Pago Completo" },
+  { value: "COMPLETO", label: "Liquida" },
   { value: "ABONO", label: "Abono" },
   { value: "ANTICIPO", label: "Anticipo" },
 ];
@@ -45,7 +45,8 @@ export default function CajaModalPago({ show, saldoPendiente, onClose, onSubmit 
 
   if (!show) return null;
 
-  const totalPago = Number(montoPesos || 0) + Number(montoDolares || 0) * Number(tipoCambio || 0);
+  const dolaresConvertidos = Number(montoDolares || 0) * Number(tipoCambio || 0);
+  const totalPago = Number(montoPesos || 0) + dolaresConvertidos;
 
   const handleSubmit = async () => {
     if (totalPago <= 0) {
@@ -84,7 +85,7 @@ export default function CajaModalPago({ show, saldoPendiente, onClose, onSubmit 
       style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="modal-dialog modal-dialog-centered">
+      <div className="modal-dialog modal-dialog-centered modal-lg">
         <div className="modal-content">
           <div className="modal-header">
             <h5 className="modal-title fw-bold">Registrar Pago / Abono</h5>
@@ -98,127 +99,152 @@ export default function CajaModalPago({ show, saldoPendiente, onClose, onSubmit 
               </p>
             )}
 
-            <div className="mb-2">
-              <label className="form-label mb-0 fw-semibold">Tipo de Pago</label>
-              <select className="form-select" value={tipoPago} onChange={(e) => setTipoPago(e.target.value)}>
-                {TIPOS_PAGO.map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
-            </div>
+            <div className="row g-3">
+              <div className="col-md-6">
+                <div className="mb-2">
+                  <label className="form-label mb-0 fw-semibold">Tipo de Pago</label>
+                  <select className="form-select" value={tipoPago} onChange={(e) => setTipoPago(e.target.value)}>
+                    {TIPOS_PAGO.map((t) => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                </div>
 
-            <div className="mb-2">
-              <label className="form-label mb-0 fw-semibold">Comprobante</label>
-              <select className="form-select" value={comprobante} onChange={(e) => setComprobante(e.target.value)}>
-                <option value="NOTA_VENTA">Nota de Venta</option>
-                <option value="REMISION">Remisión</option>
-              </select>
-            </div>
+                <div className="mb-2">
+                  <label className="form-label mb-0 fw-semibold">Comprobante</label>
+                  <select className="form-select" value={comprobante} onChange={(e) => setComprobante(e.target.value)}>
+                    <option value="NOTA_VENTA">Nota de Venta</option>
+                    <option value="REMISION">Remisión</option>
+                  </select>
+                </div>
 
-            {comprobante === "NOTA_VENTA" ? (
-              <div className="row g-2 mb-2">
-                <div className="col-6">
-                  <label className="form-label mb-0">Banco</label>
-                  <select className="form-select" value={banco} onChange={(e) => setBanco(e.target.value)}>
-                    <option value="">Selecciona...</option>
-                    {BANCOS.map((b) => (
-                      <option key={b} value={b}>{b}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="col-6">
-                  <label className="form-label mb-0">Tipo</label>
-                  <select className="form-select" value={tipoNota} onChange={(e) => setTipoNota(e.target.value)}>
-                    {TIPOS_NOTA.map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            ) : (
-              <div className="row g-2 mb-2">
-                <div className="col-6">
-                  <label className="form-label mb-0">Tipo</label>
-                  <select className="form-select" value={tipoRemision} onChange={(e) => setTipoRemision(e.target.value)}>
-                    {TIPOS_NOTA.map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="col-6">
-                  <label className="form-label mb-0">Fecha de Pagada</label>
+                {comprobante === "NOTA_VENTA" ? (
+                  <div className="row g-2 mb-2">
+                    <div className="col-6">
+                      <label className="form-label mb-0">Banco</label>
+                      <select className="form-select" value={banco} onChange={(e) => setBanco(e.target.value)}>
+                        <option value="">Selecciona...</option>
+                        {BANCOS.map((b) => (
+                          <option key={b} value={b}>{b}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-6">
+                      <label className="form-label mb-0">Tipo</label>
+                      <select className="form-select" value={tipoNota} onChange={(e) => setTipoNota(e.target.value)}>
+                        {TIPOS_NOTA.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="row g-2 mb-2">
+                    <div className="col-6">
+                      <label className="form-label mb-0">Tipo</label>
+                      <select className="form-select" value={tipoRemision} onChange={(e) => setTipoRemision(e.target.value)}>
+                        {TIPOS_NOTA.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-6">
+                      <label className="form-label mb-0">Fecha de Pagada</label>
+                      <input
+                        type="date"
+                        className="form-control"
+                        value={fechaPagada}
+                        onChange={(e) => setFechaPagada(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="mb-2">
+                  <label className="form-label mb-0">Referencia</label>
                   <input
-                    type="date"
+                    type="text"
                     className="form-control"
-                    value={fechaPagada}
-                    onChange={(e) => setFechaPagada(e.target.value)}
+                    value={referencia}
+                    onChange={(e) => setReferencia(e.target.value)}
+                  />
+                </div>
+
+                <div className="mb-2">
+                  <label className="form-label mb-0">Observaciones</label>
+                  <textarea
+                    className="form-control"
+                    rows={2}
+                    value={observaciones}
+                    onChange={(e) => setObservaciones(e.target.value)}
                   />
                 </div>
               </div>
-            )}
 
-            <div className="row g-2 mb-2">
               <div className="col-md-6">
-                <label className="form-label mb-0">Cantidad en Pesos</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  className="form-control"
-                  value={montoPesos}
-                  onChange={(e) => setMontoPesos(e.target.value)}
-                />
+                <div className="row g-2 mb-2">
+                  <div className="col-6">
+                    <label className="form-label mb-0">Cantidad en Pesos</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="form-control"
+                      value={montoPesos}
+                      onChange={(e) => setMontoPesos(e.target.value)}
+                    />
+                  </div>
+                  <div className="col-6">
+                    <label className="form-label mb-0">Cantidad en Dólares</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="form-control"
+                      value={montoDolares}
+                      onChange={(e) => setMontoDolares(e.target.value)}
+                    />
+                    {Number(montoDolares) > 0 && Number(tipoCambio) > 0 && (
+                      <small className="text-muted">
+                        ≈ {formatMoney(dolaresConvertidos)} MXN
+                      </small>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mb-2">
+                  <label className="form-label mb-0">Tipo de Cambio</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    className="form-control"
+                    value={tipoCambio}
+                    disabled
+                    readOnly
+                    title="Se toma del tipo de cambio definido en Configuración"
+                  />
+                  {!cargandoTipoCambio && !tipoCambioConfig && Number(montoDolares) > 0 && (
+                    <small className="text-danger">
+                      No hay un tipo de cambio configurado. Regístralo en Configuración.
+                    </small>
+                  )}
+                </div>
+
+                <div className="border rounded p-2 mt-3">
+                  <p className="d-flex justify-content-between mb-1">
+                    <span className="text-muted">Pesos</span>
+                    <span>{formatMoney(montoPesos)}</span>
+                  </p>
+                  <p className="d-flex justify-content-between mb-1">
+                    <span className="text-muted">Dólares convertidos</span>
+                    <span>{formatMoney(dolaresConvertidos)}</span>
+                  </p>
+                  <hr className="my-1" />
+                  <p className="d-flex justify-content-between fw-bold mb-0">
+                    <span>Total a Registrar</span>
+                    <span>{formatMoney(totalPago)}</span>
+                  </p>
+                </div>
               </div>
-              <div className="col-md-6">
-                <label className="form-label mb-0">Cantidad en Dólares</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  className="form-control"
-                  value={montoDolares}
-                  onChange={(e) => setMontoDolares(e.target.value)}
-                />
-              </div>
             </div>
-
-            <div className="mb-2">
-              <label className="form-label mb-0">Tipo de Cambio</label>
-              <input
-                type="number"
-                step="0.0001"
-                className="form-control"
-                value={tipoCambio}
-                disabled
-                readOnly
-                title="Se toma del tipo de cambio definido en Configuración"
-              />
-              {!cargandoTipoCambio && !tipoCambioConfig && Number(montoDolares) > 0 && (
-                <small className="text-danger">
-                  No hay un tipo de cambio configurado. Regístralo en Configuración.
-                </small>
-              )}
-            </div>
-
-            <div className="mb-2">
-              <label className="form-label mb-0">Referencia</label>
-              <input
-                type="text"
-                className="form-control"
-                value={referencia}
-                onChange={(e) => setReferencia(e.target.value)}
-              />
-            </div>
-
-            <div className="mb-2">
-              <label className="form-label mb-0">Observaciones</label>
-              <textarea
-                className="form-control"
-                rows={2}
-                value={observaciones}
-                onChange={(e) => setObservaciones(e.target.value)}
-              />
-            </div>
-
-            <p className="fw-bold mb-0">Total a Registrar: {formatMoney(totalPago)}</p>
 
             {error && <p className="text-danger mt-2 mb-0">{error}</p>}
           </div>

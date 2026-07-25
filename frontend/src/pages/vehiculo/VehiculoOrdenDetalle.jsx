@@ -57,11 +57,16 @@ export default function VehiculoOrdenDetalle() {
   const tabFromUrl = searchParams.get("tab");
   const [tab, setTab] = useState(tabFromUrl || "datos");
 
-  // Cambia el tab y persiste en la URL para que el refresh restaure el tab correcto
+  // Cambia el tab y persiste en la URL para que el refresh restaure el tab correcto.
+  // También refresca la orden: si alguien más la cerró/restableció mientras esta
+  // pestaña estaba abierta, el estado y los permisos de edición quedarían obsoletos.
   const changeTab = useCallback((newTab) => {
     setTab(newTab);
     navigate(`?tab=${newTab}`, { replace: true });
-  }, [navigate]);
+    getVehiculoById(id)
+      .then((res) => setOrden(res.data.vehiculo))
+      .catch((err) => console.error("Error al refrescar la orden:", err));
+  }, [navigate, id]);
 
   // El tab de presupuesto se desbloquea cuando el asesor pulsa "Continuar a Presupuesto"
   // o cuando el presupuesto ya fue guardado anteriormente (orden.presupuesto.length > 0)
