@@ -42,7 +42,7 @@
     useEffect(() => {
     (async () => {
       try {
-        const r = await fetch(`${API}/codigos`, { credentials: "include" });
+        const r = await fetch(`${API}/codigos?limit=1000`, { credentials: "include" });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j?.message || "Error");
         setCodigos(j?.data || j || []);

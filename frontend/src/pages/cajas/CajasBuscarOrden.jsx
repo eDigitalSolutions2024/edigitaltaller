@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { listOrdenesEnCurso } from "../../api/cajas";
+import { listOrdenesCaja } from "../../api/cajas";
 import { formatFecha } from "../../utils/fechas";
 
 const PAGE_SIZE = 10;
@@ -26,6 +26,7 @@ export default function CajasBuscarOrden() {
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
   const [page, setPage] = useState(1);
+  const [vista, setVista] = useState("activas"); // activas | liquidadas | garantias
 
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -36,7 +37,7 @@ export default function CajasBuscarOrden() {
   // solo un reset de estado, la consulta real se dispara en el efecto de abajo).
   useEffect(() => {
     setPage(1);
-  }, [busqueda, fechaDesde, fechaHasta]);
+  }, [busqueda, fechaDesde, fechaHasta, vista]);
 
   // Búsqueda reactiva: cada cambio espera un momento antes de disparar la
   // consulta, para no pegarle al servidor en cada tecla.
@@ -45,7 +46,8 @@ export default function CajasBuscarOrden() {
       try {
         setLoading(true);
         setError("");
-        const res = await listOrdenesEnCurso({
+        const res = await listOrdenesCaja({
+          vista,
           search: busqueda,
           fechaDesde,
           fechaHasta,
@@ -55,7 +57,7 @@ export default function CajasBuscarOrden() {
         setRows(res.data.data || []);
         setTotal(res.data.total || 0);
       } catch (err) {
-        console.error("Error cargando órdenes en curso:", err);
+        console.error("Error cargando órdenes de Cajas:", err);
         setError("No se pudieron cargar las órdenes.");
       } finally {
         setLoading(false);
@@ -63,7 +65,9 @@ export default function CajasBuscarOrden() {
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busqueda, fechaDesde, fechaHasta, page]);
+  }, [busqueda, fechaDesde, fechaHasta, page, vista]);
+
+  const toggleVista = (v) => setVista((actual) => (actual === v ? "activas" : v));
 
   const irAOrden = (r) => navigate(`/cajas/orden/${r._id}`);
 
@@ -71,7 +75,25 @@ export default function CajasBuscarOrden() {
 
   return (
     <div>
-      <h4 className="text-center fw-bold mb-4">Buscar Orden de Servicio</h4>
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <h4 className="fw-bold mb-0">Buscar Orden de Servicio</h4>
+        <div className="btn-group">
+          <button
+            type="button"
+            className={`btn btn-sm ${vista === "liquidadas" ? "btn-secondary" : "btn-outline-secondary"}`}
+            onClick={() => toggleVista("liquidadas")}
+          >
+            Órdenes Liquidadas
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${vista === "garantias" ? "btn-info" : "btn-outline-info"}`}
+            onClick={() => toggleVista("garantias")}
+          >
+            Solo Garantías
+          </button>
+        </div>
+      </div>
 
       <div className="row g-2 align-items-end mb-3">
         <div className="col-md-6">

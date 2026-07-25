@@ -156,6 +156,10 @@ router.post('/', async (req, res) => {
     const created = await Codigo.create(payload);
     res.status(201).json({ success:true, data:created });
   } catch (e) {
+    if (e.code === 11000) {
+      const dupVal = e.keyValue?.codigo || req.body.codigo || '';
+      return res.status(409).json({ success:false, message: `El código "${dupVal}" ya existe en la base de datos.` });
+    }
     res.status(400).json({ success:false, message:e.message });
   }
 });
@@ -194,6 +198,10 @@ router.put('/:id', async (req, res) => {
     if (!updated) return res.status(404).json({ success:false, message:'No encontrado' });
     res.json({ success:true, data:updated });
   } catch (e) {
+    if (e.code === 11000) {
+      const dupVal = e.keyValue?.codigo || req.body.codigo || '';
+      return res.status(409).json({ success:false, message: `El código "${dupVal}" ya existe en la base de datos.` });
+    }
     res.status(400).json({ success:false, message:e.message });
   }
 });

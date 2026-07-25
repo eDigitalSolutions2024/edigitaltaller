@@ -1420,7 +1420,8 @@ router.put('/:id/cerrar', async (req, res) => {
       ).catch(() => {});
     }
 
-    return res.json({ ok: true, vehiculo });
+    const vehiculoActualizado = await Vehiculo.findById(vehiculo._id).populate(POPULATE_GRUPO);
+    return res.json({ ok: true, vehiculo: vehiculoActualizado });
   } catch (err) {
     console.error('Error cerrando orden:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
@@ -1464,7 +1465,8 @@ router.put('/:id/restablecer', proteger, requiereRol('admin'), async (req, res) 
 
     await vehiculo.save();
 
-    return res.json({ ok: true, vehiculo });
+    const vehiculoActualizado = await Vehiculo.findById(vehiculo._id).populate(POPULATE_GRUPO);
+    return res.json({ ok: true, vehiculo: vehiculoActualizado });
   } catch (err) {
     console.error('Error restableciendo orden:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });

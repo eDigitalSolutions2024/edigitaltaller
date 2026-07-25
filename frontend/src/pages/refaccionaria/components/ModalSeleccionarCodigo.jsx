@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getUnidadesMedida } from "../../../api/configuracion";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
@@ -15,6 +15,7 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
   const [codigoManual, setCodigoManual]             = useState("");
   const [mostrarFormGuardar, setMostrarFormGuardar] = useState(false);
   const [guardando, setGuardando]                   = useState(false);
+  const guardandoRef = useRef(false);
   const [formNuevo, setFormNuevo] = useState({
     descripcion: "",
     proveedor: prefill.proveedor || "",
@@ -28,7 +29,7 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
       .catch(() => {})
       .finally(() => {
         Promise.all([
-          fetch(`${API}/codigos`, { credentials: "include" }).then((r) => r.json()).catch(() => []),
+          fetch(`${API}/codigos?limit=1000`, { credentials: "include" }).then((r) => r.json()).catch(() => []),
           fetch(`${API}/inventario`, { credentials: "include" }).then((r) => r.json()).catch(() => []),
           fetch(`${API}/proveedores?limit=200&soloActivos=true`, { credentials: "include" }).then((r) => r.json()).catch(() => ({})),
           getUnidadesMedida().catch(() => []),
@@ -66,10 +67,12 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
   };
 
   const handleGuardarEnBD = async () => {
+    if (guardandoRef.current) return;
     const np = codigoManual.trim();
     if (!np) { alert("El código no puede estar vacío."); return; }
     if (!formNuevo.descripcion.trim()) { alert("La descripción es obligatoria."); return; }
     try {
+      guardandoRef.current = true;
       setGuardando(true);
       const payload = {
         tipo: "refaccion",
@@ -93,6 +96,7 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
     } catch (e) {
       alert(e.message || "Error al guardar.");
     } finally {
+      guardandoRef.current = false;
       setGuardando(false);
     }
   };

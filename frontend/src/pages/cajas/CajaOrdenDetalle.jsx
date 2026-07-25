@@ -233,27 +233,29 @@ export default function CajaOrdenDetalle() {
       <div className="border rounded p-3 mb-3">
         <div className="row">
           <div className="col-md-9">
-            {/* TOTALES */}
-            <div className="row text-center mb-4">
-              <div className="col-md-4">
-                <div className="card card-body">
-                  <span className="fw-bold">Total de la Orden</span>
-                  <span className="fs-5">{formatMoney(totales.totalOrden)}</span>
+            {/* TOTALES: solo relevantes una vez que la orden está Cerrada */}
+            {orden.estadoOrden === "CERRADA" && (
+              <div className="row text-center mb-4">
+                <div className="col-md-4">
+                  <div className="card card-body">
+                    <span className="fw-bold">Total de la Orden</span>
+                    <span className="fs-5">{formatMoney(totales.totalOrden)}</span>
+                  </div>
+                </div>
+                <div className="col-md-4">
+                  <div className="card card-body">
+                    <span className="fw-bold text-success">Total Abonado</span>
+                    <span className="fs-5 text-success">{formatMoney(totales.totalAbonado)}</span>
+                  </div>
+                </div>
+                <div className="col-md-4">
+                  <div className="card card-body">
+                    <span className="fw-bold text-danger">Saldo Pendiente</span>
+                    <span className="fs-5 text-danger">{formatMoney(totales.saldoPendiente)}</span>
+                  </div>
                 </div>
               </div>
-              <div className="col-md-4">
-                <div className="card card-body">
-                  <span className="fw-bold text-success">Total Abonado</span>
-                  <span className="fs-5 text-success">{formatMoney(totales.totalAbonado)}</span>
-                </div>
-              </div>
-              <div className="col-md-4">
-                <div className="card card-body">
-                  <span className="fw-bold text-danger">Saldo Pendiente</span>
-                  <span className="fs-5 text-danger">{formatMoney(totales.saldoPendiente)}</span>
-                </div>
-              </div>
-            </div>
+            )}
 
             {/* TABLA COSTO / VENTA (solo lectura) */}
             <h5 className="fw-semibold mb-2">Costo de Venta</h5>
