@@ -46,7 +46,7 @@ router.get('/:id', proteger, async (req, res) => {
   res.json({ success: true, data: doc });
 });
 
-router.post('/', proteger, requiereRol('admin'), async (req, res) => {
+router.post('/', proteger, requiereRol('admin', 'refaccionario'), async (req, res) => {
   try {
     const nombre = String(req.body.nombre || '').trim();
     if (!nombre) throw new Error('Nombre del servicio es obligatorio');
@@ -59,7 +59,7 @@ router.post('/', proteger, requiereRol('admin'), async (req, res) => {
   }
 });
 
-router.put('/:id', proteger, requiereRol('admin'), async (req, res) => {
+router.put('/:id', proteger, requiereRol('admin', 'refaccionario'), async (req, res) => {
   try {
     const payload = {};
     if (req.body.nombre !== undefined) {
@@ -82,7 +82,7 @@ router.put('/:id', proteger, requiereRol('admin'), async (req, res) => {
   }
 });
 
-router.delete('/:id', proteger, requiereRol('admin'), async (req, res) => {
+router.delete('/:id', proteger, requiereRol('admin', 'refaccionario'), async (req, res) => {
   const del = await ServicioCatalogo.findByIdAndDelete(req.params.id);
   if (!del) return res.status(404).json({ success: false, message: 'No encontrado' });
   res.json({ success: true });

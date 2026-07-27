@@ -253,10 +253,10 @@ export default function App() {
             <Route path="factura-proveedor" element={<ConsultarFacturaProveedor />} />
             <Route path="bd-codigos" element={<BDCodigos />} />
             {/* Catálogo de paquetes de servicio (servicio + refacciones necesarias),
-                distinto de BD Códigos → tipo "servicio" (SAT/facturación). Solo admin. */}
+                distinto de BD Códigos → tipo "servicio" (SAT/facturación). Admin y refaccionario. */}
             <Route
               path="servicios"
-              element={<RolesRoute roles={['admin']}><ServiciosCatalogo /></RolesRoute>}
+              element={<RolesRoute roles={['admin', 'refaccionario']}><ServiciosCatalogo /></RolesRoute>}
             />
           </Route>
 
