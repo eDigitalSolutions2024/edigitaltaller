@@ -467,8 +467,8 @@ useEffect(() => {
               <span className="label">BD Codigos</span>
             </NavLink>
 
-            {/* Catálogo de paquetes de servicio (servicio + refacciones necesarias). Solo admin. */}
-            {user?.role === 'admin' && (
+            {/* Catálogo de paquetes de servicio (servicio + refacciones necesarias). Admin y refaccionario. */}
+            {(user?.role === 'admin' || user?.role === 'refaccionario') && (
               <NavLink
                 to="/refaccionaria/servicios"
                 className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
