@@ -86,11 +86,21 @@ export default function ConsultaClientes() {
         {rows.map((c) => (
           <div className="trow" key={c._id}>
             <div>
-              {c.tipoCliente === "Empresa Gobierno"
-                ? c.gobierno?.nombreGobierno || "—"
-                : c.tipoCliente === "Empresa Privada" || c.tipoCliente === "Empresa Arrendadora"
-                ? c.nombre || "—"
-                : [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") || "—"}
+              {c.tipoCliente === "Empresa Gobierno" ? (
+                c.gobierno?.nombreGobierno || "—"
+              ) : c.tipoCliente === "Empresa Privada" || c.tipoCliente === "Empresa Arrendadora" ? (
+                <>
+                  {c.nombre || "—"}
+                  {c.empresa?.razonSocial &&
+                    c.empresa.razonSocial.trim().toLowerCase() !== (c.nombre || "").trim().toLowerCase() && (
+                      <span style={{ display: "block", fontSize: "12px", color: "var(--color-text-info)" }}>
+                        {c.empresa.razonSocial}
+                      </span>
+                    )}
+                </>
+              ) : (
+                [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") || "—"
+              )}
             </div>
             <div>
               {Array.isArray(c.emails) && c.emails.length

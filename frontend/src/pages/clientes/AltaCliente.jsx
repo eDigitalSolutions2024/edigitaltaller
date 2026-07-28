@@ -77,6 +77,7 @@ const initial = {
 
   // EMPRESA (Privada/Arrendadora)
   empresa: {
+    razonSocial: "",
     contacto: {
       nombre: "",
       correo: "",
@@ -349,9 +350,16 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
         payload.tipoCliente === "Empresa Arrendadora"
       ) {
         delete payload.gobierno;
+        // El nombre de la empresa/arrendadora vive únicamente en "nombre";
+        // apellidoPaterno/apellidoMaterno son campos de "Particular" y no
+        // deben arrastrar un contacto viejo que se concatene en los PDFs.
+        payload.apellidoPaterno = "";
+        payload.apellidoMaterno = "";
       }
       if (payload.tipoCliente === "Empresa Gobierno") {
         delete payload.empresa;
+        payload.apellidoPaterno = "";
+        payload.apellidoMaterno = "";
       }
 
       if (isEdit) {
@@ -562,17 +570,17 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
         <>
           <div className="form-grid">
             <div className="form-row">
-              <label>Nombre Empresa</label>
+              <label>Nombre Contacto Empresa</label>
               <input
                 value={form.nombre ?? ""}
                 onChange={(e) => upd("nombre", e.target.value)}
               />
             </div>
             <div className="form-row">
-              <label>Nombre Contacto Empresa</label>
+              <label>Nombre Fiscal (Razón Social)</label>
               <input
-                value={form.apellidoPaterno ?? ""}
-                onChange={(e) => upd("apellidoPaterno", e.target.value)}
+                value={form.empresa?.razonSocial ?? ""}
+                onChange={(e) => upd("empresa.razonSocial", e.target.value)}
               />
             </div>
             <div className="form-row col-12">
@@ -647,17 +655,17 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
         <>
           <div className="form-grid">
             <div className="form-row">
-              <label>Nombre Arrendadora</label>
+              <label>Nombre Contacto Arrendadora</label>
               <input
                 value={form.nombre ?? ""}
                 onChange={(e) => upd("nombre", e.target.value)}
               />
             </div>
             <div className="form-row">
-              <label>Nombre Contacto Arrendadora</label>
+              <label>Nombre Fiscal (Razón Social)</label>
               <input
-                value={form.apellidoPaterno ?? ""}
-                onChange={(e) => upd("apellidoPaterno", e.target.value)}
+                value={form.empresa?.razonSocial ?? ""}
+                onChange={(e) => upd("empresa.razonSocial", e.target.value)}
               />
             </div>
             <div className="form-row col-12">

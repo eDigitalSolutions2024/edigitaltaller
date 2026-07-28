@@ -250,6 +250,9 @@ function buildHtml(vehiculo, asesorOverride = '') {
 
   const nombreCliente = gob.nombreGobierno ||
     [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ') || '';
+  const nombreFiscal = (c.empresa?.razonSocial || '').trim();
+  const mostrarNombreFiscal = !!nombreFiscal &&
+    nombreFiscal.toLowerCase() !== nombreCliente.trim().toLowerCase();
   const telefono  = [tel.lada, tel.numero].filter(Boolean).join(' ');
   const celular   = [cel.lada, cel.numero].filter(Boolean).join(' ');
   const correo    = (c.emails || [])[0] || '';
@@ -491,9 +494,20 @@ function buildHtml(vehiculo, asesorOverride = '') {
   <tr>
     <td class="gh" style="width:22%;font-size:9px;">NOMBRE DEL CLIENTE:</td>
     <td style="width:48%;font-size:11px;font-weight:bold;">${esc(nombreCliente)}</td>
-    <td class="gh c" style="width:17%;font-size:9px;">ORDEN DE SERVICIO</td>
-    <td class="c" style="width:13%;"><span class="orden-num">${esc(vehiculo.ordenServicio)}</span></td>
+    ${mostrarNombreFiscal ? `
+      <td rowspan="2" class="gh c" style="width:17%;font-size:9px;">ORDEN DE SERVICIO</td>
+      <td rowspan="2" class="c" style="width:13%;"><span class="orden-num">${esc(vehiculo.ordenServicio)}</span></td>` : `
+
+      <td class="gh c" style="width:17%;font-size:9px;">ORDEN DE SERVICIO</td>
+      <td class="c" style="width:13%;"><span class="orden-num">${esc(vehiculo.ordenServicio)}</span></td>
+    `}
+    
   </tr>
+  ${mostrarNombreFiscal ? `
+  <tr>
+    <td class="gh" style="font-size:9px;">NOMBRE FISCAL:</td>
+    <td style="font-size:10px;">${esc(nombreFiscal)}</td>
+  </tr>` : ''}
 </table>
 
 <!-- DIRECCIÓN / FECHA / RFC / TELS / CORREO -->
