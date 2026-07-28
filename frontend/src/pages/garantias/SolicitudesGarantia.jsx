@@ -41,7 +41,6 @@ function nombreCliente(c) {
   if (!c) return "Sin cliente";
   return (
     c.gobierno?.nombreGobierno ||
-    c.empresa?.razonSocial ||
     [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") ||
     "Sin nombre"
   );

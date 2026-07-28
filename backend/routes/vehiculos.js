@@ -279,17 +279,23 @@ router.post('/', async (req, res) => {
     const clienteDoc = await Cliente.findById(clienteId);
     if (clienteDoc) {
       const clienteUpdate = {};
-      const esParticular = clienteDoc.tipoCliente === 'Particular';
+      const tipoCliente = clienteDoc.tipoCliente;
 
-      if (esParticular) {
+      if (tipoCliente === 'Particular') {
         if (b.nombreCliente)    clienteUpdate.nombre           = b.nombreCliente;
         if (b.apellidoPaterno)  clienteUpdate.apellidoPaterno  = b.apellidoPaterno;
         if (b.apellidoMaterno)  clienteUpdate.apellidoMaterno  = b.apellidoMaterno;
-      } else {
+      } else if (tipoCliente === 'Empresa Gobierno') {
         if (b.nombreGobierno)             clienteUpdate['gobierno.nombreGobierno']              = b.nombreGobierno;
         if (b.nombreContactoGobierno)     clienteUpdate['gobierno.contactoGobierno.nombre']     = b.nombreContactoGobierno;
         if (b.nombreDependencia)          clienteUpdate['gobierno.dependencia.nombre']           = b.nombreDependencia;
         if (b.nombreContactoDependencia)  clienteUpdate['gobierno.dependencia.contacto.nombre'] = b.nombreContactoDependencia;
+      } else {
+        // Empresa Privada / Empresa Arrendadora: el nombre de la empresa vive
+        // únicamente en "nombre" (ver AltaCliente.jsx). Escribir en "gobierno.*"
+        // aquí fue lo que originalmente dejó datos huérfanos en clientes que
+        // nunca fueron "Empresa Gobierno".
+        if (b.nombreGobierno) clienteUpdate.nombre = b.nombreGobierno;
       }
 
       if (b.rfc) clienteUpdate.rfc = b.rfc;
@@ -1330,15 +1336,15 @@ router.put('/:id/datos', async (req, res) => {
     // Actualizar datos del cliente en su propio documento
     if (vehiculo.cliente?._id) {
       const b = req.body;
-      const esParticular = vehiculo.cliente.tipoCliente === 'Particular';
+      const tipoCliente = vehiculo.cliente.tipoCliente;
 
       const clienteUpdate = {};
 
-      if (esParticular) {
+      if (tipoCliente === 'Particular') {
         if (b.nombreCliente !== undefined) clienteUpdate.nombre = b.nombreCliente;
         if (b.apellidoPaterno !== undefined) clienteUpdate.apellidoPaterno = b.apellidoPaterno;
         if (b.apellidoMaterno !== undefined) clienteUpdate.apellidoMaterno = b.apellidoMaterno;
-      } else {
+      } else if (tipoCliente === 'Empresa Gobierno') {
         if (b.nombreGobierno !== undefined) {
           clienteUpdate['gobierno.nombreGobierno'] = b.nombreGobierno;
         }
@@ -1351,6 +1357,9 @@ router.put('/:id/datos', async (req, res) => {
         if (b.nombreContactoDependencia !== undefined) {
           clienteUpdate['gobierno.dependencia.contacto.nombre'] = b.nombreContactoDependencia;
         }
+      } else {
+        // Empresa Privada / Empresa Arrendadora: el nombre vive solo en "nombre"
+        if (b.nombreGobierno !== undefined) clienteUpdate.nombre = b.nombreGobierno;
       }
 
       if (b.rfc !== undefined) clienteUpdate.rfc = b.rfc;

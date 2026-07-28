@@ -74,7 +74,7 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral,
   const nombreCliente =
     c.tipoCliente === "Particular"
       ? [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ")
-      : c.gobierno?.nombreGobierno || c.empresa?.razonSocial || c.nombre || "-";
+      : c.gobierno?.nombreGobierno || c.nombre || "-";
 
   const codigosSeleccionados = orden.servicioReparacion?.serviciosSeleccionados || [];
   const otrosServicios = catalogo.filter(

@@ -53,7 +53,6 @@ function formatDateForInput(value) {
 
 function nombreClienteGarage(c) {
   if (!c) return "";
-  if (c.empresa?.razonSocial) return c.empresa.razonSocial;
   if (c.gobierno?.nombreGobierno) return c.gobierno.nombreGobierno;
   return (
     [c.nombre, c.apellidoPaterno].filter(Boolean).join(" ") ||
@@ -724,17 +723,6 @@ export default function VehiculoNuevoForm({
                             className="form-control"
                             name="nombreGobierno"
                             value={form.nombreGobierno}
-                            onChange={handleChange}
-                          />
-                        </div>
-
-                        <div className="col-12">
-                          <label className="form-label">Nombre Contacto Empresa</label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            name="nombreContactoGobierno"
-                            value={form.nombreContactoGobierno}
                             onChange={handleChange}
                           />
                         </div>

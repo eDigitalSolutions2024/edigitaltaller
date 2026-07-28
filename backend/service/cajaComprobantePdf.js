@@ -41,7 +41,7 @@ const nombreCliente = (orden) => {
   if (c.tipoCliente === 'Particular') {
     return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ') || '';
   }
-  return c.gobierno?.nombreGobierno || c.empresa?.razonSocial || c.nombre || '';
+  return c.gobierno?.nombreGobierno || c.nombre || '';
 };
 
 const domicilio = (orden) => {
