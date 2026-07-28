@@ -3,6 +3,26 @@ const express = require("express");
 const Cliente = require("../models/Cliente");
 const router = express.Router();
 
+// Campos que NO corresponden a cada tipoCliente. Se usan para limpiar datos
+// de un tipo/estructura anterior cuando el cliente cambia (p. ej. de
+// "Empresa Gobierno" a "Empresa Privada", o cuando el nombre de la empresa
+// vive solo en "nombre" y ya no en "apellidoPaterno"), evitando que campos
+// obsoletos como gobierno.nombreGobierno o apellidoPaterno queden huérfanos
+// en la BD y sigan apareciendo (o concatenándose) en reportes/PDFs que los
+// leen con prioridad.
+function camposNoUsados(tipoCliente) {
+  if (tipoCliente === "Empresa Privada" || tipoCliente === "Empresa Arrendadora") {
+    return ["gobierno", "apellidoPaterno", "apellidoMaterno"];
+  }
+  if (tipoCliente === "Empresa Gobierno") {
+    return ["empresa", "apellidoPaterno", "apellidoMaterno"];
+  }
+  if (tipoCliente === "Particular") {
+    return ["empresa", "gobierno"];
+  }
+  return [];
+}
+
 // POST /api/clientes  (crear)
 router.post("/", async (req, res) => {
   try {
@@ -58,6 +78,10 @@ router.post("/", async (req, res) => {
       }
     }
     // 👆 fin validación
+
+    // Descarta campos que no correspondan al tipo (defensa extra: el
+    // frontend ya no los envía, pero así queda protegido cualquier caller).
+    for (const campo of camposNoUsados(tipoCliente)) delete body[campo];
 
     const cliente = await Cliente.create(body);
     res.status(201).json({ ok: true, data: cliente });
@@ -115,7 +139,20 @@ router.put("/:id", async (req, res) => {
     // 🔴 Tampoco actualizamos facturación por ahora
     //delete body.facturacion;
 
-    const c = await Cliente.findByIdAndUpdate(req.params.id, body, {
+    // findByIdAndUpdate solo toca los campos presentes en `body`: si el
+    // cliente cambió de tipo (p. ej. dejó de ser "Empresa Gobierno"), los
+    // campos viejos ("gobierno"/"empresa"/"apellidoPaterno") no viajan en
+    // el body pero tampoco se borran solos en Mongo, así que quedan
+    // huérfanos y siguen apareciendo (o concatenándose) en cualquier lugar
+    // que los lea con prioridad. Se limpian explícitamente aquí con $unset.
+    const noUsados = body.tipoCliente ? camposNoUsados(body.tipoCliente) : [];
+    const update = { $set: body };
+    for (const campo of noUsados) delete update.$set[campo];
+    if (noUsados.length) {
+      update.$unset = Object.fromEntries(noUsados.map((campo) => [campo, ""]));
+    }
+
+    const c = await Cliente.findByIdAndUpdate(req.params.id, update, {
       new: true,
     });
     res.json({ ok: true, data: c });

@@ -38,6 +38,16 @@ const nombreCliente = (orden) => {
   return nombre || 'N/A';
 };
 
+// Solo se muestra cuando el cliente tiene razón social distinta al nombre
+// comercial/contacto (p. ej. "LAVADORAS" vs "Lavadoras del Norte S.A. de C.V.")
+const nombreFiscal = (orden) => {
+  const c = orden.cliente || {};
+  const fiscal = (c.empresa?.razonSocial || '').trim();
+  if (!fiscal) return '';
+  if (fiscal.toLowerCase() === nombreCliente(orden).trim().toLowerCase()) return '';
+  return fiscal;
+};
+
 const telefono = (orden) => {
   const c = orden.cliente || {};
   const tel = (c.telefonos || [])[0] || {};
@@ -68,6 +78,9 @@ exports.generarPresupuestoPDF = async (res, orden) => {
     const fechaRecepcion = orden.fechaRecepcion
       ? dayjsFecha(orden.fechaRecepcion).format('DD/MM/YYYY')
       : fechaActual;
+
+    const nombreClienteVal = nombreCliente(orden);
+    const nombreFiscalVal = nombreFiscal(orden);
 
     const ivaRate = (Number(orden.ivaPresupuesto ?? 8) || 0) / 100;
 
@@ -186,12 +199,15 @@ exports.generarPresupuestoPDF = async (res, orden) => {
       background: #214190;
       color: #fff;
       font-weight: 700;
+      text-align: center;
+      vertical-align: middle;
     }
 
     .os-number {
       color: red;
       font-weight: 700;
       text-align: center;
+      vertical-align: middle;
     }
 
     .items {
@@ -312,10 +328,19 @@ exports.generarPresupuestoPDF = async (res, orden) => {
   <table class="data-table">
     <tr>
       <td class="label" style="width: 20%;">NOMBRE DEL CLIENTE:</td>
-      <td colspan="3">${escapeHtml(nombreCliente(orden))}</td>
+      <td colspan="3">${escapeHtml(nombreClienteVal)}</td>
+      ${nombreFiscalVal ? `
+      <td rowspan="2" class="os-label" style="width: 18%; text-align: center; vertical-align: middle;">ORDEN DE SERVICIO:</td>
+      <td rowspan="2" class="os-number" style="width: 14%; text-align: center; vertical-align: middle;">${escapeHtml(orden.ordenServicio || '')}</td>` : `
       <td class="os-label" style="width: 18%;">ORDEN DE SERVICIO:</td>
       <td class="os-number" style="width: 14%;">${escapeHtml(orden.ordenServicio || '')}</td>
+      `}
     </tr>
+    ${nombreFiscalVal ? `
+    <tr>
+      <td class="label">NOMBRE FISCAL:</td>
+      <td colspan="3">${escapeHtml(nombreFiscalVal)}</td>
+    </tr>` : ''}
     <tr>
       <td class="label">FECHA DE RECEPCION:</td>
       <td colspan="2">${fechaRecepcion}${horaRecepcion ? ` A LAS ${escapeHtml(horaRecepcion)}` : ''}</td>
