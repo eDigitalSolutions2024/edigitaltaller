@@ -154,7 +154,6 @@ export default function VehiculosConsultaGarantias() {
               const g = o.garantia || {};
               const clienteNombre =
                 c.gobierno?.nombreGobierno ||
-                c.empresa?.razonSocial ||
                 [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") ||
                 "";
 

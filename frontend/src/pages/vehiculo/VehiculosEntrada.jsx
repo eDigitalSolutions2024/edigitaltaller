@@ -74,7 +74,6 @@ export default function VehiculoEntrada() {
 
       const nombreFiltro =
         c.gobierno?.nombreGobierno ||
-        c.empresa?.razonSocial ||
         nombreCompleto ||
         "";
 
@@ -93,7 +92,6 @@ export default function VehiculoEntrada() {
 
     const nombre =
       cliente.gobierno?.nombreGobierno ||
-      cliente.empresa?.razonSocial ||
       [cliente.nombre, cliente.apellidoPaterno, cliente.apellidoMaterno].filter(Boolean).join(" ") ||
       "Sin nombre";
 
@@ -200,7 +198,6 @@ export default function VehiculoEntrada() {
                 {filtrados.map((c) => {
                   const nombre =
                     c.gobierno?.nombreGobierno ||
-                    c.empresa?.razonSocial ||
                     [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") ||
                     "Sin nombre";
 
@@ -248,7 +245,6 @@ export default function VehiculoEntrada() {
               <p className="mb-2">
                 <strong>Cliente Seleccionado: </strong>
                 {clienteSeleccionado.gobierno?.nombreGobierno ||
-                  clienteSeleccionado.empresa?.razonSocial ||
                   [clienteSeleccionado.nombre, clienteSeleccionado.apellidoPaterno].filter(Boolean).join(" ") ||
                   "Sin nombre"}
               </p>

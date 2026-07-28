@@ -157,7 +157,6 @@ export default function CajasBuscarOrden() {
                   <td className="text-center">{r.ordenServicio || "-"}</td>
                   <td>
                     {r.cliente?.gobierno?.nombreGobierno ||
-                      r.cliente?.empresa?.razonSocial ||
                       [r.cliente?.nombre, r.cliente?.apellidoPaterno, r.cliente?.apellidoMaterno]
                         .filter(Boolean)
                         .join(" ") ||

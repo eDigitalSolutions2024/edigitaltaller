@@ -17,7 +17,7 @@ export default function VehiculoPreparacionEnCurso({ orden }) {
   const nombreCliente =
     c.tipoCliente === "Particular"
       ? [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ")
-      : c.gobierno?.nombreGobierno || c.empresa?.razonSocial || c.nombre || "-";
+      : c.gobierno?.nombreGobierno || c.nombre || "-";
 
   const ventaItems =
     (Array.isArray(orden.ventaCliente) && orden.ventaCliente.length > 0

@@ -82,7 +82,6 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
     if (!obj) return "Sin cliente";
     return (
       obj.gobierno?.nombreGobierno ||
-      obj.empresa?.razonSocial ||
       [obj.nombre, obj.apellidoPaterno, obj.apellidoMaterno].filter(Boolean).join(" ") ||
       "Sin nombre"
     );

@@ -138,7 +138,7 @@ export default function CajaOrdenDetalle() {
   const nombreCliente =
     c.tipoCliente === "Particular"
       ? [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ")
-      : c.gobierno?.nombreGobierno || c.empresa?.razonSocial || c.nombre || "-";
+      : c.gobierno?.nombreGobierno || c.nombre || "-";
 
   const manoObra = orden.manoObra || [];
   const ventaRows = orden.ventaCliente || [];
