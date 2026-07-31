@@ -7,6 +7,11 @@ export async function fetchOrdenesCompra(params = {}) {
   return data.data || [];
 }
 
+export async function createOrdenCompraManual(payload) {
+  const { data } = await http.post("/ordenes-compra/manual", payload);
+  return data;
+}
+
 export async function downloadOrdenCompraPdf(id) {
   const resp = await http.get(`/ordenes-compra/${id}/pdf`, {
     responseType: "blob",

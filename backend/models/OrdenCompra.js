@@ -1,5 +1,9 @@
 // backend/models/OrdenCompra.js
 const mongoose = require('mongoose');
+const Contador = require('./Contador');
+
+// Debe coincidir con ORDEN_COMPRA_CONTADOR en routes/configuracion.js
+const ORDEN_COMPRA_CONTADOR = 'ordenCompra';
 
 const lineaOCSchema = new mongoose.Schema(
   {
@@ -27,17 +31,28 @@ const ordenCompraSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // Orden / vehículo al que pertenece
+    // Orden / vehículo al que pertenece (no aplica en compras manuales/directas)
     orden: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Vehiculo',
-      required: true,
     },
 
     // normalmente 1 proveedor por OC
     proveedor: {
       type: String,
       trim: true,
+    },
+
+    proveedorId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Proveedor',
+    },
+
+    // domicilio del proveedor al momento de generar la OC (queda fijo aunque el proveedor cambie después)
+    domicilioProveedor: {
+      type: String,
+      trim: true,
+      default: '',
     },
 
     lineas: [lineaOCSchema],
@@ -48,6 +63,18 @@ const ordenCompraSchema = new mongoose.Schema(
       default: 'PENDIENTE',
     },
 
+    // quién entrega la OC (se toma del usuario que la genera) y quién la recibe (queda en blanco para firma física)
+    entrega: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    recibe: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+
     creadoPor: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -56,17 +83,16 @@ const ordenCompraSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// 👇 Helper para generar el siguiente folio: OC-00001, OC-00002, etc.
+// 👇 Genera el siguiente folio: OC-00001, OC-00002, etc.
+// Usa el contador genérico (configurable desde Configuración > Folio de Orden de Compra).
 ordenCompraSchema.statics.generarConsecutivo = async function () {
-  const last = await this.findOne().sort({ createdAt: -1 }).select('numero');
-  let next = 1;
+  const contador = await Contador.findOneAndUpdate(
+    { nombre: ORDEN_COMPRA_CONTADOR },
+    { $inc: { valor: 1 } },
+    { new: true, upsert: true }
+  );
 
-  if (last && /^OC-(\d+)$/.test(last.numero)) {
-    const num = parseInt(last.numero.split('-')[1], 10);
-    if (!isNaN(num)) next = num + 1;
-  }
-
-  return `OC-${String(next).padStart(5, '0')}`;
+  return `OC-${String(contador.valor).padStart(5, '0')}`;
 };
 
 module.exports = mongoose.model('OrdenCompra', ordenCompraSchema);

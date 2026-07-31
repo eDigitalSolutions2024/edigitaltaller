@@ -13,8 +13,38 @@ const EntradaInventario = require('../models/EntradaInventario');
 const SalidaInventario  = require('../models/SalidaInventario');
 const AjusteInventario  = require('../models/AjusteInventario');
 const CodigoRefaccion   = require('../models/CodigoRefaccion');
+const fs = require('fs');
+const path = require('path');
+const {
+  uploadImagenesVehiculo,
+  uploadImagenesVehiculoTemp,
+  PERM_DIR: IMAGENES_PERM_DIR,
+  TEMP_DIR: IMAGENES_TEMP_DIR,
+} = require('./middleware/uploadImagenesVehiculo');
 
-const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares emails rfc direccion asesorResponsable';
+const TEMP_ID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function validarTempId(req, res, next) {
+  if (!TEMP_ID_RX.test(req.params.tempId)) {
+    return res.status(400).json({ ok: false, msg: 'tempId inválido' });
+  }
+  next();
+}
+
+function leerManifest(dir) {
+  const manifestPath = path.join(dir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
+function escribirManifest(dir, manifest) {
+  fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest));
+}
+
+const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares emails rfc regimenFiscal codigoPostalFiscal facturacion direccion asesorResponsable';
 
 // Grupo timbrado en la orden: nombre + miembros (solo informativo, para
 // mostrar junto al asesor en listados/detalle/impresos).
@@ -183,6 +213,11 @@ router.post('/', async (req, res) => {
     // a partir de garantiaSolicitud { ordenAnteriorId, motivo }.
     delete payload.garantia;
     delete payload.garantiaSolicitud;
+    // Las imágenes nunca se aceptan crudas del cliente: si venían de una
+    // sesión temporal (subidas antes de guardar la orden), se migran desde
+    // disco más abajo usando el tempId; el array final se arma ahí.
+    delete payload.imagenes;
+    const tempIdImagenes = TEMP_ID_RX.test(data.tempId || '') ? data.tempId : null;
     if (data.garantiaSolicitud?.ordenAnteriorId) {
       const ordenAnterior = await Vehiculo.findById(
         data.garantiaSolicitud.ordenAnteriorId
@@ -273,6 +308,40 @@ router.post('/', async (req, res) => {
 
     const vehiculo = new Vehiculo(payload);
     await vehiculo.save();
+
+    // Migrar imágenes subidas temporalmente (antes de guardar la orden) a la
+    // carpeta definitiva, ahora que ya existe el folio real.
+    if (tempIdImagenes) {
+      try {
+        const tempDir = path.join(IMAGENES_TEMP_DIR, tempIdImagenes);
+        const manifest = leerManifest(tempDir);
+
+        if (manifest.length > 0) {
+          const imagenesFinal = [];
+          for (const item of manifest) {
+            const origen = path.join(tempDir, item.filename);
+            const destino = path.join(IMAGENES_PERM_DIR, item.filename);
+            if (fs.existsSync(origen)) {
+              fs.renameSync(origen, destino);
+              imagenesFinal.push({
+                filename: item.filename,
+                mimetype: item.mimetype,
+                size: item.size,
+                url: `/uploads/vehiculos/${item.filename}`,
+                fecha: item.fecha ? new Date(item.fecha) : new Date(),
+                subidoPor: payload.creadoPor || '',
+              });
+            }
+          }
+          vehiculo.imagenes = imagenesFinal;
+          await vehiculo.save();
+        }
+
+        fs.rm(tempDir, { recursive: true, force: true }, () => {});
+      } catch (imgErr) {
+        console.error('Error migrando imágenes temporales a la orden:', imgErr);
+      }
+    }
 
     // Actualizar datos del cliente con la información capturada en el formulario
     const b = req.body;
@@ -610,12 +679,18 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
 // PENDIENTE_AUTORIZACION_CLIENTE sin pasar por refaccionaria.
 router.put('/:id/omitir-refacciones', async (req, res) => {
   try {
-    const { servicios, manoObra, serviciosCatalogo } = req.body;
+    const { servicios, serviciosCatalogo } = req.body;
 
     const validos = (Array.isArray(servicios) ? servicios : [])
       .map((s) => ({
         concepto: String(s.concepto || '').trim(),
         cant: Number(s.cant) || 1,
+        // Mano de obra opcional asignada a este servicio desde el mismo modal
+        esCarroceria: !!s.esCarroceria,
+        mecanico: String(s.mecanico || ''),
+        carrocero: String(s.carrocero || ''),
+        horas: Number(s.horas) || 0,
+        fechaPago: String(s.fechaPago || ''),
       }))
       .filter((s) => s.concepto);
 
@@ -648,20 +723,6 @@ router.put('/:id/omitir-refacciones', async (req, res) => {
       });
     }
 
-    // Mano de obra opcional capturada desde el mismo modal
-    const moValidas = (Array.isArray(manoObra) ? manoObra : [])
-      .map((m) => ({
-        concepto: String(m.concepto || '').trim(),
-        mecanico: String(m.mecanico || ''),
-        horas: Number(m.horas) || 0,
-        fechaPago: String(m.fechaPago || ''),
-        observaciones: String(m.observaciones || ''),
-        esCarroceria: !!m.esCarroceria,
-        carrocero: String(m.carrocero || ''),
-        precioCarroceria: Number(m.precioCarroceria) || 0,
-      }))
-      .filter((m) => m.concepto);
-
     const vehiculo = await Vehiculo.findById(req.params.id);
     if (!vehiculo) {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
@@ -676,6 +737,25 @@ router.put('/:id/omitir-refacciones', async (req, res) => {
         precioVenta: 0,
         autorizado: false,
       });
+
+      // Si el asesor ya asignó mecánico/carrocero a este servicio, se liga
+      // directamente con el _id de la partida recién creada (disponible en
+      // memoria aunque todavía no se haya guardado en BD).
+      const asignado = s.esCarroceria ? s.carrocero : s.mecanico;
+      if (asignado) {
+        const presupuestoRow = vehiculo.presupuesto[vehiculo.presupuesto.length - 1];
+        vehiculo.manoObra.push({
+          concepto: s.concepto,
+          presupuestoId: presupuestoRow._id,
+          mecanico: s.esCarroceria ? '' : s.mecanico,
+          carrocero: s.esCarroceria ? s.carrocero : '',
+          esCarroceria: s.esCarroceria,
+          horas: s.horas,
+          fechaPago: s.fechaPago,
+          observaciones: '',
+          precioCarroceria: 0,
+        });
+      }
     }
 
     // Servicios de catálogo: 1 renglón esServicio (mano de obra) + 1 renglón
@@ -735,10 +815,6 @@ router.put('/:id/omitir-refacciones', async (req, res) => {
         refacciones: refaccionesSnapshot,
         fechaSeleccion: new Date(),
       });
-    }
-
-    for (const m of moValidas) {
-      vehiculo.manoObra.push(m);
     }
 
     vehiculo.refaccionesOmitidas = true;
@@ -1396,6 +1472,136 @@ router.put('/:id/datos', async (req, res) => {
     console.error('Error actualizando datos de orden:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
+});
+
+// POST /api/vehiculos/:id/imagenes -> subir una o más imágenes (fotos del
+// vehículo, daños, etc.) adjuntas a la orden.
+router.post('/:id/imagenes', uploadImagenesVehiculo.array('imagenes', 10), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ ok: false, msg: 'No se recibieron imágenes.' });
+    }
+
+    const nuevas = req.files.map((f) => ({
+      filename: f.filename,
+      mimetype: f.mimetype,
+      size: f.size,
+      url: `/uploads/vehiculos/${f.filename}`,
+      fecha: new Date(),
+      subidoPor: req.body.subidoPor || '',
+    }));
+
+    const vehiculo = await Vehiculo.findByIdAndUpdate(
+      id,
+      { $push: { imagenes: { $each: nuevas } } },
+      { new: true }
+    ).select('imagenes');
+
+    if (!vehiculo) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+
+    return res.json({ ok: true, imagenes: vehiculo.imagenes });
+  } catch (err) {
+    console.error('Error subiendo imágenes:', err);
+    return res.status(500).json({ ok: false, msg: err.message || 'Error en el servidor' });
+  }
+});
+
+// DELETE /api/vehiculos/:id/imagenes/:imagenId -> eliminar una imagen adjunta
+router.delete('/:id/imagenes/:imagenId', async (req, res) => {
+  try {
+    const { id, imagenId } = req.params;
+
+    const vehiculo = await Vehiculo.findById(id).select('imagenes');
+    if (!vehiculo) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+
+    const imagen = vehiculo.imagenes.id(imagenId);
+    if (!imagen) {
+      return res.status(404).json({ ok: false, msg: 'Imagen no encontrada' });
+    }
+
+    const filePath = path.join(IMAGENES_PERM_DIR, imagen.filename);
+    fs.unlink(filePath, () => {}); // si ya no existe el archivo, no bloquear la respuesta
+
+    const actualizado = await Vehiculo.findByIdAndUpdate(
+      id,
+      { $pull: { imagenes: { _id: imagenId } } },
+      { new: true }
+    ).select('imagenes');
+
+    return res.json({ ok: true, imagenes: actualizado.imagenes });
+  } catch (err) {
+    console.error('Error eliminando imagen:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// ===== Imágenes temporales (orden aún no creada) =====
+// Se suben antes de guardar la orden nueva; viven en uploads/vehiculos/temp/:tempId
+// hasta que la orden se crea (momento en el que se migran a la carpeta
+// definitiva, ver POST /) o hasta que el job de limpieza las purga por
+// abandono (ver utils/limpiarImagenesTemp.js).
+
+// POST /api/vehiculos/imagenes/temp/:tempId -> subir imágenes temporales
+router.post('/imagenes/temp/:tempId', validarTempId, uploadImagenesVehiculoTemp.array('imagenes', 10), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ ok: false, msg: 'No se recibieron imágenes.' });
+    }
+
+    const dir = path.join(IMAGENES_TEMP_DIR, req.params.tempId);
+    const manifest = leerManifest(dir);
+
+    const nuevas = req.files.map((f) => ({
+      filename: f.filename,
+      mimetype: f.mimetype,
+      size: f.size,
+      url: `/uploads/vehiculos/temp/${req.params.tempId}/${f.filename}`,
+      fecha: new Date().toISOString(),
+    }));
+
+    const manifestActualizado = manifest.concat(nuevas);
+    escribirManifest(dir, manifestActualizado);
+
+    return res.json({ ok: true, imagenes: manifestActualizado });
+  } catch (err) {
+    console.error('Error subiendo imágenes temporales:', err);
+    return res.status(500).json({ ok: false, msg: err.message || 'Error en el servidor' });
+  }
+});
+
+// DELETE /api/vehiculos/imagenes/temp/:tempId/:filename -> eliminar una imagen temporal
+router.delete('/imagenes/temp/:tempId/:filename', validarTempId, (req, res) => {
+  try {
+    const { filename } = req.params;
+    if (path.basename(filename) !== filename) {
+      return res.status(400).json({ ok: false, msg: 'Nombre de archivo inválido' });
+    }
+
+    const dir = path.join(IMAGENES_TEMP_DIR, req.params.tempId);
+    fs.unlink(path.join(dir, filename), () => {});
+
+    const manifestActualizado = leerManifest(dir).filter((m) => m.filename !== filename);
+    escribirManifest(dir, manifestActualizado);
+
+    return res.json({ ok: true, imagenes: manifestActualizado });
+  } catch (err) {
+    console.error('Error eliminando imagen temporal:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// DELETE /api/vehiculos/imagenes/temp/:tempId -> descartar toda la sesión temporal
+// (p. ej. el usuario cancela la creación de la orden)
+router.delete('/imagenes/temp/:tempId', validarTempId, (req, res) => {
+  const dir = path.join(IMAGENES_TEMP_DIR, req.params.tempId);
+  fs.rm(dir, { recursive: true, force: true }, () => {});
+  return res.json({ ok: true });
 });
 
 // PUT /api/vehiculos/:id/cerrar  -> cerrar orden de servicio

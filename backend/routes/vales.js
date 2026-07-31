@@ -208,7 +208,7 @@ router.post('/', async (req, res) => {
     // La orden siempre refleja el último vale emitido (se sobreescribe cada vez).
     if (vehiculoDoc) {
       await Vehiculo.findByIdAndUpdate(vehiculoDoc._id, {
-        ultimoVale: { noVale: vale.noVale, dig: vale.dig, fecha: vale.fecha },
+        ultimoVale: { id: vale._id, noVale: vale.noVale, dig: vale.dig, fecha: vale.fecha },
       });
     }
 

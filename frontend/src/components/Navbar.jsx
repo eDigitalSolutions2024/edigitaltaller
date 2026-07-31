@@ -19,6 +19,14 @@ export default function Navbar({ collapsed, onToggle }) {
     if (location.pathname.startsWith('/clientes')) setClientesOpen(true);
   }, [location.pathname]);
 
+  // === SOPORTE ===
+  const [soporteOpen, setSoporteOpen] = useState(
+    location.pathname.startsWith('/soporte')
+  );
+  useEffect(() => {
+    if (location.pathname.startsWith('/soporte')) setSoporteOpen(true);
+  }, [location.pathname]);
+
   // === REFACCIONARIA ===
   const [refaOpen, setRefaOpen] = useState(
     location.pathname.startsWith('/refaccionaria')
@@ -34,6 +42,9 @@ const [ordenesOpen, setOrdenesOpen] = useState(
   location.pathname.startsWith("/ordenes")
   || location.pathname.startsWith("/ordenes-compra")
 );
+useEffect(() => {
+  if (location.pathname.startsWith("/ordenes-compra")) setOrdenesOpen(true);
+}, [location.pathname]);
 
 useEffect(() => {
   if (
@@ -149,6 +160,52 @@ useEffect(() => {
           <span className="emoji">🏠</span><span className="label">Inicio</span>
         </NavLink>
 
+        {/* === GRUPO: SOPORTE (disponible para todos los roles) === */}
+        <div className={`sidebar__group ${soporteOpen ? 'open' : ''}`}>
+          <button
+            type="button"
+            className="sidebar__link sidebar__group-toggle"
+            onClick={() => setSoporteOpen(o => !o)}
+            aria-expanded={soporteOpen}
+            aria-controls="submenu-soporte"
+            title="Soporte"
+          >
+            <span className="emoji">🛟</span>
+            <span className="label">Soporte</span>
+            {!collapsed && <span className="chev" aria-hidden>▾</span>}
+          </button>
+
+          <div id="submenu-soporte" className="sidebar__sublinks">
+            {user?.role !== 'admin' && (
+              <NavLink
+                to="/soporte/mis-tickets"
+                className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+              >
+                <span className="label">Reportar Ticket</span>
+              </NavLink>
+            )}
+
+            {user?.role === 'admin' && (
+              <NavLink
+                to="/soporte/admin"
+                className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+              >
+                <span className="label">Panel Admin</span>
+              </NavLink>
+            )}
+
+            {user?.role === 'admin' && (
+              <NavLink
+                to="/soporte/admin/historial"
+                className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+              >
+                <span className="label">Historial</span>
+              </NavLink>
+            )}
+          </div>
+        </div>
+        {/* === FIN GRUPO SOPORTE === */}
+
         {/* Administración (solo admin) */}
           {user?.role === 'admin' && (
             <div className={`sidebar__group ${adminOpen ? 'open' : ''}`}>
@@ -191,9 +248,36 @@ useEffect(() => {
             )}
 
         {canSeeModule(user?.role, 'ordenes') && (
-          <NavLink to="/ordenes-compra" className="sidebar__link" title="Órdenes">
-            <span className="emoji">📋</span><span className="label">Órdenes de compra</span>
-          </NavLink>
+          <div className={`sidebar__group ${ordenesOpen ? 'open' : ''}`}>
+            <button
+              type="button"
+              className="sidebar__link sidebar__group-toggle"
+              onClick={() => setOrdenesOpen(o => !o)}
+              aria-expanded={ordenesOpen}
+              aria-controls="submenu-ordenes-compra"
+              title="Órdenes de compra"
+            >
+              <span className="emoji">📋</span>
+              <span className="label">Órdenes de compra</span>
+              {!collapsed && <span className="chev" aria-hidden>▾</span>}
+            </button>
+
+            <div id="submenu-ordenes-compra" className="sidebar__sublinks">
+              <NavLink
+                to="/ordenes-compra"
+                end
+                className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+              >
+                <span className="label">Listado</span>
+              </NavLink>
+              <NavLink
+                to="/ordenes-compra/nueva"
+                className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+              >
+                <span className="label">Nueva orden de compra</span>
+              </NavLink>
+            </div>
+          </div>
         )}
 
         {/* === CAJAS === */}

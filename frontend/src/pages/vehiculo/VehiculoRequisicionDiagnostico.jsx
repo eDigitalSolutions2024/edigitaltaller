@@ -10,19 +10,6 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
   const [diagnostico, setDiagnostico] = useState("");
   const [rows, setRows] = useState([]); // refaccionesSolicitadas
   const [cargos, setCargos] = useState([]); // cargosEnOrden
-  const [moRows, setMoRows] = useState([]);
-  const [mecanicos, setMecanicos] = useState([]);
-  const [carroceros, setCarroceros] = useState([]);
-  const [moLine, setMoLine] = useState({
-    concepto: "",
-    mecanico: "",
-    horas: "",
-    fechaPago: "",
-    observaciones: "",
-    esCarroceria: false,   // ← nuevo
-    carrocero: "",         // ← nuevo
-    precioCarroceria: "",
-  });
 
   const [line, setLine] = useState({
     cant: "",
@@ -82,24 +69,7 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
 
     // Cargos en orden (lo que ya viene del backend)
     setCargos(orden.cargosEnOrden || []);
-    setMoRows(orden.manoObra || []);
   }, [orden?._id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    const cargarEmpleados = async () => {
-      try {
-        const [resMec, resCar] = await Promise.all([
-          http.get("/empleados?puesto=mecanico&activo=true"),
-          http.get("/empleados?puesto=carrocero&activo=true"),
-        ]);
-        setMecanicos(resMec.data || []);
-        setCarroceros(resCar.data || []);
-      } catch (err) {
-        console.error("Error cargando empleados:", err);
-      }
-    };
-    cargarEmpleados();
-  }, []);
 
   const handleLineChange = (e) => {
     const { name, value } = e.target;
@@ -108,74 +78,6 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
       [name]: value,
     }));
   };
-
-  const handleMoLineChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setMoLine((prev) => {
-      const updates = { [name]: type === "checkbox" ? checked : value };
-      // Al cambiar el tipo (carrocería/mecánico) limpiar el selector del otro
-      if (name === "esCarroceria") {
-        updates.mecanico = "";
-        updates.carrocero = "";
-      }
-      return { ...prev, ...updates };
-    });
-  };
-
-  const addMoRow = async () => {
-    if (!moLine.concepto.trim()) {
-      alert("En mano de obra captura al menos el concepto/servicio.");
-      return;
-    }
-
-    const nuevasMo = [...moRows, moLine];
-
-    setMoRows(nuevasMo);
-    setMoLine({
-      concepto: "",
-      mecanico: "",
-      horas: "",
-      fechaPago: "",
-      observaciones: "",
-      esCarroceria: false,
-      carrocero: "",
-      precioCarroceria: "",
-    });
-
-    try {
-      await saveRequisicionDiagnostico(orden._id, {
-        diagnosticoTecnico: diagnostico,
-        refacciones: rows,
-        manoObra: nuevasMo,
-      });
-    } catch (err) {
-      console.error(err);
-      alert("Error al guardar la mano de obra.");
-      setMoRows(moRows);
-    }
-  };
-
-
-  const removeMoRow = async (idx) => {
-    const prevMo = moRows;
-    const nuevasMo = moRows.filter((_, i) => i !== idx);
-
-    setMoRows(nuevasMo);
-
-    try {
-      await saveRequisicionDiagnostico(orden._id, {
-        diagnosticoTecnico: diagnostico,
-        refacciones: rows,
-        manoObra: nuevasMo,
-      });
-    } catch (err) {
-      console.error(err);
-      alert("Error al borrar la mano de obra.");
-      setMoRows(prevMo);
-    }
-  };
-
-
 
   // Botón +: agrega refacción y guarda en backend
   const handleAddLine = async () => {
@@ -250,7 +152,6 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
       await saveRequisicionDiagnostico(orden._id, {
         diagnosticoTecnico: diagnostico,
         refacciones: nuevasFilas,
-        manoObra: moRows,
       });
     } catch (err) {
       console.error(err);
@@ -297,7 +198,6 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
       await saveRequisicionDiagnostico(orden._id, {
         diagnosticoTecnico: diagnostico,
         refacciones: rows,
-        manoObra: moRows,
       });
     } catch (err) {
       console.error(err);
@@ -331,7 +231,6 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
       await saveRequisicionDiagnostico(orden._id, {
         diagnosticoTecnico: diagnostico,
         refacciones: nuevasFilas,
-        manoObra: moRows,
       });
     } catch (err) {
       console.error(err);
@@ -356,7 +255,6 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
       await saveRequisicionDiagnostico(orden._id, {
         diagnosticoTecnico: diagnostico,
         refacciones: nuevasFilas,
-        manoObra: moRows,
       });
     } catch (err) {
       console.error(err);
@@ -376,7 +274,6 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
       await saveRequisicionDiagnostico(orden._id, {
         diagnosticoTecnico: diagnostico,
         refacciones: nuevasFilas,
-        manoObra: moRows,
       });
     } catch (err) {
       console.error(err);
@@ -496,36 +393,10 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
       minimumFractionDigits: 2,
     }).format(Number(n) || 0);
 
-  const formatFecha = (value) => {
-    if (!value) return "";
-
-    const [year, month, day] = String(value).split("-");
-    if (!year || !month || !day) return value;
-
-    const meses = [
-      "Enero",
-      "Febrero",
-      "Marzo",
-      "Abril",
-      "Mayo",
-      "Junio",
-      "Julio",
-      "Agosto",
-      "Septiembre",
-      "Octubre",
-      "Noviembre",
-      "Diciembre",
-    ];
-
-    return `${day}-${meses[Number(month) - 1]}-${year}`;
-  };
-
-
   const guardarRequisicion = async (estadoOrden) => {
     const payload = {
       diagnosticoTecnico: diagnostico,
       refacciones: rows,
-      manoObra: moRows,
     };
 
     if (estadoOrden) {
@@ -816,168 +687,8 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
         </div>
 
 
-        <h5 className="text-center mb-2 fw-bold">MANO DE OBRA</h5>
-
-        {/* ── Tabla de registros guardados ── */}
-        <div className="table-responsive mb-3">
-          <table className="table table-bordered table-sm align-middle">
-            <thead className="table-light text-center">
-              <tr>
-                <th>Reparación y/o Servicio</th>
-                <th>Mecánico / Carrocero</th>
-                <th>Horas</th>
-                <th>Fecha de Pago</th>
-                <th>Observaciones</th>
-                {!readOnly && <th style={{ width: "70px" }}>Acción</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {moRows.length === 0 && (
-                <tr>
-                  <td colSpan={readOnly ? 5 : 6} className="text-center text-muted">
-                    No hay registros de mano de obra.
-                  </td>
-                </tr>
-              )}
-              {moRows.map((m, idx) => (
-                <tr key={idx}>
-                  <td>{m.concepto}</td>
-                  <td className="text-center">
-                    {m.esCarroceria
-                      ? carroceros.find((x) => x._id === m.carrocero)?.nombre || m.carrocero || "—"
-                      : mecanicos.find((x) => x._id === m.mecanico)?.nombre || m.mecanico || "—"}
-                  </td>
-                  <td className="text-center">{m.horas}</td>
-                  <td className="text-center">{formatFecha(m.fechaPago)}</td>
-                  <td>{m.observaciones}</td>
-                  {!readOnly && (
-                    <td className="text-center">
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-danger"
-                        onClick={() => removeMoRow(idx)}
-                      >
-                        Borrar
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ── Formulario de nueva Mano de Obra ── */}
-        {!readOnly && <div className="card border-primary mb-4">
-          <div className="card-header bg-primary text-white fw-semibold">
-            Agregar Mano de Obra
-          </div>
-          <div className="card-body">
-            <div className="row g-2 mb-2">
-              <div className="col-md-5">
-                <label className="form-label form-label-sm mb-1">Reparación / Servicio</label>
-                <input
-                  type="text"
-                  className="form-control form-control-sm"
-                  name="concepto"
-                  placeholder="Concepto o servicio..."
-                  value={moLine.concepto}
-                  onChange={handleMoLineChange}
-                />
-              </div>
-              <div className="col-md-3">
-                <label className="form-label form-label-sm mb-1">
-                  {moLine.esCarroceria ? "Carrocero" : "Mecánico"}
-                </label>
-                {moLine.esCarroceria ? (
-                  <select
-                    className="form-select form-select-sm"
-                    name="carrocero"
-                    value={moLine.carrocero}
-                    onChange={handleMoLineChange}
-                  >
-                    <option value="">-- Seleccionar carrocero --</option>
-                    {carroceros.map((c) => (
-                      <option key={c._id} value={c._id}>{c.nombre}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <select
-                    className="form-select form-select-sm"
-                    name="mecanico"
-                    value={moLine.mecanico}
-                    onChange={handleMoLineChange}
-                  >
-                    <option value="">-- Seleccionar --</option>
-                    {mecanicos.map((m) => (
-                      <option key={m._id} value={m._id}>{m.nombre}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-              <div className="col-md-2">
-                <label className="form-label form-label-sm mb-1">Horas</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  className="form-control form-control-sm"
-                  name="horas"
-                  value={moLine.horas}
-                  onChange={handleMoLineChange}
-                />
-              </div>
-              <div className="col-md-2">
-                <label className="form-label form-label-sm mb-1">Fecha de Pago</label>
-                <input
-                  type="date"
-                  className="form-control form-control-sm"
-                  name="fechaPago"
-                  value={moLine.fechaPago}
-                  onChange={handleMoLineChange}
-                />
-              </div>
-            </div>
-            <div className="row g-2 mb-2">
-              <div className="col-md-8">
-                <label className="form-label form-label-sm mb-1">Observaciones</label>
-                <input
-                  type="text"
-                  className="form-control form-control-sm"
-                  name="observaciones"
-                  value={moLine.observaciones}
-                  onChange={handleMoLineChange}
-                />
-              </div>
-              <div className="col-md-4 d-flex align-items-end">
-                <div className="form-check ms-2">
-                  <input
-                    type="checkbox"
-                    className="form-check-input"
-                    id="esCarroceriaCheck"
-                    name="esCarroceria"
-                    checked={moLine.esCarroceria}
-                    onChange={handleMoLineChange}
-                  />
-                  <label className="form-check-label fw-semibold" htmlFor="esCarroceriaCheck">
-                    ¿Trabajo de Carrocería?
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div className="d-flex justify-content-end mt-2">
-              <button
-                type="button"
-                className="btn btn-primary btn-sm px-4"
-                onClick={addMoRow}
-              >
-                + Agregar
-              </button>
-            </div>
-          </div>
-        </div>}
-
-
+        {/* La mano de obra ahora se asigna en la pestaña Presupuesto/Venta,
+            eligiendo directamente los servicios ya presupuestados. */}
 
         {/* ── BOTONES DE ACCIÓN ── */}
         {!readOnly && (

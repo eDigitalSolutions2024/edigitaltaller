@@ -27,6 +27,14 @@ const SECCIONES = [
     to: '/reportes/cajas',
     roles: ['admin', 'finanzas'],
   },
+  {
+    key: 'reporte-rh',
+    emoji: '👷',
+    title: 'Recursos Humanos',
+    desc: 'Reporte de Horas Trabajadas por Técnico',
+    to: '/reportes/rh',
+    roles: ['admin', 'recursos_humanos'],
+  },
 ];
 
 export default function ReportesDashboard() {

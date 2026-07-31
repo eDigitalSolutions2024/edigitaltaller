@@ -50,6 +50,7 @@ import ConsultaDevoluciones from "./pages/refaccionaria/devoluciones/ConsultaDev
 
 import Empleados from "./pages/Empleados";
 import OrdenesCompraList from "./pages/OrdenesCompraList";
+import OrdenesCompraNueva from "./pages/OrdenesCompraNueva";
 
 //Administracion
 import Usuarios from "./pages/admin/Usuarios";
@@ -76,11 +77,22 @@ import ReporteGarantias from "./pages/auditoria/ReporteGarantias";
 // Reporte de Cajas (Reportes)
 import ReporteCajasIngresos from "./pages/reportes/cajas/ReporteCajasIngresos";
 
+// Recursos Humanos (Reportes)
+import RhLayout from "./pages/reportes/rh/RhLayout";
+import ReporteHorasTecnico from "./pages/reportes/rh/ReporteHorasTecnico";
+import ReporteRhCxC from "./pages/reportes/rh/ReporteRhCxC";
+
 // Vales de Salida
 import ValeSalidaForm from "./pages/vales/ValeSalidaForm";
 
 // Solicitudes de Garantía
 import SolicitudesGarantia from "./pages/garantias/SolicitudesGarantia";
+
+// Soporte (Tickets)
+import SoporteLayout from "./pages/soporte/SoporteLayout";
+import SoporteForm from "./pages/soporte/SoporteForm";
+import SoporteAdminTickets from "./pages/soporte/SoporteAdminTickets";
+import SoporteAdminHistorial from "./pages/soporte/SoporteAdminHistorial";
 
 // Cajas
 import CajasLayout from "./pages/cajas/CajasLayout";
@@ -150,6 +162,13 @@ const RoleRedirect = () => {
   const raw = localStorage.getItem("user");
   const user = raw ? JSON.parse(raw) : null;
   return <Navigate to={defaultRouteForRole(user?.role)} replace />;
+};
+
+/** Soporte: los admins van directo al Panel Admin, el resto a Mis Tickets */
+const SoporteIndexRedirect = () => {
+  const raw = localStorage.getItem("user");
+  const user = raw ? JSON.parse(raw) : null;
+  return <Navigate to={user?.role === "admin" ? "admin" : "mis-tickets"} replace />;
 };
 
 /** Protege una ruta: si el rol no tiene acceso al módulo lo manda a su ruta por defecto */
@@ -274,6 +293,7 @@ export default function App() {
 
           {/* Órdenes de compra */}
           <Route path="ordenes-compra" element={<OrdenesCompraList />} />
+          <Route path="ordenes-compra/nueva" element={<OrdenesCompraNueva />} />
 
           {/* Configuración */}
           <Route path="configuracion" element={<Configuracion />} />
@@ -294,6 +314,20 @@ export default function App() {
               </RolesRoute>
             }
           />
+
+          {/* Soporte (Tickets) — disponible para todos los roles, sin RoleRoute/canSeeModule */}
+          <Route path="soporte/*" element={<SoporteLayout />}>
+            <Route index element={<SoporteIndexRedirect />} />
+            <Route path="mis-tickets" element={<SoporteForm />} />
+            <Route
+              path="admin"
+              element={<RolesRoute roles={['admin']}><SoporteAdminTickets /></RolesRoute>}
+            />
+            <Route
+              path="admin/historial"
+              element={<RolesRoute roles={['admin']}><SoporteAdminHistorial /></RolesRoute>}
+            />
+          </Route>
 
           {/* Captura (solo admin y finanzas) */}
           <Route
@@ -321,6 +355,16 @@ export default function App() {
             path="reportes/cajas"
             element={<RolesRoute roles={['admin', 'finanzas']}><ReporteCajasIngresos /></RolesRoute>}
           />
+
+          {/* Recursos Humanos (solo admin y recursos_humanos) */}
+          <Route
+            path="reportes/rh/*"
+            element={<RolesRoute roles={['admin', 'recursos_humanos']}><RhLayout /></RolesRoute>}
+          >
+            <Route index element={<Navigate to="horas-tecnico" replace />} />
+            <Route path="horas-tecnico" element={<ReporteHorasTecnico />} />
+            <Route path="cxc" element={<ReporteRhCxC />} />
+          </Route>
 
           {/* Facturación */}
           <Route path="facturacion/*" element={<FacturacionLayout />}>

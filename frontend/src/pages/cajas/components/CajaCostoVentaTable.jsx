@@ -19,7 +19,8 @@ function descuentoLinea(row, descuentos) {
     .reduce((s, d) => s + (d.tipo === "PORCENTAJE" ? subtotalLinea * (Number(d.valor || 0) / 100) : Number(d.valor || 0)), 0);
 }
 
-export default function CajaCostoVentaTable({ rows, descuentos = [], totales }) {
+export default function CajaCostoVentaTable({ rows, descuentos = [], totales, ocultarPrecios = false }) {
+  const colSpanVacio = ocultarPrecios ? 3 : 5;
   return (
     <div className="table-responsive mb-3">
       <table className="table table-bordered table-sm align-middle">
@@ -27,15 +28,15 @@ export default function CajaCostoVentaTable({ rows, descuentos = [], totales }) 
           <tr>
             <th style={{ width: 70 }}>Cantidad</th>
             <th>Concepto, Servicio y/o Reparación</th>
-            <th style={{ width: 150 }}>Precio Venta (Sin IVA)</th>
-            <th style={{ width: 120 }}>Descuento</th>
+            {!ocultarPrecios && <th style={{ width: 150 }}>Precio Venta (Sin IVA)</th>}
+            {!ocultarPrecios && <th style={{ width: 120 }}>Descuento</th>}
             <th>Observaciones</th>
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td colSpan={5} className="text-center text-muted">
+              <td colSpan={colSpanVacio} className="text-center text-muted">
                 No hay partidas de costo/venta registradas.
               </td>
             </tr>
@@ -47,37 +48,39 @@ export default function CajaCostoVentaTable({ rows, descuentos = [], totales }) 
               <tr key={idx}>
                 <td className="text-center">{r.cant}</td>
                 <td>{r.concepto}</td>
-                <td className="text-end">{formatMoney(r.precioVenta)}</td>
-                <td className="text-end">{desc > 0 ? formatMoney(desc) : "-"}</td>
+                {!ocultarPrecios && <td className="text-end">{formatMoney(r.precioVenta)}</td>}
+                {!ocultarPrecios && <td className="text-end">{desc > 0 ? formatMoney(desc) : "-"}</td>}
                 <td>{r.observaciones}</td>
               </tr>
             );
           })}
         </tbody>
-        <tfoot>
-          <tr>
-            <td colSpan={2} className="text-end fw-bold">Sub Total:</td>
-            <td className="text-end fw-bold">{formatMoney(totales.subtotal)}</td>
-            <td colSpan={2}></td>
-          </tr>
-          <tr>
-            <td colSpan={2} className="text-end fw-bold">IVA {totales.ivaPct}%:</td>
-            <td className="text-end fw-bold">{formatMoney(totales.ivaMonto)}</td>
-            <td colSpan={2}></td>
-          </tr>
-          {totales.descuentoMonto > 0 && (
+        {!ocultarPrecios && (
+          <tfoot>
             <tr>
-              <td colSpan={2} className="text-end fw-bold">Descuentos:</td>
-              <td className="text-end fw-bold text-danger">-{formatMoney(totales.descuentoMonto)}</td>
+              <td colSpan={2} className="text-end fw-bold">Sub Total:</td>
+              <td className="text-end fw-bold">{formatMoney(totales.subtotal)}</td>
               <td colSpan={2}></td>
             </tr>
-          )}
-          <tr>
-            <td colSpan={2} className="text-end fw-bold">Total:</td>
-            <td className="text-end fw-bold text-white bg-primary">{formatMoney(totales.totalOrden)}</td>
-            <td colSpan={2}></td>
-          </tr>
-        </tfoot>
+            <tr>
+              <td colSpan={2} className="text-end fw-bold">IVA {totales.ivaPct}%:</td>
+              <td className="text-end fw-bold">{formatMoney(totales.ivaMonto)}</td>
+              <td colSpan={2}></td>
+            </tr>
+            {totales.descuentoMonto > 0 && (
+              <tr>
+                <td colSpan={2} className="text-end fw-bold">Descuentos:</td>
+                <td className="text-end fw-bold text-danger">-{formatMoney(totales.descuentoMonto)}</td>
+                <td colSpan={2}></td>
+              </tr>
+            )}
+            <tr>
+              <td colSpan={2} className="text-end fw-bold">Total:</td>
+              <td className="text-end fw-bold text-white bg-primary">{formatMoney(totales.totalOrden)}</td>
+              <td colSpan={2}></td>
+            </tr>
+          </tfoot>
+        )}
       </table>
     </div>
   );

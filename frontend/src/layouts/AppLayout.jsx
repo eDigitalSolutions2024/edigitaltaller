@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Sidebar from "../components/Navbar";
 import OSFlotante from "../components/OSFlotante";
 import OSFlotanteRefaccionaria from "../components/OSFlotanteRefaccionaria";
+import SoporteFlotante from "../components/SoporteFlotante";
 import "../styles/Navbar.css";
 
 export default function AppLayout() {
@@ -35,6 +36,7 @@ export default function AppLayout() {
 
       <OSFlotante />
       <OSFlotanteRefaccionaria />
+      <SoporteFlotante />
     </div>
   );
 }

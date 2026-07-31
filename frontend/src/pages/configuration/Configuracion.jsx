@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   getTiposCambio,
   crearTipoCambio,
+  getTipoCambioSie,
   getUnidadesMedida,
   crearUnidadMedida,
   cambiarEstadoUnidad,
@@ -18,7 +19,10 @@ import {
   actualizarNotaVentaContador,
   getRemisionContador,
   actualizarRemisionContador,
+  getOrdenCompraContador,
+  actualizarOrdenCompraContador,
 } from "../../api/configuracion";
+import TipoCambioHistorialModal from "./components/TipoCambioHistorialModal";
 
 import "../../styles/configuracion.css";
 
@@ -28,6 +32,9 @@ export default function Configuracion() {
   const [error, setError] = useState("");
 
   const [tiposCambio, setTiposCambio] = useState([]);
+  const [tipoCambioSie, setTipoCambioSie] = useState(null);
+  const [cargandoSie, setCargandoSie] = useState(true);
+  const [mostrarHistorialSie, setMostrarHistorialSie] = useState(false);
   const [unidades, setUnidades] = useState([]);
   const [mecanicos, setMecanicos] = useState([]);
   const [ordenServicioContador, setOrdenServicioContador] = useState(0);
@@ -35,6 +42,7 @@ export default function Configuracion() {
   const [devolucionRefaccionContador, setDevolucionRefaccionContador] = useState(0);
   const [notaVentaContador, setNotaVentaContador] = useState(0);
   const [remisionContador, setRemisionContador] = useState(0);
+  const [ordenCompraContador, setOrdenCompraContador] = useState(0);
 
   const [tipoCambioForm, setTipoCambioForm] = useState({
     valor: "",
@@ -46,6 +54,7 @@ export default function Configuracion() {
   const [devolucionRefaccionForm, setDevolucionRefaccionForm] = useState("");
   const [notaVentaForm, setNotaVentaForm] = useState("");
   const [remisionForm, setRemisionForm] = useState("");
+  const [ordenCompraForm, setOrdenCompraForm] = useState("");
 
   const [unidadForm, setUnidadForm] = useState({
     nombre: "",
@@ -61,7 +70,7 @@ export default function Configuracion() {
       setLoading(true);
       setError("");
 
-      const [tipos, unidadesData, mecanicosData, ordenServicioData, valeData, devolucionData, notaVentaData, remisionData] = await Promise.all([
+      const [tipos, unidadesData, mecanicosData, ordenServicioData, valeData, devolucionData, notaVentaData, remisionData, ordenCompraData] = await Promise.all([
         getTiposCambio(),
         getUnidadesMedida(),
         getMecanicos(),
@@ -70,6 +79,7 @@ export default function Configuracion() {
         getDevolucionRefaccionContador(),
         getNotaVentaContador(),
         getRemisionContador(),
+        getOrdenCompraContador(),
       ]);
 
       setTiposCambio(tipos);
@@ -80,6 +90,7 @@ export default function Configuracion() {
       setDevolucionRefaccionContador(devolucionData?.valor || 0);
       setNotaVentaContador(notaVentaData?.valor || 0);
       setRemisionContador(remisionData?.valor || 0);
+      setOrdenCompraContador(ordenCompraData?.valor || 0);
     } catch (err) {
       setError(err.message || "Error al cargar configuración");
     } finally {
@@ -139,8 +150,34 @@ export default function Configuracion() {
     }
   };
 
+  const refrescarOrdenCompraContador = async () => {
+    try {
+      const data = await getOrdenCompraContador();
+      setOrdenCompraContador(data?.valor || 0);
+    } catch {
+      // Falla silenciosa: no interrumpe la vista si el refresco en segundo
+      // plano no se pudo completar.
+    }
+  };
+
   useEffect(() => {
     cargarDatos();
+  }, []);
+
+  // Se carga aparte de cargarDatos: si Banxico está lento o caído, no debe
+  // retrasar ni romper el resto de la pantalla de Configuración.
+  useEffect(() => {
+    (async () => {
+      try {
+        setCargandoSie(true);
+        const data = await getTipoCambioSie();
+        setTipoCambioSie(data);
+      } catch {
+        setTipoCambioSie(null);
+      } finally {
+        setCargandoSie(false);
+      }
+    })();
   }, []);
 
   // Al volver a enfocar la pestaña, los contadores pueden haber cambiado
@@ -153,6 +190,7 @@ export default function Configuracion() {
         refrescarDevolucionRefaccionContador();
         refrescarNotaVentaContador();
         refrescarRemisionContador();
+        refrescarOrdenCompraContador();
       }
     };
 
@@ -162,6 +200,7 @@ export default function Configuracion() {
       refrescarDevolucionRefaccionContador();
       refrescarNotaVentaContador();
       refrescarRemisionContador();
+      refrescarOrdenCompraContador();
     };
 
     document.addEventListener("visibilitychange", handleVisibility);
@@ -281,6 +320,22 @@ export default function Configuracion() {
     }
   };
 
+  const handleGuardarOrdenCompraContador = async (e) => {
+    e.preventDefault();
+
+    try {
+      setError("");
+
+      const res = await actualizarOrdenCompraContador(ordenCompraForm);
+      setOrdenCompraContador(res?.valor || 0);
+      setOrdenCompraForm("");
+
+      mostrarMensaje("Número actual de Orden de Compra actualizado correctamente");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleGuardarUnidad = async (e) => {
     e.preventDefault();
 
@@ -352,6 +407,29 @@ export default function Configuracion() {
                 <strong>${Number(ultimoTipoCambio.valor).toFixed(2)}</strong>
               </div>
             )}
+
+            <div className="config-current">
+              <span>Referencia SIE (Banxico)</span>
+              {cargandoSie ? (
+                <strong>Cargando…</strong>
+              ) : tipoCambioSie ? (
+                <strong>
+                  ${Number(tipoCambioSie.valor).toFixed(2)} el{" "}
+                  {new Date(tipoCambioSie.fecha).toLocaleDateString("es-MX", { timeZone: "UTC" })}
+                </strong>
+              ) : (
+                <strong>No disponible</strong>
+              )}
+              <small>Solo como referencia, no se usa en los cálculos del sistema.</small>
+            </div>
+
+            <button
+              type="button"
+              className="config-secondary-button"
+              onClick={() => setMostrarHistorialSie(true)}
+            >
+              Ver historial de tipo de cambio
+            </button>
 
             <form onSubmit={handleGuardarTipoCambio} className="config-form">
               <label>
@@ -576,6 +654,46 @@ export default function Configuracion() {
             </form>
           </section>
 
+          {/* Contador de Orden de Compra */}
+          <section className="config-card">
+            <div className="config-card-header">
+              <div>
+                <h2>Folio de Orden de Compra</h2>
+              </div>
+              <div className="config-icon">🛒</div>
+            </div>
+
+            <div className="config-current">
+              <span>Número actual</span>
+              <strong>{ordenCompraContador}</strong>
+            </div>
+
+            <p className="text-muted small mb-2">
+              La próxima orden de compra se creará como{" "}
+              <strong>
+                OC-{String(Number(ordenCompraContador) + 1).padStart(5, "0")}
+              </strong>
+              .
+            </p>
+
+            <form onSubmit={handleGuardarOrdenCompraContador} className="config-form">
+              <label>
+                Redefinir número actual
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={ordenCompraForm}
+                  onChange={(e) => setOrdenCompraForm(e.target.value)}
+                  placeholder={`Ej. ${ordenCompraContador}`}
+                  required
+                />
+              </label>
+
+              <button type="submit">Guardar</button>
+            </form>
+          </section>
+
           {/* Unidades */}
           <section className="config-card">
             <div className="config-card-header">
@@ -630,6 +748,11 @@ export default function Configuracion() {
           </section>
         </div>
       )}
+
+      <TipoCambioHistorialModal
+        show={mostrarHistorialSie}
+        onClose={() => setMostrarHistorialSie(false)}
+      />
     </div>
   );
 }

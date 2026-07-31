@@ -7,6 +7,7 @@ const axios = require("axios");
 const { Xslt, XmlParser } = require("xslt-processor");
 
 const FiscalConfig = require("../models/FiscalConfig");
+const FacturaCfdi = require("../models/FacturaCfdi");
 
 const router = express.Router();
 
@@ -342,10 +343,14 @@ function injectSello(xmlUnsigned, selloB64) {
 ========================= */
 router.post("/xml", async (req, res) => {
   try {
-    const { cliente, conceptos, cfdi } = req.body;
+    const { cliente, conceptos, cfdi, orden } = req.body;
 
     if (!cliente || !Array.isArray(conceptos) || conceptos.length === 0 || !cfdi) {
       return res.status(400).json({ ok: false, error: "Faltan datos para generar XML." });
+    }
+
+    if (!orden || !orden._id || !orden.ordenServicio) {
+      return res.status(400).json({ ok: false, error: "Falta la orden de servicio." });
     }
 
     // valida cliente mínimo
@@ -422,12 +427,16 @@ router.post("/xml", async (req, res) => {
       regimenFiscal: cliente.regimenFiscal,
     };
 
+    // Folio: se asigna automáticamente a partir del folio interno de la configuración fiscal
+    const folioActualNum = parseInt(cfg.folioInterno, 10) || 0;
+    const folioAsignado = folioActualNum + 1;
+
     // Defaults
     const cfdiFinal = {
       ...cfdi,
       lugarExpedicion: cfdi.lugarExpedicion || cfg.lugarExpedicion,
       serie: cfdi.serie ?? cfg.serie ?? "",
-      folio: cfdi.folio ?? "",
+      folio: String(folioAsignado),
 
       moneda: cfdi.moneda || "MXN",
       ivaRate: cfdi.ivaRate ?? 0.16,
@@ -471,10 +480,78 @@ router.post("/xml", async (req, res) => {
     const sello = firmarCadenaOriginal(cadenaOriginal, privateKeyPem);
     const xmlSigned = injectSello(xmlUnsigned, sello);
 
+    // A partir de aquí el XML ya está firmado: si falla el guardado en el
+    // historial, no debe perderse el XML que el usuario ya tiene derecho a descargar.
+    let facturaId = null;
+    let persistWarning = "";
+    try {
+      await FiscalConfig.findByIdAndUpdate(cfg._id, { folioInterno: String(folioAsignado) });
+
+      const facturaDoc = await FacturaCfdi.create({
+        serie: cfdiFinal.serie,
+        folio: cfdiFinal.folio,
+        fecha: new Date(),
+        cliente: {
+          clienteId: cliente._id || null,
+          nombre: receptor.nombre,
+          rfc: receptor.rfc,
+          regimenFiscal: receptor.regimenFiscal,
+          codigoPostalFiscal: receptor.cp,
+        },
+        orden: {
+          vehiculoId: orden._id || null,
+          ordenServicio: orden.ordenServicio || "",
+        },
+        conceptos,
+        cfdi: {
+          usoCfdi: cfdiFinal.usoCfdi,
+          moneda: cfdiFinal.moneda,
+          tipoCambio: cfdiFinal.tipoCambio,
+          ivaRate: cfdiFinal.ivaRate,
+          metodoPago: cfdiFinal.metodoPago,
+          formaPago: cfdiFinal.formaPago,
+          lugarExpedicion: cfdiFinal.lugarExpedicion,
+          oc: cfdiFinal.oc,
+          comentarios: cfdiFinal.comentarios,
+          aplicarRetencionIsr: cfdiFinal.aplicarRetencionIsr,
+          isrRate: cfdiFinal.isrRate,
+        },
+        emisor: {
+          rfc: cfg.rfc,
+          nombre: cfg.nombre,
+          regimenFiscal: cfg.regimenFiscal,
+          lugarExpedicion: cfg.lugarExpedicion,
+          noCertificado: cfg.noCertificado,
+        },
+        totales: {
+          subtotal: Number(totales.subtotal),
+          iva: Number(totales.iva),
+          isr: Number(totales.isr),
+          total: Number(totales.total),
+        },
+        xml: xmlSigned,
+        cadenaOriginal,
+        sello,
+        estatus: "generada",
+      });
+
+      facturaId = facturaDoc._id;
+    } catch (persistErr) {
+      console.error("No se pudo guardar FacturaCfdi:", persistErr);
+      persistWarning =
+        "El XML se generó, pero no se pudo guardar en el historial: " + persistErr.message;
+    }
+
     return res.json({
       ok: true,
       data: {
         pemPathUsed: pemPath, // 👈 para debug
+        facturaId,
+        persistWarning,
+        cfdi: {
+          folio: cfdiFinal.folio,
+          serie: cfdiFinal.serie,
+        },
         emisor: {
           rfc: cfg.rfc,
           nombre: cfg.nombre,

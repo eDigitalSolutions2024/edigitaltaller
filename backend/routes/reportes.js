@@ -9,6 +9,9 @@ const { streamReporteOrdenesAbiertasPdf } = require('../service/reporteOrdenesAb
 const { streamReporteOriginalesAbiertasPdf } = require('../service/reporteOriginalesAbiertasPdf');
 const { streamReporteGarantiasPdf } = require('../service/reporteGarantiasPdf');
 const { streamReporteCajasIngresosPdf } = require('../service/reporteCajasIngresosPdf');
+const { streamReporteRemisionesDiarioPdf } = require('../service/reporteRemisionesDiarioPdf');
+const { streamReporteRhCxCPdf } = require('../service/reporteRhCxCPdf');
+const { streamReporteHorasTecnicoPdf } = require('../service/reporteHorasTecnicoPdf');
 const { calcImporteHoras } = require('../utils/manoObra');
 
 const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares';
@@ -489,6 +492,169 @@ async function buildReporteCajasIngresos({ desde, hasta, tipo }) {
   return { data, total: data.length, totalMonto };
 }
 
+// ===== Reporte Diario de Remisiones (formato clásico de 9 columnas) =====
+// Reconstruye, a partir de pagos[] (comprobante=REMISION), las 4 secciones
+// del reporte viejo, en este orden:
+//   1. Anticipos del día (tipoPago=ANTICIPO)
+//   2. Canceladas y pasan a factura (remision.tipo=Cancelada, de una venta de
+//      un período anterior): Venta del Día y Cuentas por Cobrar en negativo.
+//   3. Abonos/Liquidaciones a remisiones anteriores (tipoPago=ABONO) — sin
+//      Cuentas por Cobrar, igual que en el reporte original.
+//   4. Nueva venta del día (tipoPago=COMPLETO). Si esa misma orden también se
+//      cancela dentro del mismo rango, la cancelación se muestra aquí mismo
+//      como fila informativa sin montos, en vez de en la sección 2.
+// Ventas 100% a crédito sin ningún cobro no generan pago alguno hoy (el
+// endpoint de Cajas exige monto > 0), así que no aparecen hasta su primer
+// abono — limitación aceptada, no se resuelve aquí.
+async function buildReporteRemisionesDiario({ desde, hasta }) {
+  const d = new Date(desde);
+  const h = new Date(hasta);
+
+  const ordenes = await Vehiculo.find({
+    pagos: { $elemMatch: { comprobante: 'REMISION', fecha: { $gte: d, $lte: h } } },
+  })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
+
+  const anticipos = [];
+  const canceladas = [];
+  const abonos = [];
+  const nuevaVenta = [];
+
+  let totalVentaDia = 0;
+  let totalContado = 0;
+  let totalCredito = 0;
+  let totalAnticipo = 0;
+  let totalPorCobrar = 0;
+
+  for (const o of ordenes) {
+    const pagosRemision = (o.pagos || []).filter((p) => p.comprobante === 'REMISION');
+
+    const tieneVentaEnRango = pagosRemision.some((p) => {
+      if (p.tipoPago !== 'COMPLETO' || p.remision?.tipo === 'Cancelada') return false;
+      const f = new Date(p.fecha);
+      return f >= d && f <= h;
+    });
+
+    for (const p of pagosRemision) {
+      const f = new Date(p.fecha);
+      if (f < d || f > h) continue;
+
+      const base = {
+        folio: p.remision?.numero ?? null,
+        ordenServicio: o.ordenServicio || '',
+        cliente: nombreCliente(o.cliente),
+        fecha: p.fecha,
+        notas: p.notas || '',
+      };
+
+      if (p.remision?.tipo === 'Cancelada') {
+        totalVentaDia -= p.monto;
+        totalPorCobrar -= p.monto;
+        if (tieneVentaEnRango) {
+          nuevaVenta.push({ ...base, cliente: 'SE CANCELA REMISIÓN Y PASA A FACTURA' });
+        } else {
+          canceladas.push({
+            ...base,
+            cliente: 'SE CANCELA REMISIÓN Y PASA A FACTURA',
+            ventaDia: -p.monto,
+            cuentasPorCobrar: -p.monto,
+          });
+        }
+        continue;
+      }
+
+      if (p.tipoPago === 'ANTICIPO') {
+        anticipos.push({ ...base, anticipo: p.monto });
+        totalAnticipo += p.monto;
+      } else if (p.tipoPago === 'ABONO') {
+        abonos.push({ ...base, ingresoCredito: p.monto });
+        totalCredito += p.monto;
+      } else {
+        nuevaVenta.push({ ...base, ventaDia: p.monto, ingresoContado: p.monto });
+        totalVentaDia += p.monto;
+        totalContado += p.monto;
+      }
+    }
+  }
+
+  anticipos.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  canceladas.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  abonos.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  nuevaVenta.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+
+  const totalIngreso = totalContado + totalCredito + totalAnticipo;
+
+  return {
+    anticipos,
+    canceladas,
+    abonos,
+    nuevaVenta,
+    totales: { totalVentaDia, totalContado, totalCredito, totalAnticipo, totalPorCobrar, totalIngreso },
+  };
+}
+
+// ===== Resumen diario de Remisiones (para rangos de más de un día) =====
+// Devuelve el Total Ingreso (y demás totales) de cada día del rango, en vez
+// del detalle completo, reusando buildReporteRemisionesDiario día por día
+// para garantizar que el total mostrado en la lista coincida exactamente con
+// lo que se ve al entrar al detalle de ese día. Días sin movimientos no se
+// incluyen.
+function enumerarDiasLocal(desde, hasta) {
+  const DIA_MS = 24 * 60 * 60 * 1000;
+  const fin = new Date(hasta);
+  const dias = [];
+  let inicio = new Date(desde);
+  while (inicio <= fin) {
+    const finDiaMs = Math.min(inicio.getTime() + DIA_MS - 1, fin.getTime());
+    dias.push({ desde: inicio, hasta: new Date(finDiaMs) });
+    inicio = new Date(inicio.getTime() + DIA_MS);
+  }
+  return dias;
+}
+
+async function buildResumenDiarioRemisiones({ desde, hasta }) {
+  const dias = enumerarDiasLocal(new Date(desde), new Date(hasta));
+
+  const porDia = await Promise.all(
+    dias.map(async (dia) => {
+      const rep = await buildReporteRemisionesDiario({
+        desde: dia.desde.toISOString(),
+        hasta: dia.hasta.toISOString(),
+      });
+      const totalMovimientos =
+        rep.anticipos.length + rep.canceladas.length + rep.abonos.length + rep.nuevaVenta.length;
+      return {
+        desde: dia.desde.toISOString(),
+        hasta: dia.hasta.toISOString(),
+        totalMovimientos,
+        totales: rep.totales,
+      };
+    })
+  );
+
+  return porDia.filter((d) => d.totalMovimientos > 0);
+}
+
+// GET /api/reportes/cajas-ingresos-dias?desde=...&hasta=...&tipo=REMISION
+router.get('/cajas-ingresos-dias', async (req, res) => {
+  try {
+    const { desde, hasta, tipo } = req.query;
+    if (!desde || !hasta) {
+      return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
+    }
+    if (tipo !== 'REMISION') {
+      return res.status(400).json({ ok: false, msg: 'Este resumen solo aplica a tipo REMISION' });
+    }
+
+    const dias = await buildResumenDiarioRemisiones({ desde, hasta });
+    return res.json({ ok: true, dias });
+  } catch (err) {
+    console.error('Error resumen diario remisiones:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
 // GET /api/reportes/cajas-ingresos?desde=...&hasta=...&tipo=NOTA_VENTA|REMISION
 router.get('/cajas-ingresos', async (req, res) => {
   try {
@@ -500,8 +666,13 @@ router.get('/cajas-ingresos', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetro tipo inválido' });
     }
 
+    if (tipo === 'REMISION') {
+      const resultado = await buildReporteRemisionesDiario({ desde, hasta });
+      return res.json({ ok: true, tipo, ...resultado });
+    }
+
     const resultado = await buildReporteCajasIngresos({ desde, hasta, tipo });
-    return res.json({ ok: true, ...resultado });
+    return res.json({ ok: true, tipo, ...resultado });
   } catch (err) {
     console.error('Error reporte cajas ingresos:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
@@ -517,6 +688,12 @@ router.get('/cajas-ingresos-pdf', async (req, res) => {
     }
     if (!TIPOS_COMPROBANTE_CAJA.includes(tipo)) {
       return res.status(400).json({ ok: false, msg: 'Parámetro tipo inválido' });
+    }
+
+    if (tipo === 'REMISION') {
+      const resultado = await buildReporteRemisionesDiario({ desde, hasta });
+      await streamReporteRemisionesDiarioPdf(res, resultado, desde, hasta);
+      return;
     }
 
     const resultado = await buildReporteCajasIngresos({ desde, hasta, tipo });
@@ -606,6 +783,234 @@ router.get('/originales-abiertas-pdf', async (req, res) => {
     await streamReporteOriginalesAbiertasPdf(res, { data, total: data.length }, desde, hasta, asesor);
   } catch (err) {
     console.error('Error PDF originales abiertas:', err);
+    if (!res.headersSent) res.status(500).json({ ok: false, msg: 'Error generando PDF' });
+  }
+});
+
+// ===== Recursos Humanos: C x C de mano de obra por mecánico =====
+// Por cada asignación de mano de obra (no carrocería), reporta el monto del
+// servicio ligado del presupuesto (lo que se le cobra al cliente) y el monto
+// de mano de obra a pagar (horas x tarifa fija, misma fórmula que el resto
+// del sistema). Se agrupa por mecánico y se filtra por fecha de cierre.
+async function buildReporteRhCxC({ desde, hasta, mecanico }) {
+  const query = {
+    estadoOrden: 'CERRADA',
+    ...buildDateFilter(desde, hasta),
+  };
+
+  const ordenes = await Vehiculo.find(query)
+    .sort({ fechaCierre: 1, updatedAt: 1 })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
+
+  const idsEmpleados = [
+    ...new Set(
+      ordenes
+        .flatMap((o) => o.manoObra || [])
+        .filter((m) => !m.esCarroceria && m.mecanico && mongoose.Types.ObjectId.isValid(m.mecanico))
+        .map((m) => m.mecanico)
+    ),
+  ];
+  const empleados = idsEmpleados.length
+    ? await Empleado.find({ _id: { $in: idsEmpleados } }).select('nombre').lean()
+    : [];
+  const nombreEmpleado = new Map(empleados.map((e) => [String(e._id), e.nombre]));
+
+  const grupos = {};
+  let totalServiciosGeneral = 0;
+  let totalManoObraGeneral = 0;
+
+  for (const o of ordenes) {
+    const presupuestoPorId = new Map(
+      (o.presupuesto || []).map((p) => [String(p._id), p])
+    );
+
+    for (const m of o.manoObra || []) {
+      if (m.esCarroceria) continue; // reporte de mecánicos; carrocería tiene su propio precio manual
+
+      const idMecanico = String(m.mecanico || '');
+      if (mecanico && idMecanico !== mecanico) continue;
+      if (!idMecanico) continue;
+
+      const nombreMec = nombreEmpleado.get(idMecanico) || m.mecanico || 'Sin asignar';
+      const partida = m.presupuestoId ? presupuestoPorId.get(String(m.presupuestoId)) : null;
+      const montoServicio = Number(partida?.precioVenta || 0);
+      const montoManoObra = calcImporteHoras(m.horas);
+
+      if (!grupos[nombreMec]) {
+        grupos[nombreMec] = { mecanico: nombreMec, items: [], totalServicios: 0, totalManoObra: 0 };
+      }
+      grupos[nombreMec].items.push({
+        ordenServicio: o.ordenServicio || '',
+        cliente: nombreCliente(o.cliente),
+        fechaCierre: o.fechaCierre || o.updatedAt || null,
+        concepto: m.concepto || '',
+        horas: Number(m.horas || 0),
+        montoServicio,
+        montoManoObra,
+      });
+      grupos[nombreMec].totalServicios += montoServicio;
+      grupos[nombreMec].totalManoObra += montoManoObra;
+      totalServiciosGeneral += montoServicio;
+      totalManoObraGeneral += montoManoObra;
+    }
+  }
+
+  const data = Object.values(grupos).sort((a, b) => a.mecanico.localeCompare(b.mecanico));
+
+  return { data, totalServiciosGeneral, totalManoObraGeneral };
+}
+
+// GET /api/reportes/rh-cxc?desde=...&hasta=...&mecanico=EmpleadoId
+router.get('/rh-cxc', async (req, res) => {
+  try {
+    const { desde, hasta, mecanico } = req.query;
+    if (!desde || !hasta) {
+      return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
+    }
+
+    const resultado = await buildReporteRhCxC({ desde, hasta, mecanico });
+    return res.json({ ok: true, ...resultado });
+  } catch (err) {
+    console.error('Error reporte RH C x C:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// GET /api/reportes/rh-cxc-pdf?desde=...&hasta=...&mecanico=EmpleadoId
+router.get('/rh-cxc-pdf', async (req, res) => {
+  try {
+    const { desde, hasta, mecanico } = req.query;
+    if (!desde || !hasta) {
+      return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
+    }
+
+    const resultado = await buildReporteRhCxC({ desde, hasta, mecanico });
+    await streamReporteRhCxCPdf(res, resultado, desde, hasta, mecanico);
+  } catch (err) {
+    console.error('Error PDF reporte RH C x C:', err);
+    if (!res.headersSent) res.status(500).json({ ok: false, msg: 'Error generando PDF' });
+  }
+});
+
+// ===== Reporte de Horas Trabajadas por Técnico =====
+// Agrupa por técnico (mecánico) las órdenes en el período (filtrado por
+// fecha de recepción), pudiendo filtrarse por estado: cerradas, abiertas o
+// todas. Un renglón por asignación de mano de obra; "total" es la suma de
+// los montos de servicio de ESE técnico dentro de ESA misma orden (se repite
+// si la orden tiene más de una asignación para el mismo técnico).
+function tieneRemision(o) {
+  return (o.pagos || []).some((p) => p.comprobante === 'REMISION');
+}
+
+async function buildReporteHorasTecnico({ desde, hasta, estado }) {
+  const query = { ...buildDateFilterAbiertas(desde, hasta) };
+  if (estado === 'cerradas') query.estadoOrden = 'CERRADA';
+  else if (estado === 'abiertas') query.estadoOrden = { $nin: ESTADOS_CERRADOS };
+  // 'todas' (o sin valor): sin filtro de estado
+
+  const ordenes = await Vehiculo.find(query)
+    .sort({ fechaRecepcion: 1 })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
+
+  const idsEmpleados = [
+    ...new Set(
+      ordenes
+        .flatMap((o) => o.manoObra || [])
+        .filter((m) => !m.esCarroceria && m.mecanico && mongoose.Types.ObjectId.isValid(m.mecanico))
+        .map((m) => m.mecanico)
+    ),
+  ];
+  const empleados = idsEmpleados.length
+    ? await Empleado.find({ _id: { $in: idsEmpleados } }).select('nombre').lean()
+    : [];
+  const nombreEmpleado = new Map(empleados.map((e) => [String(e._id), e.nombre]));
+
+  const grupos = {};
+
+  for (const o of ordenes) {
+    const presupuestoPorId = new Map((o.presupuesto || []).map((p) => [String(p._id), p]));
+    const cerrada = o.estadoOrden === 'CERRADA';
+    const remision = tieneRemision(o);
+    const ivaPct = Number(o.ivaPresupuesto ?? 8) || 0;
+
+    const manoObraValida = (o.manoObra || []).filter((m) => !m.esCarroceria && m.mecanico);
+
+    // Total de servicio por técnico dentro de esta orden (para la columna "Total")
+    const totalPorMecanico = {};
+    for (const m of manoObraValida) {
+      const idMecanico = String(m.mecanico);
+      const partida = m.presupuestoId ? presupuestoPorId.get(String(m.presupuestoId)) : null;
+      const montoServicio = Number(partida?.precioVenta || 0);
+      totalPorMecanico[idMecanico] = (totalPorMecanico[idMecanico] || 0) + montoServicio;
+    }
+
+    for (const m of manoObraValida) {
+      const idMecanico = String(m.mecanico);
+      const nombreMec = nombreEmpleado.get(idMecanico) || m.mecanico || 'Sin asignar';
+      const partida = m.presupuestoId ? presupuestoPorId.get(String(m.presupuestoId)) : null;
+      const montoServicio = Number(partida?.precioVenta || 0);
+      const iva = montoServicio * (ivaPct / 100);
+
+      if (!grupos[nombreMec]) {
+        grupos[nombreMec] = { mecanico: nombreMec, items: [], totalServicio: 0, totalIva: 0, totalHoras: 0 };
+      }
+      grupos[nombreMec].items.push({
+        ordenServicio: o.ordenServicio || '',
+        fechaOrden: o.fechaRecepcion || null,
+        serie: o.serie || '',
+        nombre: nombreCliente(o.cliente),
+        cerrada,
+        fechaCierre: o.fechaCierre || null,
+        remision,
+        montoServicio,
+        total: totalPorMecanico[idMecanico] || 0,
+        iva,
+        horas: Number(m.horas || 0),
+      });
+      grupos[nombreMec].totalServicio += montoServicio;
+      grupos[nombreMec].totalIva += iva;
+      grupos[nombreMec].totalHoras += Number(m.horas || 0);
+    }
+  }
+
+  const data = Object.values(grupos).sort((a, b) => a.mecanico.localeCompare(b.mecanico));
+  const totalGeneralServicio = data.reduce((s, g) => s + g.totalServicio, 0);
+  const totalGeneralIva = data.reduce((s, g) => s + g.totalIva, 0);
+  const totalGeneralHoras = data.reduce((s, g) => s + g.totalHoras, 0);
+
+  return { data, totalGeneralServicio, totalGeneralIva, totalGeneralHoras };
+}
+
+// GET /api/reportes/horas-tecnico?desde=...&hasta=...&estado=cerradas|abiertas|todas
+router.get('/horas-tecnico', async (req, res) => {
+  try {
+    const { desde, hasta, estado } = req.query;
+    if (!desde || !hasta) {
+      return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
+    }
+
+    const resultado = await buildReporteHorasTecnico({ desde, hasta, estado });
+    return res.json({ ok: true, ...resultado });
+  } catch (err) {
+    console.error('Error reporte horas por técnico:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// GET /api/reportes/horas-tecnico-pdf?desde=...&hasta=...&estado=cerradas|abiertas|todas
+router.get('/horas-tecnico-pdf', async (req, res) => {
+  try {
+    const { desde, hasta, estado } = req.query;
+    if (!desde || !hasta) {
+      return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
+    }
+
+    const resultado = await buildReporteHorasTecnico({ desde, hasta, estado });
+    await streamReporteHorasTecnicoPdf(res, resultado, desde, hasta, estado);
+  } catch (err) {
+    console.error('Error PDF reporte horas por técnico:', err);
     if (!res.headersSent) res.status(500).json({ ok: false, msg: 'Error generando PDF' });
   }
 });

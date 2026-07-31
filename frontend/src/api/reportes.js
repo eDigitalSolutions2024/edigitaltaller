@@ -47,7 +47,44 @@ export const openReporteGarantiasPdf = (desde, hasta, asesor) => {
 export const getReporteCajasIngresos = (desde, hasta, tipo) =>
   http.get('/reportes/cajas-ingresos', { params: { desde, hasta, tipo } });
 
+export const getReporteRemisionesDias = (desde, hasta) =>
+  http.get('/reportes/cajas-ingresos-dias', { params: { desde, hasta, tipo: 'REMISION' } });
+
 export const openReporteCajasIngresosPdf = (desde, hasta, tipo) => {
   const url = `${BASE_URL}/reportes/cajas-ingresos-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}&tipo=${encodeURIComponent(tipo)}`;
+  window.open(url, '_blank', 'noopener');
+};
+
+export const getReporteRhCxC = (desde, hasta, mecanico) =>
+  http.get('/reportes/rh-cxc', { params: { desde, hasta, mecanico: mecanico || undefined } });
+
+export const openReporteRhCxCPdf = (desde, hasta, mecanico) => {
+  let url = `${BASE_URL}/reportes/rh-cxc-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
+  if (mecanico) url += `&mecanico=${encodeURIComponent(mecanico)}`;
+  window.open(url, '_blank', 'noopener');
+};
+
+export const getReporteHorasTecnico = (desde, hasta, estado) =>
+  http.get('/reportes/horas-tecnico', { params: { desde, hasta, estado: estado || undefined } });
+
+export const openReporteHorasTecnicoPdf = (desde, hasta, estado) => {
+  let url = `${BASE_URL}/reportes/horas-tecnico-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
+  if (estado) url += `&estado=${encodeURIComponent(estado)}`;
+  window.open(url, '_blank', 'noopener');
+};
+
+// ===== Cierre de Caja =====
+
+export const getCierreCaja = (fecha) =>
+  http.get('/reportes/cierre-caja', { params: { fecha } });
+
+export const guardarCierreCaja = (payload) =>
+  http.post('/reportes/cierre-caja', payload);
+
+export const getHistorialCierresCaja = (desde, hasta) =>
+  http.get('/reportes/cierre-caja/historial', { params: { desde, hasta } });
+
+export const openCierreCajaPdf = (fecha) => {
+  const url = `${BASE_URL}/reportes/cierre-caja/pdf?fecha=${encodeURIComponent(fecha)}`;
   window.open(url, '_blank', 'noopener');
 };

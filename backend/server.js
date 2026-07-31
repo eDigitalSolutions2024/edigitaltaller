@@ -4,10 +4,16 @@ const cors       = require('cors');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const connectDB  = require('./config/db');
+const limpiarImagenesTemp = require('./utils/limpiarImagenesTemp');
 console.log('JWT_SECRET cargado:', !!process.env.JWT_SECRET);
 
 const app = express();
 connectDB();
+
+// Purga carpetas de imágenes temporales (subidas antes de guardar una orden
+// nueva) que quedaron abandonadas por más de 24h.
+limpiarImagenesTemp();
+setInterval(limpiarImagenesTemp, 6 * 60 * 60 * 1000);
 
 app.use(cors({
     origin: [
@@ -74,12 +80,17 @@ app.use('/api', require('./routes/facturas')); // ahora existe GET /api/facturas
 app.use('/api/facturacion', require('./routes/facturacion'));
 app.use('/api/fiscal-config', require('./routes/fiscal_config'));
 app.use('/api/generar-xml', require('./routes/generar_xml'));
+app.use('/api/facturas-cfdi', require('./routes/facturas_cfdi'));
+app.use('/api/conceptos-preset', require('./routes/conceptos_preset'));
 
 app.use('/api/reportes', require('./routes/reportes'));
+app.use('/api/reportes/cierre-caja', require('./routes/cierreCaja'));
 
 app.use('/api/vales', require('./routes/vales'));
 
 app.use('/api/cajas', require('./routes/cajas'));
+
+app.use('/api/tickets', require('./routes/tickets'));
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`🚀 Server en http://localhost:${PORT}`));

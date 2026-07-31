@@ -1,5 +1,12 @@
 import React, { useEffect, useState } from "react";
 import api from "../../api/http";
+import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
+import {
+  listConceptosPreset,
+  createConceptoPreset,
+  updateConceptoPreset,
+  deleteConceptoPreset,
+} from "../../api/conceptosPreset";
 
 export default function ConfiguracionFiscal() {
   const [form, setForm] = useState({
@@ -31,6 +38,109 @@ export default function ConfiguracionFiscal() {
 
   const [keyPass, setKeyPass] = useState("");
   const [showPass, setShowPass] = useState(false);
+
+  /* ==========
+     CATÁLOGO DE CONCEPTOS
+  ========== */
+  const PRESET_VACIO = {
+    cProdServ: "",
+    cProdServDescripcion: "",
+    cUnidad: "",
+    unidad: "",
+    descripcion: "",
+    valorUnitario: "",
+  };
+
+  const [presets, setPresets] = useState([]);
+  const [presetsLoading, setPresetsLoading] = useState(false);
+  const [mostrarAltaPreset, setMostrarAltaPreset] = useState(false);
+  const [nuevoPreset, setNuevoPreset] = useState(PRESET_VACIO);
+  const [editPresetId, setEditPresetId] = useState(null);
+  const [editPresetDraft, setEditPresetDraft] = useState(null);
+
+  async function loadPresets() {
+    setPresetsLoading(true);
+    try {
+      const res = await listConceptosPreset();
+      setPresets(res.data?.data || []);
+    } catch (e) {
+      setMsg(e?.response?.data?.error || e.message);
+    } finally {
+      setPresetsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadPresets();
+  }, []);
+
+  const presetPayloadValido = (p) =>
+    String(p.cProdServ || "").trim() &&
+    String(p.cUnidad || "").trim() &&
+    String(p.unidad || "").trim() &&
+    String(p.descripcion || "").trim();
+
+  async function agregarPreset() {
+    if (!presetPayloadValido(nuevoPreset)) {
+      return setMsg("❌ Clave SAT, clave unidad, unidad y descripción son obligatorios.");
+    }
+    setPresetsLoading(true);
+    try {
+      await createConceptoPreset({
+        ...nuevoPreset,
+        valorUnitario: Number(nuevoPreset.valorUnitario || 0),
+      });
+      setNuevoPreset(PRESET_VACIO);
+      setMostrarAltaPreset(false);
+      await loadPresets();
+    } catch (e) {
+      setMsg(e?.response?.data?.error || e.message);
+    } finally {
+      setPresetsLoading(false);
+    }
+  }
+
+  const startEditPreset = (p) => {
+    setEditPresetId(p._id);
+    setEditPresetDraft({ ...p });
+  };
+
+  const cancelEditPreset = () => {
+    setEditPresetId(null);
+    setEditPresetDraft(null);
+  };
+
+  async function guardarEditPreset() {
+    if (!presetPayloadValido(editPresetDraft)) {
+      return setMsg("❌ Clave SAT, clave unidad, unidad y descripción son obligatorios.");
+    }
+    setPresetsLoading(true);
+    try {
+      await updateConceptoPreset(editPresetId, {
+        ...editPresetDraft,
+        valorUnitario: Number(editPresetDraft.valorUnitario || 0),
+      });
+      cancelEditPreset();
+      await loadPresets();
+    } catch (e) {
+      setMsg(e?.response?.data?.error || e.message);
+    } finally {
+      setPresetsLoading(false);
+    }
+  }
+
+  async function eliminarPreset(id) {
+    if (!window.confirm("¿Eliminar este concepto del catálogo?")) return;
+    setPresetsLoading(true);
+    try {
+      await deleteConceptoPreset(id);
+      await loadPresets();
+    } catch (e) {
+      setMsg(e?.response?.data?.error || e.message);
+    } finally {
+      setPresetsLoading(false);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -188,7 +298,12 @@ export default function ConfiguracionFiscal() {
 
           <div className="col-md-6">
             <label className="form-label">Régimen fiscal</label>
-            <input name="regimenFiscal" className="form-control" value={form.regimenFiscal} onChange={onChange} />
+            <select name="regimenFiscal" className="form-select" value={form.regimenFiscal} onChange={onChange}>
+              <option value="">-- Seleccionar --</option>
+              {REGIMEN_FISCAL_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
           </div>
 
           <div className="col-md-6">
@@ -260,6 +375,245 @@ export default function ConfiguracionFiscal() {
             <small className="text-muted d-block mt-1">
               {keyStatus.cargado ? `✔ Cargada: ${keyStatus.nombreArchivo}` : "Aún no cargada"}
             </small>
+          </div>
+        </div>
+      </div>
+
+      {/* Catálogo de conceptos */}
+      <div className="card mb-4">
+        <div className="card-header d-flex justify-content-between align-items-center">
+          <span className="fw-bold">Catálogo de conceptos</span>
+          <button
+            className="btn btn-sm btn-outline-danger"
+            onClick={() => setMostrarAltaPreset((s) => !s)}
+          >
+            {mostrarAltaPreset ? "Cancelar" : "Agregar concepto"}
+          </button>
+        </div>
+        <div className="card-body">
+          <p className="text-muted small mb-3">
+            Números de servicio con conceptos ya armados (clave SAT + descripción) para
+            seleccionarlos rápido al capturar una factura.
+          </p>
+
+          {mostrarAltaPreset && (
+            <div className="row g-2 align-items-end mb-3 p-2 border rounded">
+              <div className="col-6 col-md-2">
+                <label className="form-label small mb-1">Clave SAT</label>
+                <input
+                  className="form-control form-control-sm"
+                  value={nuevoPreset.cProdServ}
+                  onChange={(e) => setNuevoPreset((p) => ({ ...p, cProdServ: e.target.value }))}
+                />
+              </div>
+              <div className="col-6 col-md-3">
+                <label className="form-label small mb-1">Descripción SAT</label>
+                <input
+                  className="form-control form-control-sm"
+                  value={nuevoPreset.cProdServDescripcion}
+                  onChange={(e) =>
+                    setNuevoPreset((p) => ({ ...p, cProdServDescripcion: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="col-6 col-md-1">
+                <label className="form-label small mb-1">Clave unidad</label>
+                <input
+                  className="form-control form-control-sm"
+                  value={nuevoPreset.cUnidad}
+                  onChange={(e) => setNuevoPreset((p) => ({ ...p, cUnidad: e.target.value }))}
+                />
+              </div>
+              <div className="col-6 col-md-1">
+                <label className="form-label small mb-1">Unidad</label>
+                <input
+                  className="form-control form-control-sm"
+                  value={nuevoPreset.unidad}
+                  onChange={(e) => setNuevoPreset((p) => ({ ...p, unidad: e.target.value }))}
+                />
+              </div>
+              <div className="col-12 col-md-3">
+                <label className="form-label small mb-1">Descripción del concepto</label>
+                <input
+                  className="form-control form-control-sm"
+                  value={nuevoPreset.descripcion}
+                  onChange={(e) => setNuevoPreset((p) => ({ ...p, descripcion: e.target.value }))}
+                />
+              </div>
+              <div className="col-6 col-md-1">
+                <label className="form-label small mb-1">V. Unit</label>
+                <input
+                  type="number"
+                  className="form-control form-control-sm"
+                  value={nuevoPreset.valorUnitario}
+                  onChange={(e) =>
+                    setNuevoPreset((p) => ({ ...p, valorUnitario: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="col-6 col-md-1 d-grid">
+                <button
+                  className="btn btn-sm btn-danger"
+                  onClick={agregarPreset}
+                  disabled={presetsLoading}
+                >
+                  Guardar
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="table-responsive">
+            <table className="table table-sm table-bordered align-middle">
+              <thead>
+                <tr>
+                  <th>Clave SAT</th>
+                  <th>Descripción SAT</th>
+                  <th>Clave unidad</th>
+                  <th>Unidad</th>
+                  <th>Descripción</th>
+                  <th>V. Unit</th>
+                  <th style={{ width: 160 }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {presets.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center text-muted">
+                      Aún no hay conceptos guardados. Agrega el primero.
+                    </td>
+                  </tr>
+                ) : (
+                  presets.map((p) => {
+                    const editing = editPresetId === p._id;
+                    const row = editing ? editPresetDraft : p;
+                    return (
+                      <tr key={p._id}>
+                        <td>
+                          {editing ? (
+                            <input
+                              className="form-control form-control-sm"
+                              value={row.cProdServ}
+                              onChange={(e) =>
+                                setEditPresetDraft((d) => ({ ...d, cProdServ: e.target.value }))
+                              }
+                            />
+                          ) : (
+                            p.cProdServ
+                          )}
+                        </td>
+                        <td>
+                          {editing ? (
+                            <input
+                              className="form-control form-control-sm"
+                              value={row.cProdServDescripcion}
+                              onChange={(e) =>
+                                setEditPresetDraft((d) => ({
+                                  ...d,
+                                  cProdServDescripcion: e.target.value,
+                                }))
+                              }
+                            />
+                          ) : (
+                            p.cProdServDescripcion || "—"
+                          )}
+                        </td>
+                        <td>
+                          {editing ? (
+                            <input
+                              className="form-control form-control-sm"
+                              value={row.cUnidad}
+                              onChange={(e) =>
+                                setEditPresetDraft((d) => ({ ...d, cUnidad: e.target.value }))
+                              }
+                            />
+                          ) : (
+                            p.cUnidad
+                          )}
+                        </td>
+                        <td>
+                          {editing ? (
+                            <input
+                              className="form-control form-control-sm"
+                              value={row.unidad}
+                              onChange={(e) =>
+                                setEditPresetDraft((d) => ({ ...d, unidad: e.target.value }))
+                              }
+                            />
+                          ) : (
+                            p.unidad
+                          )}
+                        </td>
+                        <td>
+                          {editing ? (
+                            <input
+                              className="form-control form-control-sm"
+                              value={row.descripcion}
+                              onChange={(e) =>
+                                setEditPresetDraft((d) => ({ ...d, descripcion: e.target.value }))
+                              }
+                            />
+                          ) : (
+                            p.descripcion
+                          )}
+                        </td>
+                        <td>
+                          {editing ? (
+                            <input
+                              type="number"
+                              className="form-control form-control-sm"
+                              value={row.valorUnitario}
+                              onChange={(e) =>
+                                setEditPresetDraft((d) => ({
+                                  ...d,
+                                  valorUnitario: e.target.value,
+                                }))
+                              }
+                            />
+                          ) : (
+                            Number(p.valorUnitario || 0).toLocaleString("es-MX", {
+                              style: "currency",
+                              currency: "MXN",
+                            })
+                          )}
+                        </td>
+                        <td>
+                          {editing ? (
+                            <div className="d-flex gap-1">
+                              <button
+                                className="btn btn-sm btn-success"
+                                onClick={guardarEditPreset}
+                                disabled={presetsLoading}
+                              >
+                                Guardar
+                              </button>
+                              <button className="btn btn-sm btn-secondary" onClick={cancelEditPreset}>
+                                Cancelar
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="d-flex gap-1">
+                              <button
+                                className="btn btn-sm btn-outline-primary"
+                                onClick={() => startEditPreset(p)}
+                              >
+                                Editar
+                              </button>
+                              <button
+                                className="btn btn-sm btn-outline-danger"
+                                onClick={() => eliminarPreset(p._id)}
+                              >
+                                Eliminar
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

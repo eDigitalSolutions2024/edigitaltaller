@@ -1,5 +1,6 @@
 // src/pages/OrdenesCompraList.jsx
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   fetchOrdenesCompra,
   downloadOrdenCompraPdf,
@@ -14,6 +15,7 @@ const ESTADOS = [
 ];
 
 export default function OrdenesCompraList() {
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [estado, setEstado] = useState("");
   const [search, setSearch] = useState("");
@@ -49,7 +51,16 @@ export default function OrdenesCompraList() {
     <div className="container-fluid">
       <div className="card shadow-sm">
         <div className="card-body">
-          <h4 className="mb-3 fw-bold">Órdenes de compra</h4>
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <h4 className="fw-bold mb-0">Órdenes de compra</h4>
+            <button
+              type="button"
+              className="btn btn-sm btn-success"
+              onClick={() => navigate("/ordenes-compra/nueva")}
+            >
+              + Nueva orden de compra
+            </button>
+          </div>
 
           {/* Filtros */}
           <form

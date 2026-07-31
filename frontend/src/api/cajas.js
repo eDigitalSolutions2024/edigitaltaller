@@ -37,3 +37,13 @@ export const openRemisionPdf = (id, pagoId) => {
   const url = `${API}/cajas/${id}/remision-pdf?pagoId=${pagoId}`;
   window.open(url, "_blank", "noopener");
 };
+
+export const openReciboProvisionalPdf = (id, pagoId) => {
+  const url = `${API}/cajas/${id}/recibo-provisional-pdf?pagoId=${pagoId}`;
+  window.open(url, "_blank", "noopener");
+};
+
+export const openReciboDolaresPdf = (id, pagoId) => {
+  const url = `${API}/cajas/${id}/recibo-dolares-pdf?pagoId=${pagoId}`;
+  window.open(url, "_blank", "noopener");
+};

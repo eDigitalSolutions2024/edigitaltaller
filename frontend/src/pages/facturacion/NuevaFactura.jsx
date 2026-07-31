@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { buscarClientesFacturacion } from "../../api/customers";
+import { listOrdenesServicio, getVehiculoById } from "../../api/vehiculos";
+import { updateCustomer } from "../../api/customers";
+import { listConceptosPreset } from "../../api/conceptosPreset";
 import { generarVistaPreviaPDF } from "../../api/facturacion";
 import api from "../../api/http";
 import useTipoCambioActual from "../../hooks/useTipoCambioActual";
+import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 
 /* =======================
    CATÁLOGOS
@@ -94,75 +97,156 @@ function downloadTextFile(filename, text, mime = "application/xml") {
 
 export default function NuevaFactura() {
   /* ==========
-     1) CLIENTE
+     1) ORDEN DE SERVICIO / CLIENTE
   ========== */
-  const [q, setQ] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [opts, setOpts] = useState([]);
-  const [show, setShow] = useState(false);
+  const [qOrden, setQOrden] = useState("");
+  const [loadingOrden, setLoadingOrden] = useState(false);
+  const [optsOrdenes, setOptsOrdenes] = useState([]);
+  const [showOrdenes, setShowOrdenes] = useState(false);
+  const [orden, setOrden] = useState(null);
   const [cliente, setCliente] = useState(null);
+
+  const [fiscalDraft, setFiscalDraft] = useState({
+    rfc: "",
+    regimenFiscal: "",
+    codigoPostalFiscal: "",
+  });
+  const [guardandoFiscal, setGuardandoFiscal] = useState(false);
 
   const nombreCompleto = (c) =>
     [c?.nombre, c?.apellidoPaterno, c?.apellidoMaterno].filter(Boolean).join(" ");
 
+  const nombreFiscalCliente = (c) => {
+    if (!c) return "";
+    if (c.tipoCliente === "Empresa Privada" || c.tipoCliente === "Empresa Arrendadora") {
+      return c.empresa?.razonSocial || nombreCompleto(c);
+    }
+    if (c.tipoCliente === "Empresa Gobierno") {
+      return c.gobierno?.nombreGobierno || nombreCompleto(c);
+    }
+    return nombreCompleto(c);
+  };
+
+  const resetTodo = () => {
+    setOrden(null);
+    setCliente(null);
+    setQOrden("");
+    setShowOrdenes(false);
+    setOptsOrdenes([]);
+    setFiscalDraft({ rfc: "", regimenFiscal: "", codigoPostalFiscal: "" });
+    setConceptos([]);
+    cancelEdit();
+    setXmlSigned("");
+    setCadenaOriginal("");
+    setSello("");
+  };
+
   useEffect(() => {
     const t = setTimeout(async () => {
-      const term = q.trim();
+      const term = qOrden.trim();
 
-      if (cliente && term === cliente.nombre) {
-        setShow(false);
+      if (orden && term === orden.ordenServicio) {
+        setShowOrdenes(false);
         return;
       }
 
       if (term.length < 2) {
-        setOpts([]);
-        setShow(false);
+        setOptsOrdenes([]);
+        setShowOrdenes(false);
         return;
       }
 
       try {
-        setLoading(true);
-        const res = await buscarClientesFacturacion(term);
-        setOpts(res.data.data || []);
-        setShow(true);
+        setLoadingOrden(true);
+        const res = await listOrdenesServicio({ search: term, limit: 15 });
+        setOptsOrdenes(res.data?.data || []);
+        setShowOrdenes(true);
       } catch (e) {
-        setOpts([]);
+        setOptsOrdenes([]);
       } finally {
-        setLoading(false);
+        setLoadingOrden(false);
       }
     }, 250);
 
     return () => clearTimeout(t);
-  }, [q]); // eslint-disable-line
+  }, [qOrden]); // eslint-disable-line
 
-  const onPick = (c) => {
-    const full = nombreCompleto(c);
-    setCliente({
-      _id: c._id,
-      nombre: full,
-      email: c.email || "",
-      rfc: c.rfc || "",
-      regimenFiscal: c.regimenFiscal || c.facturacion?.regimenFiscal || "",
-      codigoPostalFiscal:
-        c.codigoPostalFiscal ||
-        c.facturacion?.direccion?.codigoPostal ||
-        "",
-    });
-    setQ(full);
-    setShow(false);
-    setOpts([]);
+  const onPickOrden = async (o) => {
+    setQOrden(o.ordenServicio || "");
+    setShowOrdenes(false);
+    setOptsOrdenes([]);
+
+    setLoadingOrden(true);
+    try {
+      const res = await getVehiculoById(o._id);
+      const v = res.data?.vehiculo;
+      setOrden(v);
+
+      const c = v?.cliente || null;
+      const clienteInfo = c
+        ? {
+            _id: c._id,
+            tipoCliente: c.tipoCliente,
+            nombre: nombreFiscalCliente(c),
+            rfc: c.rfc || "",
+            regimenFiscal: c.regimenFiscal || c.facturacion?.regimenFiscal || "",
+            codigoPostalFiscal:
+              c.codigoPostalFiscal || c.facturacion?.direccion?.codigoPostal || "",
+          }
+        : null;
+
+      setCliente(clienteInfo);
+      setFiscalDraft({
+        rfc: clienteInfo?.rfc || "",
+        regimenFiscal: clienteInfo?.regimenFiscal || "",
+        codigoPostalFiscal: clienteInfo?.codigoPostalFiscal || "",
+      });
+
+      setConceptos([]);
+      cancelEdit();
+      setXmlSigned("");
+      setCadenaOriginal("");
+      setSello("");
+    } catch (e) {
+      alert("No se pudo cargar la orden de servicio.");
+    } finally {
+      setLoadingOrden(false);
+    }
   };
 
   const faltanFiscales = useMemo(() => {
     if (!cliente) return true;
-    return (
-      !cliente.rfc ||
-      !cliente.regimenFiscal ||
-      !cliente.codigoPostalFiscal
-    );
+    return !cliente.rfc || !cliente.regimenFiscal || !cliente.codigoPostalFiscal;
   }, [cliente]);
 
-  const pasoClienteOk = useMemo(() => !!cliente && !faltanFiscales, [cliente, faltanFiscales]);
+  const pasoClienteOk = useMemo(
+    () => !!orden && !!cliente && !faltanFiscales,
+    [orden, cliente, faltanFiscales]
+  );
+
+  const guardarFiscalCliente = async () => {
+    if (!cliente?._id) return;
+
+    const rfc = String(fiscalDraft.rfc || "").trim().toUpperCase();
+    const regimenFiscal = String(fiscalDraft.regimenFiscal || "").trim();
+    const codigoPostalFiscal = String(fiscalDraft.codigoPostalFiscal || "").trim();
+
+    if (!rfc || !regimenFiscal || !codigoPostalFiscal) {
+      return alert("Completa RFC, régimen fiscal y CP fiscal.");
+    }
+
+    setGuardandoFiscal(true);
+    try {
+      await updateCustomer(cliente._id, { rfc, regimenFiscal, codigoPostalFiscal });
+      setCliente((p) => ({ ...p, rfc, regimenFiscal, codigoPostalFiscal }));
+    } catch (e) {
+      alert(
+        e?.response?.data?.error || "No se pudo guardar la información fiscal del cliente."
+      );
+    } finally {
+      setGuardandoFiscal(false);
+    }
+  };
 
   /* ==========
      2) CONCEPTOS
@@ -170,7 +254,7 @@ export default function NuevaFactura() {
   const [concepto, setConcepto] = useState({
     cantidad: 1,
     unidad: "Servicio",
-    cProdServ: "78181508",
+    cProdServ: "",
     cUnidad: "E48",
     descripcion: "",
     valorUnitario: "",
@@ -198,7 +282,7 @@ export default function NuevaFactura() {
     setConcepto({
       cantidad: 1,
       unidad: "Servicio",
-      cProdServ: "78181508",
+      cProdServ: "",
       cUnidad: "E48",
       descripcion: "",
       valorUnitario: "",
@@ -252,6 +336,52 @@ export default function NuevaFactura() {
   };
 
   /* ==========
+     OPCIONES DE SERVICIOS (orden + presets)
+  ========== */
+  const [presets, setPresets] = useState([]);
+
+  useEffect(() => {
+    listConceptosPreset()
+      .then((r) => setPresets(r.data?.data || []))
+      .catch(() => setPresets([]));
+  }, []);
+
+  const opcionesOrden = useMemo(() => {
+    return (orden?.ventaCliente || []).map((v, i) => ({
+      key: `orden-${i}`,
+      cantidad: Number(v.cant || 1),
+      unidad: "Servicio",
+      cProdServ: v.codigoSat || "",
+      cUnidad: "E48",
+      descripcion: v.descripcionSat || v.concepto || v.descripcionServicio || "",
+      valorUnitario: Number(v.precioVenta || 0),
+    }));
+  }, [orden]);
+
+  const opcionesPreset = useMemo(() => {
+    return presets.map((p) => ({
+      key: `preset-${p._id}`,
+      cantidad: 1,
+      unidad: p.unidad,
+      cProdServ: p.cProdServ,
+      cUnidad: p.cUnidad,
+      descripcion: p.descripcion,
+      valorUnitario: Number(p.valorUnitario || 0),
+    }));
+  }, [presets]);
+
+  const pickOpcion = (o) => {
+    setConcepto({
+      cantidad: o.cantidad || 1,
+      unidad: o.unidad || "Servicio",
+      cProdServ: o.cProdServ || "",
+      cUnidad: o.cUnidad || "E48",
+      descripcion: o.descripcion || "",
+      valorUnitario: o.valorUnitario || "",
+    });
+  };
+
+  /* ==========
      3) DATOS CFDI
   ========== */
   const [usoCfdi, setUsoCfdi] = useState("G03");
@@ -288,10 +418,11 @@ export default function NuevaFactura() {
 
   const puedePreview = useMemo(() => {
     if (!pasoClienteOk) return false;
+    if (!orden) return false;
     if (conceptos.length === 0) return false;
     if (moneda === "USD" && !Number(tipoCambio || 0)) return false;
     return true;
-  }, [pasoClienteOk, conceptos, moneda, tipoCambio]);
+  }, [pasoClienteOk, orden, conceptos, moneda, tipoCambio]);
 
   /* ==========
      4) PREVIEW PDF
@@ -301,6 +432,7 @@ export default function NuevaFactura() {
 
   const buildPayload = () => ({
     cliente,
+    orden: orden ? { _id: orden._id, ordenServicio: orden.ordenServicio } : null,
     conceptos,
     cfdi: {
       usoCfdi,
@@ -317,7 +449,7 @@ export default function NuevaFactura() {
   });
 
   const onPreviewPDF = async () => {
-    if (!puedePreview) return alert("Selecciona cliente válido y agrega conceptos.");
+    if (!puedePreview) return alert("Selecciona una orden de servicio válida y agrega conceptos.");
     try {
       setPdfLoading(true);
       const res = await generarVistaPreviaPDF(buildPayload());
@@ -346,7 +478,7 @@ export default function NuevaFactura() {
   const [sello, setSello] = useState("");
 
   const onGenerarXML = async () => {
-    if (!puedePreview) return alert("Selecciona cliente válido y agrega conceptos.");
+    if (!puedePreview) return alert("Selecciona una orden de servicio válida y agrega conceptos.");
 
     try {
       setXmlLoading(true);
@@ -365,12 +497,13 @@ export default function NuevaFactura() {
       setSello(data.sello || "");
 
       const rfc = data?.emisor?.rfc || "EMISOR";
-      const folio = data?.cfdi?.folio || "sinfolo";
+      const folio = data?.cfdi?.folio || "sinfolio";
       const fname = `${rfc}_${folio}_cfdi.xml`;
 
       if (data.xmlSigned) {
         downloadTextFile(fname, data.xmlSigned, "application/xml");
         alert("✅ XML generado y descargado.");
+        if (data.persistWarning) alert(data.persistWarning);
       } else {
         alert("XML generado, pero no llegó el xmlSigned.");
       }
@@ -402,86 +535,141 @@ export default function NuevaFactura() {
       <h2>Nueva Factura</h2>
 
       {/* ======================
-          1) CLIENTE
+          1) ORDEN DE SERVICIO / CLIENTE
       ====================== */}
       <div className="card p-3 mb-3">
         <div className="d-flex justify-content-between align-items-center">
-          <h5 className="mb-0">1) Cliente</h5>
+          <h5 className="mb-0">1) Orden de servicio</h5>
 
-          {cliente && (
-            <button
-              className="btn btn-link"
-              onClick={() => {
-                setCliente(null);
-                setQ("");
-                setShow(false);
-                setConceptos([]);
-                cancelEdit();
-                setXmlSigned("");
-                setCadenaOriginal("");
-                setSello("");
-              }}
-            >
-              Cambiar cliente
+          {orden && (
+            <button className="btn btn-link" onClick={resetTodo}>
+              Cambiar orden
             </button>
           )}
         </div>
 
-        <div className="mt-3 position-relative" style={{ maxWidth: 720 }}>
-          <label className="form-label">Buscar cliente</label>
-          <input
-            className="form-control"
-            value={q}
-            placeholder="Busca por nombre, correo o RFC…"
-            onChange={(e) => {
-              setQ(e.target.value);
-              setCliente(null);
-            }}
-            onFocus={() => opts.length && setShow(true)}
-          />
+        {!orden && (
+          <div className="mt-3 position-relative" style={{ maxWidth: 720 }}>
+            <label className="form-label">Ingresar orden de servicio</label>
+            <input
+              className="form-control"
+              value={qOrden}
+              placeholder="Busca por folio de orden, placas, serie o nombre del cliente…"
+              onChange={(e) => setQOrden(e.target.value)}
+              onFocus={() => optsOrdenes.length && setShowOrdenes(true)}
+            />
 
-          {show && (
-            <div
-              className="list-group position-absolute w-100"
-              style={{ zIndex: 20, maxHeight: 260, overflow: "auto" }}
-            >
-              {loading && <div className="list-group-item">Buscando…</div>}
+            {showOrdenes && (
+              <div
+                className="list-group position-absolute w-100"
+                style={{ zIndex: 20, maxHeight: 300, overflow: "auto" }}
+              >
+                {loadingOrden && <div className="list-group-item">Buscando…</div>}
 
-              {!loading && opts.length === 0 && (
-                <div className="list-group-item">Sin resultados</div>
-              )}
+                {!loadingOrden && optsOrdenes.length === 0 && (
+                  <div className="list-group-item">Sin resultados</div>
+                )}
 
-              {!loading &&
-                opts.map((c) => (
-                  <button
-                    type="button"
-                    key={c._id}
-                    className="list-group-item list-group-item-action"
-                    onClick={() => onPick(c)}
-                  >
-                    <div className="fw-bold">{nombreCompleto(c)}</div>
-                    <div style={{ fontSize: 13, opacity: 0.8 }}>
-                      RFC: {c.rfc || "—"} · Régimen: {c.regimenFiscal || "—"} · CP:{" "}
-                      {c.codigoPostalFiscal || "—"}
-                    </div>
-                  </button>
-                ))}
-            </div>
-          )}
-        </div>
-
-        {cliente && (
-          <div className="mt-3">
-            <div><b>Cliente:</b> {cliente.nombre}</div>
-            <div><b>RFC:</b> {cliente.rfc || "—"}</div>
-            <div><b>Régimen Fiscal:</b> {cliente.regimenFiscal || "—"}</div>
-            <div><b>Código Postal Fiscal:</b> {cliente.codigoPostalFiscal || "—"}</div>
-
-            {faltanFiscales && (
-              <div className="text-danger mt-2">
-                ⚠️ Faltan datos fiscales (RFC/Régimen/CP). Completa en Clientes antes de facturar.
+                {!loadingOrden &&
+                  optsOrdenes.map((o) => (
+                    <button
+                      type="button"
+                      key={o._id}
+                      className="list-group-item list-group-item-action"
+                      onClick={() => onPickOrden(o)}
+                    >
+                      <div className="fw-bold">{o.ordenServicio}</div>
+                      <div style={{ fontSize: 13, opacity: 0.8 }}>
+                        {nombreFiscalCliente(o.cliente) || "Sin cliente"} · {o.marca || "—"}{" "}
+                        {o.modelo || ""} · Placas: {o.placas || "—"} · {o.estadoOrden}
+                      </div>
+                    </button>
+                  ))}
               </div>
             )}
+          </div>
+        )}
+
+        {loadingOrden && !orden && <div className="mt-2 text-muted">Cargando orden…</div>}
+
+        {orden && (
+          <div className="mt-3 row g-4">
+            <div className="col-12 col-md-6">
+              <h6>Datos del cliente</h6>
+              <div><b>Cliente:</b> {cliente?.nombre || "—"}</div>
+              <div><b>RFC:</b> {cliente?.rfc || "—"}</div>
+              <div>
+                <b>Régimen Fiscal:</b>{" "}
+                {REGIMEN_FISCAL_OPTIONS.find((r) => r.value === cliente?.regimenFiscal)?.label ||
+                  cliente?.regimenFiscal ||
+                  "—"}
+              </div>
+              <div><b>Código Postal Fiscal:</b> {cliente?.codigoPostalFiscal || "—"}</div>
+
+              {faltanFiscales && (
+                <div className="mt-3 p-2 border rounded">
+                  <div className="text-danger mb-2">
+                    ⚠️ Faltan datos fiscales del cliente. Captúralos para continuar.
+                  </div>
+
+                  <div className="row g-2">
+                    <div className="col-12 col-md-4">
+                      <label className="form-label small mb-1">RFC</label>
+                      <input
+                        className="form-control form-control-sm"
+                        value={fiscalDraft.rfc}
+                        onChange={(e) =>
+                          setFiscalDraft((p) => ({ ...p, rfc: e.target.value.toUpperCase() }))
+                        }
+                      />
+                    </div>
+                    <div className="col-12 col-md-4">
+                      <label className="form-label small mb-1">Régimen fiscal</label>
+                      <select
+                        className="form-select form-select-sm"
+                        value={fiscalDraft.regimenFiscal}
+                        onChange={(e) =>
+                          setFiscalDraft((p) => ({ ...p, regimenFiscal: e.target.value }))
+                        }
+                      >
+                        <option value="">-- Seleccionar --</option>
+                        {REGIMEN_FISCAL_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-12 col-md-4">
+                      <label className="form-label small mb-1">CP fiscal</label>
+                      <input
+                        className="form-control form-control-sm"
+                        value={fiscalDraft.codigoPostalFiscal}
+                        onChange={(e) =>
+                          setFiscalDraft((p) => ({ ...p, codigoPostalFiscal: e.target.value }))
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    className="btn btn-sm btn-danger mt-2"
+                    onClick={guardarFiscalCliente}
+                    disabled={guardandoFiscal}
+                  >
+                    {guardandoFiscal ? "Guardando..." : "Guardar datos fiscales del cliente"}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="col-12 col-md-6">
+              <h6>Datos de la orden de servicio</h6>
+              <div><b>Orden de servicio:</b> {orden.ordenServicio || "—"}</div>
+              <div><b>Vehículo:</b> {orden.marca || "—"} {orden.modelo || ""}</div>
+              <div><b>Placas:</b> {orden.placas || "—"}</div>
+              <div><b>Estado:</b> {orden.estadoOrden || "—"}</div>
+            </div>
           </div>
         )}
       </div>
@@ -494,84 +682,152 @@ export default function NuevaFactura() {
 
         {!pasoClienteOk && (
           <div className="alert alert-warning mt-2">
-            Selecciona un cliente con datos fiscales completos para continuar.
+            Selecciona una orden de servicio con datos fiscales completos para continuar.
           </div>
         )}
 
-        <div className="row g-3 align-items-end">
-          <div className="col-12 col-md-2">
-            <label className="form-label">Cantidad</label>
-            <input
-              type="number"
-              className="form-control"
-              value={concepto.cantidad}
-              disabled={disabledSteps}
-              onChange={(e) => setConcepto((p) => ({ ...p, cantidad: e.target.value }))}
-              min={1}
-            />
+        <div className="row g-3">
+          <div className="col-12 col-md-4">
+            <h6>Opciones de servicios</h6>
+
+            <div className="mb-3">
+              <div className="text-muted small mb-1">De esta orden</div>
+              {opcionesOrden.length === 0 ? (
+                <div className="text-muted small">Sin servicios registrados en la orden.</div>
+              ) : (
+                <div className="list-group">
+                  {opcionesOrden.map((o) => (
+                    <button
+                      type="button"
+                      key={o.key}
+                      className="list-group-item list-group-item-action py-2"
+                      disabled={disabledSteps}
+                      onClick={() => pickOpcion(o)}
+                    >
+                      <div className="fw-bold" style={{ fontSize: 13 }}>{o.descripcion || "(sin descripción)"}</div>
+                      <div style={{ fontSize: 12, opacity: 0.8 }}>
+                        SAT: {o.cProdServ || "—"} · {money(o.valorUnitario)}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="text-muted small mb-1">Catálogo guardado</div>
+              {opcionesPreset.length === 0 ? (
+                <div className="text-muted small">
+                  Sin conceptos guardados (agrégalos en Configuración fiscal).
+                </div>
+              ) : (
+                <div className="list-group">
+                  {opcionesPreset.map((o) => (
+                    <button
+                      type="button"
+                      key={o.key}
+                      className="list-group-item list-group-item-action py-2"
+                      disabled={disabledSteps}
+                      onClick={() => pickOpcion(o)}
+                    >
+                      <div className="fw-bold" style={{ fontSize: 13 }}>{o.descripcion}</div>
+                      <div style={{ fontSize: 12, opacity: 0.8 }}>
+                        SAT: {o.cProdServ || "—"} · {money(o.valorUnitario)}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="col-12 col-md-2">
-            <label className="form-label">Unidad</label>
-            <input
-              className="form-control"
-              value={concepto.unidad}
-              disabled={disabledSteps}
-              onChange={(e) => setConcepto((p) => ({ ...p, unidad: e.target.value }))}
-            />
-          </div>
+          <div className="col-12 col-md-8">
+            <h6>Formulario con información de los conceptos</h6>
 
-          <div className="col-12 col-md-2">
-            <label className="form-label">CProdServ</label>
-            <input
-              className="form-control"
-              value={concepto.cProdServ}
-              disabled={disabledSteps}
-              onChange={(e) => setConcepto((p) => ({ ...p, cProdServ: e.target.value }))}
-            />
-          </div>
+            <div className="row g-3 align-items-end">
+              <div className="col-12 col-md-2">
+                <label className="form-label">Cantidad</label>
+                <input
+                  type="number"
+                  className="form-control"
+                  value={concepto.cantidad}
+                  disabled={disabledSteps}
+                  onChange={(e) => setConcepto((p) => ({ ...p, cantidad: e.target.value }))}
+                  min={1}
+                />
+              </div>
 
-          <div className="col-12 col-md-2">
-            <label className="form-label">CUnidad</label>
-            <input
-              className="form-control"
-              value={concepto.cUnidad}
-              disabled={disabledSteps}
-              onChange={(e) => setConcepto((p) => ({ ...p, cUnidad: e.target.value }))}
-            />
-          </div>
+              <div className="col-12 col-md-3">
+                <label className="form-label">Unidad</label>
+                <input
+                  className="form-control"
+                  value={concepto.unidad}
+                  disabled={disabledSteps}
+                  onChange={(e) => setConcepto((p) => ({ ...p, unidad: e.target.value }))}
+                />
+              </div>
 
-          <div className="col-12 col-md-3">
-            <label className="form-label">Descripción</label>
-            <input
-              className="form-control"
-              value={concepto.descripcion}
-              disabled={disabledSteps}
-              onChange={(e) => setConcepto((p) => ({ ...p, descripcion: e.target.value }))}
-            />
-          </div>
+              <div className="col-12 col-md-3">
+                <label className="form-label">CProdServ</label>
+                <input
+                  className="form-control"
+                  list="cprodserv-catalogo"
+                  value={concepto.cProdServ}
+                  disabled={disabledSteps}
+                  onChange={(e) => setConcepto((p) => ({ ...p, cProdServ: e.target.value }))}
+                />
+                <datalist id="cprodserv-catalogo">
+                  {presets.map((p) => (
+                    <option key={p._id} value={p.cProdServ}>
+                      {p.cProdServDescripcion || p.descripcion}
+                    </option>
+                  ))}
+                </datalist>
+              </div>
 
-          <div className="col-12 col-md-1">
-            <label className="form-label">V. Unit</label>
-            <input
-              type="number"
-              className="form-control"
-              value={concepto.valorUnitario}
-              disabled={disabledSteps}
-              onChange={(e) => setConcepto((p) => ({ ...p, valorUnitario: e.target.value }))}
-              min={0}
-              style={{ minWidth: 110 }}
-            />
-          </div>
-        </div>
+              <div className="col-12 col-md-4">
+                <label className="form-label">CUnidad</label>
+                <input
+                  className="form-control"
+                  value={concepto.cUnidad}
+                  disabled={disabledSteps}
+                  onChange={(e) => setConcepto((p) => ({ ...p, cUnidad: e.target.value }))}
+                />
+              </div>
 
-        <div className="mt-3">
-          <button className="btn btn-danger" onClick={addConcepto} disabled={disabledSteps}>
-            Agregar concepto
-          </button>
+              <div className="col-12 col-md-8">
+                <label className="form-label">Descripción</label>
+                <input
+                  className="form-control"
+                  value={concepto.descripcion}
+                  disabled={disabledSteps}
+                  onChange={(e) => setConcepto((p) => ({ ...p, descripcion: e.target.value }))}
+                />
+              </div>
+
+              <div className="col-12 col-md-4">
+                <label className="form-label">V. Unit</label>
+                <input
+                  type="number"
+                  className="form-control"
+                  value={concepto.valorUnitario}
+                  disabled={disabledSteps}
+                  onChange={(e) => setConcepto((p) => ({ ...p, valorUnitario: e.target.value }))}
+                  min={0}
+                />
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <button className="btn btn-danger" onClick={addConcepto} disabled={disabledSteps}>
+                Agregar concepto
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="table-responsive mt-3">
+          <h6>Servicios agregados</h6>
           <table className="table table-bordered align-middle">
             <thead>
               <tr>
