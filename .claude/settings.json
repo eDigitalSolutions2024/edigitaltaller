@@ -48,7 +48,21 @@
       "Bash(ps -eo pid,ppid,cmd)",
       "Bash(awk '$1==44048 || $1==44038 || $1==44026 || $2==44048 || $2==44038 || $2==44026')",
       "Bash(kill 44026 44038 44048)",
-      "Bash(kill 56757)"
+      "Bash(kill 56757)",
+      "Bash(ps -p 5217 -o pid,ppid,lstart,etime,cmd)",
+      "Bash(sudo -n ss -ltnp)",
+      "Bash(ps -o pid,ppid,lstart,etime,cmd -p 5121,5133,8546,8584,5209,5217)",
+      "Skill(fewer-permission-prompts)",
+      "Skill(fewer-permission-prompts:*)",
+      "Bash(python3 /tmp/claude-1000/-home-GDH-Escritorio-EdigitalTaller-edigitaltaller/b5bb34ff-2139-470a-8d15-c67105ca266c/scratchpad/extract_tools.py /tmp/claude-1000/-home-GDH-Escritorio-EdigitalTaller-edigitaltaller/b5bb34ff-2139-470a-8d15-c67105ca266c/scratchpad/transcripts.txt)",
+      "Bash(python3 -)",
+      "Bash(python3 /tmp/claude-1000/-home-GDH-Escritorio-EdigitalTaller-edigitaltaller/b5bb34ff-2139-470a-8d15-c67105ca266c/scratchpad/check_find.py)",
+      "Bash(sed -n *)",
+      "Bash(node --check *)",
+      "Bash(php -l *)",
+      "Bash(npm run build)",
+      "mcp__pencil__get_screenshot",
+      "Bash(python3 -c \"import json; json.load\\(open\\('/home/GDH/Escritorio/EdigitalTaller/edigitaltaller/.claude/settings.json'\\)\\); print\\('valid json'\\)\")"
     ]
   }
 }

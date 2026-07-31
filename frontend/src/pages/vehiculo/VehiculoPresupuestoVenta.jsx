@@ -293,20 +293,18 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       ? carroceros.find((x) => x._id === m.carrocero)?.nombre || m.carrocero || "—"
       : mecanicos.find((x) => x._id === m.mecanico)?.nombre || m.mecanico || "—";
 
-  // ===== MANO DE OBRA — asignación de servicios ya presupuestados =====
-  // Cualquier partida del presupuesto (servicio o refacción) ya autorizada y
-  // guardada (con _id real) es elegible: en la práctica el asesor a veces
-  // renombra una refacción y la usa como servicio, así que no se filtra por
-  // esServicio. Se excluyen las refacciones hijas de un Servicio de catálogo
-  // (origenServicioCatalogo) porque nunca se facturan por separado.
+  // ===== MANO DE OBRA — asignación de partidas de Venta al Cliente =====
+  // Solo las partidas que quedaron en Venta al Cliente (Cierre de Orden) son
+  // elegibles: es lo que realmente se le va a cobrar al cliente, y puede
+  // diferir de lo autorizado en el Presupuesto si el asesor editó, agregó o
+  // quitó partidas ahí. ventaRows no trae un _id estable, así que se usa el
+  // índice del arreglo como identificador de selección.
   const serviciosParaManoObra = useMemo(
-    () => presRows.filter((p) => p._id && p.autorizado && !p.origenServicioCatalogo),
-    [presRows]
+    () => ventaRows.map((v, i) => ({ ...v, _idx: i })),
+    [ventaRows]
   );
 
-  // El nombre a usar es el mismo que se usa al enviar a Venta al Cliente
-  // (ver handleEnviarAVenta): concepto, o refaccion si concepto viene vacío.
-  const nombreServicioPresupuesto = (p) => p?.concepto || p?.refaccion || "";
+  const nombreServicioPresupuesto = (p) => p?.concepto || "";
 
   const toggleServicioMo = (id) => {
     setServiciosMoSeleccionados((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -327,13 +325,15 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     }
 
     const nuevasFilas = idsElegidos.map((id) => {
-      const servicio = serviciosParaManoObra.find((p) => String(p._id) === String(id));
+      const servicio = serviciosParaManoObra.find((p) => String(p._idx) === String(id));
       // Si el asesor capturó horas manualmente, esas mandan; si no, se usan
       // las horas ya estimadas en el presupuesto (horasMO) de ese servicio.
       const horas = moHorasOverride !== "" ? Number(moHorasOverride) || 0 : Number(servicio?.horasMO) || 0;
       return {
         concepto: nombreServicioPresupuesto(servicio),
-        presupuestoId: servicio?._id || null,
+        // Precio de venta de la partida al momento de asignarla: los reportes
+        // de RH lo usan directo, sin volver a buscar en presupuesto[].
+        precioServicio: Number(servicio?.precioVenta || 0),
         mecanico: moTipo === "carrocero" ? "" : moAsignado,
         carrocero: moTipo === "carrocero" ? moAsignado : "",
         esCarroceria: moTipo === "carrocero",
@@ -1477,9 +1477,9 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
             <div className="card-body">
               {serviciosParaManoObra.length === 0 ? (
                 <p className="text-muted mb-0">
-                  No hay servicios autorizados en el presupuesto todavía.
-                  Guarda y autoriza al menos una partida marcada como
-                  "SERVICIO" para poder asignarle mano de obra.
+                  No hay partidas en Venta al Cliente (Cierre de Orden) todavía.
+                  Agrega o envía partidas autorizadas desde el Presupuesto para
+                  poder asignarles mano de obra.
                 </p>
               ) : (
                 <>
@@ -1490,22 +1490,20 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                           <th style={{ width: "40px" }}></th>
                           <th>Servicio</th>
                           <th className="text-end">Precio Venta</th>
-                          <th className="text-end">Horas</th>
                         </tr>
                       </thead>
                       <tbody>
                         {serviciosParaManoObra.map((p) => (
-                          <tr key={p._id}>
+                          <tr key={p._idx}>
                             <td className="text-center">
                               <input
                                 type="checkbox"
-                                checked={!!serviciosMoSeleccionados[p._id]}
-                                onChange={() => toggleServicioMo(p._id)}
+                                checked={!!serviciosMoSeleccionados[p._idx]}
+                                onChange={() => toggleServicioMo(p._idx)}
                               />
                             </td>
                             <td>{nombreServicioPresupuesto(p)}</td>
                             <td className="text-end">{formatMoney(p.precioVenta)}</td>
-                            <td className="text-end">{p.horasMO || 0}</td>
                           </tr>
                         ))}
                       </tbody>

@@ -43,6 +43,16 @@ function telefonoCliente(c) {
   return '';
 }
 
+// Precio de servicio asociado a una fila de manoObra: usa el snapshot
+// precioServicio (tomado de Venta al Cliente al momento de asignar) y cae a
+// buscar en presupuesto[] por presupuestoId solo para filas legado que no
+// tienen precioServicio.
+function montoServicioManoObra(m, presupuestoPorId) {
+  if (m.precioServicio != null && m.precioServicio !== 0) return Number(m.precioServicio);
+  const partida = m.presupuestoId ? presupuestoPorId.get(String(m.presupuestoId)) : null;
+  return Number(partida?.precioVenta || 0);
+}
+
 function calcImporte(v) {
   return (v.ventaCliente || []).reduce(
     (s, i) => s + (i.cant || 1) * (i.precioVenta || 0),
@@ -833,8 +843,7 @@ async function buildReporteRhCxC({ desde, hasta, mecanico }) {
       if (!idMecanico) continue;
 
       const nombreMec = nombreEmpleado.get(idMecanico) || m.mecanico || 'Sin asignar';
-      const partida = m.presupuestoId ? presupuestoPorId.get(String(m.presupuestoId)) : null;
-      const montoServicio = Number(partida?.precioVenta || 0);
+      const montoServicio = montoServicioManoObra(m, presupuestoPorId);
       const montoManoObra = calcImporteHoras(m.horas);
 
       if (!grupos[nombreMec]) {
@@ -941,16 +950,14 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
     const totalPorMecanico = {};
     for (const m of manoObraValida) {
       const idMecanico = String(m.mecanico);
-      const partida = m.presupuestoId ? presupuestoPorId.get(String(m.presupuestoId)) : null;
-      const montoServicio = Number(partida?.precioVenta || 0);
+      const montoServicio = montoServicioManoObra(m, presupuestoPorId);
       totalPorMecanico[idMecanico] = (totalPorMecanico[idMecanico] || 0) + montoServicio;
     }
 
     for (const m of manoObraValida) {
       const idMecanico = String(m.mecanico);
       const nombreMec = nombreEmpleado.get(idMecanico) || m.mecanico || 'Sin asignar';
-      const partida = m.presupuestoId ? presupuestoPorId.get(String(m.presupuestoId)) : null;
-      const montoServicio = Number(partida?.precioVenta || 0);
+      const montoServicio = montoServicioManoObra(m, presupuestoPorId);
       const iva = montoServicio * (ivaPct / 100);
 
       if (!grupos[nombreMec]) {
