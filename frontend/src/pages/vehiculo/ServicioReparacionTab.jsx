@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { updateServicioReparacion, saveRequisicionDiagnostico, omitirRefacciones } from "../../api/vehiculos";
 import { listServiciosCatalogoOptions } from "../../api/serviciosCatalogo";
-import http from "../../api/http";
+import { listarEmpleados } from "../../api/empleados";
 
 const emptyForm = {
   serviciosSeleccionados: [],
@@ -49,19 +49,14 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
   const [serviciosOmitir, setServiciosOmitir] = useState([{ concepto: "", cantidad: 1 }]);
   const [guardandoOmitir, setGuardandoOmitir] = useState(false);
 
-  // Mano de obra opcional dentro del modal de omitir
-  const emptyMoLinea = {
-    concepto: "",
-    mecanico: "",
-    horas: "",
-    fechaPago: "",
-    observaciones: "",
-    esCarroceria: false,
-    carrocero: "",
-  };
-  const [manoObraOmitir, setManoObraOmitir] = useState([]);
+  // Mano de obra: asignación de mecánico/carrocero a los servicios de arriba
   const [mecanicos, setMecanicos] = useState([]);
   const [carroceros, setCarroceros] = useState([]);
+  const [moTipo, setMoTipo] = useState("mecanico"); // "mecanico" | "carrocero"
+  const [moAsignado, setMoAsignado] = useState("");
+  const [moHoras, setMoHoras] = useState("");
+  const [moFechaPago, setMoFechaPago] = useState("");
+  const [serviciosMoSeleccionados, setServiciosMoSeleccionados] = useState({});
 
   // Cargar datos existentes de la orden
   useEffect(() => {
@@ -101,21 +96,14 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
     cargar();
   }, []);
 
-  // Cargar mecánicos y carroceros (para la mano de obra del modal de omitir)
+  // Cargar mecánicos y carroceros (para asignar mano de obra a los servicios)
   useEffect(() => {
-    const cargarEmpleados = async () => {
-      try {
-        const [resMec, resCar] = await Promise.all([
-          http.get("/empleados?puesto=mecanico&activo=true"),
-          http.get("/empleados?puesto=carrocero&activo=true"),
-        ]);
-        setMecanicos(resMec.data || []);
-        setCarroceros(resCar.data || []);
-      } catch (err) {
-        console.error("Error cargando empleados:", err);
-      }
-    };
-    cargarEmpleados();
+    listarEmpleados({ puesto: "mecanico", activo: true })
+      .then(setMecanicos)
+      .catch(() => {});
+    listarEmpleados({ puesto: "carrocero", activo: true })
+      .then(setCarroceros)
+      .catch(() => {});
   }, []);
 
   // ===== Selección de Servicios de catálogo (paquetes de refacciones) =====
@@ -306,59 +294,93 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
       )
     );
 
-  const agregarMoOmitir = () =>
-    setManoObraOmitir((prev) => [...prev, { ...emptyMoLinea }]);
+  const toggleServicioMoOmitir = (idx) =>
+    setServiciosMoSeleccionados((prev) => ({ ...prev, [idx]: !prev[idx] }));
 
-  const eliminarMoOmitir = (idx) =>
-    setManoObraOmitir((prev) => prev.filter((_, i) => i !== idx));
+  // Asigna el mecánico/carrocero elegido a todos los servicios marcados
+  // (uno para varios servicios, o uno para un solo servicio).
+  const agregarAsignacionMoOmitir = () => {
+    const idxElegidos = Object.entries(serviciosMoSeleccionados)
+      .filter(([, marcado]) => marcado)
+      .map(([idx]) => Number(idx));
 
-  const cambiarMoOmitir = (idx, field, value) =>
-    setManoObraOmitir((prev) =>
-      prev.map((item, i) => {
-        if (i !== idx) return item;
-        const updates = { [field]: value };
-        // Al cambiar el tipo (carrocería/mecánico) limpiar el selector del otro
-        if (field === "esCarroceria") {
-          updates.mecanico = "";
-          updates.carrocero = "";
-        }
-        return { ...item, ...updates };
-      })
+    if (idxElegidos.length === 0) {
+      alert("Selecciona al menos un servicio.");
+      return;
+    }
+    if (!moAsignado) {
+      alert(moTipo === "carrocero" ? "Selecciona un carrocero." : "Selecciona un mecánico.");
+      return;
+    }
+
+    setServiciosOmitir((prev) =>
+      prev.map((item, i) =>
+        idxElegidos.includes(i)
+          ? {
+              ...item,
+              moEsCarroceria: moTipo === "carrocero",
+              moMecanico: moTipo === "carrocero" ? "" : moAsignado,
+              moCarrocero: moTipo === "carrocero" ? moAsignado : "",
+              moHoras: moHoras,
+              moFechaPago: moFechaPago,
+            }
+          : item
+      )
     );
+    setServiciosMoSeleccionados({});
+    setMoAsignado("");
+    setMoHoras("");
+    setMoFechaPago("");
+  };
+
+  const quitarAsignacionMoOmitir = (idx) =>
+    setServiciosOmitir((prev) =>
+      prev.map((item, i) =>
+        i === idx
+          ? {
+              ...item,
+              moEsCarroceria: false,
+              moMecanico: "",
+              moCarrocero: "",
+              moHoras: "",
+              moFechaPago: "",
+            }
+          : item
+      )
+    );
+
+  // Permite ajustar horas/fecha de pago de un servicio ya asignado sin tener
+  // que quitar y repetir la asignación completa.
+  const cambiarAsignacionMoOmitir = (idx, field, value) =>
+    setServiciosOmitir((prev) =>
+      prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item))
+    );
+
+  const nombreAsignacionMoOmitir = (item) => {
+    const id = item.moEsCarroceria ? item.moCarrocero : item.moMecanico;
+    if (!id) return null;
+    const lista = item.moEsCarroceria ? carroceros : mecanicos;
+    return lista.find((e) => e._id === id)?.nombre || id;
+  };
 
   const handleOmitirRefacciones = async () => {
     if (!ordenId) return;
     const validos = serviciosOmitir
       .filter((s) => s.concepto.trim() && Number(s.cantidad) > 0)
-      .map((s) => ({ concepto: s.concepto.trim(), cant: Number(s.cantidad) }));
+      .map((s) => ({
+        concepto: s.concepto.trim(),
+        cant: Number(s.cantidad),
+        mecanico: s.moEsCarroceria ? "" : (s.moMecanico || ""),
+        carrocero: s.moEsCarroceria ? (s.moCarrocero || "") : "",
+        esCarroceria: !!s.moEsCarroceria,
+        horas: Number(s.moHoras) || 0,
+        fechaPago: s.moFechaPago || "",
+      }));
 
     if (validos.length === 0) {
       alert("Agrega al menos un servicio a realizar.");
       return;
     }
-
-    // Mano de obra opcional: si una fila tiene datos, exige el concepto
-    const moIncompleta = manoObraOmitir.some(
-      (m) =>
-        !m.concepto.trim() &&
-        (m.mecanico || m.carrocero || m.horas || m.fechaPago || m.observaciones)
-    );
-    if (moIncompleta) {
-      alert("En mano de obra captura al menos el concepto/servicio.");
-      return;
-    }
-
-    const moValidas = manoObraOmitir
-      .filter((m) => m.concepto.trim())
-      .map((m) => ({
-        concepto: m.concepto.trim(),
-        mecanico: m.esCarroceria ? "" : m.mecanico,
-        carrocero: m.esCarroceria ? m.carrocero : "",
-        esCarroceria: !!m.esCarroceria,
-        horas: Number(m.horas) || 0,
-        fechaPago: m.fechaPago || "",
-        observaciones: m.observaciones || "",
-      }));
 
     try {
       setGuardandoOmitir(true);
@@ -369,7 +391,6 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
       // 2. Registrar los servicios y avanzar la orden sin pasar por refaccionaria
       const res = await omitirRefacciones(ordenId, {
         servicios: validos,
-        manoObra: moValidas,
       });
 
       alert(
@@ -377,7 +398,6 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
       );
       setShowOmitirModal(false);
       setServiciosOmitir([{ concepto: "", cantidad: 1 }]);
-      setManoObraOmitir([]);
 
       if (onSaved && res?.data?.vehiculo) {
         onSaved(res.data.vehiculo);
@@ -400,9 +420,101 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
 
           <div className="card-body">
 
-            {/* ===== SERVICIOS (paquetes de refacciones) ===== */}
+            {/* ===== FALLAS REPORTADAS POR EL CLIENTE ===== */}
             {!sinVehiculo && (
             <>
+            <div className="mb-4">
+              <h6 className="fw-bold text-uppercase mb-2 border-bottom pb-2">
+                Fallas reportadas por el cliente
+              </h6>
+              <textarea
+                className="form-control"
+                rows={4}
+                placeholder="Describe las fallas o síntomas que reportó el cliente..."
+                value={form.fallasReportadasCliente}
+                readOnly={readOnly}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    fallasReportadasCliente: e.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            {/* ===== INFORMACIÓN DE LLANTAS ===== */}
+            <div className="mb-4">
+              <h6 className="fw-bold text-uppercase mb-2 border-bottom pb-2">
+                Información de llantas
+              </h6>
+              <textarea
+                className="form-control"
+                rows={2}
+                placeholder="Estado de las llantas, medidas, observaciones..."
+                value={form.infoLlantas}
+                readOnly={readOnly}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, infoLlantas: e.target.value }))
+                }
+              />
+            </div>
+            </>
+            )}
+
+            {/* ===== OBSERVACIONES GENERALES ===== */}
+            <div className="mb-4">
+              <h6 className="fw-bold text-uppercase mb-2 border-bottom pb-2">
+                Observaciones generales
+              </h6>
+              <textarea
+                className="form-control"
+                rows={3}
+                placeholder="Observaciones adicionales sobre el servicio o reparación..."
+                value={form.revisionFallas}
+                readOnly={readOnly}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, revisionFallas: e.target.value }))
+                }
+              />
+            </div>
+
+            {/* ===== CAMPOS PARA EL PDF OPERATIVO ===== */}
+            {!sinVehiculo && PDF_SECTIONS.map(({ label, textKey }) => (
+              <div className="mb-3" key={textKey}>
+                <div className="form-check border-bottom pb-2 mb-2">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    id={`chk-${textKey}`}
+                    checked={activePdf[textKey]}
+                    disabled={readOnly}
+                    onChange={(e) =>
+                      setActivePdf((prev) => ({ ...prev, [textKey]: e.target.checked }))
+                    }
+                  />
+                  <label
+                    className="form-check-label fw-bold text-uppercase"
+                    htmlFor={`chk-${textKey}`}
+                  >
+                    {label}
+                  </label>
+                </div>
+                {activePdf[textKey] && (
+                  <textarea
+                    className="form-control"
+                    rows={3}
+                    value={form[textKey]}
+                    readOnly={readOnly}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, [textKey]: e.target.value }))
+                    }
+                  />
+                )}
+              </div>
+            ))}
+
+            {/* ===== SERVICIOS (paquetes de refacciones) ===== */}
+            {!sinVehiculo && (
             <div className="mb-4">
               <h6 className="fw-bold text-uppercase mb-3 border-bottom pb-2">
                 Servicios
@@ -529,97 +641,7 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
                 </div>
               )}
             </div>
-
-            {/* ===== FALLAS REPORTADAS POR EL CLIENTE ===== */}
-            <div className="mb-4">
-              <h6 className="fw-bold text-uppercase mb-2 border-bottom pb-2">
-                Fallas reportadas por el cliente
-              </h6>
-              <textarea
-                className="form-control"
-                rows={4}
-                placeholder="Describe las fallas o síntomas que reportó el cliente..."
-                value={form.fallasReportadasCliente}
-                readOnly={readOnly}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    fallasReportadasCliente: e.target.value,
-                  }))
-                }
-              />
-            </div>
-
-            {/* ===== INFORMACIÓN DE LLANTAS ===== */}
-            <div className="mb-4">
-              <h6 className="fw-bold text-uppercase mb-2 border-bottom pb-2">
-                Información de llantas
-              </h6>
-              <textarea
-                className="form-control"
-                rows={2}
-                placeholder="Estado de las llantas, medidas, observaciones..."
-                value={form.infoLlantas}
-                readOnly={readOnly}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, infoLlantas: e.target.value }))
-                }
-              />
-            </div>
-            </>
             )}
-
-            {/* ===== OBSERVACIONES GENERALES ===== */}
-            <div className="mb-4">
-              <h6 className="fw-bold text-uppercase mb-2 border-bottom pb-2">
-                Observaciones generales
-              </h6>
-              <textarea
-                className="form-control"
-                rows={3}
-                placeholder="Observaciones adicionales sobre el servicio o reparación..."
-                value={form.revisionFallas}
-                readOnly={readOnly}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, revisionFallas: e.target.value }))
-                }
-              />
-            </div>
-
-            {/* ===== CAMPOS PARA EL PDF OPERATIVO ===== */}
-            {!sinVehiculo && PDF_SECTIONS.map(({ label, textKey }) => (
-              <div className="mb-3" key={textKey}>
-                <div className="form-check border-bottom pb-2 mb-2">
-                  <input
-                    className="form-check-input"
-                    type="checkbox"
-                    id={`chk-${textKey}`}
-                    checked={activePdf[textKey]}
-                    disabled={readOnly}
-                    onChange={(e) =>
-                      setActivePdf((prev) => ({ ...prev, [textKey]: e.target.checked }))
-                    }
-                  />
-                  <label
-                    className="form-check-label fw-bold text-uppercase"
-                    htmlFor={`chk-${textKey}`}
-                  >
-                    {label}
-                  </label>
-                </div>
-                {activePdf[textKey] && (
-                  <textarea
-                    className="form-control"
-                    rows={3}
-                    value={form[textKey]}
-                    readOnly={readOnly}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, [textKey]: e.target.value }))
-                    }
-                  />
-                )}
-              </div>
-            ))}
 
             {/* ===== BOTONES ===== */}
             {!readOnly && (
@@ -792,47 +814,106 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
                 <table className="table table-sm table-bordered align-middle">
                   <thead className="table-light">
                     <tr>
+                      <th style={{ width: "40px" }}></th>
                       <th>Servicio a realizar</th>
-                      <th style={{ width: "120px" }}>Cantidad</th>
+                      <th style={{ width: "100px" }}>Cantidad</th>
+                      <th>Mano de obra</th>
                       <th style={{ width: "50px" }}></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {serviciosOmitir.map((item, idx) => (
-                      <tr key={idx}>
-                        <td>
-                          <input
-                            className="form-control form-control-sm"
-                            value={item.concepto}
-                            onChange={(e) =>
-                              cambiarServicioOmitir(idx, "concepto", e.target.value)
-                            }
-                            placeholder="Ej. Alineación y balanceo, Diagnóstico eléctrico..."
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="number"
-                            min="1"
-                            className="form-control form-control-sm"
-                            value={item.cantidad}
-                            onChange={(e) =>
-                              cambiarServicioOmitir(idx, "cantidad", e.target.value)
-                            }
-                          />
-                        </td>
-                        <td className="text-center">
-                          <button
-                            type="button"
-                            className="btn btn-outline-danger btn-sm"
-                            onClick={() => eliminarServicioOmitir(idx)}
-                            disabled={serviciosOmitir.length === 1}
-                          >
-                            ×
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {serviciosOmitir.map((item, idx) => {
+                      const nombreAsignado = nombreAsignacionMoOmitir(item);
+                      return (
+                        <tr key={idx}>
+                          <td className="text-center">
+                            <input
+                              type="checkbox"
+                              checked={!!serviciosMoSeleccionados[idx]}
+                              onChange={() => toggleServicioMoOmitir(idx)}
+                              title="Seleccionar para asignar mano de obra"
+                            />
+                          </td>
+                          <td>
+                            <input
+                              className="form-control form-control-sm"
+                              value={item.concepto}
+                              onChange={(e) =>
+                                cambiarServicioOmitir(idx, "concepto", e.target.value)
+                              }
+                              placeholder="Ej. Alineación y balanceo, Diagnóstico eléctrico..."
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="number"
+                              min="1"
+                              className="form-control form-control-sm"
+                              value={item.cantidad}
+                              onChange={(e) =>
+                                cambiarServicioOmitir(idx, "cantidad", e.target.value)
+                              }
+                            />
+                          </td>
+                          <td className="small" style={{ minWidth: "260px" }}>
+                            {nombreAsignado ? (
+                              <div>
+                                <div className="d-flex align-items-center justify-content-between gap-1 mb-1">
+                                  <span>
+                                    {item.moEsCarroceria ? "Carrocero" : "Mecánico"}: <strong>{nombreAsignado}</strong>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline-danger btn-sm py-0 px-1"
+                                    onClick={() => quitarAsignacionMoOmitir(idx)}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                                <div className="d-flex gap-1">
+                                  <div style={{ width: "90px" }}>
+                                    <input
+                                      type="number"
+                                      step="0.1"
+                                      className="form-control form-control-sm"
+                                      placeholder="Horas"
+                                      title="Horas que trabajará"
+                                      value={item.moHoras || ""}
+                                      onChange={(e) =>
+                                        cambiarAsignacionMoOmitir(idx, "moHoras", e.target.value)
+                                      }
+                                    />
+                                  </div>
+                                  <div>
+                                    <input
+                                      type="date"
+                                      className="form-control form-control-sm"
+                                      title="Fecha de pago"
+                                      value={item.moFechaPago || ""}
+                                      onChange={(e) =>
+                                        cambiarAsignacionMoOmitir(idx, "moFechaPago", e.target.value)
+                                      }
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-muted">Sin asignar</span>
+                            )}
+                          </td>
+                          <td className="text-center">
+                            <button
+                              type="button"
+                              className="btn btn-outline-danger btn-sm"
+                              onClick={() => eliminarServicioOmitir(idx)}
+                              disabled={serviciosOmitir.length === 1}
+                            >
+                              ×
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
 
@@ -844,149 +925,70 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
                   + Agregar servicio
                 </button>
 
-                {/* ===== MANO DE OBRA (OPCIONAL) ===== */}
                 <hr className="my-3" />
-                <div className="d-flex justify-content-between align-items-center mb-2">
-                  <h6 className="fw-bold text-uppercase mb-0">
-                    Mano de obra{" "}
-                    <span className="text-muted fw-normal small">(opcional)</span>
-                  </h6>
-                  <button
-                    type="button"
-                    className="btn btn-outline-secondary btn-sm"
-                    onClick={agregarMoOmitir}
-                  >
-                    + Agregar mano de obra
-                  </button>
-                </div>
-
-                {manoObraOmitir.length === 0 && (
-                  <p className="text-muted small mb-0">
-                    Si el trabajo requiere mano de obra, agrégala aquí; quedará
-                    registrada en la orden igual que en Requisición y Diagnóstico.
-                  </p>
-                )}
-
-                {manoObraOmitir.map((m, idx) => (
-                  <div key={idx} className="border rounded p-2 mb-2 bg-light">
-                    <div className="row g-2 mb-2">
-                      <div className="col-md-5">
-                        <label className="form-label form-label-sm mb-1">
-                          Reparación / Servicio
-                        </label>
-                        <input
-                          type="text"
-                          className="form-control form-control-sm"
-                          placeholder="Concepto o servicio..."
-                          value={m.concepto}
-                          onChange={(e) =>
-                            cambiarMoOmitir(idx, "concepto", e.target.value)
-                          }
-                        />
-                      </div>
-                      <div className="col-md-3">
-                        <label className="form-label form-label-sm mb-1">
-                          {m.esCarroceria ? "Carrocero" : "Mecánico"}
-                        </label>
-                        {m.esCarroceria ? (
-                          <select
-                            className="form-select form-select-sm"
-                            value={m.carrocero}
-                            onChange={(e) =>
-                              cambiarMoOmitir(idx, "carrocero", e.target.value)
-                            }
-                          >
-                            <option value="">-- Seleccionar carrocero --</option>
-                            {carroceros.map((c) => (
-                              <option key={c._id} value={c._id}>{c.nombre}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <select
-                            className="form-select form-select-sm"
-                            value={m.mecanico}
-                            onChange={(e) =>
-                              cambiarMoOmitir(idx, "mecanico", e.target.value)
-                            }
-                          >
-                            <option value="">-- Seleccionar --</option>
-                            {mecanicos.map((mec) => (
-                              <option key={mec._id} value={mec._id}>{mec.nombre}</option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                      <div className="col-md-2">
-                        <label className="form-label form-label-sm mb-1">Horas</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          className="form-control form-control-sm"
-                          value={m.horas}
-                          onChange={(e) =>
-                            cambiarMoOmitir(idx, "horas", e.target.value)
-                          }
-                        />
-                      </div>
-                      <div className="col-md-2">
-                        <label className="form-label form-label-sm mb-1">
-                          Fecha de Pago
-                        </label>
-                        <input
-                          type="date"
-                          className="form-control form-control-sm"
-                          value={m.fechaPago}
-                          onChange={(e) =>
-                            cambiarMoOmitir(idx, "fechaPago", e.target.value)
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div className="row g-2 align-items-end">
-                      <div className="col-md-7">
-                        <label className="form-label form-label-sm mb-1">
-                          Observaciones
-                        </label>
-                        <input
-                          type="text"
-                          className="form-control form-control-sm"
-                          value={m.observaciones}
-                          onChange={(e) =>
-                            cambiarMoOmitir(idx, "observaciones", e.target.value)
-                          }
-                        />
-                      </div>
-                      <div className="col-md-4">
-                        <div className="form-check">
-                          <input
-                            type="checkbox"
-                            className="form-check-input"
-                            id={`moOmitirCarroceria-${idx}`}
-                            checked={m.esCarroceria}
-                            onChange={(e) =>
-                              cambiarMoOmitir(idx, "esCarroceria", e.target.checked)
-                            }
-                          />
-                          <label
-                            className="form-check-label fw-semibold"
-                            htmlFor={`moOmitirCarroceria-${idx}`}
-                          >
-                            ¿Trabajo de Carrocería?
-                          </label>
-                        </div>
-                      </div>
-                      <div className="col-md-1 text-end">
-                        <button
-                          type="button"
-                          className="btn btn-outline-danger btn-sm"
-                          onClick={() => eliminarMoOmitir(idx)}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
+                <h6 className="fw-bold text-uppercase mb-2">
+                  Asignar mano de obra{" "}
+                  <span className="text-muted fw-normal small">(opcional)</span>
+                </h6>
+                <div className="row g-2 align-items-end">
+                  <div className="col-md-2">
+                    <label className="form-label form-label-sm mb-1">Asignar a</label>
+                    <select
+                      className="form-select form-select-sm"
+                      value={moTipo}
+                      onChange={(e) => {
+                        setMoTipo(e.target.value);
+                        setMoAsignado("");
+                      }}
+                    >
+                      <option value="mecanico">Mecánico</option>
+                      <option value="carrocero">Carrocero</option>
+                    </select>
                   </div>
-                ))}
+                  <div className="col-md-3">
+                    <label className="form-label form-label-sm mb-1">
+                      {moTipo === "carrocero" ? "Carrocero" : "Mecánico"}
+                    </label>
+                    <select
+                      className="form-select form-select-sm"
+                      value={moAsignado}
+                      onChange={(e) => setMoAsignado(e.target.value)}
+                    >
+                      <option value="">-- Seleccionar --</option>
+                      {(moTipo === "carrocero" ? carroceros : mecanicos).map((e) => (
+                        <option key={e._id} value={e._id}>{e.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="col-md-2">
+                    <label className="form-label form-label-sm mb-1">Horas</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      className="form-control form-control-sm"
+                      value={moHoras}
+                      onChange={(e) => setMoHoras(e.target.value)}
+                    />
+                  </div>
+                  <div className="col-md-2">
+                    <label className="form-label form-label-sm mb-1">Fecha de Pago</label>
+                    <input
+                      type="date"
+                      className="form-control form-control-sm"
+                      value={moFechaPago}
+                      onChange={(e) => setMoFechaPago(e.target.value)}
+                    />
+                  </div>
+                  <div className="col-md-3 text-end">
+                    <button
+                      type="button"
+                      className="btn btn-outline-primary btn-sm px-3"
+                      onClick={agregarAsignacionMoOmitir}
+                    >
+                      + Asignar a servicios marcados
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="modal-footer">

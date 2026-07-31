@@ -9,6 +9,12 @@ export const crearTipoCambio = (payload) =>
 export const getUltimoTipoCambio = () =>
   http.get('/configuracion/tipo-cambio/ultimo').then(r => r.data);
 
+export const getTipoCambioSie = () =>
+  http.get('/configuracion/tipo-cambio/sie').then(r => r.data);
+
+export const getHistorialComparadoTipoCambio = () =>
+  http.get('/configuracion/tipo-cambio/historial-comparado').then(r => r.data);
+
 export const getUnidadesMedida = () =>
   http.get('/configuracion/unidades-medida').then(r => r.data);
 
@@ -56,3 +62,9 @@ export const getRemisionContador = () =>
 
 export const actualizarRemisionContador = (valor) =>
   http.put('/configuracion/remision-contador', { valor }).then(r => r.data);
+
+export const getOrdenCompraContador = () =>
+  http.get('/configuracion/orden-compra-contador').then(r => r.data);
+
+export const actualizarOrdenCompraContador = (valor) =>
+  http.put('/configuracion/orden-compra-contador', { valor }).then(r => r.data);

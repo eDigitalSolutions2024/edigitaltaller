@@ -2,11 +2,22 @@ const express = require('express');
 const router = express.Router();
 
 const TipoCambio = require('../models/TipoCambio');
+const TipoCambioSie = require('../models/TipoCambioSie');
 const UnidadMedida = require('../models/UnidadMedida');
 const Mecanico = require('../models/Mecanico');
 const Contador = require('../models/Contador');
+const banxicoService = require('../service/banxicoService');
 
 const { proteger, requiereRol } = require('../middleware/auth');
+
+// Normaliza a medianoche UTC. TipoCambio.fecha viene de un <input type="date">
+// (string "yyyy-MM-dd", que JS parsea como UTC) y TipoCambioSie.fecha viene
+// de banxicoService ya normalizado a UTC — usar getters/setters UTC aquí es
+// obligatorio para que ambas fechas se comparen igual sin importar la zona
+// horaria del servidor.
+function medianoche(date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
 
 // ===============================
 // TIPO DE CAMBIO
@@ -57,6 +68,100 @@ router.post('/tipo-cambio', proteger, requiereRol('admin'), async (req, res) => 
     res.status(201).json(nuevo);
   } catch (error) {
     res.status(500).json({ message: 'Error al guardar tipo de cambio', error: error.message });
+  }
+});
+
+// GET /api/configuracion/tipo-cambio/sie
+// Valor de referencia publicado por el SIE de Banxico (serie FIX). Es solo
+// informativo: nunca se usa en cálculos, esos siguen tomando /tipo-cambio/ultimo.
+// Guarda un snapshot por día en TipoCambioSie para no golpear la API de Banxico
+// más de una vez al día; si Banxico falla, se degrada al último snapshot en BD.
+router.get('/tipo-cambio/sie', proteger, async (req, res) => {
+  try {
+    const hoy = medianoche(new Date());
+    let snapshot = await TipoCambioSie.findOne({ fecha: hoy });
+
+    if (!snapshot) {
+      try {
+        const dato = await banxicoService.obtenerDatoOportuno();
+        if (dato) {
+          snapshot = await TipoCambioSie.findOneAndUpdate(
+            { fecha: medianoche(dato.fecha) },
+            { $set: { valor: dato.valor, serie: banxicoService.SERIE_FIX } },
+            { new: true, upsert: true }
+          );
+        }
+      } catch (errorBanxico) {
+        // Sin conexión/token inválido: se sigue con el fallback de abajo
+      }
+    }
+
+    if (!snapshot) {
+      snapshot = await TipoCambioSie.findOne().sort({ fecha: -1 });
+    }
+
+    res.json(snapshot || null);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener el tipo de cambio de referencia (SIE)', error: error.message });
+  }
+});
+
+// GET /api/configuracion/tipo-cambio/historial-comparado
+// Compara, fecha por fecha, el tipo de cambio usado en el sistema (TipoCambio)
+// contra el que publicó Banxico ese mismo día (TipoCambioSie). Hace backfill
+// contra el histórico de Banxico para fechas que aún no tengan snapshot en BD.
+router.get('/tipo-cambio/historial-comparado', proteger, async (req, res) => {
+  try {
+    const historialManual = await TipoCambio.find().sort({ fecha: -1, createdAt: -1 });
+
+    if (historialManual.length === 0) {
+      return res.json([]);
+    }
+
+    const fechas = historialManual.map((t) => medianoche(new Date(t.fecha)));
+    const fechaMin = new Date(Math.min(...fechas));
+    const fechaMax = medianoche(new Date());
+
+    let snapshotsSie = await TipoCambioSie.find({ fecha: { $gte: fechaMin, $lte: fechaMax } });
+    const fechasConSnapshot = new Set(snapshotsSie.map((s) => s.fecha.getTime()));
+    const faltanSnapshots = fechas.some((f) => !fechasConSnapshot.has(f.getTime()));
+
+    if (faltanSnapshots) {
+      try {
+        const toISO = (d) => d.toISOString().slice(0, 10);
+        const datosHistoricos = await banxicoService.obtenerRangoHistorico(toISO(fechaMin), toISO(fechaMax));
+
+        if (datosHistoricos.length > 0) {
+          await TipoCambioSie.bulkWrite(
+            datosHistoricos.map(({ fecha, valor }) => ({
+              updateOne: {
+                filter: { fecha: medianoche(fecha) },
+                update: { $set: { valor, serie: banxicoService.SERIE_FIX } },
+                upsert: true,
+              },
+            }))
+          );
+          snapshotsSie = await TipoCambioSie.find({ fecha: { $gte: fechaMin, $lte: fechaMax } });
+        }
+      } catch (errorBanxico) {
+        // Sin conexión/token inválido: se muestra el historial con lo que ya haya en BD
+      }
+    }
+
+    const sieByFecha = new Map(snapshotsSie.map((s) => [s.fecha.getTime(), s.valor]));
+
+    const historial = historialManual.map((t) => {
+      const key = medianoche(new Date(t.fecha)).getTime();
+      return {
+        fecha: t.fecha,
+        valorSistema: t.valor,
+        valorSie: sieByFecha.has(key) ? sieByFecha.get(key) : null,
+      };
+    });
+
+    res.json(historial);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener el historial comparado de tipo de cambio', error: error.message });
   }
 });
 
@@ -319,6 +424,45 @@ router.put('/remision-contador', proteger, requiereRol('admin'), async (req, res
     res.json({ valor: contador.valor });
   } catch (error) {
     res.status(500).json({ message: 'Error al actualizar el contador de remisiones', error: error.message });
+  }
+});
+
+// ===============================
+// CONTADOR DE ORDEN DE COMPRA
+// ===============================
+
+// Debe coincidir con ORDEN_COMPRA_CONTADOR en models/OrdenCompra.js
+const ORDEN_COMPRA_CONTADOR = 'ordenCompra';
+
+// GET /api/configuracion/orden-compra-contador
+router.get('/orden-compra-contador', proteger, async (req, res) => {
+  try {
+    const contador = await Contador.findOne({ nombre: ORDEN_COMPRA_CONTADOR });
+    res.json({ valor: contador?.valor || 0 });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener el contador de órdenes de compra', error: error.message });
+  }
+});
+
+// PUT /api/configuracion/orden-compra-contador
+router.put('/orden-compra-contador', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { valor } = req.body;
+    const valorNum = Number(valor);
+
+    if (valor === undefined || valor === null || Number.isNaN(valorNum) || valorNum < 0) {
+      return res.status(400).json({ message: 'El valor debe ser un número mayor o igual a 0' });
+    }
+
+    const contador = await Contador.findOneAndUpdate(
+      { nombre: ORDEN_COMPRA_CONTADOR },
+      { $set: { valor: valorNum } },
+      { new: true, upsert: true }
+    );
+
+    res.json({ valor: contador.valor });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al actualizar el contador de órdenes de compra', error: error.message });
   }
 });
 

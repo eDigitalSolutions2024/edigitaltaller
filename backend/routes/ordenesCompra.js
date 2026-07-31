@@ -4,8 +4,21 @@ const router = express.Router();
 
 const OrdenCompra = require('../models/OrdenCompra');
 const Vehiculo = require('../models/Vehiculo');
+const Proveedor = require('../models/Proveedor');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { streamOrdenCompraPdf } = require('../service/ordenCompraPdf');
+
+function buildDomicilioProveedor(p = {}) {
+  const partes = [
+    [p.calle, p.numeroExterior].filter(Boolean).join(' '),
+    p.numeroInterior ? `Int. ${p.numeroInterior}` : '',
+    p.colonia,
+    p.ciudad,
+    p.estado,
+    p.codigoPostal ? `C.P. ${p.codigoPostal}` : '',
+  ].filter(Boolean);
+  return partes.join(', ');
+}
 
 // POST /api/ordenes-compra
 // body: { vehiculoId, linea, index }
@@ -59,6 +72,7 @@ router.post(
             observaciones: op.observaciones || '',
           },
         ],
+        entrega: req.user?.name || '',
         creadoPor: req.user?._id || null,
       });
 
@@ -76,6 +90,56 @@ router.post(
       return res.status(201).json({ ok: true, ordenCompra: oc });
     } catch (err) {
       console.error('Error creando orden de compra:', err);
+      return res
+        .status(500)
+        .json({ ok: false, msg: 'Error al crear la orden de compra' });
+    }
+  }
+);
+
+// POST /api/ordenes-compra/manual
+// Orden de compra de compra directa a proveedor (sin ligarse a una orden de
+// servicio/vehículo). Las piezas se capturan a mano en el formato impreso,
+// por lo que aquí solo se genera el folio con los datos del proveedor.
+// body: { proveedorId }
+router.post(
+  '/manual',
+  proteger,
+  requiereRol('jefe', 'admin', 'contabilidad'),
+  async (req, res) => {
+    try {
+      const { proveedorId } = req.body;
+
+      if (!proveedorId) {
+        return res
+          .status(400)
+          .json({ ok: false, msg: 'Selecciona un proveedor' });
+      }
+
+      const proveedor = await Proveedor.findById(proveedorId);
+      if (!proveedor) {
+        return res
+          .status(404)
+          .json({ ok: false, msg: 'Proveedor no encontrado' });
+      }
+
+      const numero = await OrdenCompra.generarConsecutivo();
+
+      const oc = new OrdenCompra({
+        numero,
+        proveedorId: proveedor._id,
+        proveedor: proveedor.nombreProveedor,
+        domicilioProveedor: buildDomicilioProveedor(proveedor),
+        entrega: req.user?.name || '',
+        recibe: '',
+        creadoPor: req.user?._id || null,
+      });
+
+      await oc.save();
+
+      return res.status(201).json({ ok: true, ordenCompra: oc });
+    } catch (err) {
+      console.error('Error creando orden de compra manual:', err);
       return res
         .status(500)
         .json({ ok: false, msg: 'Error al crear la orden de compra' });
@@ -111,10 +175,7 @@ router.get(
   requiereRol('jefe', 'admin', 'contabilidad'),
   async (req, res) => {
     try {
-      const oc = await OrdenCompra.findById(req.params.id).populate(
-        'orden',
-        'ordenServicio marca modelo anio placas numeroEconomico'
-      );
+      const oc = await OrdenCompra.findById(req.params.id);
 
       if (!oc) {
         return res

@@ -486,6 +486,10 @@ const vehiculoSchema = new Schema(
     manoObra: [
       {
         concepto: { type: String, default: "" },
+        // Liga con la partida de presupuesto[] (esServicio: true) que el
+        // asesor seleccionó al asignar esta mano de obra. Null en filas
+        // legado capturadas antes de este cambio (concepto de texto libre).
+        presupuestoId: { type: Schema.Types.ObjectId, default: null },
         mecanico: { type: String, default: "" },
         horas: { type: Number, default: 0 },
         fechaPago: { type: String, default: "" },
@@ -510,6 +514,7 @@ pendienteCierre: { type: Boolean, default: false },
 
     // ===== Último Vale de Salida emitido para esta orden =====
     ultimoVale: {
+      id: { type: Schema.Types.ObjectId, ref: 'ValeSalida', default: null },
       noVale: { type: Number, default: null },
       dig: { type: Number, default: 0 },
       fecha: { type: Date, default: null },
@@ -523,7 +528,7 @@ pendienteCierre: { type: Boolean, default: false },
       {
         fecha: { type: Date, default: Date.now },
         tipoPago: { type: String, enum: ['COMPLETO', 'ABONO', 'ANTICIPO'], default: 'ABONO' },
-        comprobante: { type: String, enum: ['NOTA_VENTA', 'REMISION'], required: true },
+        comprobante: { type: String, enum: ['NOTA_VENTA', 'REMISION', 'RECIBO_PROVISIONAL'], required: true },
         montoPesos: { type: Number, default: 0 },
         montoDolares: { type: Number, default: 0 },
         tipoCambio: { type: Number, default: 0 },
@@ -531,6 +536,10 @@ pendienteCierre: { type: Boolean, default: false },
         monto: { type: Number, default: 0 },
         referencia: { type: String, default: '' },
         observaciones: { type: String, default: '' },
+        // Descriptor corto de cómo fue el movimiento (Abono, Liquida, Anticipo,
+        // "Se cancela remisión y pasa a factura"...). Se sugiere solo desde
+        // CajaModalPago según tipoPago/tipoRemision, pero es editable.
+        notas: { type: String, default: '' },
         registradoPor: { type: String, default: '' },
 
         // Presente solo si comprobante === 'NOTA_VENTA'
@@ -550,6 +559,25 @@ pendienteCierre: { type: Boolean, default: false },
           tipo: { type: String, enum: TIPO_NOTA, default: 'Contado' },
           fechaPagada: { type: Date, default: null },
         },
+
+        // Recibo Provisional: se genera automáticamente cuando tipoPago es
+        // ABONO o ANTICIPO, y es el único comprobante permitido en ese caso
+        // (ver nota arriba sobre no ponerle default a `numero`).
+        reciboProvisional: {
+          numero: { type: Number },
+          formaPago: { type: String, enum: ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE'], default: 'EFECTIVO' },
+          chequeNumero: { type: String, default: '' },
+          concepto: { type: String, default: '' },
+          razon: { type: String, default: '' },
+          recibio: { type: String, default: '' },
+          autorizo: { type: String, default: '' },
+        },
+
+        // Recibo de Dólares: se genera automáticamente cuando el pago incluye
+        // montoDolares > 0, sin importar el comprobante o tipoPago.
+        reciboDolares: {
+          numero: { type: Number },
+        },
       },
     ],
 
@@ -567,6 +595,18 @@ pendienteCierre: { type: Boolean, default: false },
         lineaId: { type: Schema.Types.ObjectId, default: null },
       },
     ],
+
+    // ===== Imágenes adjuntas a la orden (fotos del vehículo, daños, etc.) =====
+    imagenes: [
+      {
+        filename: { type: String, default: "" },
+        url: { type: String, default: "" },
+        mimetype: { type: String, default: "" },
+        size: { type: Number, default: 0 },
+        fecha: { type: Date, default: Date.now },
+        subidoPor: { type: String, default: "" },
+      },
+    ],
   },
   {
     timestamps: true, // createdAt, updatedAt
@@ -577,6 +617,8 @@ pendienteCierre: { type: Boolean, default: false },
 vehiculoSchema.index({ 'garantia.estado': 1 });
 vehiculoSchema.index({ 'pagos.notaVenta.numero': 1 }, { unique: true, sparse: true });
 vehiculoSchema.index({ 'pagos.remision.numero': 1 }, { unique: true, sparse: true });
+vehiculoSchema.index({ 'pagos.reciboProvisional.numero': 1 }, { unique: true, sparse: true });
+vehiculoSchema.index({ 'pagos.reciboDolares.numero': 1 }, { unique: true, sparse: true });
 
 // Generar número de Orden de Servicio automáticamente si no viene
 vehiculoSchema.pre('save', function (next) {

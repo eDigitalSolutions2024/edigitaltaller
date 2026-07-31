@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import { closeOrden, restoreOrden, openVentaClientePdf } from "../../api/vehiculos";
 import http from "../../api/http";
 import { formatFecha } from "../../utils/fechas";
+import { createTicket } from "../../api/tickets";
 
 function formatMoney(n) {
   if (n === "" || n === null || n === undefined) return "";
@@ -13,9 +14,11 @@ function formatMoney(n) {
   }).format(Number(n) || 0);
 }
 
-export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAdmin }) {
+export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAdmin, esAsesor }) {
   const [cerrando, setCerrando] = useState(false);
   const [restableciendo, setRestableciendo] = useState(false);
+  const [solicitandoRestablecer, setSolicitandoRestablecer] = useState(false);
+  const [solicitudEnviada, setSolicitudEnviada] = useState(false);
   const [mecMap, setMecMap] = useState({}); // id → nombre del mecánico
 
   // Cargar empleados mecánicos para resolver IDs en manoObra
@@ -36,6 +39,7 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAd
   const yaCancelada = orden.estadoOrden === "CANCELADA";
   const puedesCerrar = orden.estadoOrden === "PENDIENTE_CERRAR";
   const puedeRestablecer = esAdmin && (yaCerrada || yaCancelada);
+  const puedeSolicitarRestablecer = esAsesor && (yaCerrada || yaCancelada);
 
   const handleCerrarOrden = async () => {
     if (yaCerrada || !puedesCerrar) return;
@@ -78,6 +82,32 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAd
       alert(err.response?.data?.msg || "Error al restablecer la orden.");
     } finally {
       setRestableciendo(false);
+    }
+  };
+
+  const handleSolicitarRestablecerOS = async () => {
+    if (!puedeSolicitarRestablecer) return;
+
+    const ok = window.confirm(
+      `¿Solicitar restablecer esta orden ${yaCerrada ? "cerrada" : "cancelada"}? Se abrirá un ticket de soporte para que un administrador la revise.`
+    );
+    if (!ok) return;
+
+    try {
+      setSolicitandoRestablecer(true);
+      const res = await createTicket({
+        tipoProblema: "RESTABLECER_OS",
+        detalle: `Solicitud de restablecer la orden ${orden.ordenServicio || orden._id} (actualmente ${yaCerrada ? "cerrada" : "cancelada"}).`,
+        ordenServicio: orden._id,
+        folioOrdenServicio: orden.ordenServicio || "",
+      });
+      setSolicitudEnviada(true);
+      alert(`Ticket ${res.data.data.folio} creado. Un administrador revisará tu solicitud.`);
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.msg || "Error al solicitar el restablecimiento de la orden.");
+    } finally {
+      setSolicitandoRestablecer(false);
     }
   };
 
@@ -196,6 +226,23 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAd
               title="Restablecer la orden al estado en que se encontraba antes de cerrarse/cancelarse"
             >
               {restableciendo ? "Restableciendo..." : "Restablecer orden"}
+            </button>
+          )}
+
+          {puedeSolicitarRestablecer && (
+            <button
+              type="button"
+              className="btn btn-outline-primary"
+              style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}
+              onClick={handleSolicitarRestablecerOS}
+              disabled={solicitandoRestablecer || solicitudEnviada}
+              title="Abre un ticket de soporte para pedirle a un administrador que restablezca esta orden"
+            >
+              {solicitudEnviada
+                ? "Solicitud enviada"
+                : solicitandoRestablecer
+                ? "Enviando..."
+                : "Solicitar restablecer OS"}
             </button>
           )}
 

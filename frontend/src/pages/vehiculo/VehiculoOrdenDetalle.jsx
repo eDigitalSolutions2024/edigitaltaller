@@ -89,6 +89,7 @@ export default function VehiculoOrdenDetalle() {
   const usuario = getUser();
   const miNombre = usuario?.name || usuario?.username || "";
   const esAdmin = usuario?.role === "admin";
+  const esAsesor = usuario?.role === "asesor_servicio";
   const grupoOrdenId = orden?.grupoId?._id || orden?.grupoId || null;
   const esDeMiGrupo = !!grupoOrdenId && misGrupoIds.includes(String(grupoOrdenId));
   const esPropia = orden?.creadoPor === miNombre || esDeMiGrupo;
@@ -413,6 +414,7 @@ export default function VehiculoOrdenDetalle() {
         <VehiculoOrdenGeneral
           orden={orden}
           esAdmin={esAdmin}
+          esAsesor={esAsesor}
           onClosed={(vActualizado) => setOrden(vActualizado)}
           onRestored={(vActualizado) => setOrden(vActualizado)}
         />

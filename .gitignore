@@ -15,3 +15,5 @@ yarn-debug.log*
 
 
 backend/uploads/facturas/
+backend/uploads/vehiculos/
+scripts

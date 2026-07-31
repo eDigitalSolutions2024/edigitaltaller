@@ -74,6 +74,12 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
   // ===== MANO DE OBRA =====
   const [moRows, setMoRows] = useState([]);
+  // Asignación: qué servicios del presupuesto se marcan y a qué mecánico/carrocero
+  const [moTipo, setMoTipo] = useState("mecanico"); // "mecanico" | "carrocero"
+  const [moAsignado, setMoAsignado] = useState("");
+  const [moHorasOverride, setMoHorasOverride] = useState("");
+  const [moFechaPago, setMoFechaPago] = useState("");
+  const [serviciosMoSeleccionados, setServiciosMoSeleccionados] = useState({});
 
   // ===== OBSERVACIONES =====
   const [obsExternas, setObsExternas] = useState("");
@@ -286,6 +292,76 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     m.esCarroceria
       ? carroceros.find((x) => x._id === m.carrocero)?.nombre || m.carrocero || "—"
       : mecanicos.find((x) => x._id === m.mecanico)?.nombre || m.mecanico || "—";
+
+  // ===== MANO DE OBRA — asignación de servicios ya presupuestados =====
+  // Cualquier partida del presupuesto (servicio o refacción) ya autorizada y
+  // guardada (con _id real) es elegible: en la práctica el asesor a veces
+  // renombra una refacción y la usa como servicio, así que no se filtra por
+  // esServicio. Se excluyen las refacciones hijas de un Servicio de catálogo
+  // (origenServicioCatalogo) porque nunca se facturan por separado.
+  const serviciosParaManoObra = useMemo(
+    () => presRows.filter((p) => p._id && p.autorizado && !p.origenServicioCatalogo),
+    [presRows]
+  );
+
+  // El nombre a usar es el mismo que se usa al enviar a Venta al Cliente
+  // (ver handleEnviarAVenta): concepto, o refaccion si concepto viene vacío.
+  const nombreServicioPresupuesto = (p) => p?.concepto || p?.refaccion || "";
+
+  const toggleServicioMo = (id) => {
+    setServiciosMoSeleccionados((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const agregarAsignacionMano = () => {
+    const idsElegidos = Object.entries(serviciosMoSeleccionados)
+      .filter(([, marcado]) => marcado)
+      .map(([id]) => id);
+
+    if (idsElegidos.length === 0) {
+      alert("Selecciona al menos un servicio.");
+      return;
+    }
+    if (!moAsignado) {
+      alert(moTipo === "carrocero" ? "Selecciona un carrocero." : "Selecciona un mecánico.");
+      return;
+    }
+
+    const nuevasFilas = idsElegidos.map((id) => {
+      const servicio = serviciosParaManoObra.find((p) => String(p._id) === String(id));
+      // Si el asesor capturó horas manualmente, esas mandan; si no, se usan
+      // las horas ya estimadas en el presupuesto (horasMO) de ese servicio.
+      const horas = moHorasOverride !== "" ? Number(moHorasOverride) || 0 : Number(servicio?.horasMO) || 0;
+      return {
+        concepto: nombreServicioPresupuesto(servicio),
+        presupuestoId: servicio?._id || null,
+        mecanico: moTipo === "carrocero" ? "" : moAsignado,
+        carrocero: moTipo === "carrocero" ? moAsignado : "",
+        esCarroceria: moTipo === "carrocero",
+        horas,
+        fechaPago: moFechaPago,
+        observaciones: "",
+        precioCarroceria: 0,
+      };
+    });
+
+    setMoRows((prev) => [...prev, ...nuevasFilas]);
+    setServiciosMoSeleccionados({});
+    setMoAsignado("");
+    setMoHorasOverride("");
+    setMoFechaPago("");
+  };
+
+  const handleUpdateMo = (idx, field, value) => {
+    setMoRows((prev) => {
+      const rows = [...prev];
+      rows[idx] = { ...rows[idx], [field]: value };
+      return rows;
+    });
+  };
+
+  const removeMoRow = (idx) => {
+    setMoRows((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   // ===== PRESUPUESTO — HANDLERS =====
   const handleUpdatePres = (idx, field, value) => {
@@ -1390,8 +1466,118 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         {/* Botón "Imprimir Venta Cliente" oculto temporalmente:
             ahora se imprime desde la pestaña General al cerrar la orden. */}
 
-        {/* ===== MANO DE OBRA (solo lectura) ===== */}
+        {/* ===== MANO DE OBRA ===== */}
         <h5 className="text-center mb-2 fw-bold">MANO DE OBRA</h5>
+
+        {!readOnly && (
+          <div className="card border-primary mb-3">
+            <div className="card-header bg-primary text-white fw-semibold">
+              Asignar servicio(s) a un mecánico / carrocero
+            </div>
+            <div className="card-body">
+              {serviciosParaManoObra.length === 0 ? (
+                <p className="text-muted mb-0">
+                  No hay servicios autorizados en el presupuesto todavía.
+                  Guarda y autoriza al menos una partida marcada como
+                  "SERVICIO" para poder asignarle mano de obra.
+                </p>
+              ) : (
+                <>
+                  <div className="table-responsive mb-3">
+                    <table className="table table-sm table-bordered align-middle mb-0">
+                      <thead className="table-light">
+                        <tr>
+                          <th style={{ width: "40px" }}></th>
+                          <th>Servicio</th>
+                          <th className="text-end">Precio Venta</th>
+                          <th className="text-end">Horas</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {serviciosParaManoObra.map((p) => (
+                          <tr key={p._id}>
+                            <td className="text-center">
+                              <input
+                                type="checkbox"
+                                checked={!!serviciosMoSeleccionados[p._id]}
+                                onChange={() => toggleServicioMo(p._id)}
+                              />
+                            </td>
+                            <td>{nombreServicioPresupuesto(p)}</td>
+                            <td className="text-end">{formatMoney(p.precioVenta)}</td>
+                            <td className="text-end">{p.horasMO || 0}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="row g-2 align-items-end">
+                    <div className="col-md-2">
+                      <label className="form-label form-label-sm mb-1">Asignar a</label>
+                      <select
+                        className="form-select form-select-sm"
+                        value={moTipo}
+                        onChange={(e) => {
+                          setMoTipo(e.target.value);
+                          setMoAsignado("");
+                        }}
+                      >
+                        <option value="mecanico">Mecánico</option>
+                        <option value="carrocero">Carrocero</option>
+                      </select>
+                    </div>
+                    <div className="col-md-3">
+                      <label className="form-label form-label-sm mb-1">
+                        {moTipo === "carrocero" ? "Carrocero" : "Mecánico"}
+                      </label>
+                      <select
+                        className="form-select form-select-sm"
+                        value={moAsignado}
+                        onChange={(e) => setMoAsignado(e.target.value)}
+                      >
+                        <option value="">-- Seleccionar --</option>
+                        {(moTipo === "carrocero" ? carroceros : mecanicos).map((e) => (
+                          <option key={e._id} value={e._id}>{e.nombre}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-md-2">
+                      <label className="form-label form-label-sm mb-1">Horas</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        className="form-control form-control-sm"
+                        placeholder="Según presupuesto"
+                        title="Deja en blanco para usar las horas ya estimadas en el presupuesto"
+                        value={moHorasOverride}
+                        onChange={(e) => setMoHorasOverride(e.target.value)}
+                      />
+                    </div>
+                    <div className="col-md-2">
+                      <label className="form-label form-label-sm mb-1">Fecha de Pago</label>
+                      <input
+                        type="date"
+                        className="form-control form-control-sm"
+                        value={moFechaPago}
+                        onChange={(e) => setMoFechaPago(e.target.value)}
+                      />
+                    </div>
+                    <div className="col-md-3 text-end">
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm px-4"
+                        onClick={agregarAsignacionMano}
+                      >
+                        + Agregar asignación
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="table-responsive mb-4">
           <table className="table table-bordered table-sm align-middle">
@@ -1403,12 +1589,13 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                 <th>Total x Horas ({formatMoney(TARIFA_HORA)} / hora)</th>
                 <th>Fecha de Pago</th>
                 <th>Observaciones</th>
+                {!readOnly && <th style={{ width: "70px" }}>Acción</th>}
               </tr>
             </thead>
             <tbody>
               {moRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-muted">
+                  <td colSpan={readOnly ? 6 : 7} className="text-center text-muted">
                     No hay registros de mano de obra.
                   </td>
                 </tr>
@@ -1417,10 +1604,55 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                   <tr key={idx}>
                     <td>{m.concepto}</td>
                     <td className="text-center">{nombreManoObra(m)}</td>
-                    <td className="text-center">{m.horas}</td>
+                    <td className="text-center" style={{ maxWidth: "90px" }}>
+                      {readOnly ? (
+                        m.horas
+                      ) : (
+                        <input
+                          type="number"
+                          step="0.1"
+                          className="form-control form-control-sm text-center"
+                          value={m.horas}
+                          onChange={(e) => handleUpdateMo(idx, "horas", e.target.value)}
+                        />
+                      )}
+                    </td>
                     <td className="text-center fw-bold">{formatMoney(calcImporteHoras(m.horas))}</td>
-                    <td className="text-center">{formatFecha(m.fechaPago)}</td>
-                    <td>{m.observaciones}</td>
+                    <td className="text-center" style={{ maxWidth: "140px" }}>
+                      {readOnly ? (
+                        formatFecha(m.fechaPago)
+                      ) : (
+                        <input
+                          type="date"
+                          className="form-control form-control-sm"
+                          value={m.fechaPago || ""}
+                          onChange={(e) => handleUpdateMo(idx, "fechaPago", e.target.value)}
+                        />
+                      )}
+                    </td>
+                    <td>
+                      {readOnly ? (
+                        m.observaciones
+                      ) : (
+                        <input
+                          type="text"
+                          className="form-control form-control-sm"
+                          value={m.observaciones || ""}
+                          onChange={(e) => handleUpdateMo(idx, "observaciones", e.target.value)}
+                        />
+                      )}
+                    </td>
+                    {!readOnly && (
+                      <td className="text-center">
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          onClick={() => removeMoRow(idx)}
+                        >
+                          Quitar
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

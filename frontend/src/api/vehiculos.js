@@ -28,11 +28,12 @@ export const saveRequisicionDiagnostico = (id, payload) =>
   http.put(`/vehiculos/${id}/requisicion-diagnostico`, payload);
 
 // Continuar sin refacciones: los servicios capturados entran al presupuesto
-// (y la mano de obra opcional a manoObra); la orden no pasa por refaccionaria.
+// (cada uno puede traer ya su mecánico/carrocero asignado, que se liga a la
+// partida de presupuesto recién creada); la orden no pasa por refaccionaria.
 // serviciosCatalogo: bundles seleccionados del catálogo de Servicios (con sus
 // refacciones incluidas/excluidas y observaciones), también saltan refaccionaria.
-export const omitirRefacciones = (id, { servicios = [], manoObra = [], serviciosCatalogo = [] }) =>
-  http.put(`/vehiculos/${id}/omitir-refacciones`, { servicios, manoObra, serviciosCatalogo });
+export const omitirRefacciones = (id, { servicios = [], serviciosCatalogo = [] }) =>
+  http.put(`/vehiculos/${id}/omitir-refacciones`, { servicios, serviciosCatalogo });
 
 
 
@@ -89,6 +90,32 @@ export const marcarSurtidas = (id, presupuesto) =>
 
 export const updateDatosOrden = (id, payload) =>
   http.put(`/vehiculos/${id}/datos`, payload);
+
+// Subir una o más imágenes (fotos del vehículo, daños, etc.) adjuntas a la orden.
+export const subirImagenesOrden = (id, files, subidoPor = "") => {
+  const formData = new FormData();
+  Array.from(files).forEach((file) => formData.append("imagenes", file));
+  if (subidoPor) formData.append("subidoPor", subidoPor);
+  return http.post(`/vehiculos/${id}/imagenes`, formData);
+};
+
+export const eliminarImagenOrden = (id, imagenId) =>
+  http.delete(`/vehiculos/${id}/imagenes/${imagenId}`);
+
+// Imágenes subidas antes de guardar la orden (aún no existe el folio real):
+// viven en una carpeta temporal identificada por tempId y se migran a la
+// orden definitiva al crearla (ver createVehiculo / handleSubmit).
+export const subirImagenesTemp = (tempId, files) => {
+  const formData = new FormData();
+  Array.from(files).forEach((file) => formData.append("imagenes", file));
+  return http.post(`/vehiculos/imagenes/temp/${tempId}`, formData);
+};
+
+export const eliminarImagenTemp = (tempId, filename) =>
+  http.delete(`/vehiculos/imagenes/temp/${tempId}/${encodeURIComponent(filename)}`);
+
+export const descartarImagenesTemp = (tempId) =>
+  http.delete(`/vehiculos/imagenes/temp/${tempId}`);
 
 export const getMisOrdenes = () =>
   http.get('/vehiculos/mis-ordenes');

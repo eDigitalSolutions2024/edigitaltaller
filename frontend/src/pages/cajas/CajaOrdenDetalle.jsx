@@ -8,7 +8,10 @@ import {
   eliminarDescuento,
   openNotaVentaPdf,
   openRemisionPdf,
+  openReciboProvisionalPdf,
+  openReciboDolaresPdf,
 } from "../../api/cajas";
+import { openValePdf } from "../../api/vales";
 import http from "../../api/http";
 import { formatFecha } from "../../utils/fechas";
 import { TARIFA_HORA, calcImporteHoras } from "../../utils/manoObra";
@@ -39,7 +42,6 @@ export default function CajaOrdenDetalle() {
 
   const [orden, setOrden] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [showManoObra, setShowManoObra] = useState(false);
   const [showModalDescuento, setShowModalDescuento] = useState(false);
   const [showModalPago, setShowModalPago] = useState(false);
 
@@ -90,6 +92,8 @@ export default function CajaOrdenDetalle() {
     const res = await registrarPago(orden._id, payload);
     setOrden(res.data.vehiculo);
     setShowModalPago(false);
+    const pagos = res.data.vehiculo.pagos || [];
+    return pagos[pagos.length - 1];
   };
 
   const handleAgregarDescuento = async (payload) => {
@@ -105,6 +109,17 @@ export default function CajaOrdenDetalle() {
   const handleEliminarDescuento = async (descuentoId) => {
     const res = await eliminarDescuento(orden._id, descuentoId);
     setOrden(res.data.vehiculo);
+  };
+
+  // Actualiza el "Último Vale" en memoria (sin volver a pedir toda la orden:
+  // cargar() pasa por loading=true, que desmonta el modal y perdería su estado).
+  const handleValeGuardado = (vale) => {
+    setOrden((o) => (o ? { ...o, ultimoVale: { id: vale._id, noVale: vale.noVale, dig: vale.dig, fecha: vale.fecha } } : o));
+  };
+
+  const handleImprimirUltimoVale = () => {
+    if (!orden.ultimoVale?.id) return;
+    openValePdf(orden.ultimoVale.id);
   };
 
   const handleImprimirNotaVenta = () => {
@@ -131,6 +146,10 @@ export default function CajaOrdenDetalle() {
     else openRemisionPdf(orden._id, pago._id);
   };
 
+  const handleImprimirReciboProvisional = (pago) => openReciboProvisionalPdf(orden._id, pago._id);
+
+  const handleImprimirReciboDolares = (pago) => openReciboDolaresPdf(orden._id, pago._id);
+
   if (loading) return <p className="text-center mt-4">Cargando orden...</p>;
   if (!orden) return <p className="text-center mt-4">Orden no encontrada.</p>;
 
@@ -142,6 +161,7 @@ export default function CajaOrdenDetalle() {
 
   const manoObra = orden.manoObra || [];
   const ventaRows = orden.ventaCliente || [];
+  const esGarantia = !!orden.garantia;
 
   return (
     <div>
@@ -152,13 +172,42 @@ export default function CajaOrdenDetalle() {
             ← Regresar
           </button>
           <h4 className="mb-0 fw-bold">Orden {orden.ordenServicio}</h4>
-          <button
-            className="btn btn-outline-primary btn-sm"
-            onClick={() => navigate(`/vehiculo/orden/${orden._id}?tab=reparacion`)}
-          >
-            Ver Orden
-          </button>
+          <div className="d-flex flex-column align-items-end gap-1">
+            <button
+              className="btn btn-outline-primary btn-sm"
+              onClick={() => navigate(`/vehiculo/orden/${orden._id}?tab=reparacion`)}
+            >
+              Ver Orden
+            </button>
+            <div className="text-end">
+              {orden.ultimoVale?.noVale ? (
+                <>
+                  <div className="fs-6">
+                    Último Vale: <strong>{orden.ultimoVale.noVale}{orden.ultimoVale.dig ? `-${orden.ultimoVale.dig}` : ""}</strong>
+                  </div>
+                  {orden.ultimoVale.fecha && (
+                    <div className="small text-muted">
+                      {formatFecha(orden.ultimoVale.fecha, { hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="small text-muted">Sin vale de salida</div>
+              )}
+            </div>
+            {orden.ultimoVale?.id && (
+              <button className="btn btn-outline-danger btn-sm" onClick={handleImprimirUltimoVale}>
+                Imprimir Último Vale
+              </button>
+            )}
+          </div>
         </div>
+
+        {esGarantia && (
+          <div className="alert alert-info py-2 mb-3">
+            <strong>Orden de Garantía</strong> — no se cobra al cliente; solo se registra para el Reporte de Garantías.
+          </div>
+        )}
 
         <div className="row g-3">
           <div className="col-md-6">
@@ -227,14 +276,54 @@ export default function CajaOrdenDetalle() {
             </div>
           </div>
         </div>
+
+        {/* MANO DE OBRA: informativa, siempre visible */}
+        <div className="card mt-3">
+          <div className="card-header fw-semibold bg-light">Mano de Obra</div>
+          <div className="card-body p-0">
+            <div className="table-responsive">
+              <table className="table table-sm table-bordered align-middle mb-0">
+                <thead className="table-light text-center">
+                  <tr>
+                    <th>Reparación / Servicio</th>
+                    <th>Mecánico/Carrocero</th>
+                    <th>Horas</th>
+                    <th>Total x Horas ({formatMoney(TARIFA_HORA)} / hora)</th>
+                    <th>Fecha de Pago</th>
+                    <th>Observaciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {manoObra.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="text-center text-muted">
+                        No hay mano de obra registrada.
+                      </td>
+                    </tr>
+                  )}
+                  {manoObra.map((m, idx) => (
+                    <tr key={idx}>
+                      <td>{m.concepto}</td>
+                      <td>{nombreManoObra(m)}</td>
+                      <td className="text-center">{m.horas}</td>
+                      <td className="text-end fw-bold">{formatMoney(calcImporteHoras(m.horas))}</td>
+                      <td className="text-center">{formatFecha(m.fechaPago)}</td>
+                      <td>{m.observaciones}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* ══════════════ SECCIÓN 2: SALDO PENDIENTE, TABLA Y BOTONES ══════════════ */}
       <div className="border rounded p-3 mb-3">
         <div className="row">
           <div className="col-md-9">
-            {/* TOTALES: solo relevantes una vez que la orden está Cerrada */}
-            {orden.estadoOrden === "CERRADA" && (
+            {/* TOTALES: solo relevantes una vez que la orden está Cerrada (y nunca en garantías, que no se cobran) */}
+            {!esGarantia && orden.estadoOrden === "CERRADA" && (
               <div className="row text-center mb-4">
                 <div className="col-md-4">
                   <div className="card card-body">
@@ -259,83 +348,59 @@ export default function CajaOrdenDetalle() {
 
             {/* TABLA COSTO / VENTA (solo lectura) */}
             <h5 className="fw-semibold mb-2">Costo de Venta</h5>
-            <CajaCostoVentaTable rows={ventaRows} descuentos={orden.descuentos || []} totales={totales} />
+            <CajaCostoVentaTable
+              rows={ventaRows}
+              descuentos={orden.descuentos || []}
+              totales={totales}
+              ocultarPrecios={esGarantia}
+            />
 
-            {/* MANO DE OBRA (toggle) */}
-            {showManoObra && (
-              <>
-                <h5 className="fw-semibold mt-4 mb-2">Mano de Obra</h5>
-                <div className="table-responsive mb-4">
-                  <table className="table table-sm table-bordered align-middle">
-                    <thead className="table-light text-center">
-                      <tr>
-                        <th>Reparación / Servicio</th>
-                        <th>Mecánico/Carrocero</th>
-                        <th>Horas</th>
-                        <th>Total x Horas ({formatMoney(TARIFA_HORA)} / hora)</th>
-                        <th>Fecha de Pago</th>
-                        <th>Observaciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {manoObra.length === 0 && (
-                        <tr>
-                          <td colSpan={6} className="text-center text-muted">
-                            No hay mano de obra registrada.
-                          </td>
-                        </tr>
-                      )}
-                      {manoObra.map((m, idx) => (
-                        <tr key={idx}>
-                          <td>{m.concepto}</td>
-                          <td>{nombreManoObra(m)}</td>
-                          <td className="text-center">{m.horas}</td>
-                          <td className="text-end fw-bold">{formatMoney(calcImporteHoras(m.horas))}</td>
-                          <td className="text-center">{formatFecha(m.fechaPago)}</td>
-                          <td>{m.observaciones}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
           </div>
 
           {/* BOTONES LATERALES */}
           <div className="col-md-3 d-flex flex-column gap-2">
-            <button className="btn btn-outline-secondary" onClick={() => setShowManoObra((s) => !s)}>
-              {showManoObra ? "Ocultar" : "Mostrar"} Mano de Obra
-            </button>
-            <button className="btn btn-danger" onClick={handleImprimirNotaVenta}>
-              Imprimir Nota Venta
-            </button>
-            <button className="btn btn-danger" onClick={handleImprimirRemision}>
-              Imprimir Remisión
-            </button>
-            <button className="btn btn-warning" onClick={() => setShowModalDescuento(true)}>
-              Agregar Descuento
-            </button>
+            {!esGarantia && (
+              <button className="btn btn-success" onClick={() => setShowModalPago(true)}>
+                Registrar Pago / Abono
+              </button>
+            )}
+            {!esGarantia && (
+              <>
+                <button className="btn btn-danger" onClick={handleImprimirNotaVenta}>
+                  Imprimir Nota Venta
+                </button>
+                <button className="btn btn-danger" onClick={handleImprimirRemision}>
+                  Imprimir Remisión
+                </button>
+              </>
+            )}
+            {!esGarantia && (
+              <button className="btn btn-warning" onClick={() => setShowModalDescuento(true)}>
+                Agregar Descuento
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       {/* ══════════════ SECCIÓN 3: HISTORIAL DE PAGOS / ABONOS ══════════════ */}
       <div className="border rounded p-3">
-        <div className="d-flex justify-content-between align-items-center mb-2">
-          <h5 className="fw-semibold mb-0">Historial de Pagos / Abonos</h5>
-          <button className="btn btn-success btn-sm" onClick={() => setShowModalPago(true)}>
-            Registrar Pago / Abono
-          </button>
-        </div>
-        <CajaHistorialPagos pagos={orden.pagos || []} onImprimir={handleImprimirPago} />
+        <h5 className="fw-semibold mb-2">Historial de Pagos / Abonos</h5>
+        <CajaHistorialPagos
+          pagos={orden.pagos || []}
+          onImprimir={handleImprimirPago}
+          onImprimirReciboProvisional={handleImprimirReciboProvisional}
+          onImprimirReciboDolares={handleImprimirReciboDolares}
+        />
       </div>
 
       <CajaModalPago
         show={showModalPago}
+        orden={orden}
         saldoPendiente={totales.saldoPendiente}
         onClose={() => setShowModalPago(false)}
         onSubmit={handleRegistrarPago}
+        onValeGuardado={handleValeGuardado}
       />
       <CajaModalDescuento
         show={showModalDescuento}

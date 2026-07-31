@@ -1,9 +1,24 @@
 // src/pages/vehiculo/VehiculoNuevoForm.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { createVehiculo, updateDatosOrden } from "../../api/vehiculos";
+import { createVehiculo, updateDatosOrden, descartarImagenesTemp } from "../../api/vehiculos";
 import { upsertGarageVehiculo, searchGarageVehiculos } from "../../api/garage";
 import VehicleDamageCanvas from "../../components/VehicleDamageCanvas";
+import ImagenesOrden from "../../components/ImagenesOrden";
 import { getUser } from "../../auth";
+
+// Identificador de la sesión de imágenes subidas antes de guardar la orden
+// (ver ImagenesOrden). Solo sirve para nombrar una carpeta temporal en el
+// servidor, no requiere aleatoriedad criptográfica.
+function generarUUID() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 // 🔹 Normaliza el folio capturado a mano al formato Letra-Número:
 // "os023", "OS 023" y "os-023" → "OS-023". Devuelve null si no cumple.
@@ -90,6 +105,7 @@ export default function VehiculoNuevoForm({
     ordenServicio: "", // se llenará automático al montar
     fechaRecepcion: "",
     horaRecepcion: "",
+    imagenes: [],
 
     // ----- Datos cliente PARTICULAR -----
     nombreCliente: "",
@@ -195,6 +211,23 @@ export default function VehiculoNuevoForm({
   const [mostrarSugerenciasSerie, setMostrarSugerenciasSerie] = useState(false);
   const [buscandoSerie, setBuscandoSerie] = useState(false);
   const serieDebounceRef = useRef(null);
+
+  // Identifica la carpeta temporal de imágenes subidas antes de guardar la
+  // orden (modo creación); se genera una sola vez por instancia del formulario.
+  const tempIdImagenesRef = useRef(null);
+  if (!tempIdImagenesRef.current) tempIdImagenesRef.current = generarUUID();
+
+  // Si el formulario se abandona sin guardar la orden (se desmonta), se
+  // descartan de inmediato las imágenes que se hayan subido de forma
+  // temporal; si la orden sí se guarda, esa carpeta temporal ya fue migrada
+  // y esta llamada simplemente no encuentra nada que borrar.
+  useEffect(() => {
+    const eraCreacion = !initialData?._id;
+    return () => {
+      if (eraCreacion) descartarImagenesTemp(tempIdImagenesRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 🔹 Al montar, si es ALTA (sin initialData), el folio de OS se captura
   // manualmente; solo precargamos fecha y hora de recepción.
@@ -439,6 +472,9 @@ export default function VehiculoNuevoForm({
       correos: form.correos || [],
       creadoPor: usuario?.name || usuario?.username || "Sin usuario",
       sinVehiculo: !!sinVehiculo,
+      // Al crear la orden, migra a la carpeta definitiva las imágenes que se
+      // hayan subido antes de guardar (ver ImagenesOrden / tempIdImagenesRef).
+      tempId: tempIdImagenesRef.current,
       ...(garantia?.ordenAnterior?._id
         ? {
             garantiaSolicitud: {
@@ -1526,6 +1562,17 @@ export default function VehiculoNuevoForm({
               <VehicleDamageCanvas
                 value={form.danoVehiculo}
                 onChange={(data) => setForm((prev) => ({ ...prev, danoVehiculo: data }))}
+                readOnly={efectivoReadOnly}
+              />
+
+              <div className="fw-semibold mb-1 mt-3" style={{ fontSize: "13px" }}>
+                Fotografías del vehículo
+              </div>
+              <ImagenesOrden
+                ordenId={initialData?._id}
+                tempId={initialData?._id ? undefined : tempIdImagenesRef.current}
+                imagenes={form.imagenes || []}
+                onChange={(nuevasImagenes) => setForm((prev) => ({ ...prev, imagenes: nuevasImagenes }))}
                 readOnly={efectivoReadOnly}
               />
             </div>

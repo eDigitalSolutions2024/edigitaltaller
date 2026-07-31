@@ -8,11 +8,14 @@ const { proteger } = require('../middleware/auth');
 const { regexBusquedaOS } = require('../utils/ordenServicio');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
 const { generarComprobanteCajaPDF } = require('../service/cajaComprobantePdf');
+const { generarReciboProvisionalPDF, generarReciboDolaresPDF } = require('../service/cajaRecibosPdf');
 
 const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares emails rfc direccion asesorResponsable';
 const POPULATE_GRUPO = { path: 'grupoId', select: 'nombre miembros', populate: { path: 'miembros', select: 'name' } };
 const CONTADOR_NOTA_VENTA = 'notaVenta';
 const CONTADOR_REMISION = 'remision';
+const CONTADOR_RECIBO_PROVISIONAL = 'reciboProvisional';
+const CONTADOR_RECIBO_DOLARES = 'reciboDolares';
 
 // GET /api/cajas -> lista de órdenes para el módulo de Cajas. A diferencia de
 // /vehiculos/ordenes (que Cajas usaba antes), aquí se listan las órdenes sin
@@ -135,17 +138,48 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       tipoCambio = 0,
       referencia = '',
       observaciones = '',
+      notas = '',
       banco = '',
       tipoNota = 'Contado',
       tipoRemision = 'Contado',
       fechaPagada,
+      formaPago = 'EFECTIVO',
+      chequeNumero = '',
+      reciboConcepto = '',
+      reciboRazon = '',
+      reciboRecibio = '',
+      reciboAutorizo = '',
     } = req.body || {};
 
     if (!['COMPLETO', 'ABONO', 'ANTICIPO'].includes(tipoPago)) {
       return res.status(400).json({ ok: false, msg: 'Tipo de pago inválido.' });
     }
-    if (!['NOTA_VENTA', 'REMISION'].includes(comprobante)) {
-      return res.status(400).json({ ok: false, msg: 'Debes elegir Nota de Venta o Remisión.' });
+    if (!['NOTA_VENTA', 'REMISION', 'RECIBO_PROVISIONAL'].includes(comprobante)) {
+      return res.status(400).json({ ok: false, msg: 'Debes elegir un comprobante.' });
+    }
+    // Un abono/anticipo siempre se documenta con Recibo Provisional; Nota de
+    // Venta y Remisión son exclusivas de un pago Liquida (COMPLETO).
+    if (['ABONO', 'ANTICIPO'].includes(tipoPago) && comprobante !== 'RECIBO_PROVISIONAL') {
+      return res.status(400).json({ ok: false, msg: 'Un Abono o Anticipo se documenta con Recibo Provisional.' });
+    }
+    if (tipoPago === 'COMPLETO' && comprobante === 'RECIBO_PROVISIONAL') {
+      return res.status(400).json({ ok: false, msg: 'Un pago Liquida requiere Nota de Venta o Remisión.' });
+    }
+
+    const ordenExistente = await Vehiculo.findById(req.params.id).select('garantia pagos.comprobante');
+    if (!ordenExistente) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    if (ordenExistente.garantia) {
+      return res.status(400).json({ ok: false, msg: 'No se puede registrar un pago para una orden de garantía.' });
+    }
+
+    // Una vez que la orden tiene una Remisión, ya no se puede generar otra
+    // Remisión ni una Nota de Venta (evita duplicar/mezclar comprobantes fiscales).
+    const yaTieneRemision = (ordenExistente.pagos || []).some((p) => p.comprobante === 'REMISION');
+    if (yaTieneRemision && ['NOTA_VENTA', 'REMISION'].includes(comprobante)) {
+      return res.status(400).json({
+        ok: false,
+        msg: 'Esta orden ya tiene una Remisión registrada; no se puede generar otra Remisión ni una Nota de Venta.',
+      });
     }
 
     const monto = Number(montoPesos || 0) + Number(montoDolares || 0) * Number(tipoCambio || 0);
@@ -163,6 +197,7 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       monto,
       referencia,
       observaciones,
+      notas,
       registradoPor: req.user?.name || req.user?.username || '',
     };
 
@@ -173,7 +208,7 @@ router.post('/:id/pagos', proteger, async (req, res) => {
         { new: true, upsert: true }
       );
       pago.notaVenta = { numero: contador.valor, banco, tipo: tipoNota };
-    } else {
+    } else if (comprobante === 'REMISION') {
       const contador = await Contador.findOneAndUpdate(
         { nombre: CONTADOR_REMISION },
         { $inc: { valor: 1 } },
@@ -184,6 +219,34 @@ router.post('/:id/pagos', proteger, async (req, res) => {
         tipo: tipoRemision,
         fechaPagada: fechaPagada ? new Date(fechaPagada) : null,
       };
+    }
+
+    // Recibo Provisional: automático en cada abono/anticipo (único comprobante permitido).
+    if (['ABONO', 'ANTICIPO'].includes(tipoPago)) {
+      const contadorProvisional = await Contador.findOneAndUpdate(
+        { nombre: CONTADOR_RECIBO_PROVISIONAL },
+        { $inc: { valor: 1 } },
+        { new: true, upsert: true }
+      );
+      pago.reciboProvisional = {
+        numero: contadorProvisional.valor,
+        formaPago,
+        chequeNumero: formaPago === 'CHEQUE' ? chequeNumero : '',
+        concepto: reciboConcepto,
+        razon: reciboRazon,
+        recibio: reciboRecibio,
+        autorizo: reciboAutorizo,
+      };
+    }
+
+    // Recibo de Dólares: automático siempre que el pago incluya dólares.
+    if (Number(montoDolares) > 0) {
+      const contadorDolares = await Contador.findOneAndUpdate(
+        { nombre: CONTADOR_RECIBO_DOLARES },
+        { $inc: { valor: 1 } },
+        { new: true, upsert: true }
+      );
+      pago.reciboDolares = { numero: contadorDolares.valor };
     }
 
     const vehiculo = await Vehiculo.findByIdAndUpdate(
@@ -320,5 +383,60 @@ async function imprimirComprobante(req, res, comprobante) {
 router.get('/:id/nota-venta-pdf', (req, res) => imprimirComprobante(req, res, 'NOTA_VENTA'));
 
 router.get('/:id/remision-pdf', (req, res) => imprimirComprobante(req, res, 'REMISION'));
+
+// Recibo Provisional / Recibo de Dólares: no dependen del comprobante (Nota de
+// Venta o Remisión), sino de si el pago trae reciboProvisional/reciboDolares
+// asignado (ver POST /:id/pagos). ?pagoId= identifica cuál pago imprimir; sin
+// él se imprime el más reciente que tenga ese recibo asignado.
+function pagoConRecibo(vehiculo, pagoId, campo) {
+  const pagos = vehiculo.pagos || [];
+  if (pagoId) {
+    const pago = pagos.id(pagoId);
+    return pago && pago[campo]?.numero ? pago : null;
+  }
+  return (
+    [...pagos]
+      .filter((p) => p[campo]?.numero)
+      .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))[0] || null
+  );
+}
+
+router.get('/:id/recibo-provisional-pdf', async (req, res) => {
+  try {
+    const vehiculo = await Vehiculo.findById(req.params.id).populate('cliente', POPULATE_CLIENTE);
+    if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+
+    const pago = pagoConRecibo(vehiculo, req.query.pagoId, 'reciboProvisional');
+    if (!pago) {
+      return res.status(404).json({ ok: false, msg: 'La orden no tiene un Recibo Provisional.' });
+    }
+
+    await generarReciboProvisionalPDF(res, vehiculo, pago);
+  } catch (err) {
+    console.error('Error generando PDF de Recibo Provisional:', err);
+    if (!res.headersSent) {
+      return res.status(500).json({ ok: false, msg: 'Error al generar el PDF del Recibo Provisional' });
+    }
+  }
+});
+
+router.get('/:id/recibo-dolares-pdf', async (req, res) => {
+  try {
+    const vehiculo = await Vehiculo.findById(req.params.id).populate('cliente', POPULATE_CLIENTE);
+    if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+
+    const pago = pagoConRecibo(vehiculo, req.query.pagoId, 'reciboDolares');
+    if (!pago) {
+      return res.status(404).json({ ok: false, msg: 'La orden no tiene un Recibo de Dólares.' });
+    }
+
+    await generarReciboDolaresPDF(res, vehiculo, pago);
+  } catch (err) {
+    console.error('Error generando PDF de Recibo de Dólares:', err);
+    if (!res.headersSent) {
+      return res.status(500).json({ ok: false, msg: 'Error al generar el PDF del Recibo de Dólares' });
+    }
+  }
+});
 
 module.exports = router;

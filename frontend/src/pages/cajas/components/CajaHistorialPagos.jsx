@@ -16,10 +16,11 @@ const TIPO_PAGO_LABELS = { COMPLETO: "Pago Completo", ABONO: "Abono", ANTICIPO: 
 function comprobanteLabel(p) {
   if (p.comprobante === "NOTA_VENTA") return `Nota Venta N°${p.notaVenta?.numero ?? "-"}`;
   if (p.comprobante === "REMISION") return `Remisión N°${p.remision?.numero ?? "-"}`;
+  if (p.comprobante === "RECIBO_PROVISIONAL") return `Recibo Provisional N°${p.reciboProvisional?.numero ?? "-"}`;
   return "-";
 }
 
-export default function CajaHistorialPagos({ pagos = [], onImprimir }) {
+export default function CajaHistorialPagos({ pagos = [], onImprimir, onImprimirReciboProvisional, onImprimirReciboDolares }) {
   const [filtro, setFiltro] = useState("TODOS");
 
   const ordenados = [...pagos].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
@@ -37,6 +38,7 @@ export default function CajaHistorialPagos({ pagos = [], onImprimir }) {
           <option value="TODOS">Todos los comprobantes</option>
           <option value="NOTA_VENTA">Nota de Venta</option>
           <option value="REMISION">Remisión</option>
+          <option value="RECIBO_PROVISIONAL">Recibo Provisional</option>
         </select>
       </div>
 
@@ -78,13 +80,35 @@ export default function CajaHistorialPagos({ pagos = [], onImprimir }) {
                 <td>{p.observaciones}</td>
                 <td>{p.registradoPor}</td>
                 <td className="text-center">
-                  <button
-                    className="btn btn-outline-danger btn-sm"
-                    title={`Imprimir ${comprobanteLabel(p)}`}
-                    onClick={() => onImprimir?.(p)}
-                  >
-                    <FaPrint />
-                  </button>
+                  <div className="d-flex gap-1 justify-content-center">
+                    {(p.comprobante === "NOTA_VENTA" || p.comprobante === "REMISION") && (
+                      <button
+                        className="btn btn-outline-danger btn-sm"
+                        title={`Imprimir ${comprobanteLabel(p)}`}
+                        onClick={() => onImprimir?.(p)}
+                      >
+                        <FaPrint />
+                      </button>
+                    )}
+                    {p.reciboProvisional?.numero && (
+                      <button
+                        className="btn btn-outline-secondary btn-sm"
+                        title={`Imprimir Recibo Provisional N°${p.reciboProvisional.numero}`}
+                        onClick={() => onImprimirReciboProvisional?.(p)}
+                      >
+                        <FaPrint /> Prov.
+                      </button>
+                    )}
+                    {p.reciboDolares?.numero && (
+                      <button
+                        className="btn btn-outline-info btn-sm"
+                        title={`Imprimir Recibo de Dólares N°${p.reciboDolares.numero}`}
+                        onClick={() => onImprimirReciboDolares?.(p)}
+                      >
+                        <FaPrint /> USD
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
