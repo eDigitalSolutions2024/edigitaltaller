@@ -490,6 +490,12 @@ const vehiculoSchema = new Schema(
         // asesor seleccionó al asignar esta mano de obra. Null en filas
         // legado capturadas antes de este cambio (concepto de texto libre).
         presupuestoId: { type: Schema.Types.ObjectId, default: null },
+        // Precio de venta (sin IVA) de la partida de Venta al Cliente al
+        // momento de asignar la mano de obra. Se usa en reportes de RH en
+        // lugar de volver a buscar en presupuesto[], porque el asesor puede
+        // editar/agregar/quitar partidas en Venta al Cliente sin que eso
+        // se refleje en presupuesto[].
+        precioServicio: { type: Number, default: 0 },
         mecanico: { type: String, default: "" },
         horas: { type: Number, default: 0 },
         fechaPago: { type: String, default: "" },
