@@ -16,4 +16,10 @@ yarn-debug.log*
 
 backend/uploads/facturas/
 backend/uploads/vehiculos/
+
+# Certificados y llaves privadas del emisor (NUNCA versionar)
+backend/keys/
+
+# Carpetas para las pruebas
 scripts
+Pruebas

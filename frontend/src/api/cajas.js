@@ -16,6 +16,12 @@ export const getOrdenCaja = (id) =>
 export const registrarPago = (id, payload) =>
   http.post(`/cajas/${id}/pagos`, payload);
 
+// Cancela un pago ya registrado (p. ej. el anticipo o la remisión de una orden
+// que ahora se va a facturar). El pago conserva su folio pero deja de contar
+// como abonado.
+export const cancelarPagoCaja = (id, pagoId, payload = {}) =>
+  http.post(`/cajas/${id}/pagos/${pagoId}/cancelar`, payload);
+
 // Descuentos (globales o sobre una pieza/servicio vía lineaId)
 export const agregarDescuento = (id, payload) =>
   http.post(`/cajas/${id}/descuentos`, payload);

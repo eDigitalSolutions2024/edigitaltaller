@@ -13,6 +13,7 @@ const { streamReporteRemisionesDiarioPdf } = require('../service/reporteRemision
 const { streamReporteRhCxCPdf } = require('../service/reporteRhCxCPdf');
 const { streamReporteHorasTecnicoPdf } = require('../service/reporteHorasTecnicoPdf');
 const { calcImporteHoras } = require('../utils/manoObra');
+const { calcularTotalesOrden } = require('../utils/cajaTotales');
 
 const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares';
 const POPULATE_GRUPO = { path: 'grupoId', select: 'nombre miembros', populate: { path: 'miembros', select: 'name' } };
@@ -478,6 +479,9 @@ async function buildReporteCajasIngresos({ desde, hasta, tipo }) {
   for (const o of ordenes) {
     for (const p of o.pagos || []) {
       if (p.comprobante !== tipo) continue;
+      // Un comprobante cancelado (p. ej. la remisión que pasó a factura) ya no
+      // es un ingreso: se factura aparte y contarlo aquí lo duplicaría.
+      if (p.cancelado) continue;
       const f = new Date(p.fecha);
       if (f < d || f > h) continue;
       data.push({
@@ -513,9 +517,10 @@ async function buildReporteCajasIngresos({ desde, hasta, tipo }) {
 //   4. Nueva venta del día (tipoPago=COMPLETO). Si esa misma orden también se
 //      cancela dentro del mismo rango, la cancelación se muestra aquí mismo
 //      como fila informativa sin montos, en vez de en la sección 2.
-// Ventas 100% a crédito sin ningún cobro no generan pago alguno hoy (el
-// endpoint de Cajas exige monto > 0), así que no aparecen hasta su primer
-// abono — limitación aceptada, no se resuelve aquí.
+// Las ventas 100% a crédito sí aparecen el día en que se remisionan: Cajas
+// permite registrarlas con monto 0 (única excepción a monto > 0), y se
+// reportan con Venta del Día = total de la orden y esa misma cantidad en
+// Cuentas por Cobrar.
 async function buildReporteRemisionesDiario({ desde, hasta }) {
   const d = new Date(desde);
   const h = new Date(hasta);
@@ -581,9 +586,21 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
         abonos.push({ ...base, ingresoCredito: p.monto });
         totalCredito += p.monto;
       } else {
-        nuevaVenta.push({ ...base, ventaDia: p.monto, ingresoContado: p.monto });
-        totalVentaDia += p.monto;
+        // Una remisión a Crédito documenta la venta completa aunque no entre
+        // dinero (o entre solo una parte): la venta del día es el total de la
+        // orden y lo no cobrado queda como cuenta por cobrar.
+        const esCredito = p.remision?.tipo === 'Credito';
+        const ventaDia = esCredito ? calcularTotalesOrden(o).totalOrden : p.monto;
+        const porCobrar = Math.max(0, ventaDia - p.monto);
+        nuevaVenta.push({
+          ...base,
+          ventaDia,
+          ingresoContado: p.monto || undefined,
+          cuentasPorCobrar: porCobrar || undefined,
+        });
+        totalVentaDia += ventaDia;
         totalContado += p.monto;
+        totalPorCobrar += porCobrar;
       }
     }
   }
@@ -909,7 +926,7 @@ router.get('/rh-cxc-pdf', async (req, res) => {
 // los montos de servicio de ESE técnico dentro de ESA misma orden (se repite
 // si la orden tiene más de una asignación para el mismo técnico).
 function tieneRemision(o) {
-  return (o.pagos || []).some((p) => p.comprobante === 'REMISION');
+  return (o.pagos || []).some((p) => p.comprobante === 'REMISION' && !p.cancelado);
 }
 
 async function buildReporteHorasTecnico({ desde, hasta, estado }) {

@@ -2,7 +2,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { updateServicioReparacion, saveRequisicionDiagnostico, omitirRefacciones } from "../../api/vehiculos";
 import { listServiciosCatalogoOptions } from "../../api/serviciosCatalogo";
-import { listarEmpleados } from "../../api/empleados";
 
 const emptyForm = {
   serviciosSeleccionados: [],
@@ -49,15 +48,6 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
   const [serviciosOmitir, setServiciosOmitir] = useState([{ concepto: "", cantidad: 1 }]);
   const [guardandoOmitir, setGuardandoOmitir] = useState(false);
 
-  // Mano de obra: asignación de mecánico/carrocero a los servicios de arriba
-  const [mecanicos, setMecanicos] = useState([]);
-  const [carroceros, setCarroceros] = useState([]);
-  const [moTipo, setMoTipo] = useState("mecanico"); // "mecanico" | "carrocero"
-  const [moAsignado, setMoAsignado] = useState("");
-  const [moHoras, setMoHoras] = useState("");
-  const [moFechaPago, setMoFechaPago] = useState("");
-  const [serviciosMoSeleccionados, setServiciosMoSeleccionados] = useState({});
-
   // Cargar datos existentes de la orden
   useEffect(() => {
     if (initialData) {
@@ -94,16 +84,6 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
       }
     };
     cargar();
-  }, []);
-
-  // Cargar mecánicos y carroceros (para asignar mano de obra a los servicios)
-  useEffect(() => {
-    listarEmpleados({ puesto: "mecanico", activo: true })
-      .then(setMecanicos)
-      .catch(() => {});
-    listarEmpleados({ puesto: "carrocero", activo: true })
-      .then(setCarroceros)
-      .catch(() => {});
   }, []);
 
   // ===== Selección de Servicios de catálogo (paquetes de refacciones) =====
@@ -294,75 +274,6 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
       )
     );
 
-  const toggleServicioMoOmitir = (idx) =>
-    setServiciosMoSeleccionados((prev) => ({ ...prev, [idx]: !prev[idx] }));
-
-  // Asigna el mecánico/carrocero elegido a todos los servicios marcados
-  // (uno para varios servicios, o uno para un solo servicio).
-  const agregarAsignacionMoOmitir = () => {
-    const idxElegidos = Object.entries(serviciosMoSeleccionados)
-      .filter(([, marcado]) => marcado)
-      .map(([idx]) => Number(idx));
-
-    if (idxElegidos.length === 0) {
-      alert("Selecciona al menos un servicio.");
-      return;
-    }
-    if (!moAsignado) {
-      alert(moTipo === "carrocero" ? "Selecciona un carrocero." : "Selecciona un mecánico.");
-      return;
-    }
-
-    setServiciosOmitir((prev) =>
-      prev.map((item, i) =>
-        idxElegidos.includes(i)
-          ? {
-              ...item,
-              moEsCarroceria: moTipo === "carrocero",
-              moMecanico: moTipo === "carrocero" ? "" : moAsignado,
-              moCarrocero: moTipo === "carrocero" ? moAsignado : "",
-              moHoras: moHoras,
-              moFechaPago: moFechaPago,
-            }
-          : item
-      )
-    );
-    setServiciosMoSeleccionados({});
-    setMoAsignado("");
-    setMoHoras("");
-    setMoFechaPago("");
-  };
-
-  const quitarAsignacionMoOmitir = (idx) =>
-    setServiciosOmitir((prev) =>
-      prev.map((item, i) =>
-        i === idx
-          ? {
-              ...item,
-              moEsCarroceria: false,
-              moMecanico: "",
-              moCarrocero: "",
-              moHoras: "",
-              moFechaPago: "",
-            }
-          : item
-      )
-    );
-
-  // Permite ajustar horas/fecha de pago de un servicio ya asignado sin tener
-  // que quitar y repetir la asignación completa.
-  const cambiarAsignacionMoOmitir = (idx, field, value) =>
-    setServiciosOmitir((prev) =>
-      prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item))
-    );
-
-  const nombreAsignacionMoOmitir = (item) => {
-    const id = item.moEsCarroceria ? item.moCarrocero : item.moMecanico;
-    if (!id) return null;
-    const lista = item.moEsCarroceria ? carroceros : mecanicos;
-    return lista.find((e) => e._id === id)?.nombre || id;
-  };
-
   const handleOmitirRefacciones = async () => {
     if (!ordenId) return;
     const validos = serviciosOmitir
@@ -370,11 +281,6 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
       .map((s) => ({
         concepto: s.concepto.trim(),
         cant: Number(s.cantidad),
-        mecanico: s.moEsCarroceria ? "" : (s.moMecanico || ""),
-        carrocero: s.moEsCarroceria ? (s.moCarrocero || "") : "",
-        esCarroceria: !!s.moEsCarroceria,
-        horas: Number(s.moHoras) || 0,
-        fechaPago: s.moFechaPago || "",
       }));
 
     if (validos.length === 0) {
@@ -814,106 +720,47 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
                 <table className="table table-sm table-bordered align-middle">
                   <thead className="table-light">
                     <tr>
-                      <th style={{ width: "40px" }}></th>
                       <th>Servicio a realizar</th>
                       <th style={{ width: "100px" }}>Cantidad</th>
-                      <th>Mano de obra</th>
                       <th style={{ width: "50px" }}></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {serviciosOmitir.map((item, idx) => {
-                      const nombreAsignado = nombreAsignacionMoOmitir(item);
-                      return (
-                        <tr key={idx}>
-                          <td className="text-center">
-                            <input
-                              type="checkbox"
-                              checked={!!serviciosMoSeleccionados[idx]}
-                              onChange={() => toggleServicioMoOmitir(idx)}
-                              title="Seleccionar para asignar mano de obra"
-                            />
-                          </td>
-                          <td>
-                            <input
-                              className="form-control form-control-sm"
-                              value={item.concepto}
-                              onChange={(e) =>
-                                cambiarServicioOmitir(idx, "concepto", e.target.value)
-                              }
-                              placeholder="Ej. Alineación y balanceo, Diagnóstico eléctrico..."
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              min="1"
-                              className="form-control form-control-sm"
-                              value={item.cantidad}
-                              onChange={(e) =>
-                                cambiarServicioOmitir(idx, "cantidad", e.target.value)
-                              }
-                            />
-                          </td>
-                          <td className="small" style={{ minWidth: "260px" }}>
-                            {nombreAsignado ? (
-                              <div>
-                                <div className="d-flex align-items-center justify-content-between gap-1 mb-1">
-                                  <span>
-                                    {item.moEsCarroceria ? "Carrocero" : "Mecánico"}: <strong>{nombreAsignado}</strong>
-                                  </span>
-                                  <button
-                                    type="button"
-                                    className="btn btn-outline-danger btn-sm py-0 px-1"
-                                    onClick={() => quitarAsignacionMoOmitir(idx)}
-                                  >
-                                    ×
-                                  </button>
-                                </div>
-                                <div className="d-flex gap-1">
-                                  <div style={{ width: "90px" }}>
-                                    <input
-                                      type="number"
-                                      step="0.1"
-                                      className="form-control form-control-sm"
-                                      placeholder="Horas"
-                                      title="Horas que trabajará"
-                                      value={item.moHoras || ""}
-                                      onChange={(e) =>
-                                        cambiarAsignacionMoOmitir(idx, "moHoras", e.target.value)
-                                      }
-                                    />
-                                  </div>
-                                  <div>
-                                    <input
-                                      type="date"
-                                      className="form-control form-control-sm"
-                                      title="Fecha de pago"
-                                      value={item.moFechaPago || ""}
-                                      onChange={(e) =>
-                                        cambiarAsignacionMoOmitir(idx, "moFechaPago", e.target.value)
-                                      }
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="text-muted">Sin asignar</span>
-                            )}
-                          </td>
-                          <td className="text-center">
-                            <button
-                              type="button"
-                              className="btn btn-outline-danger btn-sm"
-                              onClick={() => eliminarServicioOmitir(idx)}
-                              disabled={serviciosOmitir.length === 1}
-                            >
-                              ×
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {serviciosOmitir.map((item, idx) => (
+                      <tr key={idx}>
+                        <td>
+                          <input
+                            className="form-control form-control-sm"
+                            value={item.concepto}
+                            onChange={(e) =>
+                              cambiarServicioOmitir(idx, "concepto", e.target.value)
+                            }
+                            placeholder="Ej. Alineación y balanceo, Diagnóstico eléctrico..."
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            min="1"
+                            className="form-control form-control-sm"
+                            value={item.cantidad}
+                            onChange={(e) =>
+                              cambiarServicioOmitir(idx, "cantidad", e.target.value)
+                            }
+                          />
+                        </td>
+                        <td className="text-center">
+                          <button
+                            type="button"
+                            className="btn btn-outline-danger btn-sm"
+                            onClick={() => eliminarServicioOmitir(idx)}
+                            disabled={serviciosOmitir.length === 1}
+                          >
+                            ×
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
 
@@ -924,71 +771,6 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
                 >
                   + Agregar servicio
                 </button>
-
-                <hr className="my-3" />
-                <h6 className="fw-bold text-uppercase mb-2">
-                  Asignar mano de obra{" "}
-                  <span className="text-muted fw-normal small">(opcional)</span>
-                </h6>
-                <div className="row g-2 align-items-end">
-                  <div className="col-md-2">
-                    <label className="form-label form-label-sm mb-1">Asignar a</label>
-                    <select
-                      className="form-select form-select-sm"
-                      value={moTipo}
-                      onChange={(e) => {
-                        setMoTipo(e.target.value);
-                        setMoAsignado("");
-                      }}
-                    >
-                      <option value="mecanico">Mecánico</option>
-                      <option value="carrocero">Carrocero</option>
-                    </select>
-                  </div>
-                  <div className="col-md-3">
-                    <label className="form-label form-label-sm mb-1">
-                      {moTipo === "carrocero" ? "Carrocero" : "Mecánico"}
-                    </label>
-                    <select
-                      className="form-select form-select-sm"
-                      value={moAsignado}
-                      onChange={(e) => setMoAsignado(e.target.value)}
-                    >
-                      <option value="">-- Seleccionar --</option>
-                      {(moTipo === "carrocero" ? carroceros : mecanicos).map((e) => (
-                        <option key={e._id} value={e._id}>{e.nombre}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="col-md-2">
-                    <label className="form-label form-label-sm mb-1">Horas</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      className="form-control form-control-sm"
-                      value={moHoras}
-                      onChange={(e) => setMoHoras(e.target.value)}
-                    />
-                  </div>
-                  <div className="col-md-2">
-                    <label className="form-label form-label-sm mb-1">Fecha de Pago</label>
-                    <input
-                      type="date"
-                      className="form-control form-control-sm"
-                      value={moFechaPago}
-                      onChange={(e) => setMoFechaPago(e.target.value)}
-                    />
-                  </div>
-                  <div className="col-md-3 text-end">
-                    <button
-                      type="button"
-                      className="btn btn-outline-primary btn-sm px-3"
-                      onClick={agregarAsignacionMoOmitir}
-                    >
-                      + Asignar a servicios marcados
-                    </button>
-                  </div>
-                </div>
               </div>
 
               <div className="modal-footer">

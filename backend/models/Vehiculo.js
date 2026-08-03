@@ -548,6 +548,16 @@ pendienteCierre: { type: Boolean, default: false },
         notas: { type: String, default: '' },
         registradoPor: { type: String, default: '' },
 
+        // Cancelación del pago (p. ej. se cancela el anticipo o la remisión de
+        // la orden para poder facturarla). Un pago cancelado deja de contar
+        // como abonado en calcularTotalesOrden y libera a la orden de la
+        // restricción de "ya tiene remisión". El folio del comprobante se
+        // conserva: no se reutiliza ni se borra, solo queda marcado.
+        cancelado: { type: Boolean, default: false },
+        canceladoEn: { type: Date, default: null },
+        canceladoPor: { type: String, default: '' },
+        motivoCancelacion: { type: String, default: '' },
+
         // Presente solo si comprobante === 'NOTA_VENTA'
         // numero sin default: si se le pone `default: null`, Mongoose lo agrega
         // también a los pagos por REMISION (aplica defaults del subdocumento

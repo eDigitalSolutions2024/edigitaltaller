@@ -48,7 +48,9 @@ function runOpenSSL(args) {
 }
 
 /* ================== DIRECTORIOS ================== */
-const ROOT_KEYS_DIR = path.join(process.cwd(), "backend", "keys");
+// Debe apuntar a backend/keys sin depender del cwd: generar_xml.js lee
+// esa misma carpeta con path.join(__dirname, "..", "keys").
+const ROOT_KEYS_DIR = path.join(__dirname, "..", "keys");
 if (!fs.existsSync(ROOT_KEYS_DIR)) fs.mkdirSync(ROOT_KEYS_DIR, { recursive: true });
 
 const TMP_DIR = path.join(ROOT_KEYS_DIR, "tmp");
@@ -57,6 +59,20 @@ if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
 const upload = multer({ dest: TMP_DIR });
 
 /* ================== HELPERS ================== */
+// El serial que entrega OpenSSL viene hex-encoded y al decodificarlo da los
+// 20 dígitos ASCII que el SAT pide en NoCertificado.
+// Ej: "3330303031303030303030353030303033343136" => "30001000000500003416"
+function parseNoCertificado(serialOut) {
+  const raw = (serialOut || "").replace("serial=", "").trim();
+
+  if (/^[0-9A-Fa-f]{40}$/.test(raw)) {
+    const decoded = Buffer.from(raw, "hex").toString("ascii");
+    if (/^\d{20}$/.test(decoded)) return decoded;
+  }
+
+  return raw;
+}
+
 async function getOrCreateConfig() {
   let cfg = await FiscalConfig.findOne().sort({ createdAt: -1 });
   if (!cfg) {
@@ -141,7 +157,7 @@ router.post("/cert", upload.single("file"), async (req, res) => {
     await runOpenSSL(["x509", "-inform", "DER", "-in", cerDerPath, "-out", cerPemPath]);
 
     const serialOut = await runOpenSSL(["x509", "-in", cerPemPath, "-noout", "-serial"]);
-    cfg.noCertificado = (serialOut || "").replace("serial=", "").trim();
+    cfg.noCertificado = parseNoCertificado(serialOut);
 
     cfg.listoParaTimbrar = computeListoParaTimbrar(cfg);
     await cfg.save();

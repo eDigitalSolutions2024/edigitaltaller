@@ -18,7 +18,11 @@ function calcularTotalesOrden(orden) {
   );
 
   const totalOrden = Math.max(0, totalBruto - descuentoMonto);
-  const totalAbonado = (orden.pagos || []).reduce((s, p) => s + Number(p.monto || 0), 0);
+  // Un pago cancelado (anticipo/remisión que se cancela para poder facturar la
+  // orden) conserva su folio en el historial pero ya no cuenta como abonado.
+  const totalAbonado = (orden.pagos || [])
+    .filter((p) => !p.cancelado)
+    .reduce((s, p) => s + Number(p.monto || 0), 0);
   const saldoPendiente = totalOrden - totalAbonado;
 
   return { subtotal, ivaPct, ivaMonto, totalBruto, descuentoMonto, totalOrden, totalAbonado, saldoPendiente };

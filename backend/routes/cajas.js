@@ -17,6 +17,34 @@ const CONTADOR_REMISION = 'remision';
 const CONTADOR_RECIBO_PROVISIONAL = 'reciboProvisional';
 const CONTADOR_RECIBO_DOLARES = 'reciboDolares';
 
+// Tolerancia de centavos para dar por liquidada una orden (los totales se
+// recalculan con floats: IVA y descuentos en porcentaje).
+const TOLERANCIA_SALDO = 0.01;
+
+// La Fecha de Pagada de una Remisión no se captura a mano: el sistema la marca
+// en cuanto la orden se queda sin saldo pendiente, y la vuelve a limpiar si el
+// saldo reaparece (p. ej. al cancelar un pago o quitar un descuento). Recibe el
+// documento ya hidratado de Mongoose y solo guarda si algo cambió.
+async function sincronizarFechaPagadaRemisiones(vehiculo, fecha = new Date()) {
+  const { saldoPendiente } = calcularTotalesOrden(vehiculo);
+  const liquidada = saldoPendiente <= TOLERANCIA_SALDO;
+
+  let cambio = false;
+  for (const p of vehiculo.pagos || []) {
+    if (p.comprobante !== 'REMISION' || p.cancelado || !p.remision) continue;
+    if (liquidada && !p.remision.fechaPagada) {
+      p.remision.fechaPagada = fecha;
+      cambio = true;
+    } else if (!liquidada && p.remision.fechaPagada) {
+      p.remision.fechaPagada = null;
+      cambio = true;
+    }
+  }
+
+  if (cambio) await vehiculo.save();
+  return vehiculo;
+}
+
 // GET /api/cajas -> lista de órdenes para el módulo de Cajas. A diferencia de
 // /vehiculos/ordenes (que Cajas usaba antes), aquí se listan las órdenes sin
 // importar su estadoOrden, porque un cobro puede llegar en cualquier etapa;
@@ -142,7 +170,6 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       banco = '',
       tipoNota = 'Contado',
       tipoRemision = 'Contado',
-      fechaPagada,
       formaPago = 'EFECTIVO',
       chequeNumero = '',
       reciboConcepto = '',
@@ -163,10 +190,10 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Un Abono o Anticipo se documenta con Recibo Provisional.' });
     }
     if (tipoPago === 'COMPLETO' && comprobante === 'RECIBO_PROVISIONAL') {
-      return res.status(400).json({ ok: false, msg: 'Un pago Liquida requiere Nota de Venta o Remisión.' });
+      return res.status(400).json({ ok: false, msg: 'Un pago de Remisión o Factura requiere Nota de Venta o Remisión.' });
     }
 
-    const ordenExistente = await Vehiculo.findById(req.params.id).select('garantia pagos.comprobante');
+    const ordenExistente = await Vehiculo.findById(req.params.id).select('garantia pagos.comprobante pagos.cancelado');
     if (!ordenExistente) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     if (ordenExistente.garantia) {
       return res.status(400).json({ ok: false, msg: 'No se puede registrar un pago para una orden de garantía.' });
@@ -174,7 +201,11 @@ router.post('/:id/pagos', proteger, async (req, res) => {
 
     // Una vez que la orden tiene una Remisión, ya no se puede generar otra
     // Remisión ni una Nota de Venta (evita duplicar/mezclar comprobantes fiscales).
-    const yaTieneRemision = (ordenExistente.pagos || []).some((p) => p.comprobante === 'REMISION');
+    // Una remisión cancelada no cuenta: precisamente se cancela para poder
+    // volver a facturar/remisionar la orden.
+    const yaTieneRemision = (ordenExistente.pagos || []).some(
+      (p) => p.comprobante === 'REMISION' && !p.cancelado
+    );
     if (yaTieneRemision && ['NOTA_VENTA', 'REMISION'].includes(comprobante)) {
       return res.status(400).json({
         ok: false,
@@ -182,8 +213,14 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       });
     }
 
-    const monto = Number(montoPesos || 0) + Number(montoDolares || 0) * Number(tipoCambio || 0);
-    if (monto <= 0) {
+    // Una Remisión a Crédito documenta la venta sin recibir dinero: es el único
+    // pago que puede registrarse en 0 (la orden queda como cuenta por cobrar y
+    // se salda con abonos posteriores).
+    const esRemisionCredito = comprobante === 'REMISION' && tipoRemision === 'Credito';
+    const monto = esRemisionCredito
+      ? 0
+      : Number(montoPesos || 0) + Number(montoDolares || 0) * Number(tipoCambio || 0);
+    if (monto <= 0 && !esRemisionCredito) {
       return res.status(400).json({ ok: false, msg: 'El monto del pago debe ser mayor a 0.' });
     }
 
@@ -191,11 +228,11 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       fecha: new Date(),
       tipoPago,
       comprobante,
-      montoPesos: Number(montoPesos) || 0,
-      montoDolares: Number(montoDolares) || 0,
+      montoPesos: esRemisionCredito ? 0 : Number(montoPesos) || 0,
+      montoDolares: esRemisionCredito ? 0 : Number(montoDolares) || 0,
       tipoCambio: Number(tipoCambio) || 0,
       monto,
-      referencia,
+      referencia: esRemisionCredito ? '' : referencia,
       observaciones,
       notas,
       registradoPor: req.user?.name || req.user?.username || '',
@@ -214,11 +251,9 @@ router.post('/:id/pagos', proteger, async (req, res) => {
         { $inc: { valor: 1 } },
         { new: true, upsert: true }
       );
-      pago.remision = {
-        numero: contador.valor,
-        tipo: tipoRemision,
-        fechaPagada: fechaPagada ? new Date(fechaPagada) : null,
-      };
+      // fechaPagada arranca en null: la marca sincronizarFechaPagadaRemisiones
+      // en cuanto la orden queda sin saldo pendiente.
+      pago.remision = { numero: contador.valor, tipo: tipoRemision, fechaPagada: null };
     }
 
     // Recibo Provisional: automático en cada abono/anticipo (único comprobante permitido).
@@ -256,9 +291,57 @@ router.post('/:id/pagos', proteger, async (req, res) => {
     ).populate('cliente', POPULATE_CLIENTE);
     if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
 
+    await sincronizarFechaPagadaRemisiones(vehiculo, pago.fecha);
+
     return res.status(201).json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo) });
   } catch (err) {
     console.error('Error registrando pago:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// POST /api/cajas/:id/pagos/:pagoId/cancelar -> cancela un pago ya registrado.
+// Caso de uso principal: la orden se cobró con Anticipo o Remisión y el cliente
+// pide factura; se cancela ese comprobante para que la orden pueda facturarse.
+// El pago no se borra (su folio ya se consumió y los reportes lo necesitan):
+// queda marcado como cancelado y deja de contar como abonado. En las remisiones
+// además se marca remision.tipo = 'Cancelada', que es lo que ya leía el Reporte
+// Diario de Remisiones para mostrarlas como "SE CANCELA REMISIÓN Y PASA A FACTURA".
+router.post('/:id/pagos/:pagoId/cancelar', proteger, async (req, res) => {
+  try {
+    const { motivo = '' } = req.body || {};
+
+    const vehiculo = await Vehiculo.findById(req.params.id);
+    if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+
+    const pago = (vehiculo.pagos || []).id(req.params.pagoId);
+    if (!pago) return res.status(404).json({ ok: false, msg: 'Pago no encontrado' });
+    if (pago.cancelado) {
+      return res.status(400).json({ ok: false, msg: 'Este pago ya está cancelado.' });
+    }
+
+    const esRemision = pago.comprobante === 'REMISION';
+    const motivoFinal =
+      String(motivo).trim() ||
+      (esRemision ? 'Se cancela remisión y pasa a factura' : 'Se cancela anticipo y pasa a factura');
+
+    pago.cancelado = true;
+    pago.canceladoEn = new Date();
+    pago.canceladoPor = req.user?.name || req.user?.username || '';
+    pago.motivoCancelacion = motivoFinal;
+    pago.notas = motivoFinal;
+
+    if (esRemision) pago.remision.tipo = 'Cancelada';
+
+    await vehiculo.save();
+    // Al dejar de contar como abonado puede reaparecer saldo: las remisiones
+    // vigentes de la orden vuelven a quedar sin Fecha de Pagada.
+    await sincronizarFechaPagadaRemisiones(vehiculo);
+    await vehiculo.populate('cliente', POPULATE_CLIENTE);
+
+    return res.json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo) });
+  } catch (err) {
+    console.error('Error cancelando pago:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });
@@ -289,6 +372,10 @@ router.post('/:id/descuentos', proteger, async (req, res) => {
     ).populate('cliente', POPULATE_CLIENTE);
     if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
 
+    // Un descuento cambia el total de la orden y puede dejarla (o sacarla de)
+    // saldo cero, que es lo que dispara la Fecha de Pagada de la Remisión.
+    await sincronizarFechaPagadaRemisiones(vehiculo);
+
     return res.status(201).json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo) });
   } catch (err) {
     console.error('Error agregando descuento:', err);
@@ -318,6 +405,8 @@ router.put('/:id/descuentos/:descuentoId', proteger, async (req, res) => {
     ).populate('cliente', POPULATE_CLIENTE);
     if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden o descuento no encontrado' });
 
+    await sincronizarFechaPagadaRemisiones(vehiculo);
+
     return res.json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo) });
   } catch (err) {
     console.error('Error actualizando descuento:', err);
@@ -334,6 +423,8 @@ router.delete('/:id/descuentos/:descuentoId', proteger, async (req, res) => {
       { new: true }
     ).populate('cliente', POPULATE_CLIENTE);
     if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+
+    await sincronizarFechaPagadaRemisiones(vehiculo);
 
     return res.json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo) });
   } catch (err) {

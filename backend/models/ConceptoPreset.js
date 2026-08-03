@@ -6,8 +6,10 @@ const ConceptoPresetSchema = new mongoose.Schema(
   {
     cProdServ: { type: String, required: true, trim: true },
     cProdServDescripcion: { type: String, default: "", trim: true },
-    cUnidad: { type: String, required: true, trim: true },
-    unidad: { type: String, required: true, trim: true },
+    // La unidad y el valor unitario se capturan al armar la factura (cambian por
+    // orden), así que el catálogo solo administra clave SAT + descripción.
+    cUnidad: { type: String, default: "E48", trim: true },
+    unidad: { type: String, default: "Servicio", trim: true },
     descripcion: { type: String, required: true, trim: true },
     valorUnitario: { type: Number, default: 0 },
     activo: { type: Boolean, default: true },
