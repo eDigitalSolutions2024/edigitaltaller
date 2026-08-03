@@ -12,13 +12,21 @@ const rx = (s) =>
 // GET /api/facturas-cfdi?q=&desde=&hasta=&estatus=&page=&limit=
 router.get("/", async (req, res) => {
   try {
-    let { q = "", desde = "", hasta = "", estatus = "", page = 1, limit = 10 } = req.query;
+    let { q = "", desde = "", hasta = "", estatus = "", tipo = "", page = 1, limit = 10 } = req.query;
     page = Math.max(parseInt(page) || 1, 1);
     limit = Math.min(Math.max(parseInt(limit) || 10, 1), 200);
 
     const match = {};
 
     if (estatus && estatus !== "todos") match.estatus = estatus;
+
+    // tipo=factura => solo CFDI de ingreso (excluye notas de crédito y complementos;
+    // documentos viejos sin tipoFactura cuentan como factura)
+    if (tipo === "factura") {
+      match.tipoFactura = { $nin: ["notaCredito", "complementoPago"] };
+    } else if (tipo && tipo !== "todos") {
+      match.tipoFactura = tipo;
+    }
 
     if (q) {
       const r = rx(q);
@@ -27,6 +35,9 @@ router.get("/", async (req, res) => {
         { "cliente.nombre": r },
         { "cliente.rfc": r },
         { "orden.ordenServicio": r },
+        // Una factura puede agrupar varias órdenes; hay que poder encontrarla
+        // por cualquiera de ellas, no solo por la principal.
+        { "ordenes.ordenServicio": r },
       ];
     }
 

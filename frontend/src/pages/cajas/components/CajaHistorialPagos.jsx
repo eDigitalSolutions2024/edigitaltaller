@@ -13,6 +13,13 @@ function formatMoney(n) {
 
 const TIPO_PAGO_LABELS = { COMPLETO: "Pago Completo", ABONO: "Abono", ANTICIPO: "Anticipo" };
 
+// Una remisión a crédito se registra como Pago Completo (documenta la venta
+// completa), pero no entró dinero: en el historial se lee como Crédito.
+function tipoPagoLabel(p) {
+  if (p.comprobante === "REMISION" && p.remision?.tipo === "Credito") return "Crédito";
+  return TIPO_PAGO_LABELS[p.tipoPago] || p.tipoPago;
+}
+
 function comprobanteLabel(p) {
   if (p.comprobante === "NOTA_VENTA") return `Nota Venta N°${p.notaVenta?.numero ?? "-"}`;
   if (p.comprobante === "REMISION") return `Remisión N°${p.remision?.numero ?? "-"}`;
@@ -68,10 +75,17 @@ export default function CajaHistorialPagos({ pagos = [], onImprimir, onImprimirR
               </tr>
             )}
             {visibles.map((p, idx) => (
-              <tr key={p._id || idx}>
+              <tr key={p._id || idx} className={p.cancelado ? "table-secondary text-decoration-line-through" : ""}>
                 <td className="text-center">{formatFecha(p.fecha)}</td>
-                <td className="text-center">{TIPO_PAGO_LABELS[p.tipoPago] || p.tipoPago}</td>
-                <td className="text-center">{comprobanteLabel(p)}</td>
+                <td className="text-center">{tipoPagoLabel(p)}</td>
+                <td className="text-center">
+                  {comprobanteLabel(p)}
+                  {p.cancelado && (
+                    <span className="badge bg-danger ms-1" title={p.motivoCancelacion || "Cancelado"}>
+                      Cancelado
+                    </span>
+                  )}
+                </td>
                 <td className="text-end">{formatMoney(p.montoPesos)}</td>
                 <td className="text-end">{p.montoDolares ? formatMoney(p.montoDolares) : "-"}</td>
                 <td className="text-end">{p.tipoCambio || "-"}</td>

@@ -12,10 +12,13 @@ import {
 
 const BANCOS = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER", "DOLARES", "EFECTIVOS"];
 const TIPOS_NOTA = ["Contado", "Credito", "Cancelada"];
+// `nota` es lo que se sugiere en el campo Notas (el descriptor corto que sale
+// en el Reporte Diario de Remisiones), independiente de cómo se llame la opción
+// en pantalla.
 const TIPOS_PAGO = [
-  { value: "COMPLETO", label: "Liquida" },
-  { value: "ABONO", label: "Abono" },
-  { value: "ANTICIPO", label: "Anticipo" },
+  { value: "COMPLETO", label: "Remisión o Factura", nota: "Liquida" },
+  { value: "ABONO", label: "Abono", nota: "Abono" },
+  { value: "ANTICIPO", label: "Anticipo", nota: "Anticipo" },
 ];
 const FORMAS_PAGO_PROVISIONAL = [
   { value: "EFECTIVO", label: "Efectivo" },
@@ -48,7 +51,9 @@ function telefonoCelularOrden(orden) {
 export default function CajaModalPago({ show, orden, saldoPendiente, onClose, onSubmit, onValeGuardado }) {
   const user = getUser();
 
-  const [tipoPago, setTipoPago] = useState("ABONO");
+  // Sin valor inicial: el cajero debe elegir explícitamente el tipo de pago.
+  const [tipoPago, setTipoPago] = useState("");
+  const [tipoPagoInvalido, setTipoPagoInvalido] = useState(false);
   const [comprobante, setComprobante] = useState("");
   const [comprobanteInvalido, setComprobanteInvalido] = useState(false);
 
@@ -56,9 +61,10 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
   const [banco, setBanco] = useState("");
   const [tipoNota, setTipoNota] = useState("Contado");
 
-  // Datos de Remisión (solo si comprobante === REMISION)
+  // Datos de Remisión (solo si comprobante === REMISION). La Fecha de Pagada
+  // no se captura aquí: la marca el backend cuando la orden se queda sin saldo
+  // pendiente (ver POST /api/cajas/:id/pagos).
   const [tipoRemision, setTipoRemision] = useState("Contado");
-  const [fechaPagada, setFechaPagada] = useState("");
 
   // Datos de Recibo Provisional (solo si comprobante === RECIBO_PROVISIONAL,
   // es decir, tipoPago Abono o Anticipo)
@@ -112,7 +118,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
     if (tipoPago === "ABONO" || tipoPago === "ANTICIPO") {
       setComprobante("RECIBO_PROVISIONAL");
       setComprobanteInvalido(false);
-    } else if (comprobante === "RECIBO_PROVISIONAL") {
+    } else if (!tipoPago || comprobante === "RECIBO_PROVISIONAL") {
       setComprobante("");
     }
   }, [tipoPago]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -125,8 +131,25 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
       setNotas("Se cancela remisión y pasa a factura");
       return;
     }
-    setNotas(TIPOS_PAGO.find((t) => t.value === tipoPago)?.label || "");
+    // Una remisión a crédito no es un movimiento de dinero: no se sugiere nota.
+    if (comprobante === "REMISION" && tipoRemision === "Credito") {
+      setNotas("");
+      return;
+    }
+    setNotas(TIPOS_PAGO.find((t) => t.value === tipoPago)?.nota || "");
   }, [tipoPago, comprobante, tipoRemision, notasEditadas]);
+
+  // Una Remisión a Crédito documenta la venta pero no recibe dinero hoy: no se
+  // capturan importes ni referencia, y lo ya capturado se limpia al elegirla.
+  const esRemisionCredito =
+    tipoPago === "COMPLETO" && comprobante === "REMISION" && tipoRemision === "Credito";
+
+  useEffect(() => {
+    if (!esRemisionCredito) return;
+    setMontoPesos("");
+    setMontoDolares("");
+    setReferencia("");
+  }, [esRemisionCredito]);
 
   // El Estatus del vale se sugiere solo cuando el comprobante (Nota/Remisión)
   // se paga Contado o Credito; el usuario puede sobrescribirlo libremente.
@@ -142,16 +165,16 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
   // Reinicia el formulario cada vez que se abre el modal.
   useEffect(() => {
     if (!show) return;
-    setTipoPago("ABONO");
-    // Corresponde al tipoPago "ABONO" de arriba: se fija aquí (no solo en el
-    // efecto de [tipoPago]) porque si el modal ya estaba en "ABONO" la vez
-    // anterior, ese efecto no vuelve a dispararse al reabrir (el valor no cambia).
-    setComprobante("RECIBO_PROVISIONAL");
+    setTipoPago("");
+    // Corresponde al tipoPago vacío de arriba: se fija aquí (no solo en el
+    // efecto de [tipoPago]) porque si el modal ya estaba sin tipo de pago la
+    // vez anterior, ese efecto no vuelve a dispararse al reabrir (el valor no cambia).
+    setComprobante("");
+    setTipoPagoInvalido(false);
     setComprobanteInvalido(false);
     setBanco("");
     setTipoNota("Contado");
     setTipoRemision("Contado");
-    setFechaPagada("");
     setFormaPago("EFECTIVO");
     setChequeNumero("");
     setReciboConcepto(orden?.ordenServicio || "");
@@ -258,12 +281,18 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
   };
 
   const handleSubmit = async () => {
-    if (totalPago <= 0) {
+    if (!tipoPago) {
+      setError("Selecciona el tipo de pago.");
+      setTipoPagoInvalido(true);
+      return;
+    }
+    // Una Remisión a Crédito se registra sin importe: es la venta a crédito.
+    if (!esRemisionCredito && totalPago <= 0) {
       setError("Captura una cantidad en pesos o en dólares mayor a 0.");
       return;
     }
     if (tipoPago === "COMPLETO" && bloqueaFacturacion) {
-      setError("Esta orden ya tiene una Remisión registrada; no se puede registrar un pago Liquida.");
+      setError("Esta orden ya tiene una Remisión registrada; no se puede registrar otra Remisión o Factura.");
       return;
     }
     if (tipoPago === "COMPLETO" && !comprobante) {
@@ -308,7 +337,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
         ...(comprobante === "NOTA_VENTA"
           ? { banco, tipoNota }
           : comprobante === "REMISION"
-          ? { tipoRemision, fechaPagada }
+          ? { tipoRemision }
           : { formaPago, chequeNumero, reciboConcepto, reciboRazon, reciboRecibio, reciboAutorizo }),
       });
 
@@ -356,7 +385,12 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
               <div className="col-md-6">
                 <div className="mb-2">
                   <label className="form-label mb-0 fw-semibold">Tipo de Pago</label>
-                  <select className="form-select" value={tipoPago} onChange={(e) => setTipoPago(e.target.value)}>
+                  <select
+                    className={`form-select${tipoPagoInvalido ? " is-invalid border-danger" : ""}`}
+                    value={tipoPago}
+                    onChange={(e) => { setTipoPago(e.target.value); setTipoPagoInvalido(false); }}
+                  >
+                    <option value="">Selecciona una opción...</option>
                     {TIPOS_PAGO.map((t) => (
                       <option
                         key={t.value}
@@ -368,6 +402,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
                       </option>
                     ))}
                   </select>
+                  {tipoPagoInvalido && <small className="text-danger">Debes elegir un tipo de pago.</small>}
                 </div>
 
                 {tipoPago === "COMPLETO" ? (
@@ -419,15 +454,9 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
                               <option key={t} value={t}>{t}</option>
                             ))}
                           </select>
-                        </div>
-                        <div className="col-6">
-                          <label className="form-label mb-0">Fecha de Pagada</label>
-                          <input
-                            type="date"
-                            className="form-control"
-                            value={fechaPagada}
-                            onChange={(e) => setFechaPagada(e.target.value)}
-                          />
+                          <small className="text-muted">
+                            La Fecha de Pagada se registra sola cuando la orden queda sin saldo pendiente.
+                          </small>
                         </div>
                       </div>
                     )}
@@ -436,15 +465,17 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
                       <p className="text-muted small mb-2">Selecciona un comprobante para continuar.</p>
                     )}
 
-                    <div className="mb-2">
-                      <label className="form-label mb-0">Referencia</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={referencia}
-                        onChange={(e) => setReferencia(e.target.value)}
-                      />
-                    </div>
+                    {!esRemisionCredito && (
+                      <div className="mb-2">
+                        <label className="form-label mb-0">Referencia</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={referencia}
+                          onChange={(e) => setReferencia(e.target.value)}
+                        />
+                      </div>
+                    )}
 
                     <div className="mb-2">
                       <label className="form-label mb-0">Observaciones</label>
@@ -468,6 +499,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
                       <small className="text-muted">Se sugiere sola según el tipo de pago; puedes cambiarla.</small>
                     </div>
                   </>
+                ) : !tipoPago ? (
+                  <p className="text-muted small mb-2">Selecciona un tipo de pago para continuar.</p>
                 ) : (
                   <>
                     <div className="mb-2">
@@ -557,100 +590,110 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
               </div>
 
               <div className="col-md-6">
-                <div className="row g-2 mb-2">
-                  <div className="col-6">
-                    <label className="form-label mb-0">Cantidad en Pesos</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="form-control"
-                      value={montoPesos}
-                      onChange={(e) => setMontoPesos(e.target.value)}
-                    />
+                {esRemisionCredito ? (
+                  <div className="alert alert-info py-2 small mb-0">
+                    <strong>Remisión a Crédito:</strong> no se captura importe ni referencia. La venta queda
+                    registrada como cuenta por cobrar y el saldo se cubre con abonos posteriores; al quedar
+                    en ceros el sistema marca la Fecha de Pagada.
                   </div>
-                  <div className="col-6">
-                    <label className="form-label mb-0">Cantidad en Dólares</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="form-control"
-                      value={montoDolares}
-                      onChange={(e) => setMontoDolares(e.target.value)}
-                    />
-                    {Number(montoDolares) > 0 && Number(tipoCambio) > 0 && (
-                      <small className="text-muted">
-                        ≈ {formatMoney(dolaresConvertidos)} MXN
-                      </small>
-                    )}
-                  </div>
-                </div>
-
-                <div className="mb-2">
-                  <label className="form-label mb-0">Tipo de Cambio</label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    className="form-control"
-                    value={tipoCambio}
-                    disabled
-                    readOnly
-                    title="Se toma del tipo de cambio definido en Configuración"
-                  />
-                  {!cargandoTipoCambio && !tipoCambioConfig && Number(montoDolares) > 0 && (
-                    <small className="text-danger">
-                      No hay un tipo de cambio configurado. Regístralo en Configuración.
-                    </small>
-                  )}
-                </div>
-
-                <div className="border rounded p-2 mt-3">
-                  <p className="d-flex justify-content-between mb-1">
-                    <span className="text-muted">Pesos</span>
-                    <span>{formatMoney(montoPesos)}</span>
-                  </p>
-                  <p className="d-flex justify-content-between mb-1">
-                    <span className="text-muted">Dólares convertidos</span>
-                    <span>{formatMoney(dolaresConvertidos)}</span>
-                  </p>
-                  <hr className="my-1" />
-                  <p className="d-flex justify-content-between fw-bold mb-0">
-                    <span>Total Recibido</span>
-                    <span>{formatMoney(totalPago)}</span>
-                  </p>
-                  {cambio > 0 && (
-                    <>
-                      <p className="d-flex justify-content-between mb-1 mt-2">
-                        <span className="text-muted">Aplicado a la Orden</span>
-                        <span>{formatMoney(totalAplicado)}</span>
-                      </p>
-                      <p className="d-flex justify-content-between fw-bold text-danger mb-0">
-                        <span>Cambio a Dar</span>
-                        <span>{formatMoney(cambio)}</span>
-                      </p>
-                    </>
-                  )}
-                </div>
-
-                {(generaProvisional || generaDolares) && (
-                  <div className="border rounded p-2 mt-3">
-                    <div className="form-check">
-                      <input
-                        className="form-check-input"
-                        type="checkbox"
-                        id="checkImprimirRecibos"
-                        checked={imprimirAlFinalizar}
-                        onChange={(e) => setImprimirAlFinalizar(e.target.checked)}
-                      />
-                      <label className="form-check-label fw-semibold" htmlFor="checkImprimirRecibos">
-                        Imprimir al finalizar
-                      </label>
+                ) : (
+                  <>
+                    <div className="row g-2 mb-2">
+                      <div className="col-6">
+                        <label className="form-label mb-0">Cantidad en Pesos</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control"
+                          value={montoPesos}
+                          onChange={(e) => setMontoPesos(e.target.value)}
+                        />
+                      </div>
+                      <div className="col-6">
+                        <label className="form-label mb-0">Cantidad en Dólares</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control"
+                          value={montoDolares}
+                          onChange={(e) => setMontoDolares(e.target.value)}
+                        />
+                        {Number(montoDolares) > 0 && Number(tipoCambio) > 0 && (
+                          <small className="text-muted">
+                            ≈ {formatMoney(dolaresConvertidos)} MXN
+                          </small>
+                        )}
+                      </div>
                     </div>
-                    <small className="text-muted">
-                      Se generará{generaProvisional ? " un Recibo Provisional" : ""}
-                      {generaProvisional && generaDolares ? " y" : ""}
-                      {generaDolares ? " un Recibo de Dólares" : ""} al registrar este pago.
-                    </small>
-                  </div>
+
+                    <div className="mb-2">
+                      <label className="form-label mb-0">Tipo de Cambio</label>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        className="form-control"
+                        value={tipoCambio}
+                        disabled
+                        readOnly
+                        title="Se toma del tipo de cambio definido en Configuración"
+                      />
+                      {!cargandoTipoCambio && !tipoCambioConfig && Number(montoDolares) > 0 && (
+                        <small className="text-danger">
+                          No hay un tipo de cambio configurado. Regístralo en Configuración.
+                        </small>
+                      )}
+                    </div>
+
+                    <div className="border rounded p-2 mt-3">
+                      <p className="d-flex justify-content-between mb-1">
+                        <span className="text-muted">Pesos</span>
+                        <span>{formatMoney(montoPesos)}</span>
+                      </p>
+                      <p className="d-flex justify-content-between mb-1">
+                        <span className="text-muted">Dólares convertidos</span>
+                        <span>{formatMoney(dolaresConvertidos)}</span>
+                      </p>
+                      <hr className="my-1" />
+                      <p className="d-flex justify-content-between fw-bold mb-0">
+                        <span>Total Recibido</span>
+                        <span>{formatMoney(totalPago)}</span>
+                      </p>
+                      {cambio > 0 && (
+                        <>
+                          <p className="d-flex justify-content-between mb-1 mt-2">
+                            <span className="text-muted">Aplicado a la Orden</span>
+                            <span>{formatMoney(totalAplicado)}</span>
+                          </p>
+                          <p className="d-flex justify-content-between fw-bold text-danger mb-0">
+                            <span>Cambio a Dar</span>
+                            <span>{formatMoney(cambio)}</span>
+                          </p>
+                        </>
+                      )}
+                    </div>
+
+                    {(generaProvisional || generaDolares) && (
+                      <div className="border rounded p-2 mt-3">
+                        <div className="form-check">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            id="checkImprimirRecibos"
+                            checked={imprimirAlFinalizar}
+                            onChange={(e) => setImprimirAlFinalizar(e.target.checked)}
+                          />
+                          <label className="form-check-label fw-semibold" htmlFor="checkImprimirRecibos">
+                            Imprimir al finalizar
+                          </label>
+                        </div>
+                        <small className="text-muted">
+                          Se generará{generaProvisional ? " un Recibo Provisional" : ""}
+                          {generaProvisional && generaDolares ? " y" : ""}
+                          {generaDolares ? " un Recibo de Dólares" : ""} al registrar este pago.
+                        </small>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>

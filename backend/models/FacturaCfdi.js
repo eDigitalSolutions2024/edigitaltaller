@@ -15,11 +15,45 @@ const ConceptoSnapshotSchema = new Schema(
   { _id: false }
 );
 
+const FacturaRelacionadaSchema = new Schema(
+  {
+    facturaId: { type: Schema.Types.ObjectId, ref: "FacturaCfdi", default: null },
+    serie: { type: String, default: "" },
+    folio: { type: String, default: "" },
+    uuid: { type: String, default: "" },
+    total: { type: Number, default: 0 },
+    // Solo complemento de pago:
+    saldoAnterior: { type: Number, default: 0 },
+    importePagado: { type: Number, default: 0 },
+    saldoInsoluto: { type: Number, default: 0 },
+    numParcialidad: { type: Number, default: 1 },
+  },
+  { _id: false }
+);
+
 const FacturaCfdiSchema = new Schema(
   {
+    // factura (I) | notaCredito (E) | complementoPago (P)
+    tipoFactura: {
+      type: String,
+      enum: ["factura", "notaCredito", "complementoPago"],
+      default: "factura",
+    },
+    tipoComprobante: { type: String, enum: ["I", "E", "P"], default: "I" },
+
     serie: { type: String, default: "", trim: true },
     folio: { type: String, default: "", trim: true },
     fecha: { type: Date, default: Date.now },
+
+    // Facturas relacionadas (nota de crédito y complemento de pago)
+    relacionadas: { type: [FacturaRelacionadaSchema], default: [] },
+
+    // Datos del pago (solo complemento de pago)
+    pago: {
+      fechaPago: { type: Date, default: null },
+      formaPago: { type: String, default: "" },
+      monto: { type: Number, default: 0 },
+    },
 
     cliente: {
       clienteId: { type: Schema.Types.ObjectId, ref: "Cliente", default: null },
@@ -29,9 +63,28 @@ const FacturaCfdiSchema = new Schema(
       codigoPostalFiscal: { type: String, default: "" },
     },
 
+    // Orden principal de la factura. Se conserva para el historial, los
+    // reportes y las búsquedas que ya la leían; cuando la factura agrupa
+    // varias órdenes, aquí queda la primera y el listado completo va en
+    // `ordenes`.
     orden: {
       vehiculoId: { type: Schema.Types.ObjectId, ref: "Vehiculo", default: null },
       ordenServicio: { type: String, default: "" },
+    },
+
+    // Todas las órdenes de servicio facturadas en este CFDI (una factura puede
+    // agrupar varias órdenes del mismo cliente).
+    ordenes: {
+      type: [
+        new Schema(
+          {
+            vehiculoId: { type: Schema.Types.ObjectId, ref: "Vehiculo", default: null },
+            ordenServicio: { type: String, default: "" },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
     },
 
     conceptos: { type: [ConceptoSnapshotSchema], default: [] },
@@ -77,6 +130,7 @@ const FacturaCfdiSchema = new Schema(
 
 FacturaCfdiSchema.index({ folio: 1 });
 FacturaCfdiSchema.index({ "orden.ordenServicio": 1 });
+FacturaCfdiSchema.index({ "ordenes.ordenServicio": 1 });
 FacturaCfdiSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model("FacturaCfdi", FacturaCfdiSchema);

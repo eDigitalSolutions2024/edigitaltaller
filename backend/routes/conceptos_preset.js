@@ -27,26 +27,42 @@ router.get("/", async (req, res) => {
   }
 });
 
+// El catálogo solo administra clave SAT + descripción; la unidad y el valor
+// unitario se capturan al armar cada factura.
+const FALTAN_DATOS = "Faltan datos: clave SAT y descripción son obligatorios.";
+
+// Solo escribe los campos opcionales que realmente vengan en el body, para no
+// borrar la unidad/valor de conceptos capturados antes de esta simplificación.
+function camposOpcionales(body) {
+  const out = {};
+  if (body.cProdServDescripcion !== undefined) {
+    out.cProdServDescripcion = String(body.cProdServDescripcion || "").trim();
+  }
+  if (body.cUnidad !== undefined && String(body.cUnidad).trim()) {
+    out.cUnidad = String(body.cUnidad).trim();
+  }
+  if (body.unidad !== undefined && String(body.unidad).trim()) {
+    out.unidad = String(body.unidad).trim();
+  }
+  if (body.valorUnitario !== undefined) {
+    out.valorUnitario = Number(body.valorUnitario || 0);
+  }
+  return out;
+}
+
 // POST /api/conceptos-preset
 router.post("/", async (req, res) => {
   try {
-    const { cProdServ, cProdServDescripcion, cUnidad, unidad, descripcion, valorUnitario } =
-      req.body || {};
+    const { cProdServ, descripcion } = req.body || {};
 
-    if (!cProdServ || !cUnidad || !unidad || !descripcion) {
-      return res.status(400).json({
-        ok: false,
-        error: "Faltan datos: clave SAT, clave unidad, unidad y descripción son obligatorios.",
-      });
+    if (!cProdServ || !descripcion) {
+      return res.status(400).json({ ok: false, error: FALTAN_DATOS });
     }
 
     const doc = await ConceptoPreset.create({
       cProdServ: String(cProdServ).trim(),
-      cProdServDescripcion: String(cProdServDescripcion || "").trim(),
-      cUnidad: String(cUnidad).trim(),
-      unidad: String(unidad).trim(),
       descripcion: String(descripcion).trim(),
-      valorUnitario: Number(valorUnitario || 0),
+      ...camposOpcionales(req.body),
     });
 
     res.json({ ok: true, data: doc });
@@ -59,25 +75,18 @@ router.post("/", async (req, res) => {
 // PUT /api/conceptos-preset/:id
 router.put("/:id", async (req, res) => {
   try {
-    const { cProdServ, cProdServDescripcion, cUnidad, unidad, descripcion, valorUnitario } =
-      req.body || {};
+    const { cProdServ, descripcion } = req.body || {};
 
-    if (!cProdServ || !cUnidad || !unidad || !descripcion) {
-      return res.status(400).json({
-        ok: false,
-        error: "Faltan datos: clave SAT, clave unidad, unidad y descripción son obligatorios.",
-      });
+    if (!cProdServ || !descripcion) {
+      return res.status(400).json({ ok: false, error: FALTAN_DATOS });
     }
 
     const doc = await ConceptoPreset.findByIdAndUpdate(
       req.params.id,
       {
         cProdServ: String(cProdServ).trim(),
-        cProdServDescripcion: String(cProdServDescripcion || "").trim(),
-        cUnidad: String(cUnidad).trim(),
-        unidad: String(unidad).trim(),
         descripcion: String(descripcion).trim(),
-        valorUnitario: Number(valorUnitario || 0),
+        ...camposOpcionales(req.body),
       },
       { new: true }
     );

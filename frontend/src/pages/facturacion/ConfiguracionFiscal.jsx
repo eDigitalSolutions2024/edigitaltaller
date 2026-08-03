@@ -42,13 +42,11 @@ export default function ConfiguracionFiscal() {
   /* ==========
      CATÁLOGO DE CONCEPTOS
   ========== */
+  // El catálogo solo guarda clave SAT + descripción: la unidad y el precio se
+  // capturan al armar cada factura porque cambian de una orden a otra.
   const PRESET_VACIO = {
     cProdServ: "",
-    cProdServDescripcion: "",
-    cUnidad: "",
-    unidad: "",
     descripcion: "",
-    valorUnitario: "",
   };
 
   const [presets, setPresets] = useState([]);
@@ -75,20 +73,17 @@ export default function ConfiguracionFiscal() {
   }, []);
 
   const presetPayloadValido = (p) =>
-    String(p.cProdServ || "").trim() &&
-    String(p.cUnidad || "").trim() &&
-    String(p.unidad || "").trim() &&
-    String(p.descripcion || "").trim();
+    String(p?.cProdServ || "").trim() && String(p?.descripcion || "").trim();
 
   async function agregarPreset() {
     if (!presetPayloadValido(nuevoPreset)) {
-      return setMsg("❌ Clave SAT, clave unidad, unidad y descripción son obligatorios.");
+      return setMsg("❌ Clave SAT y descripción son obligatorios.");
     }
     setPresetsLoading(true);
     try {
       await createConceptoPreset({
-        ...nuevoPreset,
-        valorUnitario: Number(nuevoPreset.valorUnitario || 0),
+        cProdServ: nuevoPreset.cProdServ,
+        descripcion: nuevoPreset.descripcion,
       });
       setNuevoPreset(PRESET_VACIO);
       setMostrarAltaPreset(false);
@@ -102,7 +97,7 @@ export default function ConfiguracionFiscal() {
 
   const startEditPreset = (p) => {
     setEditPresetId(p._id);
-    setEditPresetDraft({ ...p });
+    setEditPresetDraft({ cProdServ: p.cProdServ || "", descripcion: p.descripcion || "" });
   };
 
   const cancelEditPreset = () => {
@@ -112,13 +107,13 @@ export default function ConfiguracionFiscal() {
 
   async function guardarEditPreset() {
     if (!presetPayloadValido(editPresetDraft)) {
-      return setMsg("❌ Clave SAT, clave unidad, unidad y descripción son obligatorios.");
+      return setMsg("❌ Clave SAT y descripción son obligatorios.");
     }
     setPresetsLoading(true);
     try {
       await updateConceptoPreset(editPresetId, {
-        ...editPresetDraft,
-        valorUnitario: Number(editPresetDraft.valorUnitario || 0),
+        cProdServ: editPresetDraft.cProdServ,
+        descripcion: editPresetDraft.descripcion,
       });
       cancelEditPreset();
       await loadPresets();
@@ -393,12 +388,13 @@ export default function ConfiguracionFiscal() {
         <div className="card-body">
           <p className="text-muted small mb-3">
             Números de servicio con conceptos ya armados (clave SAT + descripción) para
-            seleccionarlos rápido al capturar una factura.
+            seleccionarlos rápido al capturar una factura. La unidad y el precio se
+            capturan al armar cada factura.
           </p>
 
           {mostrarAltaPreset && (
             <div className="row g-2 align-items-end mb-3 p-2 border rounded">
-              <div className="col-6 col-md-2">
+              <div className="col-12 col-md-3">
                 <label className="form-label small mb-1">Clave SAT</label>
                 <input
                   className="form-control form-control-sm"
@@ -406,52 +402,15 @@ export default function ConfiguracionFiscal() {
                   onChange={(e) => setNuevoPreset((p) => ({ ...p, cProdServ: e.target.value }))}
                 />
               </div>
-              <div className="col-6 col-md-3">
-                <label className="form-label small mb-1">Descripción SAT</label>
-                <input
-                  className="form-control form-control-sm"
-                  value={nuevoPreset.cProdServDescripcion}
-                  onChange={(e) =>
-                    setNuevoPreset((p) => ({ ...p, cProdServDescripcion: e.target.value }))
-                  }
-                />
-              </div>
-              <div className="col-6 col-md-1">
-                <label className="form-label small mb-1">Clave unidad</label>
-                <input
-                  className="form-control form-control-sm"
-                  value={nuevoPreset.cUnidad}
-                  onChange={(e) => setNuevoPreset((p) => ({ ...p, cUnidad: e.target.value }))}
-                />
-              </div>
-              <div className="col-6 col-md-1">
-                <label className="form-label small mb-1">Unidad</label>
-                <input
-                  className="form-control form-control-sm"
-                  value={nuevoPreset.unidad}
-                  onChange={(e) => setNuevoPreset((p) => ({ ...p, unidad: e.target.value }))}
-                />
-              </div>
-              <div className="col-12 col-md-3">
-                <label className="form-label small mb-1">Descripción del concepto</label>
+              <div className="col-12 col-md-7">
+                <label className="form-label small mb-1">Descripción</label>
                 <input
                   className="form-control form-control-sm"
                   value={nuevoPreset.descripcion}
                   onChange={(e) => setNuevoPreset((p) => ({ ...p, descripcion: e.target.value }))}
                 />
               </div>
-              <div className="col-6 col-md-1">
-                <label className="form-label small mb-1">V. Unit</label>
-                <input
-                  type="number"
-                  className="form-control form-control-sm"
-                  value={nuevoPreset.valorUnitario}
-                  onChange={(e) =>
-                    setNuevoPreset((p) => ({ ...p, valorUnitario: e.target.value }))
-                  }
-                />
-              </div>
-              <div className="col-6 col-md-1 d-grid">
+              <div className="col-12 col-md-2 d-grid">
                 <button
                   className="btn btn-sm btn-danger"
                   onClick={agregarPreset}
@@ -467,19 +426,15 @@ export default function ConfiguracionFiscal() {
             <table className="table table-sm table-bordered align-middle">
               <thead>
                 <tr>
-                  <th>Clave SAT</th>
-                  <th>Descripción SAT</th>
-                  <th>Clave unidad</th>
-                  <th>Unidad</th>
+                  <th style={{ width: 160 }}>Clave SAT</th>
                   <th>Descripción</th>
-                  <th>V. Unit</th>
                   <th style={{ width: 160 }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {presets.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center text-muted">
+                    <td colSpan={3} className="text-center text-muted">
                       Aún no hay conceptos guardados. Agrega el primero.
                     </td>
                   </tr>
@@ -506,48 +461,6 @@ export default function ConfiguracionFiscal() {
                           {editing ? (
                             <input
                               className="form-control form-control-sm"
-                              value={row.cProdServDescripcion}
-                              onChange={(e) =>
-                                setEditPresetDraft((d) => ({
-                                  ...d,
-                                  cProdServDescripcion: e.target.value,
-                                }))
-                              }
-                            />
-                          ) : (
-                            p.cProdServDescripcion || "—"
-                          )}
-                        </td>
-                        <td>
-                          {editing ? (
-                            <input
-                              className="form-control form-control-sm"
-                              value={row.cUnidad}
-                              onChange={(e) =>
-                                setEditPresetDraft((d) => ({ ...d, cUnidad: e.target.value }))
-                              }
-                            />
-                          ) : (
-                            p.cUnidad
-                          )}
-                        </td>
-                        <td>
-                          {editing ? (
-                            <input
-                              className="form-control form-control-sm"
-                              value={row.unidad}
-                              onChange={(e) =>
-                                setEditPresetDraft((d) => ({ ...d, unidad: e.target.value }))
-                              }
-                            />
-                          ) : (
-                            p.unidad
-                          )}
-                        </td>
-                        <td>
-                          {editing ? (
-                            <input
-                              className="form-control form-control-sm"
                               value={row.descripcion}
                               onChange={(e) =>
                                 setEditPresetDraft((d) => ({ ...d, descripcion: e.target.value }))
@@ -555,26 +468,6 @@ export default function ConfiguracionFiscal() {
                             />
                           ) : (
                             p.descripcion
-                          )}
-                        </td>
-                        <td>
-                          {editing ? (
-                            <input
-                              type="number"
-                              className="form-control form-control-sm"
-                              value={row.valorUnitario}
-                              onChange={(e) =>
-                                setEditPresetDraft((d) => ({
-                                  ...d,
-                                  valorUnitario: e.target.value,
-                                }))
-                              }
-                            />
-                          ) : (
-                            Number(p.valorUnitario || 0).toLocaleString("es-MX", {
-                              style: "currency",
-                              currency: "MXN",
-                            })
                           )}
                         </td>
                         <td>
