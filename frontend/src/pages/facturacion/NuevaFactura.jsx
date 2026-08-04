@@ -248,11 +248,14 @@ export default function NuevaFactura() {
 
   const nombreFiscalCliente = (c) => {
     if (!c) return "";
+    // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas/gobierno
+    // no se usan como respaldo porque en registros migrados/viejos pueden
+    // quedar huérfanos con datos que ya no aplican.
     if (c.tipoCliente === "Empresa Privada" || c.tipoCliente === "Empresa Arrendadora") {
-      return c.empresa?.razonSocial || nombreCompleto(c);
+      return c.empresa?.razonSocial || c.nombre || "";
     }
     if (c.tipoCliente === "Empresa Gobierno") {
-      return c.gobierno?.nombreGobierno || nombreCompleto(c);
+      return c.gobierno?.nombreGobierno || c.nombre || "";
     }
     return nombreCompleto(c);
   };

@@ -248,8 +248,12 @@ function buildHtml(vehiculo, asesorOverride = '') {
   const cel = (c.celulares || [])[0] || {};
   const dir = c.direccion || {};
 
+  // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas no se
+  // concatenan porque en registros migrados/viejos pueden quedar huérfanos.
   const nombreCliente = gob.nombreGobierno ||
-    [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ') || '';
+    (c.tipoCliente === 'Particular'
+      ? [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ')
+      : (c.nombre || '')) || '';
   const nombreFiscal = (c.empresa?.razonSocial || '').trim();
   const mostrarNombreFiscal = !!nombreFiscal &&
     nombreFiscal.toLowerCase() !== nombreCliente.trim().toLowerCase();

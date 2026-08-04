@@ -5,6 +5,9 @@ function getNombreCliente(c) {
   if (!c) return "Sin nombre";
   if (c.gobierno?.nombreGobierno) return c.gobierno.nombreGobierno;
   if (c.empresa?.razonSocial) return c.empresa.razonSocial;
+  // apellidoPaterno es de "Particular"; en empresas/gobierno no se concatena
+  // porque en registros migrados/viejos puede quedar huérfano.
+  if (c.tipoCliente && c.tipoCliente !== "Particular") return c.nombre || "Sin nombre";
   return [c.nombre, c.apellidoPaterno].filter(Boolean).join(" ") || "Sin nombre";
 }
 

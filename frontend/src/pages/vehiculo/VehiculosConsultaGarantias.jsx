@@ -152,9 +152,14 @@ export default function VehiculosConsultaGarantias() {
             {rows.map((o) => {
               const c = o.cliente || {};
               const g = o.garantia || {};
+              // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas
+              // no se concatenan porque en registros migrados/viejos pueden
+              // quedar huérfanos.
               const clienteNombre =
                 c.gobierno?.nombreGobierno ||
-                [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") ||
+                (c.tipoCliente === "Particular"
+                  ? [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ")
+                  : c.nombre) ||
                 "";
 
               const tel = (c.telefonos || [])[0] || {};

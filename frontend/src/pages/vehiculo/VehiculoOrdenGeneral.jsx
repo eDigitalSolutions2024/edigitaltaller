@@ -4,6 +4,7 @@ import { closeOrden, restoreOrden, openVentaClientePdf } from "../../api/vehicul
 import http from "../../api/http";
 import { formatFecha } from "../../utils/fechas";
 import { createTicket } from "../../api/tickets";
+import { calcularTotalesOrden } from "../../utils/cajaTotales";
 
 function formatMoney(n) {
   if (n === "" || n === null || n === undefined) return "";
@@ -12,6 +13,43 @@ function formatMoney(n) {
     currency: "MXN",
     minimumFractionDigits: 2,
   }).format(Number(n) || 0);
+}
+
+const TIPO_PAGO_LABELS = {
+  COMPLETO: "Liquida",
+  ABONO: "Abono",
+  ANTICIPO: "Anticipo",
+};
+
+// Descripción del comprobante de un pago con su folio (cada pago trae uno:
+// Nota de Venta, Remisión o Recibo Provisional; ver backend/routes/cajas.js).
+function comprobantePago(p) {
+  if (p.comprobante === "NOTA_VENTA" && p.notaVenta?.numero) {
+    return `Nota de Venta #${p.notaVenta.numero}`;
+  }
+  if (p.comprobante === "REMISION" && p.remision?.numero) {
+    return `Remisión #${p.remision.numero}`;
+  }
+  if (p.reciboProvisional?.numero) {
+    return `Recibo Provisional #${p.reciboProvisional.numero}`;
+  }
+  return "";
+}
+
+function formaPagoDePago(p) {
+  if (p.reciboProvisional?.numero) {
+    const fp = p.reciboProvisional.formaPago || "";
+    return fp === "CHEQUE" && p.reciboProvisional.chequeNumero
+      ? `Cheque #${p.reciboProvisional.chequeNumero}`
+      : fp;
+  }
+  if (p.comprobante === "NOTA_VENTA") {
+    return [p.notaVenta?.tipo, p.notaVenta?.banco].filter(Boolean).join(" - ");
+  }
+  if (p.comprobante === "REMISION") {
+    return p.remision?.tipo || "";
+  }
+  return "";
 }
 
 export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAdmin, esAsesor }) {
@@ -124,18 +162,22 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAd
   const cel = (c.celulares || [])[0] || {};
   const dir = c.direccion || {};
 
-  // Nombre principal por tipo de cliente
+  // Nombre principal por tipo de cliente. apellidoPaterno/apellidoMaterno son
+  // campos exclusivos de "Particular": en clientes de empresa/gobierno no se
+  // usan como respaldo porque en registros migrados o editados antes del fix
+  // en clientes.js pueden traer datos viejos huérfanos (p. ej. el apellido de
+  // un contacto que ya no aplica), y mostrarían basura junto al nombre.
   const nombreCompleto = [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ");
   const nombrePrincipal = esParticular
     ? nombreCompleto
     : esEmpresa
-    ? (emp.razonSocial || nombreCompleto)
-    : (gob.nombreGobierno || nombreCompleto);
+    ? (emp.razonSocial || c.nombre || "")
+    : (gob.nombreGobierno || c.nombre || "");
   const labelNombrePrincipal = esParticular ? "Nombre Cliente" : "Nombre / Razón Social";
 
   // Contacto por tipo de cliente
   const nombreContacto = esEmpresa
-    ? (emp.contacto?.nombre || nombreCompleto)
+    ? (emp.contacto?.nombre || c.nombre || "")
     : esGobierno
     ? (gob.contactoGobierno?.nombre || gob.dependencia?.contacto?.nombre || "")
     : "";
@@ -184,20 +226,12 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAd
 
   const manoObra = orden.manoObra || [];
   const pagos = orden.pagos || [];
+  const descuentos = orden.descuentos || [];
 
-  // --- TOTALES ---
-  const totalConIva = orden.totalConIva || "";
-  const iva = orden.iva || "";
-
-  const totalPagado = pagos.reduce(
-    (acc, p) => acc + Number(p.monto || p.amount || 0),
-    0
-  );
-
-  const restante =
-    totalConIva && !isNaN(totalConIva)
-      ? Number(totalConIva) - totalPagado
-      : "";
+  // --- TOTALES (mismos cálculos que Cajas: nunca se persisten) ---
+  const totales = calcularTotalesOrden(orden);
+  const liquidada = totales.saldoPendiente <= 0;
+  const hayVenta = ventaItems.length > 0;
 
   return (
     <div className="card card-body mb-4">
@@ -410,33 +444,61 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAd
               <th>Código</th>
               <th>M.O. (Hrs)</th>
               <th>Precio Venta (Sin IVA)</th>
+              <th>Importe</th>
               <th>Observaciones</th>
             </tr>
           </thead>
           <tbody>
             {ventaItems.length === 0 && (
               <tr>
-                <td colSpan={7} className="text-center">
+                <td colSpan={8} className="text-center">
                   No hay partidas de venta registradas.
                 </td>
               </tr>
             )}
-            {ventaItems.map((v, idx) => (
-              <tr key={idx}>
-                <td>{v.cant ?? v.cantidad}</td>
-                <td>{v.concepto}</td>
-                <td>{v.refaccion || ""}</td>
-                <td>{v.codigo || ""}</td>
-                <td>{v.horasMO ?? v.horas ?? ""}</td>
-                <td>
-                  {formatMoney(
-                    v.precioVenta ?? v.precioSinIva ?? v.precioUnitario
-                  )}
-                </td>
-                <td>{v.observaciones || v.observInt || ""}</td>
-              </tr>
-            ))}
+            {ventaItems.map((v, idx) => {
+              const precio = v.precioVenta ?? v.precioSinIva ?? v.precioUnitario;
+              const importe = Number(v.cant ?? v.cantidad ?? 0) * Number(precio || 0);
+              return (
+                <tr key={idx}>
+                  <td>{v.cant ?? v.cantidad}</td>
+                  <td>{v.concepto}</td>
+                  <td>{v.refaccion || ""}</td>
+                  <td>{v.codigo || ""}</td>
+                  <td>{v.horasMO ?? v.horas ?? ""}</td>
+                  <td>{formatMoney(precio)}</td>
+                  <td>{formatMoney(importe)}</td>
+                  <td>{v.observaciones || v.observInt || ""}</td>
+                </tr>
+              );
+            })}
           </tbody>
+          {hayVenta && (
+            <tfoot>
+              <tr>
+                <th colSpan={6} className="text-end">Subtotal</th>
+                <th>{formatMoney(totales.subtotal)}</th>
+                <td />
+              </tr>
+              <tr>
+                <th colSpan={6} className="text-end">IVA ({totales.ivaPct}%)</th>
+                <th>{formatMoney(totales.ivaMonto)}</th>
+                <td />
+              </tr>
+              {totales.descuentoMonto > 0 && (
+                <tr>
+                  <th colSpan={6} className="text-end">Descuentos</th>
+                  <th className="text-danger">- {formatMoney(totales.descuentoMonto)}</th>
+                  <td />
+                </tr>
+              )}
+              <tr className="table-light">
+                <th colSpan={6} className="text-end">Total de la Orden</th>
+                <th>{formatMoney(totales.totalOrden)}</th>
+                <td />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
 
@@ -474,147 +536,159 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAd
         </table>
       </div>
 
-      {/* TIPO DE CIERRE */}
-      <h5 className="mt-4 mb-2 text-center">TIPO DE CIERRE</h5>
-      <div className="row mb-3">
-        <div className="col-md-4">
-          <strong>Comprobante:</strong>{" "}
-          {orden.comprobante || orden.tipoComprobante || ""}
+      {/* CUENTA DE LA ORDEN */}
+      <h5 className="mt-4 mb-2 text-center">
+        CUENTA DE LA ORDEN{" "}
+        {hayVenta && (
+          <span className={`badge ${liquidada ? "bg-success" : "bg-danger"}`}>
+            {liquidada ? "Liquidada" : "Pendiente de Pago"}
+          </span>
+        )}
+      </h5>
+      <div className="row g-2 mb-3 text-center">
+        <div className="col-md-3">
+          <div className="border rounded p-2 h-100">
+            <div className="text-muted small">Total de la Orden</div>
+            <div className="fw-bold fs-5">{formatMoney(totales.totalOrden)}</div>
+            {totales.descuentoMonto > 0 && (
+              <div className="small text-danger">
+                Incluye descuento de {formatMoney(totales.descuentoMonto)}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="col-md-4">
-          <strong>Acción:</strong> {orden.accionCierre || ""}
+        <div className="col-md-3">
+          <div className="border rounded p-2 h-100">
+            <div className="text-muted small">Total Abonado</div>
+            <div className="fw-bold fs-5">{formatMoney(totales.totalAbonado)}</div>
+          </div>
         </div>
-        <div className="col-md-4">
-          <strong>CxC:</strong>{" "}
-          {orden.cxcValorActual || orden.cxc || ""}
+        <div className="col-md-3">
+          <div className="border rounded p-2 h-100">
+            <div className="text-muted small">Saldo Pendiente</div>
+            <div className={`fw-bold fs-5 ${liquidada ? "text-success" : "text-danger"}`}>
+              {formatMoney(Math.max(0, totales.saldoPendiente))}
+            </div>
+          </div>
+        </div>
+        <div className="col-md-3">
+          <div className="border rounded p-2 h-100">
+            <div className="text-muted small">Fecha de Cierre</div>
+            <div className="fw-bold fs-5">{formatFecha(orden.fechaCierre) || "—"}</div>
+          </div>
         </div>
       </div>
 
       {/* PAGOS / ABONOS / ANTICIPOS */}
       <h5 className="mt-3 mb-2 text-center">PAGOS / ABONOS / ANTICIPOS</h5>
-      <div className="row mb-2">
-        <div className="col-md-4">
-          <strong>Total a Pagar con IVA:</strong>{" "}
-          {formatMoney(totalConIva)}
-        </div>
-        <div className="col-md-4">
-          <strong>IVA:</strong> {formatMoney(iva)}
-        </div>
-        <div className="col-md-4">
-          <strong>Cantidad Restante:</strong>{" "}
-          {restante !== "" ? formatMoney(restante) : ""}
-        </div>
-      </div>
-
-      {/* DESGLOSE DEL PAGO */}
-      <h6 className="mt-3 mb-2">Desglose del pago</h6>
-      <div className="row g-2 mb-3">
-        <div className="col-md-4">
-          <strong>Cantidad en Pesos:</strong>{" "}
-          {formatMoney(orden.pagoPesos)}
-        </div>
-        <div className="col-md-4">
-          <strong>Transferencia:</strong>{" "}
-          {formatMoney(orden.pagoTransferencia)}
-        </div>
-        <div className="col-md-4">
-          <strong>Cantidad Dólares (Si aplica):</strong>{" "}
-          {orden.pagoDolares || ""}
-        </div>
-
-        <div className="col-md-4">
-          <strong>Cheque:</strong> {formatMoney(orden.pagoCheque)}
-        </div>
-        <div className="col-md-4">
-          <strong>Referencia Cuenta de Pago:</strong>{" "}
-          {orden.referenciaCuentaPago || ""}
-        </div>
-        <div className="col-md-4">
-          <strong>Dólares a Pesos Referencia:</strong>{" "}
-          {orden.tipoCambio || ""}
-        </div>
-
-        <div className="col-md-4">
-          <strong>T. Débito:</strong> {formatMoney(orden.pagoDebito)}
-        </div>
-        <div className="col-md-4">
-          <strong>T. Crédito:</strong> {formatMoney(orden.pagoCredito)}
-        </div>
-        <div className="col-md-4">
-          <strong>Aplicar Varias Formas de Pago:</strong>{" "}
-          {orden.aplicaVariasFormasPago ? "SÍ" : "NO"}
-        </div>
-
-        <div className="col-md-4">
-          <strong>Fecha Cierre (Si aplica):</strong>{" "}
-          {formatFecha(orden.fechaCierre)}
-        </div>
-        <div className="col-md-4">
-          <strong>Descuento:</strong> {formatMoney(orden.descuento)}
-        </div>
-        <div className="col-md-4">
-          <strong>Cambio:</strong> {formatMoney(orden.cambio)}
-        </div>
-
-        <div className="col-md-12">
-          <strong>Notas:</strong>{" "}
-          {orden.notasPago || ""}
-        </div>
-
-        <div className="col-md-12 mt-2">
-          <strong>Total:</strong> {formatMoney(orden.totalPago)}
-        </div>
-      </div>
-
-      {/* LISTA DE PAGOS */}
-      <h6 className="mt-3 mb-2">Pagos ingresados</h6>
       <div className="table-responsive mb-3">
         <table className="table table-sm table-bordered align-middle">
           <thead className="table-light">
             <tr>
               <th>Fecha</th>
-              <th>Forma de pago</th>
+              <th>Tipo</th>
+              <th>Comprobante</th>
+              <th>Forma de Pago</th>
               <th>Monto</th>
               <th>Referencia</th>
               <th>Notas</th>
+              <th>Registró</th>
+              <th>Estatus</th>
             </tr>
           </thead>
           <tbody>
             {pagos.length === 0 && (
               <tr>
-                <td colSpan={5} className="text-center">
+                <td colSpan={9} className="text-center">
                   No hay pagos registrados.
                 </td>
               </tr>
             )}
             {pagos.map((p, idx) => (
-              <tr key={idx}>
+              <tr key={p._id || idx} className={p.cancelado ? "table-danger" : ""}>
                 <td>{formatFecha(p.fecha)}</td>
-                <td>{p.formaPago}</td>
-                <td>{formatMoney(p.monto || p.amount)}</td>
-                <td>{p.referencia}</td>
-                <td>{p.notas}</td>
+                <td>{TIPO_PAGO_LABELS[p.tipoPago] || p.tipoPago || ""}</td>
+                <td>
+                  {comprobantePago(p)}
+                  {p.reciboDolares?.numero && (
+                    <div className="small text-muted">
+                      Recibo de Dólares #{p.reciboDolares.numero}
+                    </div>
+                  )}
+                </td>
+                <td>{formaPagoDePago(p)}</td>
+                <td>
+                  {formatMoney(p.monto)}
+                  {Number(p.montoDolares) > 0 && (
+                    <div className="small text-muted">
+                      USD {Number(p.montoDolares).toFixed(2)} @ {p.tipoCambio}
+                    </div>
+                  )}
+                </td>
+                <td>{p.referencia || ""}</td>
+                <td>{p.notas || p.observaciones || ""}</td>
+                <td>{p.registradoPor || ""}</td>
+                <td>
+                  {p.cancelado ? (
+                    <>
+                      <span className="badge bg-danger">Cancelado</span>
+                      {p.motivoCancelacion && (
+                        <div className="small text-muted">{p.motivoCancelacion}</div>
+                      )}
+                    </>
+                  ) : (
+                    <span className="badge bg-success">Vigente</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {/* ABONOS / ANTICIPOS / DESCUENTOS (placeholder) */}
-      <h6 className="mt-3 mb-2 text-center">ABONOS DE CRÉDITO</h6>
-      <p className="text-center text-muted">
-        (A implementar más adelante, según la definición de abonos en el sistema.)
-      </p>
-
-      <h6 className="mt-3 mb-2 text-center">ANTICIPOS</h6>
-      <p className="text-center text-muted">
-        (A implementar más adelante.)
-      </p>
-
-      <h6 className="mt-3 mb-2 text-center">DESCUENTOS</h6>
-      <p className="text-center text-muted">
-        (A implementar más adelante.)
-      </p>
+      {/* DESCUENTOS */}
+      <h5 className="mt-3 mb-2 text-center">DESCUENTOS</h5>
+      <div className="table-responsive mb-3">
+        <table className="table table-sm table-bordered align-middle">
+          <thead className="table-light">
+            <tr>
+              <th>Fecha</th>
+              <th>Tipo</th>
+              <th>Valor</th>
+              <th>Motivo</th>
+              <th>Aplicado por</th>
+              <th>Estatus</th>
+            </tr>
+          </thead>
+          <tbody>
+            {descuentos.length === 0 && (
+              <tr>
+                <td colSpan={6} className="text-center">
+                  No hay descuentos registrados.
+                </td>
+              </tr>
+            )}
+            {descuentos.map((d, idx) => (
+              <tr key={d._id || idx}>
+                <td>{formatFecha(d.fecha)}</td>
+                <td>{d.tipo === "PORCENTAJE" ? "Porcentaje" : "Monto"}</td>
+                <td>
+                  {d.tipo === "PORCENTAJE"
+                    ? `${Number(d.valor || 0)}%`
+                    : formatMoney(d.valor)}
+                </td>
+                <td>{d.motivo || ""}</td>
+                <td>{d.aplicadoPor || ""}</td>
+                <td>
+                  <span className={`badge ${d.activo !== false ? "bg-success" : "bg-secondary"}`}>
+                    {d.activo !== false ? "Activo" : "Inactivo"}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {/* OBSERVACIONES */}
       <h5 className="mt-4 mb-2 text-center">OBSERVACIONES</h5>

@@ -16,7 +16,7 @@ export default function SoporteLayout() {
       <div className="mb-3">
         {esAdmin ? (
           <>
-            <NavLink to={`${base}/admin`} className={tab}>Panel Admin</NavLink>
+            <NavLink to={`${base}/admin`} end className={tab}>Panel Admin</NavLink>
             <NavLink to={`${base}/admin/historial`} className={tab}>Historial</NavLink>
           </>
         ) : (

@@ -131,9 +131,14 @@ export default function VehiculoConsultaCerradas() {
 
             {rows.map((o) => {
               const c = o.cliente || {};
+              // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas
+              // no se concatenan porque en registros migrados/viejos pueden
+              // quedar huérfanos.
               const clienteNombre =
                 c.gobierno?.nombreGobierno ||
-                [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") ||
+                (c.tipoCliente === "Particular"
+                  ? [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ")
+                  : c.nombre) ||
                 "";
 
               const tel = (c.telefonos || [])[0] || {};

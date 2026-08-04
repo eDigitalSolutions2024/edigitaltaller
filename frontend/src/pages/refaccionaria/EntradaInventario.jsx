@@ -10,6 +10,14 @@ const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 
 const fmtFecha = (iso) => formatFecha(iso) || "—";
 
+// apellidoPaterno/apellidoMaterno son de "Particular"; en empresas no se
+// concatenan porque en registros migrados/viejos pueden quedar huérfanos.
+const nombreClienteOrden = (c) => {
+  if (!c) return "—";
+  if (c.tipoCliente !== "Particular") return c.empresa?.razonSocial || c.nombre || "—";
+  return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") || "—";
+};
+
 // ─── Modal buscar orden de servicio ──────────────────────────────────────────
 function ModalBuscarOrden({ onSelect, onClose }) {
   const [busqueda, setBusqueda] = useState("");
@@ -87,8 +95,7 @@ function ModalBuscarOrden({ onSelect, onClose }) {
           )}
           <div className="row g-3" style={{ opacity: loading ? 0.5 : 1, transition: "opacity 0.15s" }}>
             {ordenes.map((o) => {
-              const cliente = [o.cliente?.nombre, o.cliente?.apellidoPaterno, o.cliente?.apellidoMaterno]
-                .filter(Boolean).join(" ") || o.cliente?.empresa || "—";
+              const cliente = nombreClienteOrden(o.cliente);
               return (
                 <div key={o._id} className="col-12 col-md-6">
                   <div

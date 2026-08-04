@@ -83,7 +83,11 @@ router.get('/', proteger, requiereRol('admin'), async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
 
     const [data, total] = await Promise.all([
-      Ticket.find(q).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+      Ticket.find(q)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .populate('ordenServicio', 'ordenServicio estadoOrden'),
       Ticket.countDocuments(q),
     ]);
 

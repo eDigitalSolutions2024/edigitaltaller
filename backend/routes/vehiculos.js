@@ -9,6 +9,7 @@ const User = require('../models/User');
 const Grupo = require('../models/Grupo');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { normalizarOrdenServicio, regexBusquedaOS } = require('../utils/ordenServicio');
+const { calcularTotalesOrden } = require('../utils/cajaTotales');
 const EntradaInventario = require('../models/EntradaInventario');
 const SalidaInventario  = require('../models/SalidaInventario');
 const AjusteInventario  = require('../models/AjusteInventario');
@@ -418,12 +419,16 @@ router.get('/cliente/:clienteId', async (req, res) => {
 });
 
 // GET /api/vehiculos/ordenes?estado=INGRESO&searchOs=&search=&page=1&limit=10
+// cobranza=pendientes | liquidadas -> órdenes CERRADAS según su saldo (para las
+// pestañas "Pendiente de Pago" y "Liquidadas" de la Consulta General; el saldo
+// no se persiste, así que se calcula aquí y se pagina en memoria).
 router.get('/ordenes', async (req, res) => {
   try {
     const {
       estado = '',
       pendienteCierre,
       incluirGarantias,
+      cobranza = '',
       devueltoPor = '',
       conPendientesSurtir,
       searchOs = '',
@@ -439,7 +444,11 @@ router.get('/ordenes', async (req, res) => {
     // q.$or directamente) para poder combinar varias sin que choquen entre sí.
     const andConditions = [];
 
-    if (pendienteCierre === 'true') {
+    const filtroCobranza = ['pendientes', 'liquidadas'].includes(cobranza) ? cobranza : '';
+
+    if (filtroCobranza) {
+      q.estadoOrden = 'CERRADA';
+    } else if (pendienteCierre === 'true') {
       q.pendienteCierre = true;
     } else if (estado && incluirGarantias === 'true') {
       // Además del estado pedido, se incluyen todas las órdenes de garantía
@@ -521,6 +530,29 @@ router.get('/ordenes', async (req, res) => {
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 10;
     const skip = (pageNum - 1) * limitNum;
+
+    // Con filtro de cobranza el saldo se calcula por orden (no está en la BD),
+    // así que se traen todas las CERRADAS que matchean y se pagina en memoria,
+    // igual que hace GET /api/cajas.
+    if (filtroCobranza) {
+      const ordenes = await Vehiculo.find(q)
+        .sort({ createdAt: -1 })
+        .populate('cliente', POPULATE_CLIENTE)
+        .populate(POPULATE_GRUPO);
+
+      const filtradas = ordenes.filter((orden) => {
+        const liquidada = calcularTotalesOrden(orden).saldoPendiente <= 0;
+        return filtroCobranza === 'liquidadas' ? liquidada : !liquidada;
+      });
+
+      return res.json({
+        ok: true,
+        data: filtradas.slice(skip, skip + limitNum),
+        total: filtradas.length,
+        page: pageNum,
+        limit: limitNum,
+      });
+    }
 
     const [data, total] = await Promise.all([
       Vehiculo.find(q)

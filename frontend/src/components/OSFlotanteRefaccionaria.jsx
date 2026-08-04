@@ -7,6 +7,9 @@ import '../styles/OSFlotante.css';
 function nombreCliente(orden) {
   const c = orden.cliente || {};
   if (c.gobierno?.nombreGobierno) return c.gobierno.nombreGobierno;
+  // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas no se
+  // concatenan porque en registros migrados/viejos pueden quedar huérfanos.
+  if (c.tipoCliente !== 'Particular') return c.nombre || '—';
   return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ') || '—';
 }
 

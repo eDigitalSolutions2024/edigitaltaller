@@ -111,7 +111,12 @@ function buildOrdenHtml(vehiculo, serviciosDocs = []) {
   const tel = (c.telefonos || [])[0] || {};
   const cel = (c.celulares || [])[0] || {};
   const dir = c.direccion || {};
-  const nombreGobierno = gob.nombreGobierno || [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ') || '';
+  // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas no se
+  // concatenan porque en registros migrados/viejos pueden quedar huérfanos.
+  const nombreGobierno = gob.nombreGobierno ||
+    (c.tipoCliente === 'Particular'
+      ? [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ')
+      : (c.nombre || '')) || '';
   const rfc = c.rfc || '';
   const telefonoFijo = [tel.lada, tel.numero].filter(Boolean).join(' ');
   const celular = [cel.lada, cel.numero].filter(Boolean).join(' ');
