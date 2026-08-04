@@ -19,6 +19,22 @@ const ESTADO_LABELS = {
   CANCELADA: "Cancelada",
 };
 
+// Filtro de estado: mutuamente excluyente, se manda como "vista" al backend
+// (ver GET /api/cajas en backend/routes/cajas.js).
+const FILTROS_ESTADO = [
+  { value: "activas", label: "Todas" },
+  { value: "cerradas", label: "Cerradas" },
+  { value: "pendientes", label: "Pendientes de Pago" },
+  { value: "liquidadas", label: "Liquidadas" },
+  { value: "garantias", label: "Garantías" },
+];
+
+const OPCIONES_ORDEN = [
+  { value: "recientes", label: "Más recientes" },
+  { value: "os_asc", label: "Orden de Servicio (ascendente)" },
+  { value: "os_desc", label: "Orden de Servicio (descendente)" },
+];
+
 export default function CajasBuscarOrden() {
   const navigate = useNavigate();
 
@@ -26,7 +42,8 @@ export default function CajasBuscarOrden() {
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
   const [page, setPage] = useState(1);
-  const [vista, setVista] = useState("activas"); // activas | liquidadas | garantias
+  const [vista, setVista] = useState("activas"); // ver FILTROS_ESTADO
+  const [sort, setSort] = useState("recientes"); // ver OPCIONES_ORDEN
 
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -37,7 +54,7 @@ export default function CajasBuscarOrden() {
   // solo un reset de estado, la consulta real se dispara en el efecto de abajo).
   useEffect(() => {
     setPage(1);
-  }, [busqueda, fechaDesde, fechaHasta, vista]);
+  }, [busqueda, fechaDesde, fechaHasta, vista, sort]);
 
   // Búsqueda reactiva: cada cambio espera un momento antes de disparar la
   // consulta, para no pegarle al servidor en cada tecla.
@@ -48,6 +65,7 @@ export default function CajasBuscarOrden() {
         setError("");
         const res = await listOrdenesCaja({
           vista,
+          sort,
           search: busqueda,
           fechaDesde,
           fechaHasta,
@@ -65,9 +83,7 @@ export default function CajasBuscarOrden() {
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busqueda, fechaDesde, fechaHasta, page, vista]);
-
-  const toggleVista = (v) => setVista((actual) => (actual === v ? "activas" : v));
+  }, [busqueda, fechaDesde, fechaHasta, page, vista, sort]);
 
   const irAOrden = (r) => navigate(`/cajas/orden/${r._id}`);
 
@@ -75,54 +91,72 @@ export default function CajasBuscarOrden() {
 
   return (
     <div>
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <h4 className="fw-bold mb-0">Buscar Orden de Servicio</h4>
-        <div className="btn-group">
-          <button
-            type="button"
-            className={`btn btn-sm ${vista === "liquidadas" ? "btn-secondary" : "btn-outline-secondary"}`}
-            onClick={() => toggleVista("liquidadas")}
-          >
-            Órdenes Liquidadas
-          </button>
-          <button
-            type="button"
-            className={`btn btn-sm ${vista === "garantias" ? "btn-info" : "btn-outline-info"}`}
-            onClick={() => toggleVista("garantias")}
-          >
-            Solo Garantías
-          </button>
-        </div>
-      </div>
+      <h4 className="fw-bold mb-4">Buscar Orden de Servicio</h4>
 
-      <div className="row g-2 align-items-end mb-3">
-        <div className="col-md-6">
-          <label className="form-label mb-0">Orden de Servicio, Cliente o Número de Serie</label>
-          <input
-            type="text"
-            className="form-control"
-            placeholder="Escribe para buscar..."
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-          />
-        </div>
-        <div className="col-md-3">
-          <label className="form-label mb-0">Fecha Desde</label>
-          <input
-            type="date"
-            className="form-control"
-            value={fechaDesde}
-            onChange={(e) => setFechaDesde(e.target.value)}
-          />
-        </div>
-        <div className="col-md-3">
-          <label className="form-label mb-0">Fecha Hasta</label>
-          <input
-            type="date"
-            className="form-control"
-            value={fechaHasta}
-            onChange={(e) => setFechaHasta(e.target.value)}
-          />
+      <div className="card mb-3">
+        <div className="card-body">
+          <div className="row g-2 align-items-end mb-3">
+            <div className="col-md-6">
+              <label className="form-label mb-0">Orden de Servicio, Cliente o Número de Serie</label>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="Escribe para buscar..."
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+              />
+            </div>
+            <div className="col-md-3">
+              <label className="form-label mb-0">Fecha Desde</label>
+              <input
+                type="date"
+                className="form-control"
+                value={fechaDesde}
+                onChange={(e) => setFechaDesde(e.target.value)}
+              />
+            </div>
+            <div className="col-md-3">
+              <label className="form-label mb-0">Fecha Hasta</label>
+              <input
+                type="date"
+                className="form-control"
+                value={fechaHasta}
+                onChange={(e) => setFechaHasta(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="row g-2 align-items-end">
+            <div className="col-md-9">
+              <label className="form-label mb-1 d-block">Estado</label>
+              <div className="btn-group flex-wrap" role="group" aria-label="Filtro de estado">
+                {FILTROS_ESTADO.map((f) => (
+                  <button
+                    key={f.value}
+                    type="button"
+                    className={`btn btn-sm ${vista === f.value ? "btn-primary" : "btn-outline-primary"}`}
+                    onClick={() => setVista(f.value)}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="col-md-3">
+              <label className="form-label mb-0">Ordenar por</label>
+              <select
+                className="form-select"
+                value={sort}
+                onChange={(e) => setSort(e.target.value)}
+              >
+                {OPCIONES_ORDEN.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
       </div>
 

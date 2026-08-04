@@ -1,14 +1,26 @@
 // Reporte Diario de Ingresos - Remisiones: replica el formato clásico de 9
 // columnas del reporte en papel del sistema anterior (Venta del Día /
 // Contado / Crédito / Anticipo / Cuentas por Cobrar), en una sola tabla
-// dividida en 4 secciones (Anticipos / Canceladas y pasan a factura / Abonos
-// y liquidaciones / Nueva venta del día), a partir de los datos ya agregados
-// por buildReporteRemisionesDiario en routes/reportes.js.
+// dividida en 4 secciones separadas por bandas grises sin título (Anticipos /
+// Canceladas y pasan a factura / Abonos y liquidaciones / Nueva venta del
+// día), a partir de los datos ya agregados por buildReporteRemisionesDiario
+// en routes/reportes.js. Los montos van en estilo contable como el original:
+// sin símbolo de moneda, negativos entre paréntesis y ceros como "-".
 const puppeteer = require('puppeteer');
 const dayjs = require('dayjs');
+const fs = require('fs');
+const path = require('path');
 require('dayjs/locale/es');
 dayjs.locale('es');
 const { dayjsFecha } = require('../utils/fechas');
+
+let LOGO_DATA_URL = '';
+try {
+  const logoPath = path.join(__dirname, '../../frontend/public/images/logo_servicompactos.png');
+  LOGO_DATA_URL = `data:image/png;base64,${fs.readFileSync(logoPath).toString('base64')}`;
+} catch (e) {
+  console.warn('[reporteRemisionesDiarioPdf] Logo no encontrado:', e.message);
+}
 
 function fmtFechaLarga(iso) {
   return dayjsFecha(iso).format('dddd, D [de] MMMM [de] YYYY');
@@ -18,13 +30,22 @@ function fmtFechaCorta(iso) {
   return dayjsFecha(iso).format('DD/MM/YYYY');
 }
 
+// Sin redondear lo capturado: mínimo 2 decimales y hasta 6 si el monto los
+// trae; solo se limpia el ruido de flotantes más allá de la millonésima.
 function fmtMoney(n) {
-  return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
+  const v = Math.round((Number(n) || 0) * 1e6) / 1e6;
+  const abs = new Intl.NumberFormat('es-MX', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6,
+  }).format(Math.abs(v));
+  return v < 0 ? `(${abs})` : abs;
 }
 
-// Celda de fila: vacía si no aplica (en vez de "$0.00")
+// Celda de fila: vacía si no aplica, "-" si el movimiento existe pero fue de 0
+// (p. ej. la cancelación de una remisión a crédito)
 function fmtCelda(n) {
-  return n === undefined || n === null ? '' : fmtMoney(n);
+  if (n === undefined || n === null) return '';
+  return Number(n) === 0 ? '-' : fmtMoney(n);
 }
 
 // Celda de totales: "-" cuando es cero, igual que el reporte original
@@ -43,36 +64,38 @@ function mismoDia(desde, hasta) {
   return dayjsFecha(desde).format('YYYY-MM-DD') === dayjsFecha(hasta).format('YYYY-MM-DD');
 }
 
-function fila(r) {
+function fila(r, folioDefault) {
   return `
     <tr class="body-style">
-      <td>${r.folio ?? ''}</td>
-      <td>${esc(r.ordenServicio)}</td>
-      <td>${esc(r.cliente)}</td>
+      <td class="cen">${esc(r.folio ?? folioDefault ?? '')}</td>
+      <td class="cen">${esc(r.ordenServicio)}</td>
+      <td class="cliente">${esc(r.cliente)}</td>
       <td class="num">${fmtCelda(r.ventaDia)}</td>
       <td class="num">${fmtCelda(r.ingresoContado)}</td>
       <td class="num">${fmtCelda(r.ingresoCredito)}</td>
       <td class="num">${fmtCelda(r.anticipo)}</td>
       <td class="num">${fmtCelda(r.cuentasPorCobrar)}</td>
-      <td class="obs">${esc(r.notas)}</td>
+      <td class="notas">${esc(r.notas)}</td>
     </tr>`;
 }
 
-function banda(titulo, filas) {
+// Sección sin título, precedida por una banda gris como en el reporte original.
+// Los anticipos no tienen folio de remisión: se marcan "ANT" como en papel.
+function banda(filas, folioDefault) {
   if (!filas.length) return '';
   return `
-    <tr class="banda-header"><td colspan="9">${titulo}</td></tr>
-    ${filas.map(fila).join('')}`;
+    <tr class="sep"><td colspan="9"></td></tr>
+    ${filas.map((r) => fila(r, folioDefault)).join('')}`;
 }
 
 function buildHtml(data, desde, hasta) {
   const { anticipos = [], canceladas = [], abonos = [], nuevaVenta = [], totales = {} } = data;
 
   const cuerpo = [
-    banda('Anticipos', anticipos),
-    banda('Canceladas y pasan a factura', canceladas),
-    banda('Abonos y liquidaciones', abonos),
-    banda('Nueva venta del día', nuevaVenta),
+    banda(anticipos, 'ANT'),
+    banda(canceladas),
+    banda(abonos),
+    banda(nuevaVenta),
   ].join('');
 
   const sinDatos = !anticipos.length && !canceladas.length && !abonos.length && !nuevaVenta.length;
@@ -87,55 +110,62 @@ function buildHtml(data, desde, hasta) {
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: Arial, sans-serif; font-size: 10pt; color: #000; padding: 0 0 20mm; }
+    body { font-family: Arial, sans-serif; font-size: 9pt; color: #000; padding-bottom: 12mm; }
 
-    /* ── TÍTULO ── */
-    .titulo-central { text-align: center; margin-bottom: 14px; }
-    .titulo { font-size: 14pt; font-weight: bold; }
-    .subtitulo { font-size: 11pt; margin-top: 2px; }
+    /* ── LOGO (solo primera hoja) ── */
+    .marca { width: fit-content; text-align: center; margin-bottom: 6px; }
+    .marca img { height: 12mm; display: block; margin: 0 auto; }
+    .marca .matriz{ 
+      font-size: 10pt;
+      letter-spacing: 1px;
+      margin-top: 3px;
+      font-style: italic;
+      background: #b8b8b8;
+      }
+    .marca-txt { 
+      font-size: 13pt; 
+      font-weight: bold; 
+      color: #1f4e79; 
+      }
 
     /* ── TABLA ── */
-    table.data { 
-      width: 100%; 
-      border-collapse: collapse; 
-      margin-bottom: 10px; 
-      border: 1px solid #555;
-    
+    table.data { width: 100%; border-collapse: collapse; }
+    table.data th, table.data td { border: 1px solid #666; padding: 2px 4px; }
+    table.data tr { page-break-inside: avoid; }
+
+    thead .fecha th { font-size: 12pt; font-weight: bold; text-align: center; padding: 4px; }
+    thead .cols th {
+      font-size: 8.5pt;
+      font-weight: bold;
+      text-align: center;
+      vertical-align: middle;
+      padding: 2px 3px;
     }
 
-    table.data th {
-      font-size: 8pt;
-      font-weight: bold;
-      border: 1px solid #555;
-      padding: 3px 4px;
-      text-align: left;
-    }
-    table.data td { font-size: 8.5pt; padding: 3px 4px; vertical-align: top; }
-    table.data .num { text-align: right; white-space: nowrap; }
-    table.data .obs { width: 20%; }
-    .body-style td { border: 1px solid #35353590; }
+    .c-folio { width: 6%; }
+    .c-orden { width: 7%; }
+    .c-cliente { width: 30%; }
+    .c-num { width: 8.5%; }
+    .c-notas { width: 13%; }
 
-    .banda-header td {
-      font-weight: bold;
-      font-size: 9.5pt;
-      background: #dcdcdc;
-      padding: 4px 6px;
-    }
+    td.cen { text-align: center; }
+    td.num { text-align: right; white-space: nowrap; }
+    td.cliente { text-transform: uppercase; }
+    td.notas { font-size: 8pt; text-align: center; text-transform: uppercase; }
+
+    tr.sep td { background: #b8b8b8; height: 7px; padding: 0; }
 
     /* ── TOTALES ── */
-    table.totales { width: 100%; border-collapse: collapse; margin-top: 8px; }
-    table.totales td { font-size: 9pt; padding: 4px 6px; border-top: 2px solid #000; }
-    table.totales .num { text-align: right; white-space: nowrap; }
-    table.totales .label { font-weight: bold; }
-    .total-ingreso {
-      display: flex;
-      justify-content: space-between;
-      margin-top: 6px;
-      padding: 5px 6px;
-      background: #dcdcdc;
-      font-size: 10.5pt;
+    .fila-totales td { font-weight: bold; }
+    .fila-totales .label { text-align: center; font-size: 10pt; }
+    .fila-total-ingreso td.vacio { border: none; }
+    .fila-total-ingreso .ti-label {
       font-weight: bold;
+      font-size: 10pt;
+      text-align: center;
+      border: 2px solid #000;
     }
+    .fila-total-ingreso .ti-valor { font-weight: bold; font-size: 10pt; border: 2px solid #000; }
 
     /* ── PIE ── */
     .pie {
@@ -155,48 +185,48 @@ function buildHtml(data, desde, hasta) {
 </head>
 <body>
 
-  <div class="titulo-central">
-    <div class="titulo">Reporte diario de ingresos</div>
-    <div class="subtitulo">${esc(subtitulo)}</div>
+  <div class="marca">
+    ${LOGO_DATA_URL ? `<img src="${LOGO_DATA_URL}" />` : '<span class="marca-txt">Servi compactos</span>'}
+    <div class="matriz">Matriz</div>
   </div>
 
   <table class="data">
     <thead>
-      <tr>
-        <th>No. Rem</th>
-        <th>No. Orden</th>
-        <th>Nombre del cliente</th>
-        <th class="num">Venta del día</th>
-        <th class="num">Ingreso de contado</th>
-        <th class="num">Ingreso de crédito</th>
-        <th class="num">Anticipo</th>
-        <th class="num">Cuentas por cobrar</th>
-        <th class="obs">Notas</th>
+      <tr class="fecha"><th colspan="9">${esc(subtitulo)}</th></tr>
+      <tr class="cols">
+        <th class="c-folio">No.<br>Rem</th>
+        <th class="c-orden">No.<br>Orden</th>
+        <th class="c-cliente">Nombre del cliente</th>
+        <th class="c-num">Venta del<br>día</th>
+        <th class="c-num">Ingreso de<br>contado</th>
+        <th class="c-num">Ingreso de<br>crédito</th>
+        <th class="c-num">Anticipo</th>
+        <th class="c-num">Cuentas<br>por cobrar</th>
+        <th class="c-notas">Notas</th>
       </tr>
     </thead>
     <tbody>
-      ${cuerpo || ''}
+      ${cuerpo}
+      ${cuerpo ? '<tr class="sep"><td colspan="9"></td></tr>' : ''}
+      <tr class="fila-totales">
+        <td colspan="3" class="label">TOTALES</td>
+        <td class="num">${fmtTotal(totales.totalVentaDia)}</td>
+        <td class="num">${fmtTotal(totales.totalContado)}</td>
+        <td class="num">${fmtTotal(totales.totalCredito)}</td>
+        <td class="num">${fmtTotal(totales.totalAnticipo)}</td>
+        <td class="num">${fmtTotal(totales.totalPorCobrar)}</td>
+        <td></td>
+      </tr>
+      <tr class="fila-total-ingreso">
+        <td colspan="3" class="vacio"></td>
+        <td colspan="2" class="ti-label">TOTAL INGRESO</td>
+        <td colspan="3" class="num ti-valor">${fmtMoney(totales.totalIngreso)}</td>
+        <td class="vacio"></td>
+      </tr>
     </tbody>
   </table>
 
-  ${sinDatos ? '<p style="font-size:9pt;">No se encontraron movimientos de Remisiones en el período seleccionado.</p>' : ''}
-
-  <table class="totales">
-    <tr>
-      <td class="label" colspan="3">TOTALES</td>
-      <td class="num">${fmtTotal(totales.totalVentaDia)}</td>
-      <td class="num">${fmtTotal(totales.totalContado)}</td>
-      <td class="num">${fmtTotal(totales.totalCredito)}</td>
-      <td class="num">${fmtTotal(totales.totalAnticipo)}</td>
-      <td class="num">${fmtTotal(totales.totalPorCobrar)}</td>
-      <td></td>
-    </tr>
-  </table>
-
-  <div class="total-ingreso">
-    <span>TOTAL INGRESO</span>
-    <span>${fmtMoney(totales.totalIngreso)}</span>
-  </div>
+  ${sinDatos ? '<p style="font-size:9pt; margin-top:6px;">No se encontraron movimientos de Remisiones en el período seleccionado.</p>' : ''}
 
   <div class="pie">
     <span>${fmtFechaLarga(new Date().toISOString())}</span>

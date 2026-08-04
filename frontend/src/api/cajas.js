@@ -4,7 +4,8 @@ const API = process.env.REACT_APP_API_URL || "http://localhost:8010";
 
 // Lista de órdenes para Cajas: todas las órdenes sin importar su estadoOrden,
 // salvo las canceladas y las ya liquidadas (ver backend/routes/cajas.js).
-// params.vista: "activas" (default) | "liquidadas" | "garantias".
+// params.vista: "activas" (default) | "cerradas" | "liquidadas" | "pendientes" | "garantias".
+// params.sort: "recientes" (default) | "os_asc" | "os_desc".
 export const listOrdenesCaja = (params) =>
   http.get("/cajas", { params });
 
