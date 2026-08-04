@@ -80,6 +80,11 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
     // Las órdenes del cliente vienen sin populate: usamos el cliente seleccionado
     const obj = c && typeof c === "object" ? c : cliente;
     if (!obj) return "Sin cliente";
+    // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas no se
+    // concatenan porque en registros migrados/viejos pueden quedar huérfanos.
+    if (obj.tipoCliente && obj.tipoCliente !== "Particular") {
+      return obj.gobierno?.nombreGobierno || obj.nombre || "Sin nombre";
+    }
     return (
       obj.gobierno?.nombreGobierno ||
       [obj.nombre, obj.apellidoPaterno, obj.apellidoMaterno].filter(Boolean).join(" ") ||

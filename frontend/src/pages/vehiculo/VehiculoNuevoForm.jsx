@@ -69,6 +69,11 @@ function formatDateForInput(value) {
 function nombreClienteGarage(c) {
   if (!c) return "";
   if (c.gobierno?.nombreGobierno) return c.gobierno.nombreGobierno;
+  // apellidoPaterno es de "Particular"; en empresas/gobierno no se concatena
+  // porque en registros migrados/viejos puede quedar huérfano.
+  if (c.tipoCliente && c.tipoCliente !== "Particular") {
+    return c.nombre || c.empresa?.contacto?.nombre || "";
+  }
   return (
     [c.nombre, c.apellidoPaterno].filter(Boolean).join(" ") ||
     c.empresa?.contacto?.nombre ||

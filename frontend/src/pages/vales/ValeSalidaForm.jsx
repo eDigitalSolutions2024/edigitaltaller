@@ -28,8 +28,13 @@ function fmtFechaHora(d) {
 
 function nombreCliente(c) {
   if (!c) return '';
-  if (c.tipoCliente === 'Empresa') return c.empresa?.razonSocial || c.empresa?.contacto?.nombre || '';
-  if (c.tipoCliente === 'Gobierno') return c.gobierno?.nombreGobierno || '';
+  // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas/gobierno
+  // no se concatenan porque en registros migrados/viejos pueden quedar
+  // huérfanos con datos que ya no aplican.
+  if (c.tipoCliente === 'Empresa Privada' || c.tipoCliente === 'Empresa Arrendadora') {
+    return c.empresa?.razonSocial || c.empresa?.contacto?.nombre || c.nombre || '';
+  }
+  if (c.tipoCliente === 'Empresa Gobierno') return c.gobierno?.nombreGobierno || c.nombre || '';
   return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ');
 }
 

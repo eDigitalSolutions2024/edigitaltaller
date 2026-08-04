@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import {
   TIPOS_PROBLEMA_OPCIONES,
   ESTADO_TICKET_BADGE,
@@ -7,6 +6,7 @@ import {
   tipoProblemaLabel,
   listTickets,
 } from '../../api/tickets';
+import OrdenServicioTicketLink from '../../components/OrdenServicioTicketLink';
 
 const PAGE_SIZE = 20;
 
@@ -134,11 +134,7 @@ export default function SoporteAdminHistorial() {
                   <td>{tipoProblemaLabel(t.tipoProblema)}</td>
                   <td>{t.detalle}</td>
                   <td className="text-center">
-                    {t.ordenServicio ? (
-                      <Link to={`/vehiculo/orden/${t.ordenServicio}?tab=general`}>
-                        {t.folioOrdenServicio || 'Ver orden'}
-                      </Link>
-                    ) : '—'}
+                    <OrdenServicioTicketLink ticket={t} />
                   </td>
                   <td className="text-center">
                     <span className={`badge ${ESTADO_TICKET_BADGE[t.estado] || 'bg-secondary'}`}>

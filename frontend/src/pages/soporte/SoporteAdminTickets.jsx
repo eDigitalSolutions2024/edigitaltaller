@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { getUser } from '../../auth';
 import {
   ESTADO_TICKET_BADGE,
@@ -8,6 +7,7 @@ import {
   listTickets,
   cambiarEstadoTicket,
 } from '../../api/tickets';
+import OrdenServicioTicketLink from '../../components/OrdenServicioTicketLink';
 
 const LIMIT = 10;
 const ESTADOS_ACTIVOS = 'PENDIENTE,EN_PROCESO';
@@ -124,11 +124,7 @@ export default function SoporteAdminTickets() {
                 <td>{tipoProblemaLabel(t.tipoProblema)}</td>
                 <td>{t.detalle}</td>
                 <td className="text-center">
-                  {t.ordenServicio ? (
-                    <Link to={`/vehiculo/orden/${t.ordenServicio}?tab=general`}>
-                      {t.folioOrdenServicio || 'Ver orden'}
-                    </Link>
-                  ) : '—'}
+                  <OrdenServicioTicketLink ticket={t} />
                 </td>
                 <td className="text-center">
                   <span className={`badge ${ESTADO_TICKET_BADGE[t.estado] || 'bg-secondary'}`}>

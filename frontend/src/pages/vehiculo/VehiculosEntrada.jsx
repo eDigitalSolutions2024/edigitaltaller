@@ -8,6 +8,19 @@ import GarageModal from "./GarageModal";
 import GarantiaModal from "./GarantiaModal";
 import { getUser } from "../../auth";
 
+// apellidoPaterno/apellidoMaterno son de "Particular"; en empresas no se
+// concatenan porque en registros migrados/viejos pueden quedar huérfanos.
+function nombreClienteBusqueda(c) {
+  if (c.tipoCliente && c.tipoCliente !== "Particular") {
+    return c.gobierno?.nombreGobierno || c.nombre || "Sin nombre";
+  }
+  return (
+    c.gobierno?.nombreGobierno ||
+    [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") ||
+    "Sin nombre"
+  );
+}
+
 export default function VehiculoEntrada() {
   // El botón de Garantía está disponible para admins y asesores de servicio
   const puedeSolicitarGarantia = ["admin", "asesor_servicio"].includes(getUser()?.role);
@@ -90,12 +103,7 @@ export default function VehiculoEntrada() {
     setGarantiaInfo(null);
     setSinVehiculo(false);
 
-    const nombre =
-      cliente.gobierno?.nombreGobierno ||
-      [cliente.nombre, cliente.apellidoPaterno, cliente.apellidoMaterno].filter(Boolean).join(" ") ||
-      "Sin nombre";
-
-    setQ(nombre);
+    setQ(nombreClienteBusqueda(cliente));
   };
 
   const handleNuevoCarro = () => {
@@ -196,10 +204,7 @@ export default function VehiculoEntrada() {
                 style={{ maxHeight: "260px", overflowY: "auto" }}
               >
                 {filtrados.map((c) => {
-                  const nombre =
-                    c.gobierno?.nombreGobierno ||
-                    [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") ||
-                    "Sin nombre";
+                  const nombre = nombreClienteBusqueda(c);
 
                   const isActive =
                     clienteSeleccionado &&
@@ -244,9 +249,7 @@ export default function VehiculoEntrada() {
             <div className="mt-3">
               <p className="mb-2">
                 <strong>Cliente Seleccionado: </strong>
-                {clienteSeleccionado.gobierno?.nombreGobierno ||
-                  [clienteSeleccionado.nombre, clienteSeleccionado.apellidoPaterno].filter(Boolean).join(" ") ||
-                  "Sin nombre"}
+                {nombreClienteBusqueda(clienteSeleccionado)}
               </p>
 
               <button

@@ -7,6 +7,14 @@ import { formatFecha } from "../../utils/fechas";
 
 const fmtFechaLarga = (iso) => formatFecha(iso, { dateStyle: "medium" }) || "—";
 
+// apellidoPaterno/apellidoMaterno son de "Particular"; en empresas no se
+// concatenan porque en registros migrados/viejos pueden quedar huérfanos.
+const nombreClienteOrden = (c) => {
+  if (!c) return "—";
+  if (c.tipoCliente !== "Particular") return c.empresa?.razonSocial || c.nombre || "—";
+  return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") || "—";
+};
+
 const API    = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 const SERVER = API.replace(/\/api$/, "");
 
@@ -396,8 +404,7 @@ function ModalBuscarOrdenEditar({ onSelect, onClose }) {
   }, [busqueda]); // eslint-disable-line
 
   const seleccionar = (orden) => {
-    const cliente = [orden.cliente?.nombre, orden.cliente?.apellidoPaterno, orden.cliente?.apellidoMaterno]
-      .filter(Boolean).join(" ") || orden.cliente?.empresa || "—";
+    const cliente = nombreClienteOrden(orden.cliente);
     onSelect({
       ordenId:       orden._id,
       numeroOrden:   orden.ordenServicio || "",
@@ -431,8 +438,7 @@ function ModalBuscarOrdenEditar({ onSelect, onClose }) {
           {!loading && ordenes.length === 0 && <p className="text-center text-muted py-3">No se encontraron órdenes.</p>}
           <div className="row g-3" style={{ opacity: loading ? 0.5 : 1, transition: "opacity 0.15s" }}>
             {ordenes.map((o) => {
-              const cliente = [o.cliente?.nombre, o.cliente?.apellidoPaterno, o.cliente?.apellidoMaterno]
-                .filter(Boolean).join(" ") || o.cliente?.empresa || "—";
+              const cliente = nombreClienteOrden(o.cliente);
               return (
                 <div key={o._id} className="col-12 col-md-6">
                   <div className="card h-100 border" onClick={() => seleccionar(o)}

@@ -36,16 +36,23 @@ function buildDateFilter(desde, hasta) {
 // el Nombre Gobierno y para particulares el nombre completo. En clientes
 // migrados del sistema viejo la raíz `nombre` trae duplicada la razón social;
 // en ese caso el contacto real vive en empresa.contacto.nombre.
+// apellidoPaterno/apellidoMaterno son campos exclusivos de "Particular": en
+// clientes de empresa/gobierno migrados (o editados antes del fix en
+// clientes.js que los limpia al guardar) pueden quedar huérfanos con datos
+// viejos, así que aquí NUNCA se concatenan fuera de la rama Particular para
+// no mostrar basura tipo "Empresa Apellido Apellido" en los reportes.
 function nombreCliente(c) {
   if (!c) return '';
-  const completo = [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ');
-  if (c.tipoCliente === 'Empresa Gobierno') return c.gobierno?.nombreGobierno || completo;
-  if (c.tipoCliente === 'Empresa Privada' || c.tipoCliente === 'Empresa Arrendadora') {
-    const razonSocial = c.empresa?.razonSocial || '';
-    if (completo && completo !== razonSocial) return completo;
-    return c.empresa?.contacto?.nombre || completo || razonSocial;
+  if (c.tipoCliente === 'Empresa Gobierno') {
+    return c.gobierno?.nombreGobierno || c.nombre || '';
   }
-  return completo;
+  if (c.tipoCliente === 'Empresa Privada' || c.tipoCliente === 'Empresa Arrendadora') {
+    const nombreRaiz = (c.nombre || '').trim();
+    const razonSocial = c.empresa?.razonSocial || '';
+    if (nombreRaiz && nombreRaiz !== razonSocial) return nombreRaiz;
+    return c.empresa?.contacto?.nombre || nombreRaiz || razonSocial;
+  }
+  return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ');
 }
 
 function telefonoCliente(c) {

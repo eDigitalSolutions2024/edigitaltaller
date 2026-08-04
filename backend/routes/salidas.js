@@ -215,13 +215,17 @@ router.get('/ordenes', async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(parseInt(limit, 10) || 100)
       .select({ ordenServicio: 1, marca: 1, modelo: 1, placas: 1, fechaRecepcion: 1, estadoOrden: 1, cliente: 1 })
-      .populate('cliente', 'nombre apellidoPaterno apellidoMaterno gobierno');
+      .populate('cliente', 'nombre apellidoPaterno apellidoMaterno tipoCliente gobierno');
 
     console.log('GET /salidas/ordenes -> encontrados =', docs.length);
 
     const data = docs.map(v => {
       const c = v.cliente || {};
-      const cliente = c.gobierno?.nombreGobierno || [c.nombre, c.apellidoPaterno].filter(Boolean).join(' ') || '';
+      // apellidoPaterno es de "Particular"; en empresas/gobierno no se
+      // concatena porque en registros migrados/viejos puede quedar huérfano.
+      const cliente = c.gobierno?.nombreGobierno ||
+        (c.tipoCliente === 'Particular' ? [c.nombre, c.apellidoPaterno].filter(Boolean).join(' ') : c.nombre) ||
+        '';
       const descVeh = [v.marca, v.modelo].filter(Boolean).join(' / ');
       const placas  = v.placas ? ` - ${v.placas}` : '';
       return {

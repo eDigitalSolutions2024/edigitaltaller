@@ -13,7 +13,16 @@ const TABS = [
   { key: "PENDIENTE_SURTIR",              label: "PENDIENTE SURTIR" },
   { key: "REPARACION_EN_CURSO",           label: "REPARACIÓN EN CURSO" },
   { key: "PENDIENTE_CIERRE",              label: "PENDIENTE DE CIERRE" },
+  // Órdenes cerradas según su saldo (calculado en el backend con cobranza=)
+  { key: "PENDIENTE_PAGO",                label: "PENDIENTE DE PAGO" },
+  { key: "LIQUIDADAS",                    label: "LIQUIDADAS" },
 ];
+
+// Tabs que no filtran por estadoOrden directo, sino por saldo de cobranza
+const COBRANZA_MAP = {
+  PENDIENTE_PAGO: "pendientes",
+  LIQUIDADAS: "liquidadas",
+};
 
 const ESTADO_LABELS = {
   INGRESO:                        "Ingreso",
@@ -88,6 +97,8 @@ export default function VehiculosConsultaOrdenes() {
       const params =
         tab === "PENDIENTE_CIERRE"
           ? { pendienteCierre: true, searchOs, search, page, limit }
+          : COBRANZA_MAP[tab]
+          ? { cobranza: COBRANZA_MAP[tab], searchOs, search, page, limit }
           : { estado: tab, searchOs, search, page, limit };
 
       const res = await listOrdenesServicio(params);
@@ -369,9 +380,11 @@ export default function VehiculosConsultaOrdenes() {
       <td className="text-center">{r.ordenServicio || "-"}</td>
       <td>
         {r.cliente?.gobierno?.nombreGobierno ||
-          [r.cliente?.nombre, r.cliente?.apellidoPaterno, r.cliente?.apellidoMaterno]
-            .filter(Boolean)
-            .join(" ") ||
+          (r.cliente?.tipoCliente === "Particular"
+            ? [r.cliente?.nombre, r.cliente?.apellidoPaterno, r.cliente?.apellidoMaterno]
+                .filter(Boolean)
+                .join(" ")
+            : r.cliente?.nombre) ||
           "-"}
       </td>
       <td>

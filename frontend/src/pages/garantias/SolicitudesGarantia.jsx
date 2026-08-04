@@ -39,6 +39,11 @@ function formatFecha(value) {
 
 function nombreCliente(c) {
   if (!c) return "Sin cliente";
+  // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas no se
+  // concatenan porque en registros migrados/viejos pueden quedar huérfanos.
+  if (c.tipoCliente && c.tipoCliente !== "Particular") {
+    return c.gobierno?.nombreGobierno || c.nombre || "Sin nombre";
+  }
   return (
     c.gobierno?.nombreGobierno ||
     [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") ||
