@@ -95,7 +95,10 @@
       "Bash(node ./_tmp_test_cancel.js)",
       "Bash(sed -i 's|const orden = await Vehiculo.create\\({\\\\n    ordenServicio: \"OS-9001\",|X|' _tmp_test_cancel.js)",
       "Bash(perl -0pi -e 's/\\(ordenServicio: \"OS-900[12]\",\\)/$1\\\\n    cliente: new mongoose.Types.ObjectId\\(\\),/g' _tmp_test_cancel.js)",
-      "Bash(node ./_tmp_test_multi.js)"
+      "Bash(node ./_tmp_test_multi.js)",
+      "Bash(node /tmp/claude-1000/-home-GDH-Escritorio-EdigitalTaller-edigitaltaller/59f2ed93-5b41-4ebe-84e1-b68dd039944b/scratchpad/genRemisiones.js)",
+      "Bash(pdftoppm -png -r 100 remisiones_prueba.pdf pagina)",
+      "Bash(node genRemisiones.js)"
     ]
   }
 }

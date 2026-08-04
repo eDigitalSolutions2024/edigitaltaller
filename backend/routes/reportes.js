@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const router = express.Router();
 const Vehiculo = require('../models/Vehiculo');
 const Empleado = require('../models/Empleado');
+const FacturaCfdi = require('../models/FacturaCfdi');
 const { streamReporteOriginalesPdf } = require('../service/reporteOriginalesPdf');
 const { streamReporteVentasAsesoresPdf } = require('../service/reporteVentasAsesoresPdf');
 const { streamReporteOrdenesAbiertasPdf } = require('../service/reporteOrdenesAbiertasPdf');
@@ -30,11 +31,21 @@ function buildDateFilter(desde, hasta) {
   };
 }
 
+// Nombre "principal" capturado en Alta de Clientes: para empresas es el campo
+// raíz `nombre` (Nombre Contacto Empresa/Arrendadora), para Empresa Gobierno
+// el Nombre Gobierno y para particulares el nombre completo. En clientes
+// migrados del sistema viejo la raíz `nombre` trae duplicada la razón social;
+// en ese caso el contacto real vive en empresa.contacto.nombre.
 function nombreCliente(c) {
   if (!c) return '';
-  if (c.tipoCliente === 'Empresa') return c.empresa || '';
-  if (c.tipoCliente === 'Gobierno') return c.gobierno?.nombreGobierno || '';
-  return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ');
+  const completo = [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ');
+  if (c.tipoCliente === 'Empresa Gobierno') return c.gobierno?.nombreGobierno || completo;
+  if (c.tipoCliente === 'Empresa Privada' || c.tipoCliente === 'Empresa Arrendadora') {
+    const razonSocial = c.empresa?.razonSocial || '';
+    if (completo && completo !== razonSocial) return completo;
+    return c.empresa?.contacto?.nombre || completo || razonSocial;
+  }
+  return completo;
 }
 
 function telefonoCliente(c) {
@@ -535,6 +546,9 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
   const canceladas = [];
   const abonos = [];
   const nuevaVenta = [];
+  // Filas de cancelación pendientes de completar con el folio de la factura
+  // a la que pasó la remisión (se resuelve en bloque al final)
+  const filasCancel = [];
 
   let totalVentaDia = 0;
   let totalContado = 0;
@@ -566,16 +580,19 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
       if (p.remision?.tipo === 'Cancelada') {
         totalVentaDia -= p.monto;
         totalPorCobrar -= p.monto;
-        if (tieneVentaEnRango) {
-          nuevaVenta.push({ ...base, cliente: 'SE CANCELA REMISIÓN Y PASA A FACTURA' });
-        } else {
-          canceladas.push({
-            ...base,
-            cliente: 'SE CANCELA REMISIÓN Y PASA A FACTURA',
-            ventaDia: -p.monto,
-            cuentasPorCobrar: -p.monto,
-          });
-        }
+        // La leyenda de la fila ya dice que se canceló: no repetirla en Notas
+        const notasCancel = /se cancela/i.test(base.notas) ? '' : base.notas;
+        const filaCancel = tieneVentaEnRango
+          ? { ...base, cliente: 'SE CANCELA REMISIÓN Y PASA A FACTURA', notas: notasCancel }
+          : {
+              ...base,
+              cliente: 'SE CANCELA REMISIÓN Y PASA A FACTURA',
+              notas: notasCancel,
+              ventaDia: -p.monto,
+              cuentasPorCobrar: -p.monto,
+            };
+        (tieneVentaEnRango ? nuevaVenta : canceladas).push(filaCancel);
+        filasCancel.push({ fila: filaCancel, vehiculoId: String(o._id) });
         continue;
       }
 
@@ -602,6 +619,33 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
         totalContado += p.monto;
         totalPorCobrar += porCobrar;
       }
+    }
+  }
+
+  // "SE CANCELA REMISIÓN Y PASA A FACTURA A64739": la leyenda incluye el folio
+  // (serie+folio) del CFDI vigente de esa orden, igual que el reporte original.
+  if (filasCancel.length) {
+    const ids = [...new Set(filasCancel.map((f) => f.vehiculoId))];
+    const facturas = await FacturaCfdi.find({
+      tipoFactura: 'factura',
+      estatus: 'generada',
+      $or: [{ 'orden.vehiculoId': { $in: ids } }, { 'ordenes.vehiculoId': { $in: ids } }],
+    })
+      .select('serie folio fecha orden ordenes')
+      .sort({ fecha: 1 })
+      .lean();
+
+    // fecha ascendente: si la orden se refacturó, prevalece el CFDI más reciente
+    const folioPorVehiculo = new Map();
+    for (const f of facturas) {
+      const folioCfdi = `${f.serie || ''}${f.folio || ''}`;
+      if (!folioCfdi) continue;
+      const vids = [f.orden?.vehiculoId, ...(f.ordenes || []).map((x) => x.vehiculoId)];
+      for (const vid of vids) if (vid) folioPorVehiculo.set(String(vid), folioCfdi);
+    }
+    for (const { fila, vehiculoId } of filasCancel) {
+      const folioCfdi = folioPorVehiculo.get(vehiculoId);
+      if (folioCfdi) fila.cliente += ` ${folioCfdi}`;
     }
   }
 

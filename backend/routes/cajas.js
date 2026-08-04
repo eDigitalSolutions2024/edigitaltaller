@@ -49,10 +49,31 @@ async function sincronizarFechaPagadaRemisiones(vehiculo, fecha = new Date()) {
 // /vehiculos/ordenes (que Cajas usaba antes), aquí se listan las órdenes sin
 // importar su estadoOrden, porque un cobro puede llegar en cualquier etapa;
 // solo se ocultan las canceladas y las que ya quedaron liquidadas.
-// vista=activas (default) -> todo excepto CANCELADA y ya liquidadas
+// vista=activas (default) -> todo excepto CANCELADA y ya liquidadas (incluye
+//                              órdenes abiertas y cerradas con saldo pendiente)
+// vista=cerradas           -> solo CERRADA, sin importar el saldo
 // vista=liquidadas         -> solo CERRADA con saldo pendiente <= 0
+// vista=pendientes         -> solo CERRADA con saldo pendiente > 0
 // vista=garantias          -> solo órdenes de garantía, sin filtrar por liquidada
 //                              (una garantía cerrada sigue siendo relevante para Cajas)
+// sort=recientes (default) -> por fecha de creación descendente
+// sort=os_asc / os_desc    -> por folio de Orden de Servicio
+const VISTAS_SOLO_CERRADA = ['cerradas', 'liquidadas', 'pendientes'];
+
+// El folio (ordenServicio) es LETRAS-NÚMERO (ver utils/ordenServicio.js) y se
+// captura a mano, así que un sort de Mongo por string ordenaría "P-10" antes
+// que "P-9"; se ordena en memoria comparando letras y número por separado.
+function compararOrdenServicio(a, b) {
+  const partes = (os) => {
+    const m = String(os || '').match(/^([A-Za-z]+)-?(\d+)$/);
+    return m ? { letras: m[1].toUpperCase(), numero: parseInt(m[2], 10) } : { letras: String(os || '').toUpperCase(), numero: 0 };
+  };
+  const pa = partes(a);
+  const pb = partes(b);
+  if (pa.letras !== pb.letras) return pa.letras.localeCompare(pb.letras);
+  return pa.numero - pb.numero;
+}
+
 router.get('/', proteger, async (req, res) => {
   try {
     const {
@@ -60,6 +81,7 @@ router.get('/', proteger, async (req, res) => {
       search = '',
       fechaDesde = '',
       fechaHasta = '',
+      sort = 'recientes',
       page = 1,
       limit = 10,
     } = req.query;
@@ -69,6 +91,8 @@ router.get('/', proteger, async (req, res) => {
 
     if (vista === 'garantias') {
       q.garantia = { $ne: null };
+    } else if (VISTAS_SOLO_CERRADA.includes(vista)) {
+      q.estadoOrden = 'CERRADA';
     }
 
     if (search) {
@@ -120,10 +144,17 @@ router.get('/', proteger, async (req, res) => {
     const conTotales = ordenes.map((orden) => ({ orden, totales: calcularTotalesOrden(orden) }));
 
     const filtradas = conTotales.filter(({ orden, totales }) => {
-      if (vista === 'garantias') return true;
+      if (vista === 'garantias' || vista === 'cerradas') return true;
       const liquidada = orden.estadoOrden === 'CERRADA' && totales.saldoPendiente <= 0;
-      return vista === 'liquidadas' ? liquidada : !liquidada;
+      if (vista === 'liquidadas') return liquidada;
+      if (vista === 'pendientes') return !liquidada;
+      return !liquidada; // activas
     });
+
+    if (sort === 'os_asc' || sort === 'os_desc') {
+      const signo = sort === 'os_desc' ? -1 : 1;
+      filtradas.sort((x, y) => signo * compararOrdenServicio(x.orden.ordenServicio, y.orden.ordenServicio));
+    }
 
     const total = filtradas.length;
     const pageNum = parseInt(page, 10) || 1;
