@@ -30,14 +30,14 @@ function fmtFechaCorta(iso) {
   return dayjsFecha(iso).format('DD/MM/YYYY');
 }
 
-// Sin redondear lo capturado: mínimo 2 decimales y hasta 6 si el monto los
-// trae; solo se limpia el ruido de flotantes más allá de la millonésima.
+// Siempre 2 decimales, truncados (no redondeados): se limpia el ruido de
+// flotantes más allá de la millonésima y luego se corta en el 2do decimal
+// sin ajustar el dígito de más (2099.9952 -> 2099.99, no 2100.00).
 function fmtMoney(n) {
   const v = Math.round((Number(n) || 0) * 1e6) / 1e6;
-  const abs = new Intl.NumberFormat('es-MX', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 6,
-  }).format(Math.abs(v));
+  const [intPart, decPart = ''] = Math.abs(v).toFixed(6).split('.');
+  const decimals = decPart.slice(0, 2);
+  const abs = `${new Intl.NumberFormat('es-MX').format(Number(intPart))}.${decimals}`;
   return v < 0 ? `(${abs})` : abs;
 }
 
