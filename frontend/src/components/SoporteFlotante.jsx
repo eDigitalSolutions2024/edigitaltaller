@@ -7,6 +7,7 @@ import {
   ESTADO_TICKET_LABEL,
   listTickets,
   cambiarEstadoTicket,
+  resolverCambioAsesorTicket,
 } from '../api/tickets';
 import '../styles/OSFlotante.css';
 
@@ -126,6 +127,20 @@ export default function SoporteFlotante() {
       cargar();
     } catch {
       // silencioso
+    } finally {
+      setProcesando(false);
+    }
+  };
+
+  const handleResolverCambioAsesor = async (accion) => {
+    if (!ticketSeleccionado) return;
+    try {
+      setProcesando(true);
+      await resolverCambioAsesorTicket(ticketSeleccionado._id, accion);
+      cerrarModal();
+      cargar();
+    } catch (err) {
+      alert(err.response?.data?.msg || 'Error al resolver la solicitud.');
     } finally {
       setProcesando(false);
     }
@@ -253,6 +268,15 @@ export default function SoporteFlotante() {
                     {ticketSeleccionado.detalle}
                   </div>
 
+                  {ticketSeleccionado.tipoProblema === 'CAMBIO_ASESOR' && ticketSeleccionado.asesorSolicitadoNombre && (
+                    <div className="mb-3">
+                      <div className="text-muted small mb-1">Nuevo asesor solicitado</div>
+                      <div className="border rounded p-2 bg-light fw-semibold">
+                        {ticketSeleccionado.asesorSolicitadoNombre}
+                      </div>
+                    </div>
+                  )}
+
                   {ticketSeleccionado.ordenServicio && (
                     <button type="button" className="btn btn-outline-primary btn-sm w-100" onClick={irAOrden}>
                       Ir a la orden de servicio {ticketSeleccionado.folioOrdenServicio || ''} →
@@ -261,12 +285,25 @@ export default function SoporteFlotante() {
                 </div>
 
                 <div className="modal-footer">
-                  <button type="button" className="btn btn-warning" disabled={procesando} onClick={() => handleCambiarEstado('EN_PROCESO')}>
-                    En proceso
-                  </button>
-                  <button type="button" className="btn btn-success" disabled={procesando} onClick={() => handleCambiarEstado('FINALIZADO')}>
-                    Completado
-                  </button>
+                  {ticketSeleccionado.tipoProblema === 'CAMBIO_ASESOR' ? (
+                    <>
+                      <button type="button" className="btn btn-danger" disabled={procesando} onClick={() => handleResolverCambioAsesor('NEGAR')}>
+                        Negar
+                      </button>
+                      <button type="button" className="btn btn-success" disabled={procesando} onClick={() => handleResolverCambioAsesor('APROBAR')}>
+                        Aprobar cambio
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" className="btn btn-warning" disabled={procesando} onClick={() => handleCambiarEstado('EN_PROCESO')}>
+                        En proceso
+                      </button>
+                      <button type="button" className="btn btn-success" disabled={procesando} onClick={() => handleCambiarEstado('FINALIZADO')}>
+                        Completado
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

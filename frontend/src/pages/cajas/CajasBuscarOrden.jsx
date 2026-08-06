@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { listOrdenesCaja } from "../../api/cajas";
 import { formatFecha } from "../../utils/fechas";
 
@@ -37,13 +37,16 @@ const OPCIONES_ORDEN = [
 
 export default function CajasBuscarOrden() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [busqueda, setBusqueda] = useState("");
-  const [fechaDesde, setFechaDesde] = useState("");
-  const [fechaHasta, setFechaHasta] = useState("");
-  const [page, setPage] = useState(1);
-  const [vista, setVista] = useState("activas"); // ver FILTROS_ESTADO
-  const [sort, setSort] = useState("recientes"); // ver OPCIONES_ORDEN
+  // Estado inicial restaurado desde la URL, así al volver desde el detalle de
+  // una orden (navigate(-1)) los filtros y la página quedan como estaban.
+  const [busqueda, setBusqueda] = useState(() => searchParams.get("busqueda") || "");
+  const [fechaDesde, setFechaDesde] = useState(() => searchParams.get("fechaDesde") || "");
+  const [fechaHasta, setFechaHasta] = useState(() => searchParams.get("fechaHasta") || "");
+  const [page, setPage] = useState(() => Number(searchParams.get("page")) || 1);
+  const [vista, setVista] = useState(() => searchParams.get("vista") || "activas"); // ver FILTROS_ESTADO
+  const [sort, setSort] = useState(() => searchParams.get("sort") || "recientes"); // ver OPCIONES_ORDEN
 
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -52,9 +55,29 @@ export default function CajasBuscarOrden() {
 
   // Cualquier cambio en los filtros regresa a la página 1 (sin debounce: es
   // solo un reset de estado, la consulta real se dispara en el efecto de abajo).
+  // Se omite en el primer render para no pisar la página restaurada desde la URL.
+  const isFirstRender = useRef(true);
   useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
     setPage(1);
   }, [busqueda, fechaDesde, fechaHasta, vista, sort]);
+
+  // Refleja filtros y página en la URL (reemplazando la entrada actual, sin
+  // ensuciar el historial) para poder restaurarlos al volver del detalle.
+  useEffect(() => {
+    const params = {};
+    if (busqueda) params.busqueda = busqueda;
+    if (fechaDesde) params.fechaDesde = fechaDesde;
+    if (fechaHasta) params.fechaHasta = fechaHasta;
+    if (vista !== "activas") params.vista = vista;
+    if (sort !== "recientes") params.sort = sort;
+    if (page !== 1) params.page = String(page);
+    setSearchParams(params, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busqueda, fechaDesde, fechaHasta, vista, sort, page]);
 
   // Búsqueda reactiva: cada cambio espera un momento antes de disparar la
   // consulta, para no pegarle al servidor en cada tecla.
@@ -86,6 +109,21 @@ export default function CajasBuscarOrden() {
   }, [busqueda, fechaDesde, fechaHasta, page, vista, sort]);
 
   const irAOrden = (r) => navigate(`/cajas/orden/${r._id}`);
+
+  const hayFiltrosActivos =
+    busqueda !== "" ||
+    fechaDesde !== "" ||
+    fechaHasta !== "" ||
+    vista !== "activas" ||
+    sort !== "recientes";
+
+  const limpiarFiltros = () => {
+    setBusqueda("");
+    setFechaDesde("");
+    setFechaHasta("");
+    setVista("activas");
+    setSort("recientes");
+  };
 
   const totalPages = Math.ceil(total / PAGE_SIZE) || 1;
 
@@ -127,7 +165,7 @@ export default function CajasBuscarOrden() {
           </div>
 
           <div className="row g-2 align-items-end">
-            <div className="col-md-9">
+            <div className="col-md-6">
               <label className="form-label mb-1 d-block">Estado</label>
               <div className="btn-group flex-wrap" role="group" aria-label="Filtro de estado">
                 {FILTROS_ESTADO.map((f) => (
@@ -155,6 +193,16 @@ export default function CajasBuscarOrden() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="col-md-3 text-md-end">
+              <button
+                type="button"
+                className="btn btn-outline-danger btn-sm"
+                disabled={!hayFiltrosActivos}
+                onClick={limpiarFiltros}
+              >
+                Borrar Filtro
+              </button>
             </div>
           </div>
         </div>

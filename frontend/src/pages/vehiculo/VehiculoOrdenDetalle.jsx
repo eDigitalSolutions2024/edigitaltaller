@@ -9,6 +9,7 @@ import ServicioReparacionTab from "./ServicioReparacionTab";
 import VehiculoRequisicionDiagnostico from "./VehiculoRequisicionDiagnostico";
 import VehiculoPresupuestoVenta from "./VehiculoPresupuestoVenta";
 import VehiculoOrdenGeneral from "./VehiculoOrdenGeneral";
+import VehiculoOrdenConfigurar from "./VehiculoOrdenConfigurar";
 import VehiculoReparacionEnCurso from "./VehiculoReparacionEnCurso";
 
 // PENDIENTE_AUTORIZACION_CLIENTE va al tab req (el asesor selecciona opciones),
@@ -313,6 +314,18 @@ export default function VehiculoOrdenDetalle() {
             </button>
           </li>
         )}
+
+        {esAdmin && (
+          <li className={"nav-item" + (!ordenIniciada ? " ms-auto" : "")}>
+            <button
+              className={"nav-link" + (tab === "configurar" ? " active" : "")}
+              type="button"
+              onClick={() => changeTab("configurar")}
+            >
+              Configurar
+            </button>
+          </li>
+        )}
       </ul>
 
       {/* Banner solo lectura cuando la orden está cerrada */}
@@ -418,10 +431,16 @@ export default function VehiculoOrdenDetalle() {
       {tab === "general" && ordenIniciada && (
         <VehiculoOrdenGeneral
           orden={orden}
-          esAdmin={esAdmin}
           esAsesor={esAsesor}
           onClosed={(vActualizado) => setOrden(vActualizado)}
+        />
+      )}
+
+      {tab === "configurar" && esAdmin && (
+        <VehiculoOrdenConfigurar
+          orden={orden}
           onRestored={(vActualizado) => setOrden(vActualizado)}
+          onAsesorCambiado={(vActualizado) => setOrden(vActualizado)}
         />
       )}
 

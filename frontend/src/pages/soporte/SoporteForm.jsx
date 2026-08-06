@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getUser } from '../../auth';
 import { listOrdenesServicio } from '../../api/vehiculos';
+import { getAsesores } from '../../api/users';
 import {
   TIPOS_PROBLEMA_OPCIONES,
   ESTADO_TICKET_BADGE,
   ESTADO_TICKET_LABEL,
+  RESULTADO_TICKET_BADGE,
+  RESULTADO_TICKET_LABEL,
   tipoProblemaLabel,
   createTicket,
   getMisTickets,
@@ -29,10 +32,12 @@ function nombreCliente(c) {
 
 export default function SoporteForm() {
   const user = getUser();
+  const esAsesor = user?.role === 'asesor_servicio';
 
   const [form, setForm] = useState(VACIO);
+  const esCambioAsesor = form.tipoProblema === 'CAMBIO_ASESOR';
 
-  // ── Orden de servicio (opcional) ──
+  // ── Orden de servicio (opcional, requerida si es CAMBIO_ASESOR) ──
   const [searchOs, setSearchOs] = useState('');
   const [ordenServicio, setOrdenServicio] = useState(null); // _id seleccionado
   const [folioOrdenServicio, setFolioOrdenServicio] = useState('');
@@ -41,11 +46,21 @@ export default function SoporteForm() {
   const [buscandoOrden, setBuscandoOrden] = useState(false);
   const debounceRef = useRef(null);
 
+  // ── Asesor destino (solo CAMBIO_ASESOR) ──
+  const [asesores, setAsesores] = useState([]);
+  const [asesorSolicitadoId, setAsesorSolicitadoId] = useState('');
+
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState(null); // { tipo, texto }
 
   const [historial, setHistorial] = useState(null);
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
+
+  useEffect(() => {
+    getAsesores()
+      .then((data) => setAsesores(Array.isArray(data) ? data : []))
+      .catch(() => setAsesores([]));
+  }, []);
 
   const cargarHistorial = () => {
     setCargandoHistorial(true);
@@ -64,6 +79,7 @@ export default function SoporteForm() {
     setSearchOs('');
     setOrdenServicio(null);
     setFolioOrdenServicio('');
+    setAsesorSolicitadoId('');
     setMensaje(null);
     setSugerencias([]);
     setMostrarSugerencias(false);
@@ -89,7 +105,11 @@ export default function SoporteForm() {
     setBuscandoOrden(true);
     debounceRef.current = setTimeout(async () => {
       try {
-        const res = await listOrdenesServicio({ searchOs: valor.trim(), limit: 8 });
+        const res = await listOrdenesServicio({
+          searchOs: valor.trim(),
+          limit: 8,
+          soloMisOrdenes: esAsesor || undefined,
+        });
         setSugerencias(res.data?.data || []);
         setMostrarSugerencias(true);
       } catch {
@@ -111,6 +131,8 @@ export default function SoporteForm() {
   const validar = () => {
     if (!form.tipoProblema) return 'Selecciona el tipo de problema.';
     if (!form.detalle.trim()) return 'Captura el motivo/detalle del problema.';
+    if (esCambioAsesor && !ordenServicio) return 'Busca y selecciona la orden de servicio a reasignar.';
+    if (esCambioAsesor && !asesorSolicitadoId) return 'Selecciona el asesor al que quieres cambiar la orden.';
     return null;
   };
 
@@ -128,6 +150,7 @@ export default function SoporteForm() {
         detalle: form.detalle.trim(),
         ordenServicio,
         folioOrdenServicio,
+        asesorSolicitadoId: esCambioAsesor ? asesorSolicitadoId : undefined,
       });
       const creado = res.data.data;
       setMensaje({ tipo: 'success', texto: `Ticket ${creado.folio} creado correctamente.` });
@@ -171,7 +194,9 @@ export default function SoporteForm() {
             </div>
 
             <div className="col-md-6 position-relative">
-              <label className="form-label small fw-semibold">Orden de servicio (opcional)</label>
+              <label className="form-label small fw-semibold">
+                Orden de servicio {esCambioAsesor ? '' : '(opcional)'}
+              </label>
               <input
                 type="text"
                 className="form-control"
@@ -198,6 +223,22 @@ export default function SoporteForm() {
                 </div>
               )}
             </div>
+
+            {esCambioAsesor && (
+              <div className="col-md-6">
+                <label className="form-label small fw-semibold">Cambiar a asesor</label>
+                <select
+                  className="form-select"
+                  value={asesorSolicitadoId}
+                  onChange={(e) => setAsesorSolicitadoId(e.target.value)}
+                >
+                  <option value="">-- Seleccionar --</option>
+                  {asesores.map((a) => (
+                    <option key={a._id} value={a._id}>{a.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="col-12">
               <label className="form-label small fw-semibold">Motivo / Detalle</label>
@@ -256,6 +297,11 @@ export default function SoporteForm() {
                         <span className={`badge ${ESTADO_TICKET_BADGE[t.estado] || 'bg-secondary'}`}>
                           {ESTADO_TICKET_LABEL[t.estado] || t.estado}
                         </span>
+                        {t.resultado && (
+                          <span className={`badge ms-1 ${RESULTADO_TICKET_BADGE[t.resultado] || 'bg-secondary'}`}>
+                            {RESULTADO_TICKET_LABEL[t.resultado] || t.resultado}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}

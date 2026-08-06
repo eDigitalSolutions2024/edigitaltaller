@@ -3,6 +3,7 @@ import http from './http';
 export const TIPOS_PROBLEMA_OPCIONES = [
   { value: 'VEHICULOS_ORDENES', label: 'Vehículos / Órdenes' },
   { value: 'RESTABLECER_OS', label: 'Restablecer OS' },
+  { value: 'CAMBIO_ASESOR', label: 'Cambio de Asesor' },
   { value: 'CAJAS', label: 'Cajas' },
   { value: 'REFACCIONARIA', label: 'Refaccionaria' },
   { value: 'FACTURACION', label: 'Facturación' },
@@ -23,6 +24,16 @@ export const ESTADO_TICKET_LABEL = {
   FINALIZADO: 'Finalizado',
 };
 
+export const RESULTADO_TICKET_BADGE = {
+  APROBADO: 'bg-success',
+  RECHAZADO: 'bg-danger',
+};
+
+export const RESULTADO_TICKET_LABEL = {
+  APROBADO: 'Aprobado',
+  RECHAZADO: 'Rechazado',
+};
+
 export function tipoProblemaLabel(value) {
   return TIPOS_PROBLEMA_OPCIONES.find((o) => o.value === value)?.label || value;
 }
@@ -34,3 +45,8 @@ export const getMisTickets = (params) => http.get('/tickets/mis-tickets', { para
 export const listTickets = (params) => http.get('/tickets', { params });
 
 export const cambiarEstadoTicket = (id, estado) => http.put(`/tickets/${id}/estado`, { estado });
+
+// Aprobar/negar un ticket de tipo CAMBIO_ASESOR (solo admin). Al aprobar, el
+// backend aplica el cambio real de asesor sobre la orden vinculada.
+export const resolverCambioAsesorTicket = (id, accion) =>
+  http.put(`/tickets/${id}/resolver-cambio-asesor`, { accion });

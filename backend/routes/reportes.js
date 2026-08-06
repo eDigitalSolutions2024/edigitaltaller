@@ -555,6 +555,10 @@ async function buildReporteCajasIngresos({ desde, hasta, tipo }) {
 //   4. Nueva venta del día (tipoPago=COMPLETO). Si esa misma orden también se
 //      cancela dentro del mismo rango, la cancelación se muestra aquí mismo
 //      como fila informativa sin montos, en vez de en la sección 2.
+//   5. Órdenes canceladas del día (estadoOrden=CANCELADA): la orden completa
+//      se canceló, muy distinto de la sección 2 (una remisión que se cancela
+//      porque pasó a factura). Fila informativa sin folio de remisión ni
+//      montos, con notas="CANCELADA".
 // Las ventas 100% a crédito sí aparecen el día en que se remisionan: Cajas
 // permite registrarlas con monto 0 (única excepción a monto > 0), y se
 // reportan con Venta del Día = total de la orden y esa misma cantidad en
@@ -676,10 +680,31 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
     }
   }
 
+  // Órdenes canceladas del día: la orden completa se canceló (estadoOrden),
+  // a diferencia de una remisión cancelada que pasa a factura. No tienen
+  // folio de remisión propio (vive en pagos[].remision, no a nivel orden) ni
+  // movimientos monetarios; solo informan que la orden se canceló ese día.
+  // No hay campo de fecha de cancelación dedicado: se usa updatedAt, igual
+  // que en VehiculosConsultaCanceladas.jsx.
+  const ordenesCancelSrc = await Vehiculo.find({
+    estadoOrden: 'CANCELADA',
+    updatedAt: { $gte: d, $lte: h },
+  })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
+
+  const ordenesCanceladas = ordenesCancelSrc.map((o) => ({
+    ordenServicio: o.ordenServicio || '',
+    cliente: nombreCliente(o.cliente),
+    fecha: o.updatedAt,
+    notas: 'CANCELADA',
+  }));
+
   anticipos.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
   canceladas.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
   abonos.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
   nuevaVenta.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  ordenesCanceladas.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
 
   const totalIngreso = totalContado + totalCredito + totalAnticipo;
 
@@ -688,6 +713,7 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
     canceladas,
     abonos,
     nuevaVenta,
+    ordenesCanceladas,
     totales: { totalVentaDia, totalContado, totalCredito, totalAnticipo, totalPorCobrar, totalIngreso },
   };
 }
@@ -721,7 +747,11 @@ async function buildResumenDiarioRemisiones({ desde, hasta }) {
         hasta: dia.hasta.toISOString(),
       });
       const totalMovimientos =
-        rep.anticipos.length + rep.canceladas.length + rep.abonos.length + rep.nuevaVenta.length;
+        rep.anticipos.length +
+        rep.canceladas.length +
+        rep.abonos.length +
+        rep.nuevaVenta.length +
+        rep.ordenesCanceladas.length;
       return {
         desde: dia.desde.toISOString(),
         hasta: dia.hasta.toISOString(),

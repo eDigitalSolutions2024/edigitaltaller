@@ -3,9 +3,12 @@ import { getUser } from '../../auth';
 import {
   ESTADO_TICKET_BADGE,
   ESTADO_TICKET_LABEL,
+  RESULTADO_TICKET_BADGE,
+  RESULTADO_TICKET_LABEL,
   tipoProblemaLabel,
   listTickets,
   cambiarEstadoTicket,
+  resolverCambioAsesorTicket,
 } from '../../api/tickets';
 import OrdenServicioTicketLink from '../../components/OrdenServicioTicketLink';
 
@@ -59,6 +62,24 @@ export default function SoporteAdminTickets() {
       cargar();
     } catch (err) {
       alert(err.response?.data?.msg || 'Error al actualizar el ticket.');
+    } finally {
+      setProcesando(null);
+    }
+  };
+
+  const handleResolverCambioAsesor = async (t, accion) => {
+    const pregunta =
+      accion === 'APROBAR'
+        ? `¿Aprobar el cambio de asesor a "${t.asesorSolicitadoNombre}" en la orden ${t.folioOrdenServicio}?`
+        : `¿Negar esta solicitud de cambio de asesor para la orden ${t.folioOrdenServicio}?`;
+    const ok = window.confirm(pregunta);
+    if (!ok) return;
+    try {
+      setProcesando(t._id);
+      await resolverCambioAsesorTicket(t._id, accion);
+      cargar();
+    } catch (err) {
+      alert(err.response?.data?.msg || 'Error al resolver la solicitud.');
     } finally {
       setProcesando(null);
     }
@@ -122,7 +143,14 @@ export default function SoporteAdminTickets() {
                 <td className="text-center fw-semibold">{t.folio}</td>
                 <td>{t.nombreUsuarioReporta}</td>
                 <td>{tipoProblemaLabel(t.tipoProblema)}</td>
-                <td>{t.detalle}</td>
+                <td>
+                  {t.detalle}
+                  {t.tipoProblema === 'CAMBIO_ASESOR' && t.asesorSolicitadoNombre && (
+                    <div className="small text-muted">
+                      Nuevo asesor solicitado: <strong>{t.asesorSolicitadoNombre}</strong>
+                    </div>
+                  )}
+                </td>
                 <td className="text-center">
                   <OrdenServicioTicketLink ticket={t} />
                 </td>
@@ -130,11 +158,39 @@ export default function SoporteAdminTickets() {
                   <span className={`badge ${ESTADO_TICKET_BADGE[t.estado] || 'bg-secondary'}`}>
                     {ESTADO_TICKET_LABEL[t.estado] || t.estado}
                   </span>
+                  {t.resultado && (
+                    <div className="mt-1">
+                      <span className={`badge ${RESULTADO_TICKET_BADGE[t.resultado] || 'bg-secondary'}`}>
+                        {RESULTADO_TICKET_LABEL[t.resultado] || t.resultado}
+                      </span>
+                    </div>
+                  )}
                 </td>
                 <td className="text-center">{new Date(t.createdAt).toLocaleString('es-MX')}</td>
                 <td className="text-center">
                   {!puedeGestionar ? (
                     <small className="text-muted">Sin permiso</small>
+                  ) : t.tipoProblema === 'CAMBIO_ASESOR' && t.estado !== 'FINALIZADO' ? (
+                    <div className="d-flex gap-1 justify-content-center">
+                      <button
+                        type="button"
+                        className="btn btn-success btn-sm py-0"
+                        style={{ fontSize: 12 }}
+                        disabled={procesando === t._id}
+                        onClick={() => handleResolverCambioAsesor(t, 'APROBAR')}
+                      >
+                        Aprobar
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm py-0"
+                        style={{ fontSize: 12 }}
+                        disabled={procesando === t._id}
+                        onClick={() => handleResolverCambioAsesor(t, 'NEGAR')}
+                      >
+                        Negar
+                      </button>
+                    </div>
                   ) : t.estado === 'PENDIENTE' ? (
                     <button
                       type="button"

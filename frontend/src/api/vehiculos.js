@@ -81,6 +81,10 @@ export const closeOrden = (id) =>
 export const restoreOrden = (id) =>
   http.put(`/vehiculos/${id}/restablecer`);
 
+// Reasignar la orden a otro asesor de servicio (solo admin)
+export const cambiarAsesorOrden = (id, asesorId) =>
+  http.put(`/vehiculos/${id}/cambiar-asesor`, { asesorId });
+
 export const openVentaClientePdf = (id) => {
   const url = `${API}/vehiculos/${id}/venta-cliente-pdf`;
   window.open(url, "_blank", "noopener");

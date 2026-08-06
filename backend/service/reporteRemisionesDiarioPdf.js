@@ -1,11 +1,12 @@
 // Reporte Diario de Ingresos - Remisiones: replica el formato clásico de 9
 // columnas del reporte en papel del sistema anterior (Venta del Día /
 // Contado / Crédito / Anticipo / Cuentas por Cobrar), en una sola tabla
-// dividida en 4 secciones separadas por bandas grises sin título (Anticipos /
+// dividida en 5 secciones separadas por bandas grises sin título (Anticipos /
 // Canceladas y pasan a factura / Abonos y liquidaciones / Nueva venta del
-// día), a partir de los datos ya agregados por buildReporteRemisionesDiario
-// en routes/reportes.js. Los montos van en estilo contable como el original:
-// sin símbolo de moneda, negativos entre paréntesis y ceros como "-".
+// día / Órdenes canceladas del día), a partir de los datos ya agregados por
+// buildReporteRemisionesDiario en routes/reportes.js. Los montos van en
+// estilo contable como el original: sin símbolo de moneda, negativos entre
+// paréntesis y ceros como "-".
 const puppeteer = require('puppeteer');
 const dayjs = require('dayjs');
 const fs = require('fs');
@@ -89,16 +90,29 @@ function banda(filas, folioDefault) {
 }
 
 function buildHtml(data, desde, hasta) {
-  const { anticipos = [], canceladas = [], abonos = [], nuevaVenta = [], totales = {} } = data;
+  const {
+    anticipos = [],
+    canceladas = [],
+    abonos = [],
+    nuevaVenta = [],
+    ordenesCanceladas = [],
+    totales = {},
+  } = data;
 
   const cuerpo = [
     banda(anticipos, 'ANT'),
     banda(canceladas),
     banda(abonos),
     banda(nuevaVenta),
+    banda(ordenesCanceladas),
   ].join('');
 
-  const sinDatos = !anticipos.length && !canceladas.length && !abonos.length && !nuevaVenta.length;
+  const sinDatos =
+    !anticipos.length &&
+    !canceladas.length &&
+    !abonos.length &&
+    !nuevaVenta.length &&
+    !ordenesCanceladas.length;
 
   const subtitulo = mismoDia(desde, hasta)
     ? fmtFechaLarga(desde)

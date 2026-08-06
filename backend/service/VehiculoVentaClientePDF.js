@@ -3,6 +3,7 @@ const dayjs = require('dayjs');
 const path = require('path');
 const fs = require('fs');
 const { dayjsFecha } = require('../utils/fechas');
+const { WATERMARK_CSS, watermarkHtml } = require('../utils/pdfWatermark');
 
 
 const assetPath = (...parts) =>
@@ -323,10 +324,11 @@ exports.generarVentaClientePDF = async (res, orden) => {
         max-height: 70px;
         object-fit: contain;
     }
-
+${WATERMARK_CSS}
   </style>
 </head>
 <body>
+  ${watermarkHtml(orden)}
   <div class="top">
     <div class="qr"></div>
 
