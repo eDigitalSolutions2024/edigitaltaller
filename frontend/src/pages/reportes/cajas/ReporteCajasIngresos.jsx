@@ -271,8 +271,20 @@ function BandaRemision({ titulo, filas }) {
 }
 
 function ReporteRemisiones({ data }) {
-  const { anticipos = [], canceladas = [], abonos = [], nuevaVenta = [], totales = {} } = data;
-  const sinDatos = !anticipos.length && !canceladas.length && !abonos.length && !nuevaVenta.length;
+  const {
+    anticipos = [],
+    canceladas = [],
+    abonos = [],
+    nuevaVenta = [],
+    ordenesCanceladas = [],
+    totales = {},
+  } = data;
+  const sinDatos =
+    !anticipos.length &&
+    !canceladas.length &&
+    !abonos.length &&
+    !nuevaVenta.length &&
+    !ordenesCanceladas.length;
 
   return (
     <>
@@ -299,6 +311,7 @@ function ReporteRemisiones({ data }) {
               <BandaRemision titulo="Canceladas y pasan a factura" filas={canceladas} />
               <BandaRemision titulo="Abonos y liquidaciones" filas={abonos} />
               <BandaRemision titulo="Nueva venta del día" filas={nuevaVenta} />
+              <BandaRemision titulo="Órdenes canceladas del día" filas={ordenesCanceladas} />
             </tbody>
             <tfoot>
               <tr className="table-light">

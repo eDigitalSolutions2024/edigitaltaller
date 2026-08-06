@@ -9,6 +9,7 @@ const dayjs = require('dayjs');
 const fs = require('fs');
 const path = require('path');
 const { dayjsFecha } = require('../utils/fechas');
+const { WATERMARK_CSS, watermarkHtml } = require('../utils/pdfWatermark');
 
 // Carga el logo una sola vez al iniciar el módulo
 let LOGO_DATA_URL = '';
@@ -280,9 +281,11 @@ function buildHtml(vehiculo, asesorOverride = '', formato = 'operativo') {
   .page3 { width: 210mm; padding: 10mm 12mm; margin: 0 auto; }
   table { border-collapse: collapse; width: 100%; }
   th, td { border: 0.5px solid #000; padding: 2px 3px; vertical-align: middle; }
+${WATERMARK_CSS}
 </style>
 </head>
 <body>
+${watermarkHtml(vehiculo)}
 ${buildPaginaResumen(vehiculo, fechaRecepcion)}
 </body>
 </html>`;
@@ -478,16 +481,18 @@ ${buildPaginaResumen(vehiculo, fechaRecepcion)}
   }
   .contrato-pie p { margin: 1px 0; }
 
-  .condiciones-s p{ 
+  .condiciones-s p{
     font-size:8px;
     line-height:1.6;
     text-align:justify;
     justify:inter-word;
     margin-bottom:1px;
   }
+${WATERMARK_CSS}
 </style>
 </head>
 <body>
+${watermarkHtml(vehiculo)}
 
 <!-- ==================== PÁGINA 1 (FRENTE) ==================== -->
 <div class="page">
@@ -741,7 +746,7 @@ ${sinVehiculo ? condicionesConceptoHtml : `
 </div>
 
 ${sinVehiculo ? '' : `
-<!-- ==================== PÁGINA 2 (REVERSO) ==================== -->
+<!-- ==================== PÁGINA 1 (REVERSO) ==================== -->
 <div class="page2">
 
   <table style="margin-bottom:10px;font-size:9px;">

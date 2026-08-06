@@ -4,6 +4,7 @@ const { Schema } = mongoose;
 const TIPOS_PROBLEMA = [
   'VEHICULOS_ORDENES',
   'RESTABLECER_OS',
+  'CAMBIO_ASESOR',
   'CAJAS',
   'REFACCIONARIA',
   'FACTURACION',
@@ -11,6 +12,8 @@ const TIPOS_PROBLEMA = [
   'REPORTES_CONFIGURACION',
   'OTRO',
 ];
+
+const RESULTADOS_TICKET = ['APROBADO', 'RECHAZADO'];
 
 const ESTADOS_TICKET = ['PENDIENTE', 'EN_PROCESO', 'FINALIZADO'];
 
@@ -29,12 +32,19 @@ const ticketSchema = new Schema(
     ordenServicio: { type: Schema.Types.ObjectId, ref: 'Vehiculo', default: null },
     folioOrdenServicio: { type: String, default: '' },
 
+    // Solo para tipoProblema === 'CAMBIO_ASESOR': el asesor destino que el
+    // solicitante pide para la orden. Snapshot de nombre igual que arriba.
+    asesorSolicitadoId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    asesorSolicitadoNombre: { type: String, default: '' },
+
     estado: {
       type: String,
       enum: ESTADOS_TICKET,
       default: 'PENDIENTE',
       index: true,
     },
+    // Solo aplica a tickets resueltos vía aprobar/negar (hoy: CAMBIO_ASESOR).
+    resultado: { type: String, enum: RESULTADOS_TICKET, default: null },
     fechaCambioEstado: { type: Date, default: null },
     actualizadoPor: { type: String, default: '' },
   },
@@ -44,3 +54,4 @@ const ticketSchema = new Schema(
 module.exports = mongoose.model('Ticket', ticketSchema);
 module.exports.TIPOS_PROBLEMA = TIPOS_PROBLEMA;
 module.exports.ESTADOS_TICKET = ESTADOS_TICKET;
+module.exports.RESULTADOS_TICKET = RESULTADOS_TICKET;

@@ -4,7 +4,9 @@ const router = express.Router();
 
 const Ticket = require('../models/Ticket');
 const Contador = require('../models/Contador');
+const User = require('../models/User');
 const { proteger, requiereRol } = require('../middleware/auth');
+const { reasignarAsesorOrden } = require('../utils/reasignarAsesor');
 
 const { TIPOS_PROBLEMA, ESTADOS_TICKET } = Ticket;
 const CONTADOR_TICKET = 'ticket';
@@ -12,13 +14,28 @@ const CONTADOR_TICKET = 'ticket';
 // POST /api/tickets — cualquier usuario autenticado puede reportar un ticket
 router.post('/', proteger, async (req, res) => {
   try {
-    const { tipoProblema, detalle, ordenServicio, folioOrdenServicio } = req.body;
+    const { tipoProblema, detalle, ordenServicio, folioOrdenServicio, asesorSolicitadoId } = req.body;
 
     if (!TIPOS_PROBLEMA.includes(tipoProblema)) {
       return res.status(400).json({ ok: false, msg: 'Tipo de problema inválido.' });
     }
     if (!String(detalle || '').trim()) {
       return res.status(400).json({ ok: false, msg: 'Captura el motivo/detalle del ticket.' });
+    }
+
+    let asesorSolicitadoNombre = '';
+    if (tipoProblema === 'CAMBIO_ASESOR') {
+      if (!ordenServicio) {
+        return res.status(400).json({ ok: false, msg: 'Selecciona la orden de servicio a reasignar.' });
+      }
+      if (!asesorSolicitadoId) {
+        return res.status(400).json({ ok: false, msg: 'Selecciona el asesor al que quieres cambiar la orden.' });
+      }
+      const asesor = await User.findOne({ _id: asesorSolicitadoId, role: 'asesor_servicio', isActive: true });
+      if (!asesor) {
+        return res.status(404).json({ ok: false, msg: 'Asesor no encontrado o inactivo.' });
+      }
+      asesorSolicitadoNombre = asesor.name;
     }
 
     const contador = await Contador.findOneAndUpdate(
@@ -36,6 +53,8 @@ router.post('/', proteger, async (req, res) => {
       detalle: detalle.trim(),
       ordenServicio: ordenServicio || null,
       folioOrdenServicio: folioOrdenServicio || '',
+      asesorSolicitadoId: tipoProblema === 'CAMBIO_ASESOR' ? asesorSolicitadoId : null,
+      asesorSolicitadoNombre,
     });
 
     return res.status(201).json({ ok: true, data: ticket });
@@ -126,6 +145,49 @@ router.put('/:id/estado', proteger, requiereRol('admin'), async (req, res) => {
     return res.json({ ok: true, data: ticket });
   } catch (err) {
     console.error('Error actualizando estado del ticket:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// PUT /api/tickets/:id/resolver-cambio-asesor — aprobar o negar una solicitud
+// de cambio de asesor (solo admin). Al aprobar, aplica el cambio real sobre
+// la orden vinculada (mismo efecto que PUT /vehiculos/:id/cambiar-asesor).
+router.put('/:id/resolver-cambio-asesor', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { accion } = req.body;
+
+    if (!['APROBAR', 'NEGAR'].includes(accion)) {
+      return res.status(400).json({ ok: false, msg: 'Acción inválida. Usa APROBAR o NEGAR.' });
+    }
+
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) {
+      return res.status(404).json({ ok: false, msg: 'Ticket no encontrado' });
+    }
+
+    if (ticket.tipoProblema !== 'CAMBIO_ASESOR') {
+      return res.status(400).json({ ok: false, msg: 'Este ticket no es una solicitud de cambio de asesor.' });
+    }
+    if (ticket.estado === 'FINALIZADO') {
+      return res.status(400).json({ ok: false, msg: 'El ticket ya fue finalizado.' });
+    }
+
+    if (accion === 'APROBAR') {
+      await reasignarAsesorOrden(ticket.ordenServicio, ticket.asesorSolicitadoId);
+    }
+
+    ticket.estado = 'FINALIZADO';
+    ticket.resultado = accion === 'APROBAR' ? 'APROBADO' : 'RECHAZADO';
+    ticket.fechaCambioEstado = new Date();
+    ticket.actualizadoPor = req.user.name || req.user.username || req.user.email || '';
+    await ticket.save();
+
+    return res.json({ ok: true, data: ticket });
+  } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ ok: false, msg: err.message });
+    }
+    console.error('Error resolviendo ticket de cambio de asesor:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });

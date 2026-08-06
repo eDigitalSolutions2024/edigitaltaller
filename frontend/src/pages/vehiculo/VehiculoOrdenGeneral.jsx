@@ -1,6 +1,6 @@
 // src/pages/vehiculo/VehiculoOrdenGeneral.jsx
 import React, { useState, useEffect } from "react";
-import { closeOrden, restoreOrden, openVentaClientePdf } from "../../api/vehiculos";
+import { closeOrden, openVentaClientePdf } from "../../api/vehiculos";
 import http from "../../api/http";
 import { formatFecha } from "../../utils/fechas";
 import { createTicket } from "../../api/tickets";
@@ -52,9 +52,8 @@ function formaPagoDePago(p) {
   return "";
 }
 
-export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAdmin, esAsesor }) {
+export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor }) {
   const [cerrando, setCerrando] = useState(false);
-  const [restableciendo, setRestableciendo] = useState(false);
   const [solicitandoRestablecer, setSolicitandoRestablecer] = useState(false);
   const [solicitudEnviada, setSolicitudEnviada] = useState(false);
   const [mecMap, setMecMap] = useState({}); // id → nombre del mecánico
@@ -76,7 +75,6 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAd
   const yaCerrada = orden.estadoOrden === "CERRADA";
   const yaCancelada = orden.estadoOrden === "CANCELADA";
   const puedesCerrar = orden.estadoOrden === "PENDIENTE_CERRAR";
-  const puedeRestablecer = esAdmin && (yaCerrada || yaCancelada);
   const puedeSolicitarRestablecer = esAsesor && (yaCerrada || yaCancelada);
 
   const handleCerrarOrden = async () => {
@@ -98,28 +96,6 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAd
       alert("Error al cerrar la orden.");
     } finally {
       setCerrando(false);
-    }
-  };
-
-  const handleRestablecerOrden = async () => {
-    if (!puedeRestablecer) return;
-
-    const ok = window.confirm(
-      `¿Restablecer esta orden ${yaCerrada ? "cerrada" : "cancelada"}? Regresará al estado en el que se encontraba anteriormente.`
-    );
-    if (!ok) return;
-
-    try {
-      setRestableciendo(true);
-      const res = await restoreOrden(orden._id);
-      const vAct = res.data.vehiculo;
-
-      if (onRestored) onRestored(vAct);
-    } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.msg || "Error al restablecer la orden.");
-    } finally {
-      setRestableciendo(false);
     }
   };
 
@@ -198,8 +174,10 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAd
     .join(", ");
   const rfc = c.rfc || "";
 
-  // Asesor: asesor asignado al cliente → quien creó la orden
-  const asesorServicio = c.asesorResponsable || orden.asesorServicio || orden.creadoPor || "";
+  // Asesor: el asesor asignado a ESTA orden (creadoPor, reasignable desde
+  // el tab "Configurar" por un admin) tiene prioridad sobre el asesor por
+  // defecto del cliente.
+  const asesorServicio = orden.creadoPor || c.asesorResponsable || "";
   // Si la orden es de un grupo, se muestran todos los asesores del equipo
   // (el que la creó va primero, sigue siendo el "principal" por ahora).
   const miembrosGrupo = Array.isArray(orden.grupoId?.miembros)
@@ -247,19 +225,6 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, onRestored, esAd
               onClick={() => openVentaClientePdf(orden._id)}
             >
               Imprimir Venta Cliente
-            </button>
-          )}
-
-          {puedeRestablecer && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}
-              onClick={handleRestablecerOrden}
-              disabled={restableciendo}
-              title="Restablecer la orden al estado en que se encontraba antes de cerrarse/cancelarse"
-            >
-              {restableciendo ? "Restableciendo..." : "Restablecer orden"}
             </button>
           )}
 

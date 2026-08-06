@@ -12,6 +12,7 @@ const { proteger, requiereRol } = require('../middleware/auth');
 const { normalizarOrdenServicio, regexBusquedaOS } = require('../utils/ordenServicio');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
 const { backfillCreadoPorId } = require('../utils/backfillCreadoPorId');
+const { reasignarAsesorOrden } = require('../utils/reasignarAsesor');
 const EntradaInventario = require('../models/EntradaInventario');
 const SalidaInventario  = require('../models/SalidaInventario');
 const AjusteInventario  = require('../models/AjusteInventario');
@@ -52,6 +53,26 @@ const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente emp
 // Grupo timbrado en la orden: nombre + miembros (solo informativo, para
 // mostrar junto al asesor en listados/detalle/impresos).
 const POPULATE_GRUPO = { path: 'grupoId', select: 'nombre miembros', populate: { path: 'miembros', select: 'name' } };
+
+// Condición Mongo "$or" para restringir una búsqueda a las órdenes propias
+// de un usuario: por id estable (creadoPorId), por nombre (órdenes viejas
+// sin creadoPorId) y por grupo de trabajo histórico. Usada por /mis-ordenes
+// y, opcionalmente, por /ordenes (búsqueda de un asesor).
+async function condicionOrdenesPropias(user) {
+  const grupos = await Grupo.find({
+    rol: user.role,
+    historialMiembros: user._id,
+  }).select('_id');
+  const grupoIds = grupos.map((g) => g._id);
+
+  return {
+    $or: [
+      { creadoPorId: user._id },
+      { creadoPor: user.name || user.username },
+      ...(grupoIds.length ? [{ grupoId: { $in: grupoIds } }] : []),
+    ],
+  };
+}
 
 const { streamVehiculoOperativoPdf } = require('../service/VehiculoOperativoPdf');
 const { streamVehiculoOrdenPdf } = require('../service/vehiculoOrdenPdf');
@@ -425,7 +446,7 @@ router.get('/cliente/:clienteId', async (req, res) => {
 // cobranza=pendientes | liquidadas -> órdenes CERRADAS según su saldo (para las
 // pestañas "Pendiente de Pago" y "Liquidadas" de la Consulta General; el saldo
 // no se persiste, así que se calcula aquí y se pagina en memoria).
-router.get('/ordenes', async (req, res) => {
+router.get('/ordenes', proteger, async (req, res) => {
   try {
     const {
       estado = '',
@@ -439,6 +460,7 @@ router.get('/ordenes', async (req, res) => {
       fechaDesde = '',
       fechaHasta = '',
       cliente = '',
+      soloMisOrdenes = '',
       page = 1,
       limit = 10,
     } = req.query;
@@ -534,6 +556,12 @@ router.get('/ordenes', async (req, res) => {
       }
     }
 
+    // Un asesor buscando órdenes (p. ej. desde el formulario de tickets) solo
+    // debe encontrar las suyas, no las de todos los demás asesores.
+    if (soloMisOrdenes === 'true' && req.user.role === 'asesor_servicio') {
+      andConditions.push(await condicionOrdenesPropias(req.user));
+    }
+
     if (andConditions.length) q.$and = andConditions;
 
     const pageNum = parseInt(page, 10) || 1;
@@ -589,26 +617,11 @@ router.get('/ordenes', async (req, res) => {
 // GET /api/vehiculos/mis-ordenes — OS activas del asesor logueado (excluye CERRADA)
 router.get('/mis-ordenes', proteger, requiereRol('asesor_servicio', 'admin'), async (req, res) => {
   try {
-    const nombreUsuario = req.user.name || req.user.username;
-
-    // Acceso permanente: si el usuario alguna vez perteneció a un grupo de
-    // trabajo (aunque hoy ya no sea miembro o el grupo esté desactivado),
-    // sigue viendo las órdenes que se timbraron con ese grupo.
-    const grupos = await Grupo.find({
-      rol: req.user.role,
-      historialMiembros: req.user._id,
-    }).select('_id');
-    const grupoIds = grupos.map((g) => g._id);
+    const condicionPropias = await condicionOrdenesPropias(req.user);
 
     const ordenes = await Vehiculo.find({
       estadoOrden: { $nin: ['CERRADA', 'CANCELADA'] },
-      $or: [
-        // Órdenes nuevas: comparadas por id, no cambian si el usuario se renombra.
-        { creadoPorId: req.user._id },
-        // Órdenes viejas creadas antes de creadoPorId: se conservan por nombre.
-        { creadoPor: nombreUsuario },
-        ...(grupoIds.length ? [{ grupoId: { $in: grupoIds } }] : []),
-      ],
+      ...condicionPropias,
     })
       .select('ordenServicio estadoOrden marca modelo anio color createdAt cliente creadoPor creadoPorId grupoId')
       .populate('cliente', POPULATE_CLIENTE)
@@ -1726,10 +1739,40 @@ router.put('/:id/restablecer', proteger, requiereRol('admin'), async (req, res) 
 
     await vehiculo.save();
 
-    const vehiculoActualizado = await Vehiculo.findById(vehiculo._id).populate(POPULATE_GRUPO);
+    const vehiculoActualizado = await Vehiculo.findById(vehiculo._id)
+      .populate('cliente', POPULATE_CLIENTE)
+      .populate(POPULATE_GRUPO);
     return res.json({ ok: true, vehiculo: vehiculoActualizado });
   } catch (err) {
     console.error('Error restableciendo orden:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// PUT /api/vehiculos/:id/cambiar-asesor -> (solo admin) reasigna la orden a
+// otro asesor de servicio, actualizando creadoPor/creadoPorId (de ahí se
+// resuelve tanto el asesor mostrado en "General" como el dueño de la orden
+// para efectos de edición — ver esPropia en VehiculoOrdenDetalle).
+router.put('/:id/cambiar-asesor', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { asesorId } = req.body;
+
+    if (!asesorId) {
+      return res.status(400).json({ ok: false, msg: 'Debes seleccionar un asesor.' });
+    }
+
+    await reasignarAsesorOrden(id, asesorId);
+
+    const vehiculoActualizado = await Vehiculo.findById(id)
+      .populate('cliente', POPULATE_CLIENTE)
+      .populate(POPULATE_GRUPO);
+    return res.json({ ok: true, vehiculo: vehiculoActualizado });
+  } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ ok: false, msg: err.message });
+    }
+    console.error('Error cambiando asesor de la orden:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });

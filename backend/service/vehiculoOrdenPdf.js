@@ -4,6 +4,7 @@
 const puppeteer = require('puppeteer');
 const dayjs = require('dayjs');
 const { dayjsFecha } = require('../utils/fechas');
+const { WATERMARK_CSS, watermarkHtml } = require('../utils/pdfWatermark');
 const Codigo = require('../models/CodigoRefaccion'); // 👈 servicios / refacciones
 
 // Paleta cercana a tu sistema
@@ -298,9 +299,11 @@ function buildOrdenHtml(vehiculo, serviciosDocs = []) {
     text-align: center;
     margin-top: 4px;
   }
+${WATERMARK_CSS}
 </style>
 </head>
 <body>
+${watermarkHtml(vehiculo)}
 
 <!-- ================= PÁGINA 1 ================= -->
 <div class="page page-break">
