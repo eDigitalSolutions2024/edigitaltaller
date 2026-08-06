@@ -233,7 +233,7 @@ function buildPagina3() {
 
 // ---------- HTML PRINCIPAL ----------
 
-function buildHtml(vehiculo, asesorOverride = '') {
+function buildHtml(vehiculo, asesorOverride = '', formato = 'operativo') {
   // Si la orden es de un grupo, en el PDF se muestra quién lo está
   // imprimiendo (quien presionó el botón), no necesariamente quien la creó.
   const asesor = vehiculo.creadoPor || '';
@@ -266,6 +266,27 @@ function buildHtml(vehiculo, asesorOverride = '') {
 
   const fechaRecepcion = fmtFecha(vehiculo.fechaRecepcion);
   const hora = vehiculo.horaRecepcion || '';
+
+  // Formato Cliente: solo la página resumen (logo, orden, fecha de ingreso).
+  if (formato === 'cliente') {
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Formato Cliente ${esc(vehiculo.ordenServicio)}</title>
+<style>
+  * { box-sizing: border-box; font-family: Arial, sans-serif; }
+  body { margin: 0; padding: 0; font-size: 10px; color: #000; }
+  .page3 { width: 210mm; padding: 10mm 12mm; margin: 0 auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 0.5px solid #000; padding: 2px 3px; vertical-align: middle; }
+</style>
+</head>
+<body>
+${buildPaginaResumen(vehiculo, fechaRecepcion)}
+</body>
+</html>`;
+  }
 
   const nivelGasolina = (insp.nivelGasolina && insp.nivelGasolina !== 'false') ? insp.nivelGasolina : null;
   const gaugeSvg = buildGaugeSvg(nivelGasolina);
@@ -742,7 +763,6 @@ ${sinVehiculo ? '' : `
 
 </div>`}
 
-${buildPaginaResumen(vehiculo, fechaRecepcion)}
 ${buildPagina3()}
 
 </body>
@@ -751,8 +771,8 @@ ${buildPagina3()}
 
 // ---------- FUNCIÓN PRINCIPAL ----------
 
-async function streamVehiculoOperativoPdf(res, vehiculo, papel = 'a4', asesorOverride = '') {
-  const html = buildHtml(vehiculo, asesorOverride);
+async function streamVehiculoOperativoPdf(res, vehiculo, papel = 'a4', asesorOverride = '', formato = 'operativo') {
+  const html = buildHtml(vehiculo, asesorOverride, formato);
 
   const formatMap = {
     a4:     'A4',
@@ -777,10 +797,11 @@ async function streamVehiculoOperativoPdf(res, vehiculo, papel = 'a4', asesorOve
 
   await browser.close();
 
+  const filenamePrefix = formato === 'cliente' ? 'orden_cliente' : 'orden_operativa';
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader(
     'Content-Disposition',
-    `inline; filename="orden_operativa_${vehiculo.ordenServicio}.pdf"`
+    `inline; filename="${filenamePrefix}_${vehiculo.ordenServicio}.pdf"`
   );
   res.send(pdfBuffer);
 }

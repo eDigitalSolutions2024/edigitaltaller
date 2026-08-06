@@ -92,7 +92,12 @@ export default function VehiculoOrdenDetalle() {
   const esAsesor = usuario?.role === "asesor_servicio";
   const grupoOrdenId = orden?.grupoId?._id || orden?.grupoId || null;
   const esDeMiGrupo = !!grupoOrdenId && misGrupoIds.includes(String(grupoOrdenId));
-  const esPropia = orden?.creadoPor === miNombre || esDeMiGrupo;
+  // Comparar primero por id (estable aunque el asesor se renombre); las
+  // órdenes viejas sin creadoPorId siguen resolviéndose por nombre.
+  const esPropia =
+    (!!orden?.creadoPorId && String(orden.creadoPorId) === String(usuario?.id || '')) ||
+    orden?.creadoPor === miNombre ||
+    esDeMiGrupo;
   const soloConsulta = !esAdmin && !esPropia;
   const soloLectura = esCerrada || esCancelada || soloConsulta;
 
@@ -426,11 +431,11 @@ export default function VehiculoOrdenDetalle() {
           <div className="btn-group">
             <button
               className="btn btn-outline-primary"
-              onClick={() => openOperativoPdf(orden._id, 'a4')}
+              onClick={() => openOperativoPdf(orden._id, 'carta')}
             >
               Formato Operativo
             </button>
-            <button
+            {/* <button
               type="button"
               className="btn btn-outline-primary dropdown-toggle dropdown-toggle-split"
               data-bs-toggle="dropdown"
@@ -454,8 +459,15 @@ export default function VehiculoOrdenDetalle() {
                   Oficio (Legal 8.5×14")
                 </button>
               </li>
-            </ul>
+            </ul> */}
           </div>
+          {' '}
+          <button
+            className="btn btn-outline-secondary"
+            onClick={() => openOperativoPdf(orden._id, 'carta', 'cliente')}
+          >
+            Formato Cliente
+          </button>
         </div>
       )}
     </div>

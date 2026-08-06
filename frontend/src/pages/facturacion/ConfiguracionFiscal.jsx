@@ -7,6 +7,12 @@ import {
   updateConceptoPreset,
   deleteConceptoPreset,
 } from "../../api/conceptosPreset";
+import {
+  listClavesUnidad,
+  createClaveUnidad,
+  updateClaveUnidad,
+  deleteClaveUnidad,
+} from "../../api/clavesUnidad";
 
 export default function ConfiguracionFiscal() {
   const [form, setForm] = useState({
@@ -134,6 +140,99 @@ export default function ConfiguracionFiscal() {
       setMsg(e?.response?.data?.error || e.message);
     } finally {
       setPresetsLoading(false);
+    }
+  }
+
+  /* ==========
+     CATÁLOGO DE CLAVES DE UNIDAD
+  ========== */
+  const CLAVE_UNIDAD_VACIA = { clave: "", descripcion: "" };
+
+  const [clavesUnidad, setClavesUnidad] = useState([]);
+  const [clavesUnidadLoading, setClavesUnidadLoading] = useState(false);
+  const [mostrarAltaClaveUnidad, setMostrarAltaClaveUnidad] = useState(false);
+  const [nuevaClaveUnidad, setNuevaClaveUnidad] = useState(CLAVE_UNIDAD_VACIA);
+  const [editClaveUnidadId, setEditClaveUnidadId] = useState(null);
+  const [editClaveUnidadDraft, setEditClaveUnidadDraft] = useState(null);
+
+  async function loadClavesUnidad() {
+    setClavesUnidadLoading(true);
+    try {
+      const res = await listClavesUnidad();
+      setClavesUnidad(res.data?.data || []);
+    } catch (e) {
+      setMsg(e?.response?.data?.error || e.message);
+    } finally {
+      setClavesUnidadLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadClavesUnidad();
+  }, []);
+
+  const claveUnidadPayloadValido = (c) =>
+    String(c?.clave || "").trim() && String(c?.descripcion || "").trim();
+
+  async function agregarClaveUnidad() {
+    if (!claveUnidadPayloadValido(nuevaClaveUnidad)) {
+      return setMsg("❌ Clave y descripción son obligatorios.");
+    }
+    setClavesUnidadLoading(true);
+    try {
+      await createClaveUnidad({
+        clave: nuevaClaveUnidad.clave,
+        descripcion: nuevaClaveUnidad.descripcion,
+      });
+      setNuevaClaveUnidad(CLAVE_UNIDAD_VACIA);
+      setMostrarAltaClaveUnidad(false);
+      await loadClavesUnidad();
+    } catch (e) {
+      setMsg(e?.response?.data?.error || e.message);
+    } finally {
+      setClavesUnidadLoading(false);
+    }
+  }
+
+  const startEditClaveUnidad = (c) => {
+    setEditClaveUnidadId(c._id);
+    setEditClaveUnidadDraft({ clave: c.clave || "", descripcion: c.descripcion || "" });
+  };
+
+  const cancelEditClaveUnidad = () => {
+    setEditClaveUnidadId(null);
+    setEditClaveUnidadDraft(null);
+  };
+
+  async function guardarEditClaveUnidad() {
+    if (!claveUnidadPayloadValido(editClaveUnidadDraft)) {
+      return setMsg("❌ Clave y descripción son obligatorios.");
+    }
+    setClavesUnidadLoading(true);
+    try {
+      await updateClaveUnidad(editClaveUnidadId, {
+        clave: editClaveUnidadDraft.clave,
+        descripcion: editClaveUnidadDraft.descripcion,
+      });
+      cancelEditClaveUnidad();
+      await loadClavesUnidad();
+    } catch (e) {
+      setMsg(e?.response?.data?.error || e.message);
+    } finally {
+      setClavesUnidadLoading(false);
+    }
+  }
+
+  async function eliminarClaveUnidad(id) {
+    if (!window.confirm("¿Eliminar esta clave de unidad del catálogo?")) return;
+    setClavesUnidadLoading(true);
+    try {
+      await deleteClaveUnidad(id);
+      await loadClavesUnidad();
+    } catch (e) {
+      setMsg(e?.response?.data?.error || e.message);
+    } finally {
+      setClavesUnidadLoading(false);
     }
   }
 
@@ -374,10 +473,156 @@ export default function ConfiguracionFiscal() {
         </div>
       </div>
 
-      {/* Catálogo de conceptos */}
+      {/* Catálogo de códigos de unidad */}
       <div className="card mb-4">
         <div className="card-header d-flex justify-content-between align-items-center">
-          <span className="fw-bold">Catálogo de conceptos</span>
+          <span className="fw-bold">Códigos de unidad</span>
+          <button
+            className="btn btn-sm btn-outline-danger"
+            onClick={() => setMostrarAltaClaveUnidad((s) => !s)}
+          >
+            {mostrarAltaClaveUnidad ? "Cancelar" : "Agregar código de unidad"}
+          </button>
+        </div>
+        <div className="card-body">
+          <p className="text-muted small mb-3">
+            Claves de unidad del SAT (c_ClaveUnidad) para seleccionarlas rápido al
+            capturar cada concepto de una factura.
+          </p>
+
+          {mostrarAltaClaveUnidad && (
+            <div className="row g-2 align-items-end mb-3 p-2 border rounded">
+              <div className="col-12 col-md-3">
+                <label className="form-label small mb-1">Clave</label>
+                <input
+                  className="form-control form-control-sm"
+                  value={nuevaClaveUnidad.clave}
+                  onChange={(e) =>
+                    setNuevaClaveUnidad((p) => ({ ...p, clave: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="col-12 col-md-7">
+                <label className="form-label small mb-1">Descripción</label>
+                <input
+                  className="form-control form-control-sm"
+                  value={nuevaClaveUnidad.descripcion}
+                  onChange={(e) =>
+                    setNuevaClaveUnidad((p) => ({ ...p, descripcion: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="col-12 col-md-2 d-grid">
+                <button
+                  className="btn btn-sm btn-danger"
+                  onClick={agregarClaveUnidad}
+                  disabled={clavesUnidadLoading}
+                >
+                  Guardar
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="table-responsive">
+            <table className="table table-sm table-bordered align-middle">
+              <thead>
+                <tr>
+                  <th style={{ width: 160 }}>Clave</th>
+                  <th>Descripción</th>
+                  <th style={{ width: 160 }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clavesUnidad.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="text-center text-muted">
+                      Aún no hay códigos de unidad guardados. Agrega el primero.
+                    </td>
+                  </tr>
+                ) : (
+                  clavesUnidad.map((c) => {
+                    const editing = editClaveUnidadId === c._id;
+                    const row = editing ? editClaveUnidadDraft : c;
+                    return (
+                      <tr key={c._id}>
+                        <td>
+                          {editing ? (
+                            <input
+                              className="form-control form-control-sm"
+                              value={row.clave}
+                              onChange={(e) =>
+                                setEditClaveUnidadDraft((d) => ({ ...d, clave: e.target.value }))
+                              }
+                            />
+                          ) : (
+                            c.clave
+                          )}
+                        </td>
+                        <td>
+                          {editing ? (
+                            <input
+                              className="form-control form-control-sm"
+                              value={row.descripcion}
+                              onChange={(e) =>
+                                setEditClaveUnidadDraft((d) => ({
+                                  ...d,
+                                  descripcion: e.target.value,
+                                }))
+                              }
+                            />
+                          ) : (
+                            c.descripcion
+                          )}
+                        </td>
+                        <td>
+                          {editing ? (
+                            <div className="d-flex gap-1">
+                              <button
+                                className="btn btn-sm btn-success"
+                                onClick={guardarEditClaveUnidad}
+                                disabled={clavesUnidadLoading}
+                              >
+                                Guardar
+                              </button>
+                              <button
+                                className="btn btn-sm btn-secondary"
+                                onClick={cancelEditClaveUnidad}
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="d-flex gap-1">
+                              <button
+                                className="btn btn-sm btn-outline-primary"
+                                onClick={() => startEditClaveUnidad(c)}
+                              >
+                                Editar
+                              </button>
+                              <button
+                                className="btn btn-sm btn-outline-danger"
+                                onClick={() => eliminarClaveUnidad(c._id)}
+                              >
+                                Eliminar
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Catálogo de códigos de producto/servicio */}
+      <div className="card mb-4">
+        <div className="card-header d-flex justify-content-between align-items-center">
+          <span className="fw-bold">Códigos de producto/servicio</span>
           <button
             className="btn btn-sm btn-outline-danger"
             onClick={() => setMostrarAltaPreset((s) => !s)}

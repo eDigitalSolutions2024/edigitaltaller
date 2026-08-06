@@ -82,6 +82,7 @@ app.use('/api/fiscal-config', require('./routes/fiscal_config'));
 app.use('/api/generar-xml', require('./routes/generar_xml'));
 app.use('/api/facturas-cfdi', require('./routes/facturas_cfdi'));
 app.use('/api/conceptos-preset', require('./routes/conceptos_preset'));
+app.use('/api/claves-unidad', require('./routes/claves_unidad'));
 
 app.use('/api/reportes', require('./routes/reportes'));
 app.use('/api/reportes/cierre-caja', require('./routes/cierreCaja'));

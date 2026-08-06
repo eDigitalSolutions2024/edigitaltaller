@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { FaEye, FaEyeSlash, FaUserShield, FaUserTimes, FaCopy } from 'react-icons/fa';
+import { FaEye, FaEyeSlash, FaUserShield, FaUserTimes, FaCopy, FaLink } from 'react-icons/fa';
 import {
   getUsers,
   createUser,
@@ -16,6 +16,8 @@ import {
   cambiarEstadoEmpleado,
   vincularUsuario
 } from '../../api/empleados';
+import { backfillCreadoPorId } from '../../api/vehiculos';
+import { getUser } from '../../auth';
 
 // ─── Etiquetas de roles ───────────────────────────────────────────────────────
 const ROLES = [
@@ -165,6 +167,9 @@ export default function Personal() {
   const [revealed,    setRevealed]    = useState({});     // { [userId]: password }
   const [verifyFor,   setVerifyFor]   = useState(null);   // userId pendiente de reveal
   const [pwdError,    setPwdError]    = useState({});     // { [userId]: mensaje de error }
+
+  const esAdmin = getUser()?.role === 'admin';
+  const [backfillLoading, setBackfillLoading] = useState(false);
 
   // ── Carga de datos ──────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -393,6 +398,29 @@ export default function Personal() {
     }
   }
 
+  // ── Reparar vínculo de órdenes viejas (creadoPorId) ─────────────────────────
+  // Cuando se renombra a alguien aquí, sus órdenes viejas (creadas antes de
+  // que existiera creadoPorId) solo se siguen localizando por el nombre
+  // congelado en la orden. Este botón resuelve ese vínculo por id para que
+  // dejen de depender del nombre.
+  async function handleBackfill() {
+    setBackfillLoading(true);
+    setMensaje('');
+    setError('');
+    try {
+      const r = await backfillCreadoPorId();
+      let msg = `Vínculo reparado en ${r.actualizadas} de ${r.totalPendientes} orden(es) pendientes.`;
+      if (r.ambiguas?.length) msg += ` ${r.ambiguas.length} con nombre ambiguo (revisar).`;
+      if (r.sinResolver?.length) msg += ` ${r.sinResolver.length} sin usuario coincidente.`;
+      flash(msg);
+    } catch (err) {
+      console.error(err);
+      flash(err?.response?.data?.msg || 'Error al reparar el vínculo de órdenes', true);
+    } finally {
+      setBackfillLoading(false);
+    }
+  }
+
   // ── Revelar contraseña ───────────────────────────────────────────────────────
   async function handleReveal(persona) {
     const token = getRevealToken();
@@ -463,14 +491,27 @@ export default function Personal() {
       {/* Header */}
       <div className="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
         <h1 className="h3 mb-0">Personal del Taller</h1>
-        {!editando && (
-          <button
-            className="btn btn-taller-primary"
-            onClick={() => { setEditando({}); setForm(emptyForm); }}
-          >
-            + Nuevo
-          </button>
-        )}
+        <div className="d-flex gap-2">
+          {esAdmin && (
+            <button
+              className="btn btn-outline-secondary"
+              title="Vuelve a vincular por id las órdenes viejas cuyo asesor ya no coincide por nombre (p. ej. tras un cambio de nombre)"
+              onClick={handleBackfill}
+              disabled={backfillLoading}
+            >
+              <FaLink className="me-1" />
+              {backfillLoading ? 'Reparando…' : 'Reparar vínculo de órdenes'}
+            </button>
+          )}
+          {!editando && (
+            <button
+              className="btn btn-taller-primary"
+              onClick={() => { setEditando({}); setForm(emptyForm); }}
+            >
+              + Nuevo
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Alertas */}

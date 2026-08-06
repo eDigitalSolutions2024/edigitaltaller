@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { listOrdenesServicio, getVehiculoById } from "../../api/vehiculos";
 import { updateCustomer } from "../../api/customers";
 import { listConceptosPreset } from "../../api/conceptosPreset";
+import { listClavesUnidad } from "../../api/clavesUnidad";
 import { listFacturasCfdi } from "../../api/facturasCfdi";
 import { generarVistaPreviaPDF } from "../../api/facturacion";
 import { cancelarPagoCaja } from "../../api/cajas";
@@ -91,32 +92,16 @@ const FORMA_PAGO = [
   { value: "99", label: "99 - Por definir" },
 ];
 
-/* Clave de unidad del SAT (c_ClaveUnidad). El select muestra "clave - descripción"
+/* Clave de unidad del SAT (c_ClaveUnidad). Viene del catálogo administrable en
+   Configuración fiscal (claves-unidad); el select muestra "clave - descripción"
    y de paso llena el campo Unidad del CFDI, que es esa misma descripción. */
-const CLAVE_UNIDAD = [
-  { value: "E48", unidad: "Servicio" },
-  { value: "ACT", unidad: "Actividad" },
-  { value: "E51", unidad: "Trabajo" },
-  { value: "H87", unidad: "Pieza" },
-  { value: "EA", unidad: "Elemento" },
-  { value: "XUN", unidad: "Unidad" },
-  { value: "SET", unidad: "Conjunto" },
-  { value: "XBX", unidad: "Caja" },
-  { value: "HUR", unidad: "Hora" },
-  { value: "KGM", unidad: "Kilogramo" },
-  { value: "GRM", unidad: "Gramo" },
-  { value: "LTR", unidad: "Litro" },
-  { value: "MTR", unidad: "Metro" },
-  { value: "MTK", unidad: "Metro cuadrado" },
-];
-
-const claveUnidadLabel = (clave) => {
-  const found = CLAVE_UNIDAD.find((u) => u.value === clave);
-  return found ? `${found.value} - ${found.unidad}` : clave;
+const claveUnidadLabel = (catalogo, clave) => {
+  const found = catalogo.find((u) => u.clave === clave);
+  return found ? `${found.clave} - ${found.descripcion}` : clave;
 };
 
-const unidadDeClave = (clave, fallback = "") =>
-  CLAVE_UNIDAD.find((u) => u.value === clave)?.unidad || fallback;
+const unidadDeClave = (catalogo, clave, fallback = "") =>
+  catalogo.find((u) => u.clave === clave)?.descripcion || fallback;
 
 const IVA_OPTS = [
   { value: 0, label: "0%" },
@@ -171,10 +156,10 @@ function downloadTextFile(filename, text, mime = "application/xml") {
 }
 
 /* Select reutilizable de clave de unidad. Si el concepto trae una clave que no
-   está en el catálogo (capturada antes o importada), se agrega como opción para
-   no perderla al editar. */
-function SelectClaveUnidad({ value, disabled, onChange, size = "" }) {
-  const fueraDeCatalogo = value && !CLAVE_UNIDAD.some((u) => u.value === value);
+   está en el catálogo (capturada antes o importada, o el catálogo aún no la
+   tiene dada de alta), se agrega como opción para no perderla al editar. */
+function SelectClaveUnidad({ value, disabled, onChange, opciones, size = "" }) {
+  const fueraDeCatalogo = value && !opciones.some((u) => u.clave === value);
 
   return (
     <select
@@ -184,9 +169,9 @@ function SelectClaveUnidad({ value, disabled, onChange, size = "" }) {
       onChange={(e) => onChange(e.target.value)}
     >
       {fueraDeCatalogo && <option value={value}>{value}</option>}
-      {CLAVE_UNIDAD.map((u) => (
-        <option key={u.value} value={u.value}>
-          {u.value} - {u.unidad}
+      {opciones.map((u) => (
+        <option key={u._id || u.clave} value={u.clave}>
+          {u.clave} - {u.descripcion}
         </option>
       ))}
     </select>
@@ -323,8 +308,16 @@ export default function NuevaFactura() {
 
       try {
         setLoadingOrden(true);
-        const res = await listOrdenesServicio({ search: term, estado: "CERRADA", limit: 15 });
-        setOptsOrdenes(res.data?.data || []);
+        const res = await listOrdenesServicio({
+          search: term,
+          estado: "CERRADA",
+          // Ya con una orden agregada, las siguientes deben ser del mismo
+          // cliente: una factura no puede mezclar receptores.
+          ...(cliente?._id ? { cliente: cliente._id } : {}),
+          limit: 15,
+        });
+        const yaAgregadas = new Set(ordenes.map((o) => o._id));
+        setOptsOrdenes((res.data?.data || []).filter((o) => !yaAgregadas.has(o._id)));
         setShowOrdenes(true);
       } catch (e) {
         setOptsOrdenes([]);
@@ -334,7 +327,7 @@ export default function NuevaFactura() {
     }, 250);
 
     return () => clearTimeout(t);
-  }, [qOrden, esFactura]); // eslint-disable-line
+  }, [qOrden, esFactura, cliente, ordenes]); // eslint-disable-line
 
   /* Búsqueda de facturas emitidas (tipos: notaCredito / complementoPago) */
   useEffect(() => {
@@ -697,6 +690,16 @@ export default function NuevaFactura() {
     }));
   };
 
+  /* Catálogo de claves de unidad SAT (configuración fiscal): alimenta el
+     select de CUnidad de cada concepto. */
+  const [clavesUnidad, setClavesUnidad] = useState([]);
+
+  useEffect(() => {
+    listClavesUnidad()
+      .then((r) => setClavesUnidad(r.data?.data || []))
+      .catch(() => setClavesUnidad([]));
+  }, []);
+
   /* ==========
      COSTO DE VENTA DE LAS ÓRDENES
      Las partidas que se le cobraron al cliente en Cajas se pueden pasar tal
@@ -749,7 +752,7 @@ export default function NuevaFactura() {
 
     const nuevos = elegidas.map((l) => ({
       cantidad: Number(l.cant) > 0 ? Number(l.cant) : 1,
-      unidad: unidadDeClave("E48"),
+      unidad: unidadDeClave(clavesUnidad, "E48", "Servicio"),
       cProdServ: l.codigoSat || "",
       cUnidad: "E48",
       descripcion: l.concepto || l.descripcionSat || "",
@@ -1748,11 +1751,12 @@ export default function NuevaFactura() {
               <SelectClaveUnidad
                 value={concepto.cUnidad}
                 disabled={disabledSteps}
+                opciones={clavesUnidad}
                 onChange={(clave) =>
                   setConcepto((p) => ({
                     ...p,
                     cUnidad: clave,
-                    unidad: unidadDeClave(clave, p.unidad),
+                    unidad: unidadDeClave(clavesUnidad, clave, p.unidad),
                   }))
                 }
               />
@@ -1870,16 +1874,17 @@ export default function NuevaFactura() {
                           {editing ? (
                             <SelectClaveUnidad
                               value={row.cUnidad}
+                              opciones={clavesUnidad}
                               onChange={(clave) =>
                                 setEditDraft((p) => ({
                                   ...p,
                                   cUnidad: clave,
-                                  unidad: unidadDeClave(clave, p.unidad),
+                                  unidad: unidadDeClave(clavesUnidad, clave, p.unidad),
                                 }))
                               }
                             />
                           ) : (
-                            claveUnidadLabel(c.cUnidad)
+                            claveUnidadLabel(clavesUnidad, c.cUnidad)
                           )}
                         </td>
 
