@@ -458,6 +458,38 @@ export default function VehiculoNuevoForm({
     setMostrarSugerenciasSerie(false);
   };
 
+  // Enfoca el siguiente campo de texto/select/textarea visible dentro del
+  // formulario, imitando el orden natural de Tab. Se usa desde el onKeyDown
+  // del <form> para que Enter avance de campo en campo en todo el formulario.
+  const enfocarSiguienteCampo = (elementoActual) => {
+    const formEl = elementoActual.form;
+    if (!formEl) return;
+    const seleccionables = Array.from(
+      formEl.querySelectorAll("input, select, textarea")
+    ).filter((el) => !el.disabled && el.tabIndex !== -1 && el.offsetParent !== null);
+    const idx = seleccionables.indexOf(elementoActual);
+    if (idx > -1 && idx < seleccionables.length - 1) {
+      seleccionables[idx + 1].focus();
+    }
+  };
+
+  // Enter en el campo Serie: si lo escrito coincide exactamente con una
+  // sugerencia del garaje, rellena los campos faltantes igual que al hacer
+  // clic con el mouse (el avance al siguiente campo lo hace el onKeyDown
+  // del <form>, ya que el evento sigue su burbujeo hasta ahí).
+  const handleSerieKeyDown = (e) => {
+    if (e.key !== "Enter") return;
+    if (!mostrarSugerenciasSerie || sugerenciasSerie.length === 0) return;
+
+    const valor = form.serie.trim().toLowerCase();
+    const coincidenciaExacta = sugerenciasSerie.find(
+      (v) => (v.serie || "").trim().toLowerCase() === valor
+    );
+    if (coincidenciaExacta) {
+      seleccionarVehiculoSerie(coincidenciaExacta);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -661,7 +693,16 @@ export default function VehiculoNuevoForm({
     <div className="card mt-3">
       <div className="card-header fw-bold">Datos del Cliente</div>
       <div className="card-body">
-        <form onSubmit={handleSubmit} onKeyDown={(e) => { if (e.key === "Enter" && e.target.type !== "submit") e.preventDefault(); }}>
+        <form
+          onSubmit={handleSubmit}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" || e.target.type === "submit") return;
+            // En textareas, Enter debe insertar un salto de línea, no avanzar de campo.
+            if (e.target.tagName === "TEXTAREA") return;
+            e.preventDefault();
+            enfocarSiguienteCampo(e.target);
+          }}
+        >
           {/* ====== FILA: ORDEN / FECHA / HORA ====== */}
           <div className="row g-2 mb-2">
             <div className="col-md-4">
@@ -1069,6 +1110,40 @@ export default function VehiculoNuevoForm({
                   />
                 </div>
 
+                <div className="col-md-4 position-relative">
+                  <label className="form-label">
+                    Serie {requiereDatosVehiculo && <span className="text-danger">*</span>}
+                  </label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    name="serie"
+                    value={form.serie}
+                    onChange={handleSerieChange}
+                    onKeyDown={handleSerieKeyDown}
+                    onFocus={() => sugerenciasSerie.length > 0 && setMostrarSugerenciasSerie(true)}
+                    onBlur={() => setTimeout(() => setMostrarSugerenciasSerie(false), 150)}
+                    autoComplete="off"
+                    required={requiereDatosVehiculo}
+                  />
+                  {buscandoSerie && <div className="form-text">Buscando…</div>}
+                  {mostrarSugerenciasSerie && sugerenciasSerie.length > 0 && (
+                    <div className="list-group position-absolute w-100 shadow-sm" style={{ zIndex: 20 }}>
+                      {sugerenciasSerie.map((v) => (
+                        <button
+                          type="button"
+                          key={v._id}
+                          className="list-group-item list-group-item-action py-1 px-2 small"
+                          onMouseDown={() => seleccionarVehiculoSerie(v)}
+                        >
+                          <strong>{v.serie}</strong> — {v.marca || ""} {v.modelo || ""}
+                          {v.anio ? ` (${v.anio})` : ""} ·{" "}
+                          {v.clientes?.[0] ? nombreClienteGarage(v.clientes[0]) : "Sin cliente"}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="col-md-6">
                   <label className="form-label">
                     Marca {requiereDatosVehiculo && <span className="text-danger">*</span>}
@@ -1121,39 +1196,6 @@ export default function VehiculoNuevoForm({
                     onChange={handleChange}
                     required={requiereDatosVehiculo}
                   />
-                </div>
-                <div className="col-md-4 position-relative">
-                  <label className="form-label">
-                    Serie {requiereDatosVehiculo && <span className="text-danger">*</span>}
-                  </label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    name="serie"
-                    value={form.serie}
-                    onChange={handleSerieChange}
-                    onFocus={() => sugerenciasSerie.length > 0 && setMostrarSugerenciasSerie(true)}
-                    onBlur={() => setTimeout(() => setMostrarSugerenciasSerie(false), 150)}
-                    autoComplete="off"
-                    required={requiereDatosVehiculo}
-                  />
-                  {buscandoSerie && <div className="form-text">Buscando…</div>}
-                  {mostrarSugerenciasSerie && sugerenciasSerie.length > 0 && (
-                    <div className="list-group position-absolute w-100 shadow-sm" style={{ zIndex: 20 }}>
-                      {sugerenciasSerie.map((v) => (
-                        <button
-                          type="button"
-                          key={v._id}
-                          className="list-group-item list-group-item-action py-1 px-2 small"
-                          onMouseDown={() => seleccionarVehiculoSerie(v)}
-                        >
-                          <strong>{v.serie}</strong> — {v.marca || ""} {v.modelo || ""}
-                          {v.anio ? ` (${v.anio})` : ""} ·{" "}
-                          {v.clientes?.[0] ? nombreClienteGarage(v.clientes[0]) : "Sin cliente"}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
 
                 <div className="col-md-6">

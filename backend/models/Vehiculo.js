@@ -85,6 +85,11 @@ const vehiculoSchema = new Schema(
     refaccionesOmitidas: { type: Boolean, default: false },
     fechaEnvioSurtir: { type: Date, default: null },
     creadoPor: { type: String, default: "" },
+    // Referencia estable al usuario que creó la orden. `creadoPor` (nombre)
+    // se conserva como snapshot histórico y NO se reescribe si el usuario
+    // cambia de nombre después; los filtros/joins deben usar creadoPorId,
+    // cayendo a creadoPor solo para órdenes viejas sin este campo.
+    creadoPorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     devueltoPor: { type: String, default: "" },
     // Grupo de trabajo (si existía uno activo) del usuario que creó la orden.
     // Se conserva aunque el grupo luego se desactive o cambie de miembros.

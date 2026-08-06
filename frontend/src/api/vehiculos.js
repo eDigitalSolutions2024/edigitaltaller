@@ -45,12 +45,13 @@ export const savePresupuestoVenta = (id, payload) =>
 
 // 👇 nuevo ayudante
 // papel: 'a4' | 'carta' | 'oficio'
-export const openOperativoPdf = (id, papel = 'a4') => {
+// formato: 'operativo' (recepción/servicio + contrato) | 'cliente' (solo resumen)
+export const openOperativoPdf = (id, papel = 'carta', formato = 'operativo') => {
   const usuario = getUser();
   const asesor = usuario?.name || usuario?.username || '';
   // El backend solo usa este nombre si la orden pertenece a un grupo (para
   // mostrar en el PDF a quien lo está imprimiendo, no a quien la creó).
-  const url = `${API}/vehiculos/${id}/operativo-pdf?papel=${papel}&asesor=${encodeURIComponent(asesor)}`;
+  const url = `${API}/vehiculos/${id}/operativo-pdf?papel=${papel}&asesor=${encodeURIComponent(asesor)}&formato=${formato}`;
   window.open(url, "_blank", "noopener");
 };
 
@@ -119,6 +120,12 @@ export const descartarImagenesTemp = (tempId) =>
 
 export const getMisOrdenes = () =>
   http.get('/vehiculos/mis-ordenes');
+
+// Solo admin: resuelve creadoPorId en órdenes viejas que no lo tienen,
+// buscando el usuario actual cuyo nombre/username coincide con el creadoPor
+// guardado. Ver Personal.jsx (botón "Reparar vínculo de órdenes").
+export const backfillCreadoPorId = () =>
+  http.post('/vehiculos/backfill-creado-por-id').then((res) => res.data);
 
 // Filtros que definen lo que un refaccionario tiene realmente por surtir:
 // sus propias órdenes (o las que nadie atendió) y que aún traigan refacciones

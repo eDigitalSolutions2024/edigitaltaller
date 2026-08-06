@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const router = express.Router();
 const Vehiculo = require('../models/Vehiculo');
 const Empleado = require('../models/Empleado');
+const User = require('../models/User');
 const FacturaCfdi = require('../models/FacturaCfdi');
 const { streamReporteOriginalesPdf } = require('../service/reporteOriginalesPdf');
 const { streamReporteVentasAsesoresPdf } = require('../service/reporteVentasAsesoresPdf');
@@ -119,6 +120,23 @@ function resolverAsesores(o) {
   const miembrosGrupo = o.grupoId && Array.isArray(o.grupoId.miembros) ? o.grupoId.miembros : [];
   const nombres = [creador, ...miembrosGrupo.map((m) => m.name)].filter(Boolean);
   return [...new Set(nombres)];
+}
+
+// El filtro "asesor" de los reportes sigue recibiendo un nombre (así lo manda
+// el <select> del frontend), pero comparar por creadoPor (texto) deja de
+// funcionar en cuanto ese usuario se renombra en Personal. Aquí se resuelve
+// el nombre al usuario actual y se filtra por creadoPorId (estable) además
+// de por creadoPor (para no perder órdenes viejas creadas antes de que
+// existiera creadoPorId, o si el asesor ya no tiene cuenta de usuario).
+async function filtroAsesor(asesor) {
+  if (!asesor) return null;
+  const usuario = await User.findOne({
+    $or: [{ name: asesor }, { username: asesor }],
+  }).select('_id');
+  if (usuario) {
+    return { $or: [{ creadoPorId: usuario._id }, { creadoPor: asesor }] };
+  }
+  return { creadoPor: asesor };
 }
 
 // GET /api/reportes/originales?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
@@ -334,7 +352,8 @@ router.get('/originales-abiertas', async (req, res) => {
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
     const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter };
-    if (asesor) query.creadoPor = asesor;
+    const filtroAsesorQuery = await filtroAsesor(asesor);
+    if (filtroAsesorQuery) Object.assign(query, filtroAsesorQuery);
     const ordenes = await Vehiculo.find(query)
       .sort({ fechaRecepcion: 1 })
       .populate('cliente', POPULATE_CLIENTE)
@@ -373,7 +392,8 @@ async function buildReporteGarantias({ desde, hasta, asesor }) {
     estadoOrden: 'CERRADA',
     ...buildDateFilterAbiertas(desde, hasta),
   };
-  if (asesor) query.creadoPor = asesor;
+  const filtroAsesorQuery = await filtroAsesor(asesor);
+  if (filtroAsesorQuery) Object.assign(query, filtroAsesorQuery);
 
   const ordenes = await Vehiculo.find(query)
     .sort({ creadoPor: 1, fechaRecepcion: 1 })
@@ -839,7 +859,8 @@ router.get('/originales-abiertas-pdf', async (req, res) => {
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
     const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter };
-    if (asesor) query.creadoPor = asesor;
+    const filtroAsesorQuery = await filtroAsesor(asesor);
+    if (filtroAsesorQuery) Object.assign(query, filtroAsesorQuery);
     const ordenes = await Vehiculo.find(query)
       .sort({ fechaRecepcion: 1 })
       .populate('cliente', POPULATE_CLIENTE)

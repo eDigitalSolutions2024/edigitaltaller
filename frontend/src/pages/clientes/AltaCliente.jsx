@@ -571,17 +571,17 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
         <>
           <div className="form-grid">
             <div className="form-row">
-              <label>Nombre Contacto Empresa</label>
-              <input
-                value={form.nombre ?? ""}
-                onChange={(e) => upd("nombre", e.target.value)}
-              />
-            </div>
-            <div className="form-row">
               <label>Nombre Fiscal (Razón Social)</label>
               <input
                 value={form.empresa?.razonSocial ?? ""}
                 onChange={(e) => upd("empresa.razonSocial", e.target.value)}
+              />
+            </div>
+            <div className="form-row">
+              <label>Nombre Contacto Empresa</label>
+              <input
+                value={form.nombre ?? ""}
+                onChange={(e) => upd("nombre", e.target.value)}
               />
             </div>
             <div className="form-row col-12">

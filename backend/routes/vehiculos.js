@@ -1,6 +1,7 @@
 // backend/routes/vehiculos.js
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 
 const Vehiculo = require('../models/Vehiculo');
 const Cliente = require('../models/Cliente');
@@ -10,6 +11,7 @@ const Grupo = require('../models/Grupo');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { normalizarOrdenServicio, regexBusquedaOS } = require('../utils/ordenServicio');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
+const { backfillCreadoPorId } = require('../utils/backfillCreadoPorId');
 const EntradaInventario = require('../models/EntradaInventario');
 const SalidaInventario  = require('../models/SalidaInventario');
 const AjusteInventario  = require('../models/AjusteInventario');
@@ -298,6 +300,7 @@ router.post('/', async (req, res) => {
         $or: [{ name: payload.creadoPor }, { username: payload.creadoPor }],
       }).select('_id role');
       if (creador) {
+        payload.creadoPorId = creador._id;
         const grupoActivo = await Grupo.findOne({
           activo: true,
           rol: creador.role,
@@ -435,6 +438,7 @@ router.get('/ordenes', async (req, res) => {
       search = '',
       fechaDesde = '',
       fechaHasta = '',
+      cliente = '',
       page = 1,
       limit = 10,
     } = req.query;
@@ -443,6 +447,11 @@ router.get('/ordenes', async (req, res) => {
     // Las condiciones que usan $or se acumulan aquí (en vez de sobreescribir
     // q.$or directamente) para poder combinar varias sin que choquen entre sí.
     const andConditions = [];
+
+    // Para facturar varias órdenes juntas, todas deben ser del mismo cliente.
+    if (cliente && mongoose.isValidObjectId(cliente)) {
+      q.cliente = cliente;
+    }
 
     const filtroCobranza = ['pendientes', 'liquidadas'].includes(cobranza) ? cobranza : '';
 
@@ -594,11 +603,14 @@ router.get('/mis-ordenes', proteger, requiereRol('asesor_servicio', 'admin'), as
     const ordenes = await Vehiculo.find({
       estadoOrden: { $nin: ['CERRADA', 'CANCELADA'] },
       $or: [
+        // Órdenes nuevas: comparadas por id, no cambian si el usuario se renombra.
+        { creadoPorId: req.user._id },
+        // Órdenes viejas creadas antes de creadoPorId: se conservan por nombre.
         { creadoPor: nombreUsuario },
         ...(grupoIds.length ? [{ grupoId: { $in: grupoIds } }] : []),
       ],
     })
-      .select('ordenServicio estadoOrden marca modelo anio color createdAt cliente creadoPor grupoId')
+      .select('ordenServicio estadoOrden marca modelo anio color createdAt cliente creadoPor creadoPorId grupoId')
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
       .sort({ createdAt: -1 })
@@ -1366,10 +1378,12 @@ router.get('/:id/operativo-pdf', async (req, res) => {
         .json({ success: false, message: 'Orden no encontrada' });
     }
     const papel = ['carta', 'oficio', 'a4'].includes(req.query.papel) ? req.query.papel : 'a4';
+    // formato: 'operativo' (recepción/servicio + contrato) | 'cliente' (solo resumen)
+    const formato = req.query.formato === 'cliente' ? 'cliente' : 'operativo';
     // Si la orden pertenece a un grupo, el asesor mostrado en el PDF es quien
     // lo está imprimiendo (el que presiona el botón), no quien creó la orden.
     const asesorOverride = vehiculo.grupoId ? String(req.query.asesor || '').trim() : '';
-    await streamVehiculoOperativoPdf(res, vehiculo, papel, asesorOverride);
+    await streamVehiculoOperativoPdf(res, vehiculo, papel, asesorOverride, formato);
   } catch (err) {
     console.error('Error generando PDF operativo', err);
     res
@@ -1863,5 +1877,20 @@ router.get('/:id/venta-cliente-pdf', async (req, res) => {
   }
 });
 
+
+// POST /api/vehiculos/backfill-creado-por-id -> (solo admin) resuelve
+// creadoPorId para órdenes viejas creadas antes de que este campo existiera,
+// buscando el User cuyo nombre/username coincide con el creadoPor guardado.
+// Ver backend/utils/backfillCreadoPorId.js para el detalle y sus límites
+// (nombres ambiguos o ya huérfanos por un rename anterior no se resuelven solos).
+router.post('/backfill-creado-por-id', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const resultado = await backfillCreadoPorId({ dryRun: req.query.dryRun === 'true' });
+    return res.json({ ok: true, ...resultado });
+  } catch (err) {
+    console.error('Error en backfill de creadoPorId:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
 
 module.exports = router;

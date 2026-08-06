@@ -190,7 +190,9 @@ export default function OSFlotante() {
                       {ESTADO_LABEL[os.estadoOrden] || os.estadoOrden}
                     </span>
                   </div>
-                  {os.creadoPor && os.creadoPor !== miNombre && (
+                  {os.creadoPor &&
+                    !(os.creadoPorId && String(os.creadoPorId) === String(user?.id || '')) &&
+                    os.creadoPor !== miNombre && (
                     <div className="os-flotante__asesor">👤 {os.creadoPor}</div>
                   )}
                   <div className="os-flotante__cliente">{nombreCliente(os)}</div>

@@ -64,6 +64,9 @@ export default function VehiculosConsultaOrdenes() {
   }, []);
 
   const esMiOrden = (r) => {
+    // Comparar primero por id (estable aunque el asesor se renombre); las
+    // órdenes viejas sin creadoPorId siguen resolviéndose por nombre.
+    if (r.creadoPorId && String(r.creadoPorId) === String(usuario?.id || '')) return true;
     if (r.creadoPor === miNombre) return true;
     const gid = r.grupoId?._id || r.grupoId;
     return !!gid && misGrupoIds.includes(String(gid));
