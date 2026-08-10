@@ -35,6 +35,14 @@ export default function Navbar({ collapsed, onToggle }) {
     if (location.pathname.startsWith('/refaccionaria')) setRefaOpen(true);
   }, [location.pathname]);
 
+  // === CAJAS ===
+  const [cajasOpen, setCajasOpen] = useState(
+    location.pathname.startsWith('/cajas')
+  );
+  useEffect(() => {
+    if (location.pathname.startsWith('/cajas')) setCajasOpen(true);
+  }, [location.pathname]);
+
 
 
   // arriba de todo, junto a otros useState:
@@ -280,12 +288,39 @@ useEffect(() => {
           </div>
         )}
 
-        {/* === CAJAS === */}
+        {/* === GRUPO: CAJAS === */}
         {canSeeModule(user?.role, 'cajas') && (
-          <NavLink to="/cajas/buscar" className="sidebar__link" title="Cajas">
-            <span className="emoji">💰</span><span className="label">Cajas</span>
-          </NavLink>
+          <div className={`sidebar__group ${cajasOpen ? 'open' : ''}`}>
+            <button
+              type="button"
+              className="sidebar__link sidebar__group-toggle"
+              onClick={() => setCajasOpen(o => !o)}
+              aria-expanded={cajasOpen}
+              aria-controls="submenu-cajas"
+              title="Cajas"
+            >
+              <span className="emoji">💰</span>
+              <span className="label">Cajas</span>
+              {!collapsed && <span className="chev" aria-hidden>▾</span>}
+            </button>
+
+            <div id="submenu-cajas" className="sidebar__sublinks">
+              <NavLink
+                to="/cajas/buscar"
+                className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+              >
+                <span className="label">Buscar Orden</span>
+              </NavLink>
+              <NavLink
+                to="/cajas/gestion"
+                className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+              >
+                <span className="label">Gestión de Caja</span>
+              </NavLink>
+            </div>
+          </div>
         )}
+        {/* === FIN GRUPO CAJAS === */}
 
         {/* === GRUPO: CLIENTES === */}
         {canSeeModule(user?.role, 'clientes') && (
@@ -398,13 +433,6 @@ useEffect(() => {
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">Consulta Órdenes Canceladas</span>
-            </NavLink>
-
-            <NavLink
-              to="/vehiculo/exportar"
-              className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
-            >
-              <span className="label">Exportar</span>
             </NavLink>
 
             {(user?.role === 'admin' || user?.role === 'asesor_servicio') && (

@@ -10,6 +10,7 @@ const fs = require('fs');
 const { dayjsFecha } = require('../utils/fechas');
 const { cantidadConLetra } = require('../utils/numeroALetras');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
+const { WATERMARK_CSS, watermarkHtmlPago } = require('../utils/pdfWatermark');
 
 const assetPath = (...parts) => path.join(__dirname, '..', 'assets', 'pdf', ...parts);
 
@@ -220,9 +221,11 @@ exports.generarComprobanteCajaPDF = async (res, orden, pago, tipo) => {
     .cierre .importes { text-align: right; }
     .cierre .fila { margin-bottom: 26px; font-size: 15px; }
     .cierre .valor { font-family: Helvetica, Arial, sans-serif; font-size: 13.5px; margin-left: 18px; }
+${WATERMARK_CSS}
   </style>
 </head>
 <body>
+  ${watermarkHtmlPago(pago)}
   <div class="header">
     ${logoSrc ? `<img src="${logoSrc}" class="logo" />` : `<div class="brand-fallback">Servi<span>compactos</span></div>`}
     <div class="folio label">${tituloFolio}<span class="num">${escapeHtml(folio ?? '')}</span></div>

@@ -19,8 +19,16 @@ export default function OrdenServicioTicketLink({ ticket }) {
   const folioActual = orden.ordenServicio || '';
   const cambio = Boolean(folioAntes && folioActual && folioAntes !== folioActual);
 
+  // RESTABLECER_COBRO manda a Cajas (con la orden ya cargada) en vez de a la
+  // orden en sí: ahí es donde el admin ve el historial de pagos y cancela el
+  // abono/anticipo/remisión/nota de venta puntual.
+  const destino =
+    ticket.tipoProblema === 'RESTABLECER_COBRO'
+      ? `/cajas/orden/${orden._id}`
+      : `/vehiculo/orden/${orden._id}?tab=general`;
+
   const link = (
-    <Link to={`/vehiculo/orden/${orden._id}?tab=general`}>
+    <Link to={destino}>
       {folioActual || 'Ver orden'}
     </Link>
   );

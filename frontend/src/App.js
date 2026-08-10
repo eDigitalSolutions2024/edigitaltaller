@@ -38,7 +38,6 @@ import VehiculosLayout from "./pages/vehiculo/VehiculosLayout";
 import VehiculoEntrada from "./pages/vehiculo/VehiculosEntrada";
 import VehiculoConsultaOrdenes from "./pages/vehiculo/VehiculosConsultaOrdenes";
 import VehiculoConsultaCerradas from "./pages/vehiculo/VehiculosConsultaCerradas";
-import VehiculoExportar from "./pages/vehiculo/VehiculosExportar";
 import VehiculoOrdenDetalle from "./pages/vehiculo/VehiculoOrdenDetalle";
 import VehiculoConsultaCanceladas from "./pages/vehiculo/VehiculosConsultaCanceladas";
 import VehiculosConsultaGarantias from "./pages/vehiculo/VehiculosConsultaGarantias";
@@ -98,6 +97,7 @@ import SoporteAdminHistorial from "./pages/soporte/SoporteAdminHistorial";
 import CajasLayout from "./pages/cajas/CajasLayout";
 import CajasBuscarOrden from "./pages/cajas/CajasBuscarOrden";
 import CajaOrdenDetalle from "./pages/cajas/CajaOrdenDetalle";
+import GestionCaja from "./pages/cajas/GestionCaja";
 
 // Facturación
 import FacturacionLayout from "./pages/facturacion/FacturacionLayout";
@@ -241,7 +241,6 @@ export default function App() {
             <Route path="consulta-ordenes-cerradas" element={<VehiculoConsultaCerradas />} />
             <Route path="consulta-ordenes-canceladas" element={<VehiculoConsultaCanceladas />} />
             <Route path="garantias" element={<VehiculosConsultaGarantias />} />
-            <Route path="exportar" element={<VehiculoExportar />} />
             <Route path="garaje" element={<GarageAdminPage />} />
             <Route path="orden/:id" element={<VehiculoOrdenDetalle />} />
           </Route>
@@ -251,6 +250,7 @@ export default function App() {
             <Route index element={<Navigate to="buscar" replace />} />
             <Route path="buscar" element={<CajasBuscarOrden />} />
             <Route path="orden/:id" element={<CajaOrdenDetalle />} />
+            <Route path="gestion" element={<GestionCaja />} />
           </Route>
 
           {/* Refaccionaria */}

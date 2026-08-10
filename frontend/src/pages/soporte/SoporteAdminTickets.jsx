@@ -9,6 +9,7 @@ import {
   listTickets,
   cambiarEstadoTicket,
   resolverCambioAsesorTicket,
+  resolverRestablecerCajaTicket,
 } from '../../api/tickets';
 import OrdenServicioTicketLink from '../../components/OrdenServicioTicketLink';
 
@@ -85,6 +86,27 @@ export default function SoporteAdminTickets() {
     }
   };
 
+  const handleResolverRestablecerCaja = async (t, accion) => {
+    const fechaTexto = t.fechaCierreCaja
+      ? new Date(t.fechaCierreCaja).toLocaleDateString('es-MX', { timeZone: 'UTC' })
+      : '';
+    const pregunta =
+      accion === 'APROBAR'
+        ? `¿Aprobar y reabrir la caja del ${fechaTexto}?`
+        : `¿Negar esta solicitud de restablecer la caja del ${fechaTexto}?`;
+    const ok = window.confirm(pregunta);
+    if (!ok) return;
+    try {
+      setProcesando(t._id);
+      await resolverRestablecerCajaTicket(t._id, accion);
+      cargar();
+    } catch (err) {
+      alert(err.response?.data?.msg || 'Error al resolver la solicitud.');
+    } finally {
+      setProcesando(null);
+    }
+  };
+
   return (
     <div>
       <div className="card shadow-sm mb-3">
@@ -150,6 +172,11 @@ export default function SoporteAdminTickets() {
                       Nuevo asesor solicitado: <strong>{t.asesorSolicitadoNombre}</strong>
                     </div>
                   )}
+                  {t.tipoProblema === 'RESTABLECER_CAJA' && t.fechaCierreCaja && (
+                    <div className="small text-muted">
+                      Día de caja: <strong>{new Date(t.fechaCierreCaja).toLocaleDateString('es-MX', { timeZone: 'UTC' })}</strong>
+                    </div>
+                  )}
                 </td>
                 <td className="text-center">
                   <OrdenServicioTicketLink ticket={t} />
@@ -187,6 +214,27 @@ export default function SoporteAdminTickets() {
                         style={{ fontSize: 12 }}
                         disabled={procesando === t._id}
                         onClick={() => handleResolverCambioAsesor(t, 'NEGAR')}
+                      >
+                        Negar
+                      </button>
+                    </div>
+                  ) : t.tipoProblema === 'RESTABLECER_CAJA' && t.estado !== 'FINALIZADO' ? (
+                    <div className="d-flex gap-1 justify-content-center">
+                      <button
+                        type="button"
+                        className="btn btn-success btn-sm py-0"
+                        style={{ fontSize: 12 }}
+                        disabled={procesando === t._id}
+                        onClick={() => handleResolverRestablecerCaja(t, 'APROBAR')}
+                      >
+                        Aprobar
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm py-0"
+                        style={{ fontSize: 12 }}
+                        disabled={procesando === t._id}
+                        onClick={() => handleResolverRestablecerCaja(t, 'NEGAR')}
                       >
                         Negar
                       </button>

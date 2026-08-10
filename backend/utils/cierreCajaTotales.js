@@ -3,9 +3,15 @@ const TERMINALES_KEYS = [
   'banregio',
   'banamex',
   'americanExpress',
+  'banorte',
   'cheques',
   'transferencias',
 ];
+
+// Únicas terminales sin fuente automática (ningún pago las alimenta): las
+// demás se suman solas desde registrarMovimientoTerminal y no deben aceptar
+// sobreescritura por el formulario de captura (ver POST / en cierreCaja.js).
+const TERMINALES_MANUALES = ['cheques', 'transferencias'];
 
 // Espejo de cajaTotales.js: los totales del cierre nunca se persisten, siempre
 // se recalculan a partir de los conteos/capturas guardadas.
@@ -46,4 +52,4 @@ function calcularTotalesCierre(cierre) {
   };
 }
 
-module.exports = { calcularTotalesCierre, TERMINALES_KEYS };
+module.exports = { calcularTotalesCierre, TERMINALES_KEYS, TERMINALES_MANUALES };

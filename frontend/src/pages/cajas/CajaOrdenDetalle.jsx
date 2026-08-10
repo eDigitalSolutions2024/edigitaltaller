@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   getOrdenCaja,
   registrarPago,
+  cancelarPagoCaja,
   agregarDescuento,
   actualizarDescuento,
   eliminarDescuento,
@@ -11,8 +12,10 @@ import {
   openReciboProvisionalPdf,
   openReciboDolaresPdf,
 } from "../../api/cajas";
+import { createTicket } from "../../api/tickets";
 import { openValePdf } from "../../api/vales";
 import http from "../../api/http";
+import { getUser } from "../../auth";
 import { formatFecha } from "../../utils/fechas";
 import { TARIFA_HORA, calcImporteHoras } from "../../utils/manoObra";
 import { calcularTotalesOrden } from "../../utils/cajaTotales";
@@ -20,6 +23,8 @@ import CajaCostoVentaTable from "./components/CajaCostoVentaTable";
 import CajaHistorialPagos from "./components/CajaHistorialPagos";
 import CajaModalPago from "./components/CajaModalPago";
 import CajaModalDescuento from "./components/CajaModalDescuento";
+import CajaModalCancelarPago from "./components/CajaModalCancelarPago";
+import CajaModalValeGarantia from "./components/CajaModalValeGarantia";
 
 function formatMoney(n) {
   return new Intl.NumberFormat("es-MX", {
@@ -39,11 +44,14 @@ function ultimoPago(pagos, comprobante) {
 export default function CajaOrdenDetalle() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const esAdmin = getUser()?.role === "admin";
 
   const [orden, setOrden] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showModalDescuento, setShowModalDescuento] = useState(false);
   const [showModalPago, setShowModalPago] = useState(false);
+  const [pagoACancelar, setPagoACancelar] = useState(null);
+  const [showModalValeGarantia, setShowModalValeGarantia] = useState(false);
 
   const [mecanicos, setMecanicos] = useState([]);
   const [carroceros, setCarroceros] = useState([]);
@@ -111,6 +119,33 @@ export default function CajaOrdenDetalle() {
     setOrden(res.data.vehiculo);
   };
 
+  // Restablecer un abono/anticipo/remisión/nota de venta: solo admin (botón
+  // en el historial, resuelto en el modal CajaModalCancelarPago). El pago
+  // conserva su folio, queda marcado "cancelado" y el PDF del comprobante
+  // muestra la marca de agua "CANCELADO".
+  const handleConfirmarCancelarPago = async (motivo) => {
+    const res = await cancelarPagoCaja(orden._id, pagoACancelar._id, { motivo });
+    setOrden(res.data.vehiculo);
+    setPagoACancelar(null);
+  };
+
+  // Caja no puede cancelar directamente: abre un ticket RESTABLECER_COBRO en
+  // Soporte con la orden ya ligada, para que un admin lo revise y lo cancele
+  // desde este mismo historial (ver handleConfirmarCancelarPago arriba).
+  const handleSolicitarCancelacion = async (pago, detalle) => {
+    try {
+      const res = await createTicket({
+        tipoProblema: "RESTABLECER_COBRO",
+        detalle,
+        ordenServicio: orden._id,
+        folioOrdenServicio: orden.ordenServicio,
+      });
+      alert(`Solicitud ${res.data.data.folio} enviada. Un administrador la revisará.`);
+    } catch (err) {
+      alert(err.response?.data?.msg || "Error al enviar la solicitud.");
+    }
+  };
+
   // Actualiza el "Último Vale" en memoria (sin volver a pedir toda la orden:
   // cargar() pasa por loading=true, que desmonta el modal y perdería su estado).
   const handleValeGuardado = (vale) => {
@@ -120,6 +155,15 @@ export default function CajaOrdenDetalle() {
   const handleImprimirUltimoVale = () => {
     if (!orden.ultimoVale?.id) return;
     openValePdf(orden.ultimoVale.id);
+  };
+
+  // Órdenes de garantía no se cobran (sin Registrar Pago), pero igual deben
+  // poder salir del taller: CajaModalValeGarantia captura los datos y crea el
+  // vale con estatus fijo "Garantia"; aquí solo se refleja el resultado.
+  const handleValeGarantiaGuardado = (vale, imprimir) => {
+    handleValeGuardado(vale);
+    setShowModalValeGarantia(false);
+    if (imprimir) openValePdf(vale._id);
   };
 
   const handleImprimirNotaVenta = () => {
@@ -359,6 +403,11 @@ export default function CajaOrdenDetalle() {
 
           {/* BOTONES LATERALES */}
           <div className="col-md-3 d-flex flex-column gap-2">
+            {esGarantia && (
+              <button className="btn btn-success" onClick={() => setShowModalValeGarantia(true)}>
+                Generar Vale de Salida
+              </button>
+            )}
             {!esGarantia && (
               <button className="btn btn-success" onClick={() => setShowModalPago(true)}>
                 Registrar Pago / Abono
@@ -391,6 +440,10 @@ export default function CajaOrdenDetalle() {
           onImprimir={handleImprimirPago}
           onImprimirReciboProvisional={handleImprimirReciboProvisional}
           onImprimirReciboDolares={handleImprimirReciboDolares}
+          puedeCancelar={esAdmin}
+          onCancelar={setPagoACancelar}
+          puedeSolicitarCancelacion={!esAdmin}
+          onSolicitarCancelacion={handleSolicitarCancelacion}
         />
       </div>
 
@@ -410,6 +463,18 @@ export default function CajaOrdenDetalle() {
         onAdd={handleAgregarDescuento}
         onUpdate={handleActualizarDescuento}
         onDelete={handleEliminarDescuento}
+      />
+      <CajaModalCancelarPago
+        show={!!pagoACancelar}
+        pago={pagoACancelar}
+        onClose={() => setPagoACancelar(null)}
+        onConfirm={handleConfirmarCancelarPago}
+      />
+      <CajaModalValeGarantia
+        show={showModalValeGarantia}
+        orden={orden}
+        onClose={() => setShowModalValeGarantia(false)}
+        onGuardado={handleValeGarantiaGuardado}
       />
     </div>
   );

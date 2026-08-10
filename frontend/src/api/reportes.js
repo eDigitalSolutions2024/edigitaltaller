@@ -84,6 +84,15 @@ export const guardarCierreCaja = (payload) =>
 export const getHistorialCierresCaja = (desde, hasta) =>
   http.get('/reportes/cierre-caja/historial', { params: { desde, hasta } });
 
+export const cerrarCierreCaja = (fecha) =>
+  http.post('/reportes/cierre-caja/cerrar', { fecha });
+
+export const restablecerCierreCaja = (fecha) =>
+  http.post('/reportes/cierre-caja/restablecer', { fecha });
+
+export const getValeCajaSiguienteFolio = () =>
+  http.get('/reportes/cierre-caja/vale-siguiente-folio');
+
 export const openCierreCajaPdf = (fecha) => {
   const url = `${BASE_URL}/reportes/cierre-caja/pdf?fecha=${encodeURIComponent(fecha)}`;
   window.open(url, '_blank', 'noopener');

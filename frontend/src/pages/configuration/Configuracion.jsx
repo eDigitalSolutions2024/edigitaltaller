@@ -19,8 +19,12 @@ import {
   actualizarNotaVentaContador,
   getRemisionContador,
   actualizarRemisionContador,
+  getValeCajaContador,
+  actualizarValeCajaContador,
   getOrdenCompraContador,
   actualizarOrdenCompraContador,
+  getFondoCaja,
+  actualizarFondoCaja,
 } from "../../api/configuracion";
 import TipoCambioHistorialModal from "./components/TipoCambioHistorialModal";
 
@@ -39,10 +43,12 @@ export default function Configuracion() {
   const [mecanicos, setMecanicos] = useState([]);
   const [ordenServicioContador, setOrdenServicioContador] = useState(0);
   const [valeContador, setValeContador] = useState(0);
+  const [valeCajaContador, setValeCajaContador] = useState(0);
   const [devolucionRefaccionContador, setDevolucionRefaccionContador] = useState(0);
   const [notaVentaContador, setNotaVentaContador] = useState(0);
   const [remisionContador, setRemisionContador] = useState(0);
   const [ordenCompraContador, setOrdenCompraContador] = useState(0);
+  const [fondoCaja, setFondoCaja] = useState(0);
 
   const [tipoCambioForm, setTipoCambioForm] = useState({
     valor: "",
@@ -51,10 +57,12 @@ export default function Configuracion() {
 
   const [ordenServicioForm, setOrdenServicioForm] = useState("");
   const [valeForm, setValeForm] = useState("");
+  const [valeCajaForm, setValeCajaForm] = useState("");
   const [devolucionRefaccionForm, setDevolucionRefaccionForm] = useState("");
   const [notaVentaForm, setNotaVentaForm] = useState("");
   const [remisionForm, setRemisionForm] = useState("");
   const [ordenCompraForm, setOrdenCompraForm] = useState("");
+  const [fondoCajaForm, setFondoCajaForm] = useState("");
 
   const [unidadForm, setUnidadForm] = useState({
     nombre: "",
@@ -70,16 +78,18 @@ export default function Configuracion() {
       setLoading(true);
       setError("");
 
-      const [tipos, unidadesData, mecanicosData, ordenServicioData, valeData, devolucionData, notaVentaData, remisionData, ordenCompraData] = await Promise.all([
+      const [tipos, unidadesData, mecanicosData, ordenServicioData, valeData, valeCajaData, devolucionData, notaVentaData, remisionData, ordenCompraData, fondoCajaData] = await Promise.all([
         getTiposCambio(),
         getUnidadesMedida(),
         getMecanicos(),
         getOrdenServicioContador(),
         getValeContador(),
+        getValeCajaContador(),
         getDevolucionRefaccionContador(),
         getNotaVentaContador(),
         getRemisionContador(),
         getOrdenCompraContador(),
+        getFondoCaja(),
       ]);
 
       setTiposCambio(tipos);
@@ -87,10 +97,12 @@ export default function Configuracion() {
       setMecanicos(mecanicosData);
       setOrdenServicioContador(ordenServicioData?.valor || 0);
       setValeContador(valeData?.valor || 0);
+      setValeCajaContador(valeCajaData?.valor || 0);
       setDevolucionRefaccionContador(devolucionData?.valor || 0);
       setNotaVentaContador(notaVentaData?.valor || 0);
       setRemisionContador(remisionData?.valor || 0);
       setOrdenCompraContador(ordenCompraData?.valor || 0);
+      setFondoCaja(fondoCajaData?.valor || 0);
     } catch (err) {
       setError(err.message || "Error al cargar configuración");
     } finally {
@@ -114,6 +126,16 @@ export default function Configuracion() {
     try {
       const data = await getValeContador();
       setValeContador(data?.valor || 0);
+    } catch {
+      // Falla silenciosa: no interrumpe la vista si el refresco en segundo
+      // plano no se pudo completar.
+    }
+  };
+
+  const refrescarValeCajaContador = async () => {
+    try {
+      const data = await getValeCajaContador();
+      setValeCajaContador(data?.valor || 0);
     } catch {
       // Falla silenciosa: no interrumpe la vista si el refresco en segundo
       // plano no se pudo completar.
@@ -160,6 +182,16 @@ export default function Configuracion() {
     }
   };
 
+  const refrescarFondoCaja = async () => {
+    try {
+      const data = await getFondoCaja();
+      setFondoCaja(data?.valor || 0);
+    } catch {
+      // Falla silenciosa: no interrumpe la vista si el refresco en segundo
+      // plano no se pudo completar.
+    }
+  };
+
   useEffect(() => {
     cargarDatos();
   }, []);
@@ -187,20 +219,24 @@ export default function Configuracion() {
       if (document.visibilityState === "visible") {
         refrescarOrdenServicioContador();
         refrescarValeContador();
+        refrescarValeCajaContador();
         refrescarDevolucionRefaccionContador();
         refrescarNotaVentaContador();
         refrescarRemisionContador();
         refrescarOrdenCompraContador();
+        refrescarFondoCaja();
       }
     };
 
     const handleFocus = () => {
       refrescarOrdenServicioContador();
       refrescarValeContador();
+      refrescarValeCajaContador();
       refrescarDevolucionRefaccionContador();
       refrescarNotaVentaContador();
       refrescarRemisionContador();
       refrescarOrdenCompraContador();
+      refrescarFondoCaja();
     };
 
     document.addEventListener("visibilitychange", handleVisibility);
@@ -272,6 +308,22 @@ export default function Configuracion() {
     }
   };
 
+  const handleGuardarValeCajaContador = async (e) => {
+    e.preventDefault();
+
+    try {
+      setError("");
+
+      const res = await actualizarValeCajaContador(valeCajaForm);
+      setValeCajaContador(res?.valor || 0);
+      setValeCajaForm("");
+
+      mostrarMensaje("Número actual de Vale de Caja actualizado correctamente");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleGuardarDevolucionRefaccionContador = async (e) => {
     e.preventDefault();
 
@@ -331,6 +383,22 @@ export default function Configuracion() {
       setOrdenCompraForm("");
 
       mostrarMensaje("Número actual de Orden de Compra actualizado correctamente");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleGuardarFondoCaja = async (e) => {
+    e.preventDefault();
+
+    try {
+      setError("");
+
+      const res = await actualizarFondoCaja(fondoCajaForm);
+      setFondoCaja(res?.valor || 0);
+      setFondoCajaForm("");
+
+      mostrarMensaje("Fondo de caja actualizado correctamente");
     } catch (err) {
       setError(err.message);
     }
@@ -469,6 +537,39 @@ export default function Configuracion() {
             </form>
           </section>
 
+          {/* Fondo de Caja */}
+          <section className="config-card">
+            <div className="config-card-header">
+              <div>
+                <h2>Fondo de Caja</h2>
+                <span>Monto fijo que se deja en caja; lo usa Gestión de Caja para calcular la diferencia.</span>
+              </div>
+              <div className="config-icon">🏦</div>
+            </div>
+
+            <div className="config-current">
+              <span>Valor actual</span>
+              <strong>${Number(fondoCaja).toFixed(2)}</strong>
+            </div>
+
+            <form onSubmit={handleGuardarFondoCaja} className="config-form">
+              <label>
+                Redefinir valor
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={fondoCajaForm}
+                  onChange={(e) => setFondoCajaForm(e.target.value)}
+                  placeholder={`Ej. ${fondoCaja}`}
+                  required
+                />
+              </label>
+
+              <button type="submit">Guardar</button>
+            </form>
+          </section>
+
           {/* Contador de Orden de Servicio */}
           <section className="config-card">
             <div className="config-card-header">
@@ -535,6 +636,43 @@ export default function Configuracion() {
                   value={valeForm}
                   onChange={(e) => setValeForm(e.target.value)}
                   placeholder={`Ej. ${valeContador}`}
+                  required
+                />
+              </label>
+
+              <button type="submit">Guardar</button>
+            </form>
+          </section>
+
+          {/* Contador de Vale de Caja */}
+          <section className="config-card">
+            <div className="config-card-header">
+              <div>
+                <h2>Folio de Vale de Caja</h2>
+              </div>
+              <div className="config-icon">🧮</div>
+            </div>
+
+            <div className="config-current">
+              <span>Número actual</span>
+              <strong>{valeCajaContador}</strong>
+            </div>
+
+            <p className="text-muted small mb-2">
+              El próximo vale de caja (Gestión de Caja) se generará con el folio{" "}
+              <strong>{Number(valeCajaContador) + 1}</strong>.
+            </p>
+
+            <form onSubmit={handleGuardarValeCajaContador} className="config-form">
+              <label>
+                Redefinir número actual
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={valeCajaForm}
+                  onChange={(e) => setValeCajaForm(e.target.value)}
+                  placeholder={`Ej. ${valeCajaContador}`}
                   required
                 />
               </label>

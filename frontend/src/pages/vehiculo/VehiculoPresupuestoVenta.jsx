@@ -11,9 +11,11 @@ import { fetchServiciosTaller } from "../../api/codigos";
 import http from "../../api/http";
 import { TARIFA_HORA, calcImporteHoras } from "../../utils/manoObra";
 import useTipoCambioActual from "../../hooks/useTipoCambioActual";
+import { getUser } from "../../auth";
 
 export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparacion, readOnly = false }) {
   const navigate = useNavigate();
+  const esAdmin = getUser()?.role === "admin";
 
   // Encabezado
   const [dirigidoA, setDirigidoA] = useState("");
@@ -157,13 +159,18 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         };
       });
 
-    setPresRows([
-      ...presupuestoGuardado.map((p) => ({ ...p, autorizado: !!p.autorizado })),
-      ...nuevasDesdeAprobadas,
-    ]);
+    setPresRows(
+      ensureGruaEnPresupuesto(
+        [
+          ...presupuestoGuardado.map((p) => ({ ...p, autorizado: !!p.autorizado })),
+          ...nuevasDesdeAprobadas,
+        ],
+        orden
+      )
+    );
 
-    // Venta al cliente ya guardada (agrega la grúa si aplica y no está capturada)
-    setVentaRows(ensureGruaEnVenta(orden.ventaCliente || [], orden));
+    // Venta al cliente ya guardada
+    setVentaRows(orden.ventaCliente || []);
   }, [orden]);
 
   // Servicios SAT
@@ -222,8 +229,10 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   };
 
   // Si la orden tiene grúa con precio capturado en la inspección física,
-  // asegura que exista su línea en Venta al Cliente (Cierre) sin duplicarla.
-  const ensureGruaEnVenta = (rows, ordenObj) => {
+  // asegura que exista su línea en Presupuesto, ya autorizada y sin
+  // duplicarla. Solo un admin puede desautorizarla o eliminarla (ver
+  // toggleAutorizado/removePresRow); no pasa por refaccionaria (ver backend).
+  const ensureGruaEnPresupuesto = (rows, ordenObj) => {
     const precioGrua =
       ordenObj?.inspeccionFisica?.grua === "SI"
         ? Number(ordenObj.inspeccionFisica.precioGrua || 0)
@@ -236,13 +245,22 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       {
         cant: 1,
         concepto: "GRÚA",
+        refaccion: "",
+        tipo: "",
+        marca: "",
+        proveedor: "",
+        codigo: "",
+        precioCompra: 0,
+        moneda: "MN",
+        tipoCambio: 0,
+        tiempoEntrega: "",
+        horasMO: 0,
         precioVenta: precioGrua,
-        observaciones: "",
-        codigoServicio: "",
-        descripcionServicio: "",
-        codigoSat: "",
-        descripcionSat: "",
+        observInt: "",
+        autorizado: true,
+        esServicio: false,
         esGrua: true,
+        surtida: false,
       },
     ];
   };
@@ -382,6 +400,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   const toggleAutorizado = (idx) => {
     setPresRows((prev) => {
       const row = prev[idx];
+      // La línea de grúa queda fija como autorizada; solo un admin puede desautorizarla.
+      if (row.esGrua && !esAdmin) return prev;
       const nuevoValor = !row.autorizado;
       const esPadre = esGrupoPadre(row);
       return prev.map((r, i) => {
@@ -397,6 +417,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   const removePresRow = (idx) =>
     setPresRows((prev) => {
       const row = prev[idx];
+      // La línea de grúa no se puede eliminar salvo que el usuario sea admin.
+      if (row.esGrua && !esAdmin) return prev;
       if (!esGrupoPadre(row)) return prev.filter((_, i) => i !== idx);
       // Borrar el servicio borra también las refacciones que agrupa.
       return prev.filter((r, i) => {
@@ -450,20 +472,18 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     // ya están incluidas en la línea del servicio que las agrupa.
     const autorizadasParaVenta = autorizadas.filter((r) => !esHijoDeGrupo(r));
 
-    const nuevasVentas = ensureGruaEnVenta(
-      autorizadasParaVenta.map((r) => ({
-        cant: r.cant,
-        concepto: r.concepto || r.refaccion || "",
-        // El precio de la refacción se pasa como Precio Venta (Sin IVA)
-        precioVenta: Number(r.precioVenta || 0),
-        observaciones: "",
-        codigoServicio: "",
-        descripcionServicio: "",
-        codigoSat: "",
-        descripcionSat: "",
-      })),
-      orden
-    );
+    const nuevasVentas = autorizadasParaVenta.map((r) => ({
+      cant: r.cant,
+      concepto: r.concepto || r.refaccion || "",
+      // El precio de la refacción se pasa como Precio Venta (Sin IVA)
+      precioVenta: Number(r.precioVenta || 0),
+      observaciones: "",
+      codigoServicio: "",
+      descripcionServicio: "",
+      codigoSat: "",
+      descripcionSat: "",
+      esGrua: !!r.esGrua,
+    }));
 
     setVentaRows(nuevasVentas);
 
@@ -812,9 +832,13 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                     <input
                       type="checkbox"
                       checked={!!r.autorizado}
-                      disabled={readOnly}
+                      disabled={readOnly || (r.esGrua && !esAdmin)}
                       onChange={() => toggleAutorizado(idx)}
-                      title="Marcar como autorizado por el cliente"
+                      title={
+                        r.esGrua && !esAdmin
+                          ? "La grúa queda autorizada automáticamente; solo un administrador puede modificarla"
+                          : "Marcar como autorizado por el cliente"
+                      }
                     />
                   </td>
 
@@ -901,13 +925,15 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
                   {!readOnly && (
                     <td className="text-center">
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-danger"
-                        onClick={() => removePresRow(idx)}
-                      >
-                        Borrar
-                      </button>
+                      {(!r.esGrua || esAdmin) && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          onClick={() => removePresRow(idx)}
+                        >
+                          Borrar
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>

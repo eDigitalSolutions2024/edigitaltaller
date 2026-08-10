@@ -4,9 +4,10 @@ const router = express.Router();
 const Vehiculo = require('../models/Vehiculo');
 const Cliente = require('../models/Cliente');
 const Contador = require('../models/Contador');
-const { proteger } = require('../middleware/auth');
+const { proteger, requiereRol } = require('../middleware/auth');
 const { regexBusquedaOS } = require('../utils/ordenServicio');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
+const { registrarMovimientoTerminal } = require('../utils/cierreCajaTerminales');
 const { generarComprobanteCajaPDF } = require('../service/cajaComprobantePdf');
 const { generarReciboProvisionalPDF, generarReciboDolaresPDF } = require('../service/cajaRecibosPdf');
 
@@ -324,6 +325,14 @@ router.post('/:id/pagos', proteger, async (req, res) => {
 
     await sincronizarFechaPagadaRemisiones(vehiculo, pago.fecha);
 
+    if (comprobante === 'NOTA_VENTA') {
+      try {
+        await registrarMovimientoTerminal(banco, pago.monto, pago.fecha);
+      } catch (errTerminal) {
+        console.error('Error actualizando terminal del cierre de caja:', errTerminal);
+      }
+    }
+
     return res.status(201).json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo) });
   } catch (err) {
     console.error('Error registrando pago:', err);
@@ -331,14 +340,15 @@ router.post('/:id/pagos', proteger, async (req, res) => {
   }
 });
 
-// POST /api/cajas/:id/pagos/:pagoId/cancelar -> cancela un pago ya registrado.
-// Caso de uso principal: la orden se cobró con Anticipo o Remisión y el cliente
-// pide factura; se cancela ese comprobante para que la orden pueda facturarse.
-// El pago no se borra (su folio ya se consumió y los reportes lo necesitan):
-// queda marcado como cancelado y deja de contar como abonado. En las remisiones
-// además se marca remision.tipo = 'Cancelada', que es lo que ya leía el Reporte
-// Diario de Remisiones para mostrarlas como "SE CANCELA REMISIÓN Y PASA A FACTURA".
-router.post('/:id/pagos/:pagoId/cancelar', proteger, async (req, res) => {
+// POST /api/cajas/:id/pagos/:pagoId/cancelar -> cancela un pago ya registrado
+// (solo admin). Casos de uso: la orden se cobró con Anticipo o Remisión y el
+// cliente pide factura, o el pago se restablece porque se registró por error
+// (ver ticket RESTABLECER_COBRO en Soporte). El pago no se borra (su folio ya
+// se consumió y los reportes lo necesitan): queda marcado como cancelado y
+// deja de contar como abonado. En las remisiones además se marca
+// remision.tipo = 'Cancelada', que es lo que ya leía el Reporte Diario de
+// Remisiones para mostrarlas como "SE CANCELA REMISIÓN Y PASA A FACTURA".
+router.post('/:id/pagos/:pagoId/cancelar', proteger, requiereRol('admin'), async (req, res) => {
   try {
     const { motivo = '' } = req.body || {};
 
@@ -364,11 +374,24 @@ router.post('/:id/pagos/:pagoId/cancelar', proteger, async (req, res) => {
 
     if (esRemision) pago.remision.tipo = 'Cancelada';
 
+    const pagoComprobante = pago.comprobante;
+    const pagoBanco = pago.notaVenta?.banco;
+    const pagoMonto = pago.monto;
+    const pagoFecha = pago.fecha;
+
     await vehiculo.save();
     // Al dejar de contar como abonado puede reaparecer saldo: las remisiones
     // vigentes de la orden vuelven a quedar sin Fecha de Pagada.
     await sincronizarFechaPagadaRemisiones(vehiculo);
     await vehiculo.populate('cliente', POPULATE_CLIENTE);
+
+    if (pagoComprobante === 'NOTA_VENTA') {
+      try {
+        await registrarMovimientoTerminal(pagoBanco, -pagoMonto, pagoFecha);
+      } catch (errTerminal) {
+        console.error('Error revirtiendo terminal del cierre de caja:', errTerminal);
+      }
+    }
 
     return res.json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo) });
   } catch (err) {

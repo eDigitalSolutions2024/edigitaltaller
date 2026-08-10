@@ -147,9 +147,19 @@ export default function SoporteFlotante() {
   };
 
   const irAOrden = () => {
-    if (!ticketSeleccionado?.ordenServicio) return;
+    // ordenServicio viene poblado ({ _id, ordenServicio, estadoOrden }, ver
+    // GET /tickets en el backend): hay que usar su _id, no el objeto completo.
+    const ordenId = ticketSeleccionado?.ordenServicio?._id;
+    if (!ordenId) return;
     cerrarModal();
-    navigate(`/vehiculo/orden/${ticketSeleccionado.ordenServicio}?tab=general`);
+    // RESTABLECER_COBRO manda a Cajas (con la orden ya cargada): ahí es donde
+    // el admin ve el historial de pagos y cancela el abono/anticipo/remisión/
+    // nota de venta puntual.
+    const destino =
+      ticketSeleccionado.tipoProblema === 'RESTABLECER_COBRO'
+        ? `/cajas/orden/${ordenId}`
+        : `/vehiculo/orden/${ordenId}?tab=general`;
+    navigate(destino);
   };
 
   return (
@@ -277,7 +287,7 @@ export default function SoporteFlotante() {
                     </div>
                   )}
 
-                  {ticketSeleccionado.ordenServicio && (
+                  {ticketSeleccionado.ordenServicio?._id && (
                     <button type="button" className="btn btn-outline-primary btn-sm w-100" onClick={irAOrden}>
                       Ir a la orden de servicio {ticketSeleccionado.folioOrdenServicio || ''} →
                     </button>
