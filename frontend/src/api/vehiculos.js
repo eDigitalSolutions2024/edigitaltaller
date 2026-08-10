@@ -125,12 +125,6 @@ export const descartarImagenesTemp = (tempId) =>
 export const getMisOrdenes = () =>
   http.get('/vehiculos/mis-ordenes');
 
-// Solo admin: resuelve creadoPorId en órdenes viejas que no lo tienen,
-// buscando el usuario actual cuyo nombre/username coincide con el creadoPor
-// guardado. Ver Personal.jsx (botón "Reparar vínculo de órdenes").
-export const backfillCreadoPorId = () =>
-  http.post('/vehiculos/backfill-creado-por-id').then((res) => res.data);
-
 // Filtros que definen lo que un refaccionario tiene realmente por surtir:
 // sus propias órdenes (o las que nadie atendió) y que aún traigan refacciones
 // autorizadas sin surtir.

@@ -12,6 +12,7 @@ const TERMINALES_LABELS = [
   ['banregio', 'TERMINAL BANREGIO'],
   ['banamex', 'TERMINAL BANAMEX'],
   ['americanExpress', 'TERMINAL A. EXPRESS'],
+  ['banorte', 'TERMINAL BANORTE'],
   ['cheques', 'CHEQUES'],
   ['transferencias', 'TRANSFERENCIAS'],
 ];
@@ -71,6 +72,7 @@ function buildHtml(cierre, totales) {
       (v) => `
       <tr>
         <td>${esc(v.folio)}</td>
+        <td>${esc(v.motivo)}</td>
         <td class="text-end">${fmtSubtotal(v.monto)}</td>
       </tr>`
     )
@@ -228,9 +230,9 @@ function buildHtml(cierre, totales) {
       </table>
 
       <table class="data">
-        <thead><tr><td colspan="2">VALES</td></tr></thead>
+        <thead><tr><td colspan="3">VALES</td></tr></thead>
         <tbody>${filasVales}</tbody>
-        <tfoot><tr><td>TOTAL</td><td class="text-end">${fmtMoney(totales.totalVales)}</td></tr></tfoot>
+        <tfoot><tr><td colspan="2">TOTAL</td><td class="text-end">${fmtMoney(totales.totalVales)}</td></tr></tfoot>
       </table>
     </div>
   </div>

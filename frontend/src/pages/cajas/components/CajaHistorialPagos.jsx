@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { FaPrint } from "react-icons/fa";
+import { FaPrint, FaBan, FaFlag } from "react-icons/fa";
 import { formatFecha } from "../../../utils/fechas";
 
 function formatMoney(n) {
@@ -27,11 +27,42 @@ function comprobanteLabel(p) {
   return "-";
 }
 
-export default function CajaHistorialPagos({ pagos = [], onImprimir, onImprimirReciboProvisional, onImprimirReciboDolares }) {
+export default function CajaHistorialPagos({
+  pagos = [],
+  onImprimir,
+  onImprimirReciboProvisional,
+  onImprimirReciboDolares,
+  puedeCancelar = false,
+  onCancelar,
+  puedeSolicitarCancelacion = false,
+  onSolicitarCancelacion,
+}) {
   const [filtro, setFiltro] = useState("TODOS");
 
   const ordenados = [...pagos].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
   const visibles = filtro === "TODOS" ? ordenados : ordenados.filter((p) => p.comprobante === filtro);
+
+  // Caja no puede cancelar directamente (solo el admin): abre un ticket de
+  // Soporte (RESTABLECER_COBRO) describiendo cuál pago y por qué, para que un
+  // admin lo revise y lo cancele desde este mismo historial.
+  const handleSolicitar = (p) => {
+    const confirmado = window.confirm(
+      `¿Seguro que quieres solicitar la cancelación de ${comprobanteLabel(p)} (${tipoPagoLabel(p)})? Se enviará un ticket a un administrador.`
+    );
+    if (!confirmado) return;
+
+    const sugerido = `Cancelar ${comprobanteLabel(p)} (${tipoPagoLabel(p)}) por ${formatMoney(p.monto)}`;
+    const detalle = window.prompt(
+      "Describe el motivo de la solicitud de cancelación (se enviará a un administrador):",
+      sugerido
+    );
+    if (detalle === null) return; // canceló el prompt
+    if (!detalle.trim()) {
+      alert("Captura el motivo de la solicitud.");
+      return;
+    }
+    onSolicitarCancelacion?.(p, detalle.trim());
+  };
 
   return (
     <div>
@@ -63,13 +94,14 @@ export default function CajaHistorialPagos({ pagos = [], onImprimir, onImprimirR
               <th>Referencia</th>
               <th>Observaciones</th>
               <th>Registrado por</th>
-              <th>Imprimir</th>
+              <th>Acciones</th>
+              {puedeSolicitarCancelacion && <th>Solicitar Cancelación</th>}
             </tr>
           </thead>
           <tbody>
             {visibles.length === 0 && (
               <tr>
-                <td colSpan={11} className="text-center text-muted">
+                <td colSpan={puedeSolicitarCancelacion ? 12 : 11} className="text-center text-muted">
                   No hay pagos registrados.
                 </td>
               </tr>
@@ -122,8 +154,30 @@ export default function CajaHistorialPagos({ pagos = [], onImprimir, onImprimirR
                         <FaPrint /> USD
                       </button>
                     )}
+                    {puedeCancelar && !p.cancelado && (
+                      <button
+                        className="btn btn-outline-dark btn-sm"
+                        title="Cancelar/Restablecer este pago"
+                        onClick={() => onCancelar?.(p)}
+                      >
+                        <FaBan />
+                      </button>
+                    )}
                   </div>
                 </td>
+                {puedeSolicitarCancelacion && (
+                  <td className="text-center">
+                    {!p.cancelado && (
+                      <button
+                        className="btn btn-outline-warning btn-sm text-nowrap"
+                        title="Pide a un administrador que cancele/restablezca este pago"
+                        onClick={() => handleSolicitar(p)}
+                      >
+                        <FaFlag /> Solicitar cancelación
+                      </button>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

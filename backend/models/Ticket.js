@@ -5,6 +5,8 @@ const TIPOS_PROBLEMA = [
   'VEHICULOS_ORDENES',
   'RESTABLECER_OS',
   'CAMBIO_ASESOR',
+  'RESTABLECER_COBRO',
+  'RESTABLECER_CAJA',
   'CAJAS',
   'REFACCIONARIA',
   'FACTURACION',
@@ -36,6 +38,10 @@ const ticketSchema = new Schema(
     // solicitante pide para la orden. Snapshot de nombre igual que arriba.
     asesorSolicitadoId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     asesorSolicitadoNombre: { type: String, default: '' },
+
+    // Solo para tipoProblema === 'RESTABLECER_CAJA': el día (CierreCaja.fecha)
+    // que el rol cajas pide reabrir porque ya lo cerró por error.
+    fechaCierreCaja: { type: Date, default: null },
 
     estado: {
       type: String,

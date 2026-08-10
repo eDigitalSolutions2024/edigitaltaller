@@ -4,6 +4,8 @@ export const TIPOS_PROBLEMA_OPCIONES = [
   { value: 'VEHICULOS_ORDENES', label: 'Vehículos / Órdenes' },
   { value: 'RESTABLECER_OS', label: 'Restablecer OS' },
   { value: 'CAMBIO_ASESOR', label: 'Cambio de Asesor' },
+  { value: 'RESTABLECER_COBRO', label: 'Restablecer Abono / Remisión / Nota Venta' },
+  { value: 'RESTABLECER_CAJA', label: 'Restablecer Caja' },
   { value: 'CAJAS', label: 'Cajas' },
   { value: 'REFACCIONARIA', label: 'Refaccionaria' },
   { value: 'FACTURACION', label: 'Facturación' },
@@ -50,3 +52,8 @@ export const cambiarEstadoTicket = (id, estado) => http.put(`/tickets/${id}/esta
 // backend aplica el cambio real de asesor sobre la orden vinculada.
 export const resolverCambioAsesorTicket = (id, accion) =>
   http.put(`/tickets/${id}/resolver-cambio-asesor`, { accion });
+
+// Aprobar/negar un ticket de tipo RESTABLECER_CAJA (solo admin). Al aprobar,
+// el backend reabre de verdad el día de caja solicitado.
+export const resolverRestablecerCajaTicket = (id, accion) =>
+  http.put(`/tickets/${id}/resolver-restablecer-caja`, { accion });

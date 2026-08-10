@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listOrdenesServicio, getVehiculoById } from "../../api/vehiculos";
 import { updateCustomer } from "../../api/customers";
@@ -95,11 +95,6 @@ const FORMA_PAGO = [
 /* Clave de unidad del SAT (c_ClaveUnidad). Viene del catálogo administrable en
    Configuración fiscal (claves-unidad); el select muestra "clave - descripción"
    y de paso llena el campo Unidad del CFDI, que es esa misma descripción. */
-const claveUnidadLabel = (catalogo, clave) => {
-  const found = catalogo.find((u) => u.clave === clave);
-  return found ? `${found.clave} - ${found.descripcion}` : clave;
-};
-
 const unidadDeClave = (catalogo, clave, fallback = "") =>
   catalogo.find((u) => u.clave === clave)?.descripcion || fallback;
 
@@ -158,7 +153,7 @@ function downloadTextFile(filename, text, mime = "application/xml") {
 /* Select reutilizable de clave de unidad. Si el concepto trae una clave que no
    está en el catálogo (capturada antes o importada, o el catálogo aún no la
    tiene dada de alta), se agrega como opción para no perderla al editar. */
-function SelectClaveUnidad({ value, disabled, onChange, opciones, size = "" }) {
+function SelectClaveUnidad({ value, disabled, onChange, opciones, size = "", placeholder = "" }) {
   const fueraDeCatalogo = value && !opciones.some((u) => u.clave === value);
 
   return (
@@ -168,10 +163,34 @@ function SelectClaveUnidad({ value, disabled, onChange, opciones, size = "" }) {
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
     >
+      {placeholder && <option value="">{placeholder}</option>}
       {fueraDeCatalogo && <option value={value}>{value}</option>}
       {opciones.map((u) => (
         <option key={u._id || u.clave} value={u.clave}>
           {u.clave} - {u.descripcion}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/* Select de clave de producto/servicio del SAT, a partir del catálogo
+   administrable en Configuración fiscal (conceptos preset). */
+function SelectCProdServ({ value, disabled, onChange, opciones, size = "", placeholder = "" }) {
+  const fueraDeCatalogo = value && !opciones.some((p) => p.cProdServ === value);
+
+  return (
+    <select
+      className={`form-select ${size}`}
+      value={value || ""}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {placeholder && <option value="">{placeholder}</option>}
+      {fueraDeCatalogo && <option value={value}>{value}</option>}
+      {opciones.map((p) => (
+        <option key={p._id || p.cProdServ} value={p.cProdServ}>
+          {p.cProdServ} - {p.descripcion}
         </option>
       ))}
     </select>
@@ -184,6 +203,9 @@ function SelectClaveUnidad({ value, disabled, onChange, opciones, size = "" }) {
 
 export default function NuevaFactura() {
   const navigate = useNavigate();
+  // Identificador local (no persiste al backend) para poder seleccionar y
+  // editar en lote cada renglón de conceptos, sin depender de su índice.
+  const nextKeyRef = useRef(1);
 
   /* ==========
      TIPO DE FACTURA
@@ -253,7 +275,6 @@ export default function NuevaFactura() {
     setOptsOrdenes([]);
     setOrdenDesglosada("");
     setFiscalDraft({ rfc: "", regimenFiscal: "", codigoPostalFiscal: "" });
-    setLineasSeleccionadas([]);
 
     setQFactura("");
     setOptsFacturas([]);
@@ -262,7 +283,9 @@ export default function NuevaFactura() {
     setFacturasPago([]);
 
     setConceptos([]);
-    setConcepto({ ...CONCEPTO_VACIO });
+    setConceptosSeleccionados([]);
+    setBulkCUnidad("");
+    setBulkCProdServ("");
     cancelEdit();
     setXmlSigned("");
     setCadenaOriginal("");
@@ -402,6 +425,24 @@ export default function NuevaFactura() {
 
       setOrdenes((prev) => [...prev, v]);
 
+      // Las partidas ya autorizadas por el cliente en Cajas se pasan directo
+      // a conceptos del CFDI, sin paso intermedio de selección/importación.
+      const conceptosOrden = (v.ventaCliente || [])
+        .filter((l) => l.autorizacionCliente === "SI")
+        .map((l) => ({
+          _key: nextKeyRef.current++,
+          _origenOrdenId: v._id,
+          cantidad: Number(l.cant) > 0 ? Number(l.cant) : 1,
+          unidad: "",
+          cProdServ: l.codigoSat || "",
+          cUnidad: "",
+          descripcion: l.concepto || l.descripcionSat || "",
+          valorUnitario: Number(l.precioVenta || 0),
+        }));
+      if (conceptosOrden.length) {
+        setConceptos((prev) => [...prev, ...conceptosOrden]);
+      }
+
       if (!ordenes.length) {
         setCliente(clienteOrden);
         setFiscalDraft({
@@ -433,6 +474,13 @@ export default function NuevaFactura() {
       setCliente(null);
       setFiscalDraft({ rfc: "", regimenFiscal: "", codigoPostalFiscal: "" });
     }
+
+    // Se retiran también los conceptos que se auto-cargaron desde esta orden.
+    const conceptosRestantes = conceptos.filter((c) => c._origenOrdenId !== id);
+    setConceptos(conceptosRestantes);
+    const clavesRestantes = new Set(conceptosRestantes.map((c) => c._key));
+    setConceptosSeleccionados((prev) => prev.filter((k) => clavesRestantes.has(k)));
+    cancelEdit();
   };
 
   /* Cancelar el anticipo / la remisión de una orden para poder facturarla.
@@ -470,6 +518,7 @@ export default function NuevaFactura() {
      NOTA DE CRÉDITO: varias facturas acreditadas
   ========== */
   const conceptoDeFacturaNC = (doc) => ({
+    _key: nextKeyRef.current++,
     cantidad: 1,
     unidad: "Actividad",
     cProdServ: "84111506",
@@ -604,8 +653,10 @@ export default function NuevaFactura() {
 
   /* ==========
      SECCIÓN 3) CONCEPTOS
+     Los conceptos se agregan solos (costo de venta autorizado de las
+     órdenes, o notas de crédito) o con "+ Agregar fila"; de ahí en adelante
+     se editan y eliminan directo en la tabla "Conceptos agregados".
   ========== */
-  const [concepto, setConcepto] = useState({ ...CONCEPTO_VACIO });
   const [conceptos, setConceptos] = useState([]);
 
   // El valor unitario puede ser 0 (partidas de cortesía con motivo justificado),
@@ -628,28 +679,70 @@ export default function NuevaFactura() {
     valorUnitario: Number(c.valorUnitario),
   });
 
-  const addConcepto = () => {
-    if (!pasoBaseOk) return;
-    const error = conceptoInvalido(concepto);
-    if (error) return alert(error);
-
-    setConceptos((prev) => [...prev, limpiaConcepto(concepto)]);
-    setConcepto({ ...CONCEPTO_VACIO });
-  };
-
   const delConcepto = (idx) => {
+    const key = conceptos[idx]?._key;
     setConceptos((prev) => prev.filter((_, i) => i !== idx));
+    setConceptosSeleccionados((prev) => prev.filter((k) => k !== key));
     if (editRow === idx) {
       setEditRow(-1);
       setEditDraft(null);
+      setNuevoRowKey(null);
     }
   };
 
   const importeConcepto = (c) => Number(c.cantidad || 0) * Number(c.valorUnitario || 0);
 
+  /* Selección de renglones, para rellenar CUnidad/CProdServ en lote */
+  const [conceptosSeleccionados, setConceptosSeleccionados] = useState([]);
+  const [bulkCUnidad, setBulkCUnidad] = useState("");
+  const [bulkCProdServ, setBulkCProdServ] = useState("");
+
+  const toggleConceptoSeleccionado = (key) => {
+    setConceptosSeleccionados((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  };
+
+  const toggleTodosConceptos = () => {
+    setConceptosSeleccionados((prev) =>
+      prev.length === conceptos.length ? [] : conceptos.map((c) => c._key)
+    );
+  };
+
+  // El CUnidad/CProdServ elegidos arriba de la tabla no se aplican solos:
+  // se quedan en espera hasta que se confirmen con "Guardar".
+  const puedeGuardarSeleccion =
+    conceptosSeleccionados.length > 0 && (!!bulkCUnidad || !!bulkCProdServ);
+
+  const guardarSeleccionEnLote = () => {
+    if (!puedeGuardarSeleccion) return;
+
+    const unidadTexto = bulkCUnidad ? unidadDeClave(clavesUnidad, bulkCUnidad) : null;
+    const preset = bulkCProdServ ? presets.find((p) => p.cProdServ === bulkCProdServ) : null;
+
+    const aplicar = (c) => {
+      if (!conceptosSeleccionados.includes(c._key)) return c;
+      return {
+        ...c,
+        ...(bulkCUnidad ? { cUnidad: bulkCUnidad, unidad: unidadTexto || c.unidad } : {}),
+        ...(bulkCProdServ
+          ? { cProdServ: bulkCProdServ, descripcion: preset?.descripcion || c.descripcion }
+          : {}),
+      };
+    };
+
+    setConceptos((prev) => prev.map(aplicar));
+    setEditDraft((prev) => (prev ? aplicar(prev) : prev));
+    setBulkCUnidad("");
+    setBulkCProdServ("");
+  };
+
   /* Edición en línea de la lista de conceptos */
   const [editRow, setEditRow] = useState(-1);
   const [editDraft, setEditDraft] = useState(null);
+  // Renglón agregado con "+ Agregar fila" que aún no se ha guardado: si se
+  // cancela la edición, se descarta en vez de dejarlo vacío en la tabla.
+  const [nuevoRowKey, setNuevoRowKey] = useState(null);
 
   const startEdit = (idx) => {
     setEditRow(idx);
@@ -657,6 +750,10 @@ export default function NuevaFactura() {
   };
 
   const cancelEdit = () => {
+    if (nuevoRowKey != null) {
+      setConceptos((prev) => prev.filter((c) => c._key !== nuevoRowKey));
+      setNuevoRowKey(null);
+    }
     setEditRow(-1);
     setEditDraft(null);
   };
@@ -668,7 +765,19 @@ export default function NuevaFactura() {
 
     const clean = { ...editDraft, ...limpiaConcepto(editDraft) };
     setConceptos((prev) => prev.map((x, i) => (i === editRow ? clean : x)));
-    cancelEdit();
+    setNuevoRowKey(null);
+    setEditRow(-1);
+    setEditDraft(null);
+  };
+
+  const agregarFilaVacia = () => {
+    if (!pasoBaseOk) return;
+    const key = nextKeyRef.current++;
+    const nueva = { _key: key, ...CONCEPTO_VACIO };
+    setEditRow(conceptos.length);
+    setEditDraft(nueva);
+    setNuevoRowKey(key);
+    setConceptos((prev) => [...prev, nueva]);
   };
 
   /* Catálogo de conceptos SAT (configuración fiscal): alimenta el autocompletado
@@ -681,15 +790,6 @@ export default function NuevaFactura() {
       .catch(() => setPresets([]));
   }, []);
 
-  const pickPreset = (cProdServ) => {
-    const preset = presets.find((p) => p.cProdServ === cProdServ);
-    setConcepto((p) => ({
-      ...p,
-      cProdServ,
-      descripcion: preset?.descripcion || p.descripcion,
-    }));
-  };
-
   /* Catálogo de claves de unidad SAT (configuración fiscal): alimenta el
      select de CUnidad de cada concepto. */
   const [clavesUnidad, setClavesUnidad] = useState([]);
@@ -699,77 +799,6 @@ export default function NuevaFactura() {
       .then((r) => setClavesUnidad(r.data?.data || []))
       .catch(() => setClavesUnidad([]));
   }, []);
-
-  /* ==========
-     COSTO DE VENTA DE LAS ÓRDENES
-     Las partidas que se le cobraron al cliente en Cajas se pueden pasar tal
-     cual a los conceptos del CFDI en vez de recapturarlas a mano.
-  ========== */
-  const lineasCostoVenta = useMemo(
-    () =>
-      ordenes.flatMap((o) =>
-        (o.ventaCliente || []).map((l, i) => ({
-          key: `${o._id}-${l._id || i}`,
-          ordenServicio: o.ordenServicio,
-          cant: Number(l.cant || 0),
-          concepto: l.concepto || l.descripcionServicio || "",
-          precioVenta: Number(l.precioVenta || 0),
-          observaciones: l.observaciones || "",
-          autorizacionCliente: l.autorizacionCliente,
-          codigoSat: l.codigoSat || "",
-          descripcionSat: l.descripcionSat || "",
-          codigoServicio: l.codigoServicio || "",
-        }))
-      ),
-    [ordenes]
-  );
-
-  const [lineasSeleccionadas, setLineasSeleccionadas] = useState([]);
-
-  // Al cambiar las órdenes se preseleccionan las partidas autorizadas, que son
-  // las que efectivamente se le cobran al cliente.
-  useEffect(() => {
-    setLineasSeleccionadas(
-      lineasCostoVenta.filter((l) => l.autorizacionCliente === "SI").map((l) => l.key)
-    );
-  }, [lineasCostoVenta]);
-
-  const toggleLinea = (key) => {
-    setLineasSeleccionadas((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
-    );
-  };
-
-  const toggleTodasLineas = () => {
-    setLineasSeleccionadas((prev) =>
-      prev.length === lineasCostoVenta.length ? [] : lineasCostoVenta.map((l) => l.key)
-    );
-  };
-
-  const importarCostoVenta = () => {
-    const elegidas = lineasCostoVenta.filter((l) => lineasSeleccionadas.includes(l.key));
-    if (!elegidas.length) return alert("Selecciona al menos una partida del costo de venta.");
-
-    const nuevos = elegidas.map((l) => ({
-      cantidad: Number(l.cant) > 0 ? Number(l.cant) : 1,
-      unidad: unidadDeClave(clavesUnidad, "E48", "Servicio"),
-      cProdServ: l.codigoSat || "",
-      cUnidad: "E48",
-      descripcion: l.concepto || l.descripcionSat || "",
-      valorUnitario: Number(l.precioVenta || 0),
-    }));
-
-    setConceptos((prev) => [...prev, ...nuevos]);
-
-    const sinClave = nuevos.filter((c) => !c.cProdServ).length;
-    if (sinClave) {
-      alert(
-        `Se agregaron ${nuevos.length} concepto(s).\n\n` +
-          `${sinClave} no tienen clave SAT (CProdServ) porque la partida no la traía: ` +
-          "captúrala en cada renglón antes de generar el XML."
-      );
-    }
-  };
 
   /* ==========
      SECCIÓN 4) DATOS DEL COMPROBANTE
@@ -954,8 +983,24 @@ export default function NuevaFactura() {
   const [pdfUrl, setPdfUrl] = useState("");
   const [pdfLoading, setPdfLoading] = useState(false);
 
+  // Sin CProdServ/CUnidad el CFDI queda inválido para el SAT: se bloquea la
+  // generación (PDF y XML) en vez de dejar que falle hasta el timbrado.
+  const conceptosSinSat = () =>
+    esComplementoPago ? 0 : conceptos.filter((c) => !c.cProdServ || !c.cUnidad).length;
+
+  const avisarSiFaltaSat = () => {
+    const faltantes = conceptosSinSat();
+    if (!faltantes) return false;
+    alert(
+      `${faltantes} concepto(s) no tienen CProdServ o CUnidad.\n\n` +
+        "Complétalos en \"Conceptos agregados\" antes de generar el PDF o el XML."
+    );
+    return true;
+  };
+
   const onPreviewPDF = async () => {
     if (!puedePreview) return alert("Completa la información antes de generar la vista previa.");
+    if (avisarSiFaltaSat()) return;
     try {
       setPdfLoading(true);
       const res = await generarVistaPreviaPDF(buildPayload());
@@ -985,6 +1030,7 @@ export default function NuevaFactura() {
 
   const onGenerarXML = async () => {
     if (!puedePreview) return alert("Completa la información antes de generar el XML.");
+    if (avisarSiFaltaSat()) return;
 
     // Facturar una orden que sigue cobrada con anticipo o remisión duplicaría el
     // ingreso: se avisa (y desde el aviso de arriba se puede cancelar).
@@ -1646,186 +1692,75 @@ export default function NuevaFactura() {
             </div>
           )}
 
-          {/* --- Costo de venta de las órdenes --- */}
-          {esFactura && lineasCostoVenta.length > 0 && (
-            <div className="border rounded p-3 mb-3">
-              <div className="d-flex justify-content-between align-items-center mb-2">
-                <div>
-                  <h6 className="mb-0">Costo de venta de las órdenes</h6>
-                  <div className="text-muted small">
-                    Lo que se le cobró al cliente en Cajas. Marca las partidas y pásalas a los
-                    conceptos del CFDI.
-                  </div>
-                </div>
-                <button
-                  className="btn btn-sm btn-danger"
-                  onClick={importarCostoVenta}
-                  disabled={disabledSteps || lineasSeleccionadas.length === 0}
-                >
-                  Agregar {lineasSeleccionadas.length || ""} a conceptos
-                </button>
-              </div>
-
-              <div className="table-responsive" style={{ maxHeight: 320, overflow: "auto" }}>
-                <table className="table table-sm table-bordered align-middle mb-0">
-                  <thead className="table-light">
-                    <tr>
-                      <th style={{ width: 40 }} className="text-center">
-                        <input
-                          type="checkbox"
-                          className="form-check-input"
-                          checked={
-                            lineasCostoVenta.length > 0 &&
-                            lineasSeleccionadas.length === lineasCostoVenta.length
-                          }
-                          onChange={toggleTodasLineas}
-                          title="Seleccionar todo"
-                        />
-                      </th>
-                      <th style={{ width: 110 }}>Orden</th>
-                      <th style={{ width: 60 }} className="text-center">Cant.</th>
-                      <th>Concepto</th>
-                      <th style={{ width: 130 }}>Clave SAT</th>
-                      <th style={{ width: 120 }} className="text-end">Precio venta</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lineasCostoVenta.map((l) => (
-                      <tr
-                        key={l.key}
-                        className={l.autorizacionCliente !== "SI" ? "table-warning" : ""}
-                      >
-                        <td className="text-center">
-                          <input
-                            type="checkbox"
-                            className="form-check-input"
-                            checked={lineasSeleccionadas.includes(l.key)}
-                            onChange={() => toggleLinea(l.key)}
-                            disabled={disabledSteps}
-                          />
-                        </td>
-                        <td>{l.ordenServicio}</td>
-                        <td className="text-center">{l.cant}</td>
-                        <td>
-                          {l.concepto || "—"}
-                          {l.autorizacionCliente !== "SI" && (
-                            <span className="badge text-bg-warning ms-2">
-                              {l.autorizacionCliente === "NO" ? "No autorizado" : "Pendiente"}
-                            </span>
-                          )}
-                        </td>
-                        <td>
-                          {l.codigoSat ? (
-                            <span title={l.descripcionSat}>{l.codigoSat}</span>
-                          ) : (
-                            <span className="text-danger small">Sin clave</span>
-                          )}
-                        </td>
-                        <td className="text-end">{money(l.precioVenta)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {/* --- Conceptos agregados: selección + relleno en lote + edición --- */}
+          <div className="d-flex flex-wrap justify-content-between align-items-end gap-3 mt-2 mb-2">
+            <div>
+              <h6 className="mb-0">Conceptos agregados</h6>
+              <div className="text-muted small">
+                Selecciona uno o varios con la casilla, elige su CUnidad y/o CProdServ y
+                presiona Guardar para aplicárselos en lote.
               </div>
             </div>
-          )}
 
-          {/* --- Alta manual de un concepto --- */}
-          <h6>Información del concepto</h6>
+            <div className="d-flex flex-wrap gap-2 align-items-end">
+              <div>
+                <label className="form-label small mb-1">CUnidad (selección)</label>
+                <SelectClaveUnidad
+                  value={bulkCUnidad}
+                  disabled={disabledSteps || conceptosSeleccionados.length === 0}
+                  opciones={clavesUnidad}
+                  onChange={setBulkCUnidad}
+                  size="form-select-sm"
+                  placeholder="-- Elegir --"
+                />
+              </div>
 
-          <div className="row g-3 align-items-end">
-            <div className="col-6 col-md-2">
-              <label className="form-label">Cantidad</label>
-              <input
-                type="number"
-                className="form-control"
-                value={concepto.cantidad}
-                disabled={disabledSteps}
-                onChange={(e) => setConcepto((p) => ({ ...p, cantidad: e.target.value }))}
-                min={1}
-              />
-            </div>
+              <div>
+                <label className="form-label small mb-1">CProdServ (selección)</label>
+                <SelectCProdServ
+                  value={bulkCProdServ}
+                  disabled={disabledSteps || conceptosSeleccionados.length === 0}
+                  opciones={presets}
+                  onChange={setBulkCProdServ}
+                  size="form-select-sm"
+                  placeholder="-- Elegir --"
+                />
+              </div>
 
-            <div className="col-6 col-md-3">
-              <label className="form-label">CUnidad</label>
-              <SelectClaveUnidad
-                value={concepto.cUnidad}
-                disabled={disabledSteps}
-                opciones={clavesUnidad}
-                onChange={(clave) =>
-                  setConcepto((p) => ({
-                    ...p,
-                    cUnidad: clave,
-                    unidad: unidadDeClave(clavesUnidad, clave, p.unidad),
-                  }))
-                }
-              />
-            </div>
-
-            <div className="col-6 col-md-3">
-              <label className="form-label">Unidad</label>
-              <input
-                className="form-control"
-                value={concepto.unidad}
-                disabled={disabledSteps}
-                onChange={(e) => setConcepto((p) => ({ ...p, unidad: e.target.value }))}
-              />
-            </div>
-
-            <div className="col-6 col-md-4">
-              <label className="form-label">CProdServ</label>
-              <input
-                className="form-control"
-                list="cprodserv-catalogo"
-                value={concepto.cProdServ}
-                disabled={disabledSteps}
-                placeholder="Clave del catálogo SAT"
-                onChange={(e) => pickPreset(e.target.value)}
-              />
-              <datalist id="cprodserv-catalogo">
-                {presets.map((p) => (
-                  <option key={p._id} value={p.cProdServ}>
-                    {p.descripcion}
-                  </option>
-                ))}
-              </datalist>
-            </div>
-
-            <div className="col-12 col-md-8">
-              <label className="form-label">Descripción</label>
-              <input
-                className="form-control"
-                value={concepto.descripcion}
-                disabled={disabledSteps}
-                onChange={(e) => setConcepto((p) => ({ ...p, descripcion: e.target.value }))}
-              />
-            </div>
-
-            <div className="col-12 col-md-4">
-              <label className="form-label">V. Unit</label>
-              <input
-                type="number"
-                className="form-control"
-                value={concepto.valorUnitario}
-                disabled={disabledSteps}
-                onChange={(e) => setConcepto((p) => ({ ...p, valorUnitario: e.target.value }))}
-                min={0}
-              />
+              <button
+                type="button"
+                className="btn btn-sm btn-success"
+                onClick={guardarSeleccionEnLote}
+                disabled={disabledSteps || !puedeGuardarSeleccion}
+              >
+                Guardar
+              </button>
             </div>
           </div>
 
-          <div className="mt-3">
-            <button className="btn btn-danger" onClick={addConcepto} disabled={disabledSteps}>
-              Agregar concepto
-            </button>
-          </div>
+          {/* Catálogo para el CProdServ de edición libre por renglón (el de
+              arriba, en lote, usa el selector estricto SelectCProdServ). */}
+          <datalist id="cprodserv-catalogo">
+            {presets.map((p) => (
+              <option key={p._id} value={p.cProdServ}>
+                {p.descripcion}
+              </option>
+            ))}
+          </datalist>
 
-          {/* --- Conceptos agregados (editar / eliminar) --- */}
-          <div className="table-responsive mt-3">
-            <h6>Conceptos agregados</h6>
+          <div className="table-responsive">
             <table className="table table-bordered align-middle">
               <thead>
                 <tr>
+                  <th style={{ width: 36 }} className="text-center">
+                    <input
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={conceptos.length > 0 && conceptosSeleccionados.length === conceptos.length}
+                      onChange={toggleTodosConceptos}
+                      title="Seleccionar todo"
+                    />
+                  </th>
                   <th style={{ width: 90 }}>Cant.</th>
                   <th style={{ width: 160 }}>CUnidad</th>
                   <th style={{ width: 130 }}>Unidad</th>
@@ -1840,7 +1775,7 @@ export default function NuevaFactura() {
               <tbody>
                 {conceptos.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center text-muted">
+                    <td colSpan={9} className="text-center text-muted">
                       Agrega al menos 1 concepto
                     </td>
                   </tr>
@@ -1853,7 +1788,16 @@ export default function NuevaFactura() {
                       : importeConcepto(c);
 
                     return (
-                      <tr key={idx}>
+                      <tr key={c._key}>
+                        <td className="text-center">
+                          <input
+                            type="checkbox"
+                            className="form-check-input"
+                            checked={conceptosSeleccionados.includes(c._key)}
+                            onChange={() => toggleConceptoSeleccionado(c._key)}
+                          />
+                        </td>
+
                         <td>
                           {editing ? (
                             <input
@@ -1875,6 +1819,7 @@ export default function NuevaFactura() {
                             <SelectClaveUnidad
                               value={row.cUnidad}
                               opciones={clavesUnidad}
+                              placeholder="-- Elegir --"
                               onChange={(clave) =>
                                 setEditDraft((p) => ({
                                   ...p,
@@ -1884,7 +1829,9 @@ export default function NuevaFactura() {
                               }
                             />
                           ) : (
-                            claveUnidadLabel(clavesUnidad, c.cUnidad)
+                            c.cUnidad || (
+                              <span className="badge text-bg-warning">Falta CUnidad</span>
+                            )
                           )}
                         </td>
 
@@ -1957,12 +1904,14 @@ export default function NuevaFactura() {
                               <button
                                 className="btn btn-sm btn-outline-primary"
                                 onClick={() => startEdit(idx)}
+                                disabled={editRow !== -1}
                               >
                                 Editar
                               </button>
                               <button
                                 className="btn btn-sm btn-outline-danger"
                                 onClick={() => delConcepto(idx)}
+                                disabled={editRow !== -1}
                               >
                                 Eliminar
                               </button>
@@ -1984,6 +1933,17 @@ export default function NuevaFactura() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-2">
+            <button
+              type="button"
+              className="btn btn-sm btn-danger"
+              onClick={agregarFilaVacia}
+              disabled={disabledSteps || editRow !== -1}
+            >
+              + Agregar fila
+            </button>
           </div>
         </div>
       )}

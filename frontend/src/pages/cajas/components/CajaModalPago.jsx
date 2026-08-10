@@ -358,7 +358,6 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
       className="modal d-block"
       tabIndex="-1"
       style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="modal-dialog modal-dialog-centered modal-lg">
         <div className="modal-content">

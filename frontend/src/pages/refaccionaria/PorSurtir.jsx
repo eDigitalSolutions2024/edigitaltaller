@@ -193,9 +193,9 @@ export default function PorSurtir() {
             </div>
           ) : (
             ordenes.map((orden) => {
-              // Las partidas de servicio no requieren surtido
+              // Las partidas de servicio y la de grúa no requieren surtido
               const autorizadas = (orden.presupuesto || []).filter(
-                (p) => p.autorizado && !p.surtida && !p.esServicio
+                (p) => p.autorizado && !p.surtida && !p.esServicio && !p.esGrua
               );
 
               if (autorizadas.length === 0) return null;

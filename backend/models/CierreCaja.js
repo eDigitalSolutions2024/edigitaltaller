@@ -17,6 +17,7 @@ const valeCajaSchema = new Schema(
   {
     folio: { type: String, default: '' },
     monto: { type: Number, default: 0 },
+    motivo: { type: String, default: '' },
   },
   { _id: false }
 );
@@ -34,6 +35,7 @@ const cierreCajaSchema = new Schema(
       banregio: { type: Number, default: 0 },
       banamex: { type: Number, default: 0 },
       americanExpress: { type: Number, default: 0 },
+      banorte: { type: Number, default: 0 },
       cheques: { type: Number, default: 0 },
       transferencias: { type: Number, default: 0 },
     },
@@ -47,11 +49,26 @@ const cierreCajaSchema = new Schema(
     // todavía no está definido (pendiente de negocio), se guardan tal cual.
     vales: [valeCajaSchema],
 
-    // Pendientes de automatizar: por ahora se capturan a mano en el formulario.
+    // totalReportes y fondoCaja se recalculan server-side (pagos del día /
+    // Configuración, ver utils/totalIngresosDia y GET /reportes/cierre-caja)
+    // mientras la caja sigue ABIERTA, y se congelan al cerrar.
     totalReportes: { type: Number, default: 0 },
     fondoCaja: { type: Number, default: 0 },
 
     capturadoPor: { type: String, default: '' },
+
+    // ABIERTA: el día se sigue capturando desde Gestión de Caja (editable).
+    // CERRADA: el reporte quedó congelado, solo lectura desde Reportes.
+    estado: { type: String, enum: ['ABIERTA', 'CERRADA'], default: 'ABIERTA' },
+    cerradoEn: { type: Date, default: null },
+    cerradoPor: { type: String, default: '' },
+
+    // Un admin puede reabrir un día ya cerrado (directo, o al aprobar un
+    // ticket RESTABLECER_CAJA solicitado por el rol cajas) — ver
+    // utils/restablecerCierreCajaDia. Se conserva lo capturado, solo cambia
+    // el estado; estos campos quedan como bitácora del último restablecido.
+    restablecidoEn: { type: Date, default: null },
+    restablecidoPor: { type: String, default: '' },
   },
   { timestamps: true }
 );

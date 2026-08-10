@@ -876,7 +876,14 @@ router.put('/:id/omitir-refacciones', async (req, res) => {
 
     vehiculo.refaccionesOmitidas = true;
     vehiculo.ordenIniciada = true;
-    vehiculo.estadoOrden = 'PENDIENTE_AUTORIZACION_CLIENTE';
+    // Si ya hay una solicitud de refacciones pendiente con el refaccionario
+    // (estadoOrden === PENDIENTE_REFACCIONARIA), no la interrumpas: agregar
+    // servicios de catálogo o capturar servicios sin refacciones no debe
+    // sacar la orden de la cola de refaccionaria mientras esa solicitud
+    // sigue sin cotizar.
+    if (vehiculo.estadoOrden !== 'PENDIENTE_REFACCIONARIA') {
+      vehiculo.estadoOrden = 'PENDIENTE_AUTORIZACION_CLIENTE';
+    }
 
     await vehiculo.save();
 
@@ -991,15 +998,15 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
 
     if (estadoOrden) {
       if (estadoOrden === 'PENDIENTE_SURTIR') {
-        // Las partidas de servicio no pasan por refaccionaria: quedan surtidas
+        // Las partidas de servicio y la de grúa no pasan por refaccionaria: quedan surtidas
         for (const p of vehiculo.presupuesto) {
-          if (p.autorizado && p.esServicio && !p.surtida) {
+          if (p.autorizado && (p.esServicio || p.esGrua) && !p.surtida) {
             p.surtida = true;
           }
         }
 
         // Verificar inventario por cada partida autorizada que tenga código
-        const autorizadas = (vehiculo.presupuesto || []).filter(p => p.autorizado && !p.esServicio && p.codigo);
+        const autorizadas = (vehiculo.presupuesto || []).filter(p => p.autorizado && !p.esServicio && !p.esGrua && p.codigo);
         let autoSurtidas = 0;
 
         if (autorizadas.length > 0) {
@@ -1008,7 +1015,7 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
           const partidasSalida = [];
 
           for (const p of vehiculo.presupuesto) {
-            if (!p.autorizado || !p.codigo || p.esServicio) continue;
+            if (!p.autorizado || !p.codigo || p.esServicio || p.esGrua) continue;
             const stock = stockMap.get(String(p.codigo)) || 0;
             const qty   = Number(p.cant) || 1;
             if (stock >= qty) {
@@ -1042,12 +1049,12 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
           }
         }
 
-        // Solo las refacciones (no servicios) cuentan como pendientes de surtir.
+        // Solo las refacciones (no servicios ni grúa) cuentan como pendientes de surtir.
         // Si no queda ninguna pendiente → saltar a reparación (una orden de
-        // puros servicios pasa directo, sin visitar refaccionaria).
+        // puros servicios/grúa pasa directo, sin visitar refaccionaria).
         const hayAutorizadas = (vehiculo.presupuesto || []).some(p => p.autorizado);
         const pendientesSurtir = (vehiculo.presupuesto || [])
-          .filter(p => p.autorizado && !p.esServicio && !p.surtida).length;
+          .filter(p => p.autorizado && !p.esServicio && !p.esGrua && !p.surtida).length;
 
         if (hayAutorizadas && pendientesSurtir === 0) {
           vehiculo.estadoOrden = 'REPARACION_EN_CURSO';
@@ -1321,42 +1328,47 @@ router.post(
   }
 );
 
-// GET /api/vehiculos/stats/dashboard
-router.get('/stats/dashboard', async (req, res) => {
-  try {
-    const hoy = new Date();
-    const inicioDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
-    const finDia = new Date(inicioDia);
-    finDia.setDate(finDia.getDate() + 1);
+// Fecha de inicio del periodo pedido ('dia' | 'semana' | 'mes'), con la
+// semana arrancando en lunes. El fin del periodo siempre es "ahora".
+function inicioPeriodo(periodo, ahora) {
+  if (periodo === 'semana') {
+    const diaSemana = ahora.getDay(); // 0 = domingo
+    const diffLunes = diaSemana === 0 ? 6 : diaSemana - 1;
+    return new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - diffLunes);
+  }
+  if (periodo === 'mes') {
+    return new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+  }
+  return new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
+}
 
-    const [ordenesHoy, enProceso, entregadas] = await Promise.all([
-      // Órdenes creadas hoy
+// GET /api/vehiculos/stats/dashboard?periodo=dia|semana|mes
+// Admin ve abiertas/cerradas de todo el taller; un asesor solo ve las suyas.
+router.get('/stats/dashboard', proteger, async (req, res) => {
+  try {
+    const periodo = ['dia', 'semana', 'mes'].includes(req.query.periodo) ? req.query.periodo : 'dia';
+    const ahora = new Date();
+    const inicio = inicioPeriodo(periodo, ahora);
+
+    const alcance = req.user.role === 'asesor_servicio'
+      ? await condicionOrdenesPropias(req.user)
+      : {};
+
+    const [abiertas, cerradas] = await Promise.all([
+      // Órdenes creadas dentro del periodo
       Vehiculo.countDocuments({
-        createdAt: { $gte: inicioDia, $lt: finDia },
+        ...alcance,
+        createdAt: { $gte: inicio, $lte: ahora },
       }),
-      // En proceso: todos los estados activos excepto CERRADA
+      // Órdenes cerradas dentro del periodo
       Vehiculo.countDocuments({
-        estadoOrden: {
-          $in: [
-            'INGRESO',
-            'PENDIENTE_REFACCIONARIA',
-            'PENDIENTE_AUTORIZACION_CLIENTE',
-            'PENDIENTE_SURTIR',
-            'PENDIENTE_CIERRE',
-            'REPARACION_EN_CURSO',
-            'CALIDAD',
-            'PENDIENTE_CERRAR',
-          ],
-        },
-      }),
-      // Entregadas: cerradas hoy
-      Vehiculo.countDocuments({
+        ...alcance,
         estadoOrden: 'CERRADA',
-        updatedAt: { $gte: inicioDia, $lt: finDia },
+        updatedAt: { $gte: inicio, $lte: ahora },
       }),
     ]);
 
-    res.json({ ok: true, data: { ordenesHoy, enProceso, entregadas } });
+    res.json({ ok: true, data: { periodo, abiertas, cerradas } });
   } catch (err) {
     console.error('Error obteniendo stats:', err);
     res.status(500).json({ ok: false, msg: 'Error en el servidor' });

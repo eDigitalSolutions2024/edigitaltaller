@@ -313,6 +313,46 @@ router.put('/vale-contador', proteger, requiereRol('admin'), async (req, res) =>
 });
 
 // ===============================
+// CONTADOR DE VALE DE CAJA (folio automático de los vales capturados en
+// Cierre de Caja — distinto del Vale de Salida de arriba)
+// ===============================
+
+// Debe coincidir con VALE_CAJA_CONTADOR en routes/cierreCaja.js
+const VALE_CAJA_CONTADOR = 'valeCaja';
+
+// GET /api/configuracion/vale-caja-contador
+router.get('/vale-caja-contador', proteger, async (req, res) => {
+  try {
+    const contador = await Contador.findOne({ nombre: VALE_CAJA_CONTADOR });
+    res.json({ valor: contador?.valor || 0 });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener el contador de vales de caja', error: error.message });
+  }
+});
+
+// PUT /api/configuracion/vale-caja-contador
+router.put('/vale-caja-contador', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { valor } = req.body;
+    const valorNum = Number(valor);
+
+    if (valor === undefined || valor === null || Number.isNaN(valorNum) || valorNum < 0) {
+      return res.status(400).json({ message: 'El valor debe ser un número mayor o igual a 0' });
+    }
+
+    const contador = await Contador.findOneAndUpdate(
+      { nombre: VALE_CAJA_CONTADOR },
+      { $set: { valor: valorNum } },
+      { new: true, upsert: true }
+    );
+
+    res.json({ valor: contador.valor });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al actualizar el contador de vales de caja', error: error.message });
+  }
+});
+
+// ===============================
 // CONTADOR DE DEVOLUCIÓN DE REFACCIÓN (número consecutivo del formato impreso)
 // ===============================
 
@@ -463,6 +503,46 @@ router.put('/orden-compra-contador', proteger, requiereRol('admin'), async (req,
     res.json({ valor: contador.valor });
   } catch (error) {
     res.status(500).json({ message: 'Error al actualizar el contador de órdenes de compra', error: error.message });
+  }
+});
+
+// ===============================
+// FONDO DE CAJA (monto fijo que se deja en caja, usado en Gestión de Caja)
+// ===============================
+
+// Debe coincidir con FONDO_CAJA_CONTADOR en routes/cierreCaja.js
+const FONDO_CAJA_CONTADOR = 'fondoCaja';
+const FONDO_CAJA_DEFAULT = 2000;
+
+// GET /api/configuracion/fondo-caja
+router.get('/fondo-caja', proteger, async (req, res) => {
+  try {
+    const contador = await Contador.findOne({ nombre: FONDO_CAJA_CONTADOR });
+    res.json({ valor: contador?.valor ?? FONDO_CAJA_DEFAULT });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener el fondo de caja', error: error.message });
+  }
+});
+
+// PUT /api/configuracion/fondo-caja
+router.put('/fondo-caja', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { valor } = req.body;
+    const valorNum = Number(valor);
+
+    if (valor === undefined || valor === null || Number.isNaN(valorNum) || valorNum < 0) {
+      return res.status(400).json({ message: 'El valor debe ser un número mayor o igual a 0' });
+    }
+
+    const contador = await Contador.findOneAndUpdate(
+      { nombre: FONDO_CAJA_CONTADOR },
+      { $set: { valor: valorNum } },
+      { new: true, upsert: true }
+    );
+
+    res.json({ valor: contador.valor });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al actualizar el fondo de caja', error: error.message });
   }
 });
 

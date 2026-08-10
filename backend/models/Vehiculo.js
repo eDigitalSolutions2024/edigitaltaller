@@ -452,6 +452,10 @@ const vehiculoSchema = new Schema(
         surtida: { type: Boolean, default: false },     // ← refaccionaria surtió
         // Partida de servicio/mano de obra: no pasa por refaccionaria ni surtido
         esServicio: { type: Boolean, default: false },
+        // Línea auto-generada a partir del precio de grúa capturado en la
+        // inspección física: no pasa por refaccionaria y solo un admin puede
+        // eliminarla o desautorizarla desde Presupuesto (ver VehiculoPresupuestoVenta.jsx).
+        esGrua: { type: Boolean, default: false },
         // Refacción que vino de un Servicio de catálogo (brincó refaccionaria):
         // Por Surtir exige capturar marca/proveedor/código antes de poder surtirla.
         origenServicioCatalogo: { type: Boolean, default: false },

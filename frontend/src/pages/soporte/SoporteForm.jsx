@@ -36,6 +36,12 @@ export default function SoporteForm() {
 
   const [form, setForm] = useState(VACIO);
   const esCambioAsesor = form.tipoProblema === 'CAMBIO_ASESOR';
+  const esRestablecerCobro = form.tipoProblema === 'RESTABLECER_COBRO';
+  const esRestablecerCaja = form.tipoProblema === 'RESTABLECER_CAJA';
+  const ordenRequerida = esCambioAsesor || esRestablecerCobro;
+
+  // ── Día de caja a restablecer (solo RESTABLECER_CAJA) ──
+  const [fechaCierreCaja, setFechaCierreCaja] = useState(new Date().toISOString().slice(0, 10));
 
   // ── Orden de servicio (opcional, requerida si es CAMBIO_ASESOR) ──
   const [searchOs, setSearchOs] = useState('');
@@ -80,6 +86,7 @@ export default function SoporteForm() {
     setOrdenServicio(null);
     setFolioOrdenServicio('');
     setAsesorSolicitadoId('');
+    setFechaCierreCaja(new Date().toISOString().slice(0, 10));
     setMensaje(null);
     setSugerencias([]);
     setMostrarSugerencias(false);
@@ -133,6 +140,8 @@ export default function SoporteForm() {
     if (!form.detalle.trim()) return 'Captura el motivo/detalle del problema.';
     if (esCambioAsesor && !ordenServicio) return 'Busca y selecciona la orden de servicio a reasignar.';
     if (esCambioAsesor && !asesorSolicitadoId) return 'Selecciona el asesor al que quieres cambiar la orden.';
+    if (esRestablecerCobro && !ordenServicio) return 'Busca y selecciona la orden de servicio con el cobro a restablecer.';
+    if (esRestablecerCaja && !fechaCierreCaja) return 'Selecciona el día de caja a restablecer.';
     return null;
   };
 
@@ -151,6 +160,7 @@ export default function SoporteForm() {
         ordenServicio,
         folioOrdenServicio,
         asesorSolicitadoId: esCambioAsesor ? asesorSolicitadoId : undefined,
+        fechaCierreCaja: esRestablecerCaja ? fechaCierreCaja : undefined,
       });
       const creado = res.data.data;
       setMensaje({ tipo: 'success', texto: `Ticket ${creado.folio} creado correctamente.` });
@@ -193,36 +203,50 @@ export default function SoporteForm() {
               </select>
             </div>
 
-            <div className="col-md-6 position-relative">
-              <label className="form-label small fw-semibold">
-                Orden de servicio {esCambioAsesor ? '' : '(opcional)'}
-              </label>
-              <input
-                type="text"
-                className="form-control"
-                value={searchOs}
-                onChange={handleSearchOsChange}
-                onFocus={() => sugerencias.length > 0 && setMostrarSugerencias(true)}
-                onBlur={() => setTimeout(() => setMostrarSugerencias(false), 150)}
-                placeholder="Buscar orden…"
-                autoComplete="off"
-              />
-              {buscandoOrden && <div className="form-text">Buscando…</div>}
-              {mostrarSugerencias && sugerencias.length > 0 && (
-                <div className="list-group position-absolute w-100 shadow-sm" style={{ zIndex: 20 }}>
-                  {sugerencias.map((o) => (
-                    <button
-                      type="button"
-                      key={o._id}
-                      className="list-group-item list-group-item-action py-1 px-2 small"
-                      onMouseDown={() => seleccionarOrden(o)}
-                    >
-                      <strong>{o.ordenServicio}</strong> — {nombreCliente(o.cliente) || 'Sin cliente'} · {o.marca || ''} {o.modelo || ''}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            {!esRestablecerCaja && (
+              <div className="col-md-6 position-relative">
+                <label className="form-label small fw-semibold">
+                  Orden de servicio {ordenRequerida ? '' : '(opcional)'}
+                </label>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={searchOs}
+                  onChange={handleSearchOsChange}
+                  onFocus={() => sugerencias.length > 0 && setMostrarSugerencias(true)}
+                  onBlur={() => setTimeout(() => setMostrarSugerencias(false), 150)}
+                  placeholder="Buscar orden…"
+                  autoComplete="off"
+                />
+                {buscandoOrden && <div className="form-text">Buscando…</div>}
+                {mostrarSugerencias && sugerencias.length > 0 && (
+                  <div className="list-group position-absolute w-100 shadow-sm" style={{ zIndex: 20 }}>
+                    {sugerencias.map((o) => (
+                      <button
+                        type="button"
+                        key={o._id}
+                        className="list-group-item list-group-item-action py-1 px-2 small"
+                        onMouseDown={() => seleccionarOrden(o)}
+                      >
+                        <strong>{o.ordenServicio}</strong> — {nombreCliente(o.cliente) || 'Sin cliente'} · {o.marca || ''} {o.modelo || ''}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {esRestablecerCaja && (
+              <div className="col-md-6">
+                <label className="form-label small fw-semibold">Día de caja a restablecer</label>
+                <input
+                  type="date"
+                  className="form-control"
+                  value={fechaCierreCaja}
+                  onChange={(e) => setFechaCierreCaja(e.target.value)}
+                />
+              </div>
+            )}
 
             {esCambioAsesor && (
               <div className="col-md-6">
@@ -247,6 +271,13 @@ export default function SoporteForm() {
                 rows={3}
                 value={form.detalle}
                 onChange={handleChange('detalle')}
+                placeholder={
+                  esRestablecerCobro
+                    ? 'Ej: Cancelar la Remisión N°123 / el Abono del 05-ago, se capturó por error…'
+                    : esRestablecerCaja
+                    ? 'Ej: Cerré la caja del día sin capturar los vales, necesito volver a abrirla…'
+                    : ''
+                }
               />
             </div>
           </div>

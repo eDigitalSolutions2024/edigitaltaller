@@ -63,8 +63,20 @@ export const getRemisionContador = () =>
 export const actualizarRemisionContador = (valor) =>
   http.put('/configuracion/remision-contador', { valor }).then(r => r.data);
 
+export const getValeCajaContador = () =>
+  http.get('/configuracion/vale-caja-contador').then(r => r.data);
+
+export const actualizarValeCajaContador = (valor) =>
+  http.put('/configuracion/vale-caja-contador', { valor }).then(r => r.data);
+
 export const getOrdenCompraContador = () =>
   http.get('/configuracion/orden-compra-contador').then(r => r.data);
 
 export const actualizarOrdenCompraContador = (valor) =>
   http.put('/configuracion/orden-compra-contador', { valor }).then(r => r.data);
+
+export const getFondoCaja = () =>
+  http.get('/configuracion/fondo-caja').then(r => r.data);
+
+export const actualizarFondoCaja = (valor) =>
+  http.put('/configuracion/fondo-caja', { valor }).then(r => r.data);

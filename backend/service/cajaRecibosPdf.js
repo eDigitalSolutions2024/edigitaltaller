@@ -6,6 +6,7 @@ const puppeteer = require('puppeteer');
 const path = require('path');
 const fs = require('fs');
 const { dayjsFecha } = require('../utils/fechas');
+const { WATERMARK_CSS, watermarkHtmlPago } = require('../utils/pdfWatermark');
 
 const assetPath = (...parts) => path.join(__dirname, '..', 'assets', 'pdf', ...parts);
 
@@ -99,6 +100,7 @@ const provisionalStyles = `
     padding-top: 12px;
   }
   .firma-linea { flex: 1; text-align: center; border-top: 1px solid #000; padding-top: 4px; font-size: 12.5px; }
+${WATERMARK_CSS}
 `;
 
 // rp: pago.reciboProvisional. Genera la fila de checkboxes Efectivo/T.Crédito/T.Débito/Cheque No.
@@ -195,6 +197,7 @@ exports.generarReciboProvisionalPDF = async (res, orden, pago) => {
   <style>${provisionalStyles}</style>
 </head>
 <body>
+  ${watermarkHtmlPago(pago)}
   <div class="hoja hoja--caja">
     <div class="encabezado">
       <div>
@@ -304,6 +307,7 @@ const dolaresStyles = `
     min-height: 14px;
   }
   .firma { width: 100%; text-align: center; font-size: 12px; font-weight: 700; margin-top: 30px; border-top: 1px solid #000; padding-top: 4px; }
+${WATERMARK_CSS}
 `;
 
 // pago: subdocumento de orden.pagos con reciboDolares.numero ya asignado.
@@ -339,6 +343,7 @@ exports.generarReciboDolaresPDF = async (res, orden, pago) => {
   <style>${dolaresStyles}</style>
 </head>
 <body>
+  ${watermarkHtmlPago(pago)}
   <div class="ReciboDolares">
     ${logoSrc ? `<img src="${logoSrc}" class="logo" />` : `<div class="brand-fallback">Servi<span>compactos</span></div>`}
 

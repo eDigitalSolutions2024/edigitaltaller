@@ -90,7 +90,15 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
   const bundleSeleccionado = (servicioId) =>
     seleccionBundles.find((b) => b.servicioId === servicioId);
 
+  // Un servicio ya enviado a presupuesto no se puede volver a seleccionar:
+  // re-elegirlo re-dispara el envío y puede sacar la orden de la cola de
+  // refaccionaria si había una solicitud de refacciones pendiente. Solo se
+  // puede quitar mientras esté en selección local (aún no enviado).
+  const bundleYaEnviado = (servicioId) =>
+    serviciosCatalogoSeleccionados.some((s) => String(s.servicioId) === String(servicioId));
+
   const toggleBundle = (bundle) => {
+    if (bundleYaEnviado(bundle._id)) return;
     setSeleccionBundles((prev) => {
       const yaEsta = prev.some((b) => b.servicioId === bundle._id);
       if (yaEsta) {
@@ -463,18 +471,28 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
                   {catalogoBundles.map((bundle) => {
                     const seleccion = bundleSeleccionado(bundle._id);
                     const activo = !!seleccion;
+                    const yaEnviado = bundleYaEnviado(bundle._id);
+                    const bloqueado = readOnly || yaEnviado;
                     return (
                       <div
                         key={bundle._id}
                         role="button"
-                        onClick={() => !readOnly && toggleBundle(bundle)}
+                        onClick={() => !bloqueado && toggleBundle(bundle)}
+                        title={yaEnviado ? "Ya fue enviado a presupuesto" : undefined}
                         className={
                           "border rounded p-2 " +
-                          (activo ? "border-success bg-success-subtle" : "border-secondary")
+                          (yaEnviado
+                            ? "border-secondary bg-light text-muted"
+                            : activo
+                            ? "border-success bg-success-subtle"
+                            : "border-secondary")
                         }
-                        style={{ cursor: readOnly ? "default" : "pointer", minWidth: 180 }}
+                        style={{ cursor: bloqueado ? "default" : "pointer", minWidth: 180, opacity: yaEnviado ? 0.6 : 1 }}
                       >
-                        <div className="fw-semibold">{bundle.nombre}</div>
+                        <div className="fw-semibold">
+                          {bundle.nombre}
+                          {yaEnviado && <span className="badge bg-secondary ms-2">Enviado</span>}
+                        </div>
                         <small className="text-muted">
                           {(bundle.refacciones || []).length} refacción(es)
                         </small>
