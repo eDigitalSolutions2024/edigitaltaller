@@ -21,6 +21,7 @@
   color: #fff;
   cursor: grab;
   user-select: none;
+  touch-action: none;
 }
 
 .os-flotante__header:active {

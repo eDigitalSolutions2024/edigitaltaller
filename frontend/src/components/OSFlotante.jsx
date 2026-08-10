@@ -107,23 +107,30 @@ export default function OSFlotante() {
   }, [esAsesor]);
 
   // ── Drag handlers ──────────────────────────────────────────
-  const onMouseDown = useCallback((e) => {
-    if (e.target.closest('.os-flotante__toggle')) return;
+  const startDrag = useCallback((clientX, clientY) => {
     dragging.current = true;
     hasDragged.current = false;
-    offset.current = {
-      x: e.clientX - pos.x,
-      y: e.clientY - pos.y,
-    };
-    e.preventDefault();
+    offset.current = { x: clientX - pos.x, y: clientY - pos.y };
   }, [pos]);
 
+  const onMouseDown = useCallback((e) => {
+    if (e.target.closest('.os-flotante__toggle')) return;
+    startDrag(e.clientX, e.clientY);
+    e.preventDefault();
+  }, [startDrag]);
+
+  const onTouchStart = useCallback((e) => {
+    if (e.target.closest('.os-flotante__toggle')) return;
+    const t = e.touches[0];
+    if (!t) return;
+    startDrag(t.clientX, t.clientY);
+  }, [startDrag]);
+
   useEffect(() => {
-    const onMouseMove = (e) => {
-      if (!dragging.current) return;
+    const moveTo = (clientX, clientY) => {
       hasDragged.current = true;
-      const newX = e.clientX - offset.current.x;
-      const newY = e.clientY - offset.current.y;
+      const newX = clientX - offset.current.x;
+      const newY = clientY - offset.current.y;
       const maxX = window.innerWidth - (widgetRef.current?.offsetWidth || 280);
       const maxY = window.innerHeight - (widgetRef.current?.offsetHeight || 50);
       setPos({
@@ -131,13 +138,31 @@ export default function OSFlotante() {
         y: Math.max(0, Math.min(newY, maxY)),
       });
     };
+    const onMouseMove = (e) => {
+      if (!dragging.current) return;
+      moveTo(e.clientX, e.clientY);
+    };
     const onMouseUp = () => { dragging.current = false; };
+    const onTouchMove = (e) => {
+      if (!dragging.current) return;
+      const t = e.touches[0];
+      if (!t) return;
+      moveTo(t.clientX, t.clientY);
+      e.preventDefault();
+    };
+    const onTouchEnd = () => { dragging.current = false; };
 
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd);
+    window.addEventListener('touchcancel', onTouchEnd);
     return () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchEnd);
     };
   }, []);
 
@@ -154,6 +179,7 @@ export default function OSFlotante() {
       <div
         className="os-flotante__header"
         onMouseDown={onMouseDown}
+        onTouchStart={onTouchStart}
         onClick={() => { if (!hasDragged.current) setMinimizado(m => !m); }}
       >
         <span className="os-flotante__titulo">

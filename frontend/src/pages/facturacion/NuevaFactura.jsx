@@ -946,6 +946,7 @@ export default function NuevaFactura() {
             serie: o.serie || "",
             placas: o.placas || "",
             kmsMillas: o.kmsMillas || "",
+            sinVehiculo: !!o.sinVehiculo,
           }))
         : [];
 

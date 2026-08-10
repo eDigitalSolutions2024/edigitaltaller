@@ -189,10 +189,15 @@ function makeUi(doc) {
   };
 
   ui.logo = (x, y, w) => {
-    const logoPath = path.join(__dirname, "..", "assets", "logo.png");
+    const logoPath = path.join(__dirname, "..", "assets", "pdf", "logo_servicompactos.png");
     try {
-      doc.image(logoPath, x, y, { width: w });
-    } catch (e) {}
+      const img = doc.openImage(logoPath);
+      const h = (w * img.height) / img.width;
+      doc.image(img, x, y, { width: w });
+      return h;
+    } catch (e) {
+      return 0;
+    }
   };
 
   ui.qrPlaceholder = (x, y, size) => {
@@ -211,11 +216,14 @@ function drawHeaderComprobante(doc, ui, { emisor, tipoLabel, meta }) {
   const rightX = M + 340;
   const rightW = W - 340;
 
-  // Logo + datos del emisor (izquierda)
-  ui.logo(M + 6, M + 4, 95);
+  // Logo + datos del emisor (izquierda): el logo abarca el mismo ancho que
+  // la caja de datos del emisor que se dibuja justo debajo.
+  const emisorBoxW = 320;
+  const logoY = M + 4;
+  const logoH = ui.logo(M, logoY, emisorBoxW) || 0;
 
-  const emisorBoxY = M + 52;
-  ui.box(M, emisorBoxY, 320, 62);
+  const emisorBoxY = Math.max(M + 52, logoY + logoH + 6);
+  ui.box(M, emisorBoxY, emisorBoxW, 62);
   doc.font("Helvetica-Bold").fontSize(9);
   doc.text(safe(emisor.nombre) || "EMISOR (configura la Configuración Fiscal)", M + 8, emisorBoxY + 8, {
     width: 304,
@@ -287,16 +295,18 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
 
   if (ordenUnica) {
     ui.kv(vx, vy, "Orden:", ordenUnica.ordenServicio, 42, 150);
-    vy += 13;
-    ui.kv(vx, vy, "Marca:", ordenUnica.marca, 42, 150);
-    vy += 13;
-    ui.kv(vx, vy, "Modelo:", `${safe(ordenUnica.modelo)} ${safe(ordenUnica.anio)}`.trim(), 42, 150);
-    vy += 13;
-    ui.kv(vx, vy, "Serie:", ordenUnica.serie, 42, 150);
-    vy += 13;
-    ui.kv(vx, vy, "Placas:", ordenUnica.placas, 42, 150);
-    vy += 13;
-    ui.kv(vx, vy, "Kms:", ordenUnica.kmsMillas, 42, 150);
+    if (!ordenUnica.sinVehiculo) {
+      vy += 13;
+      ui.kv(vx, vy, "Marca:", ordenUnica.marca, 42, 150);
+      vy += 13;
+      ui.kv(vx, vy, "Modelo:", `${safe(ordenUnica.modelo)} ${safe(ordenUnica.anio)}`.trim(), 42, 150);
+      vy += 13;
+      ui.kv(vx, vy, "Serie:", ordenUnica.serie, 42, 150);
+      vy += 13;
+      ui.kv(vx, vy, "Placas:", ordenUnica.placas, 42, 150);
+      vy += 13;
+      ui.kv(vx, vy, "Kms:", ordenUnica.kmsMillas, 42, 150);
+    }
   } else if (listaOrdenes.length) {
     // Varias órdenes: no cabe el detalle de cada vehículo, así que se listan
     // los folios y, junto a cada uno, el vehículo en una sola línea.
@@ -304,9 +314,11 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
     vy += 12;
     doc.font("Helvetica").fontSize(6.5);
     listaOrdenes.slice(0, 6).forEach((o) => {
-      const vehiculo = [safe(o.marca), safe(o.modelo), safe(o.placas) && `(${safe(o.placas)})`]
-        .filter(Boolean)
-        .join(" ");
+      const vehiculo = o.sinVehiculo
+        ? ""
+        : [safe(o.marca), safe(o.modelo), safe(o.placas) && `(${safe(o.placas)})`]
+            .filter(Boolean)
+            .join(" ");
       doc.text(`${safe(o.ordenServicio)}${vehiculo ? ` · ${vehiculo}` : ""}`, vx, vy, { width: 150 });
       vy += 10;
     });
@@ -598,16 +610,20 @@ function drawReciboElectronicoPago(doc, data) {
   const monto = relacionadas.reduce((s, r) => s + Number(r.importePagado || 0), 0);
 
   // ===== Encabezado =====
-  ui.logo(M + 6, M + 6, 85);
+  // El logo abarca el mismo ancho que la caja de Receptor de abajo; los datos
+  // del emisor van centrados justo debajo, igual que en factura/nota de crédito.
+  const emisorBoxW = 320;
+  const logoY = M + 4;
+  const logoH = ui.logo(M, logoY, emisorBoxW) || 0;
+  const emisorY = logoY + logoH + 6;
 
-  // Emisor al centro
-  doc.font("Helvetica-Bold").fontSize(8).text("Emisor:", M + 120, M + 4, { width: 210, align: "center" });
-  doc.font("Helvetica-Bold").fontSize(11);
-  doc.text((safe(emisor.nombre) || "EMISOR").toUpperCase(), M + 120, M + 16, { width: 210, align: "center" });
+  doc.font("Helvetica-Bold").fontSize(9);
+  doc.text((safe(emisor.nombre) || "EMISOR").toUpperCase(), M, emisorY, { width: emisorBoxW, align: "center" });
   doc.font("Helvetica").fontSize(8);
-  doc.text(`R.F.C.: ${safe(emisor.rfc) || "—"}`, M + 120, M + 32, { width: 210, align: "center" });
-  doc.text(`Régimen fiscal: ${safe(emisor.regimenFiscal) || "—"}`, M + 120, M + 44, { width: 210, align: "center" });
-  doc.text(`Expedido en C.P. ${safe(emisor.lugarExpedicion) || "—"}`, M + 120, M + 56, { width: 210, align: "center" });
+  doc.text(`R.F.C.: ${safe(emisor.rfc) || "—"}`, M, emisorY + 13, { width: emisorBoxW, align: "center" });
+  doc.text(`Régimen fiscal: ${safe(emisor.regimenFiscal) || "—"}`, M, emisorY + 25, { width: emisorBoxW, align: "center" });
+  doc.text(`Expedido en C.P. ${safe(emisor.lugarExpedicion) || "—"}`, M, emisorY + 37, { width: emisorBoxW, align: "center" });
+  const emisorBlockBottom = emisorY + 49;
 
   // Barra derecha
   const rightX = M + 352;
@@ -632,7 +648,7 @@ function drawReciboElectronicoPago(doc, data) {
   ry = ui.labelValueBox(rightX, ry, rightW, "Certificado digital", safe(emisor.noCertificado) || "—");
 
   // ===== Receptor =====
-  const recY = M + 96;
+  const recY = Math.max(M + 96, emisorBlockBottom + 8);
   ui.box(M, recY, 320, 74);
   doc.font("Helvetica-Bold").fontSize(8).text("Receptor:", M + 8, recY + 6);
   doc.font("Helvetica-Bold").fontSize(8).text(`RFC ${safe(cliente?.rfc) || "—"}`, M + 70, recY + 6);
@@ -902,7 +918,7 @@ router.get("/factura/:id/pdf", async (req, res) => {
         if (!ref?.vehiculoId) return base;
 
         const v = await Vehiculo.findById(ref.vehiculoId)
-          .select("ordenServicio marca modelo anio serie placas kmsMillas")
+          .select("ordenServicio marca modelo anio serie placas kmsMillas sinVehiculo")
           .lean()
           .catch(() => null);
         if (!v) return base;
@@ -915,6 +931,7 @@ router.get("/factura/:id/pdf", async (req, res) => {
           serie: v.serie || "",
           placas: v.placas || "",
           kmsMillas: v.kmsMillas || "",
+          sinVehiculo: !!v.sinVehiculo,
         };
       })
     );

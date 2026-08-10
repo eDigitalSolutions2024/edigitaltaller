@@ -6,16 +6,13 @@ import { getUnidadesMedida } from "../../api/configuracion";
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 const PAGE_SIZES = [10, 25, 50, 100];
 
-const FORM_VACÍO = (tipo = "refaccion") => ({
+const FORM_VACÍO = () => ({
   _id: "",
-  tipo,
+  tipo: "refaccion",
   numeroParte: "",
   descripcion: "",
   proveedor: "",
   marca: "",
-  grupoServicio: tipo === "servicio" ? "motor" : "otros",
-  codigoSat: "",
-  descripcionSat: "",
   unidad: "",
   precioUnitario: "",
 });
@@ -29,9 +26,6 @@ function mapItem(x) {
     proveedor: x.proveedor || "",
     marca: x.marca || "",
     descripcion: x.descripcion || "",
-    grupoServicio: x.grupoServicio || "otros",
-    codigoSat: x.codigoSat || "",
-    descripcionSat: x.descripcionSat || "",
     unidad: x.unidad || "",
     precioUnitario: x.precioUnitario ?? "",
   };
@@ -40,7 +34,6 @@ function mapItem(x) {
 export default function BDCodigos() {
   const formRef = useRef(null);
   const [form, setForm] = useState(FORM_VACÍO());
-  const [tipo, setTipo] = useState("refaccion");
   const [options, setOptions] = useState([]);
   const [refSel, setRefSel] = useState("");
   const [loading, setLoading] = useState(false);
@@ -91,42 +84,20 @@ export default function BDCodigos() {
     return () => { abort = true; };
   }, []);
 
-  const nextCode = useMemo(() => {
-    const prefix = tipo === "servicio" ? "S" : "R";
-    const codesOfType = items
-      .filter((x) => (x.tipo || "refaccion") === tipo)
-      .map((x) => x.codigo)
-      .filter(Boolean)
-      .map((c) => {
-        const n = parseInt(String(c).replace(/^[RS]/i, ""), 10);
-        return Number.isNaN(n) ? 0 : n;
-      });
-    const max = codesOfType.length ? Math.max(...codesOfType) : 0;
-    return prefix + (max + 1);
-  }, [items, tipo]);
-
   const visibleOptions = useMemo(() => {
-    return (options || []).filter((o) => {
-      const t = o.tipo || "refaccion";
-      return tipo === "servicio" ? t === "servicio" : t !== "servicio";
-    });
-  }, [options, tipo]);
+    return (options || []).filter((o) => (o.tipo || "refaccion") !== "servicio");
+  }, [options]);
 
   const filtered = useMemo(() => {
     const q = (query || "").toLowerCase().trim();
-    let arr = items.filter((x) => {
-      const t = x.tipo || "refaccion";
-      return tipo === "servicio" ? t === "servicio" : t !== "servicio";
-    });
+    let arr = items.filter((x) => (x.tipo || "refaccion") !== "servicio");
     if (q) {
       arr = arr.filter(
         (x) =>
           (x.codigo || "").toLowerCase().includes(q) ||
           (x.numeroParte || "").toLowerCase().includes(q) ||
           (x.descripcion || "").toLowerCase().includes(q) ||
-          (x.proveedor || "").toLowerCase().includes(q) ||
-          (x.codigoSat || "").toLowerCase().includes(q) ||
-          (x.descripcionSat || "").toLowerCase().includes(q)
+          (x.proveedor || "").toLowerCase().includes(q)
       );
     }
     arr.sort((a, b) => {
@@ -136,7 +107,7 @@ export default function BDCodigos() {
       return av.localeCompare(bv) * dir;
     });
     return arr;
-  }, [items, query, sort, tipo]);
+  }, [items, query, sort]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageSafe = Math.min(page, totalPages);
@@ -158,17 +129,6 @@ export default function BDCodigos() {
     setForm((f) => ({ ...f, [name]: value }));
   };
 
-  const handleTipoClick = (nuevoTipo) => {
-    setTipo(nuevoTipo);
-    setForm((f) => ({
-      ...f,
-      tipo: nuevoTipo,
-      grupoServicio:
-        nuevoTipo === "servicio" ? f.grupoServicio || "motor" : "otros",
-    }));
-    setPage(1);
-  };
-
   const handleProveedorCreado = (nuevoProveedor) => {
     setProveedores((prev) => [...prev, nuevoProveedor]);
     setForm((f) => ({ ...f, proveedor: nuevoProveedor.nombreProveedor || nuevoProveedor.nombre || "" }));
@@ -176,17 +136,13 @@ export default function BDCodigos() {
   };
 
   function editarItem(x) {
-    setTipo(x.tipo || "refaccion");
     setForm({
       _id: x._id,
-      tipo: x.tipo || "refaccion",
+      tipo: "refaccion",
       numeroParte: x.numeroParte || "",
       descripcion: x.descripcion || "",
       proveedor: x.proveedor || "",
       marca: x.marca || "",
-      grupoServicio: x.grupoServicio || "otros",
-      codigoSat: x.codigoSat || "",
-      descripcionSat: x.descripcionSat || "",
       unidad: x.unidad || "",
       precioUnitario: x.precioUnitario ?? "",
     });
@@ -197,29 +153,22 @@ export default function BDCodigos() {
   async function guardar() {
     try {
       setLoading(true);
-      const esRefaccion = (form.tipo || tipo) === "refaccion";
       const payload = {
-        tipo: form.tipo || tipo,
+        tipo: "refaccion",
         codigo: (form.numeroParte || "").trim(),
         numeroParte: (form.numeroParte || "").trim(),
         descripcion: form.descripcion.trim(),
-        proveedor: esRefaccion ? form.proveedor.trim() : "",
+        proveedor: form.proveedor.trim(),
         marca: form.marca.trim(),
-        codigoSat: form.codigoSat.trim(),
-        descripcionSat: form.descripcionSat.trim(),
         unidad: form.unidad,
         precioUnitario: form.precioUnitario !== "" ? Number(form.precioUnitario) : null,
       };
-
-      if (!esRefaccion) {
-        payload.grupoServicio = form.grupoServicio || "otros";
-      }
 
       if (!payload.numeroParte)
         throw new Error("El código interno es obligatorio.");
       if (!payload.descripcion)
         throw new Error("La descripción es obligatoria.");
-      if (esRefaccion && !payload.proveedor)
+      if (!payload.proveedor)
         throw new Error("El proveedor es obligatorio.");
 
       const method = form._id ? "PUT" : "POST";
@@ -261,7 +210,7 @@ export default function BDCodigos() {
   }
 
   function limpiar() {
-    setForm(FORM_VACÍO(tipo));
+    setForm(FORM_VACÍO());
     setRefSel("");
   }
 
@@ -286,13 +235,6 @@ export default function BDCodigos() {
     await recargarOptions();
   }
 
-  const GRUPO_LABELS = {
-    motor: "Mantenimiento del motor",
-    lubricacion: "Lubricación",
-    revision: "Revisión",
-    otros: "Otros servicios",
-  };
-
   const esEdicion = !!form._id;
 
   return (
@@ -304,45 +246,19 @@ export default function BDCodigos() {
               <h2 className="h4 mb-0">
                 {esEdicion ? "EDITAR CÓDIGO" : "ALTA DE CÓDIGOS"}
               </h2>
-              <div className="btn-group" role="group">
-                <button
-                  type="button"
-                  className={
-                    "btn btn-sm " +
-                    (tipo === "refaccion" ? "btn-primary" : "btn-outline-primary")
-                  }
-                  onClick={() => handleTipoClick("refaccion")}
-                >
-                  Refacciones
-                </button>
-                <button
-                  type="button"
-                  className={
-                    "btn btn-sm " +
-                    (tipo === "servicio" ? "btn-primary" : "btn-outline-primary")
-                  }
-                  onClick={() => handleTipoClick("servicio")}
-                >
-                  Servicios
-                </button>
-              </div>
             </div>
 
             <div className="card-body" ref={formRef}>
               <div className="row g-3">
-                <div className="col-12">
-                  <small className="text-muted">
-                    Tipo actual:{" "}
-                    <strong>
-                      {tipo === "servicio" ? "SERVICIO" : "REFACCIÓN"}
-                    </strong>
-                    {esEdicion && (
-                      <span className="ms-3 badge bg-warning text-dark">
+                {esEdicion && (
+                  <div className="col-12">
+                    <small className="text-muted">
+                      <span className="badge bg-warning text-dark">
                         Editando: {form.numeroParte}
                       </span>
-                    )}
-                  </small>
-                </div>
+                    </small>
+                  </div>
+                )}
 
                 <div className="col-12">
                   <h6 className="fw-bold border-bottom pb-2 mb-0">
@@ -374,128 +290,71 @@ export default function BDCodigos() {
                   />
                 </div>
 
-                {tipo === "refaccion" && (
-                  <div className="col-md-4">
-                    <label className="form-label">
-                      Proveedor: <span className="text-danger">*</span>
-                    </label>
-                    <select
-                      className="form-select"
-                      name="proveedor"
-                      value={form.proveedor}
-                      onChange={(e) => {
-                        if (e.target.value === "__nuevo__") {
-                          setShowModalProveedor(true);
-                          return;
-                        }
-                        setForm((f) => ({ ...f, proveedor: e.target.value }));
-                      }}
-                    >
-                      <option value="">— Selecciona —</option>
-                      {proveedores.map((p) => (
-                        <option key={p._id} value={p.nombreProveedor || p.nombre || p.aliasProveedor}>
-                          {p.nombreProveedor || p.nombre || p.aliasProveedor || p.rfc}
-                        </option>
-                      ))}
-                      <option value="__nuevo__">➕ Dar de alta nuevo proveedor...</option>
-                    </select>
-                  </div>
-                )}
+                <div className="col-md-4">
+                  <label className="form-label">
+                    Proveedor: <span className="text-danger">*</span>
+                  </label>
+                  <select
+                    className="form-select"
+                    name="proveedor"
+                    value={form.proveedor}
+                    onChange={(e) => {
+                      if (e.target.value === "__nuevo__") {
+                        setShowModalProveedor(true);
+                        return;
+                      }
+                      setForm((f) => ({ ...f, proveedor: e.target.value }));
+                    }}
+                  >
+                    <option value="">— Selecciona —</option>
+                    {proveedores.map((p) => (
+                      <option key={p._id} value={p.nombreProveedor || p.nombre || p.aliasProveedor}>
+                        {p.nombreProveedor || p.nombre || p.aliasProveedor || p.rfc}
+                      </option>
+                    ))}
+                    <option value="__nuevo__">➕ Dar de alta nuevo proveedor...</option>
+                  </select>
+                </div>
 
-                {tipo === "servicio" && (
-                  <div className="col-md-4">
-                    <label className="form-label">Grupo de servicio:</label>
-                    <select
-                      className="form-select"
-                      name="grupoServicio"
-                      value={form.grupoServicio}
-                      onChange={onChange}
-                    >
-                      <option value="motor">Mantenimiento del motor</option>
-                      <option value="lubricacion">Lubricación</option>
-                      <option value="revision">Revisión</option>
-                      <option value="otros">Otros servicios</option>
-                    </select>
-                  </div>
-                )}
+                <div className="col-md-4">
+                  <label className="form-label">Marca:</label>
+                  <input
+                    className="form-control"
+                    name="marca"
+                    value={form.marca}
+                    onChange={onChange}
+                  />
+                </div>
 
-                {tipo === "servicio" && (
-                  <>
-                    <div className="col-12 mt-3">
-                      <h6 className="fw-bold border-bottom pb-2 mb-0">
-                        Datos SAT{" "}
-                        <small className="text-muted fw-normal">
-                          (requerido cuando el cliente solicita factura)
-                        </small>
-                      </h6>
-                    </div>
+                <div className="col-md-4">
+                  <label className="form-label">Unidad:</label>
+                  <select
+                    className="form-select"
+                    name="unidad"
+                    value={form.unidad}
+                    onChange={onChange}
+                  >
+                    <option value="">— Selecciona —</option>
+                    {unidades.map((u) => (
+                      <option key={u._id} value={u.nombre}>
+                        {u.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                    <div className="col-md-4">
-                      <label className="form-label">Código SAT:</label>
-                      <input
-                        className="form-control"
-                        name="codigoSat"
-                        value={form.codigoSat}
-                        onChange={onChange}
-                      />
-                    </div>
-
-                    <div className="col-md-8">
-                      <label className="form-label">Descripción SAT:</label>
-                      <input
-                        className="form-control"
-                        name="descripcionSat"
-                        value={form.descripcionSat}
-                        onChange={onChange}
-                      />
-                    </div>
-                  </>
-                )}
-
-                {/* Marca, Unidad y Precio — solo refacciones, todos opcionales */}
-                {tipo === "refaccion" && (
-                  <>
-                    <div className="col-md-4">
-                      <label className="form-label">Marca:</label>
-                      <input
-                        className="form-control"
-                        name="marca"
-                        value={form.marca}
-                        onChange={onChange}
-                      />
-                    </div>
-
-                    <div className="col-md-4">
-                      <label className="form-label">Unidad:</label>
-                      <select
-                        className="form-select"
-                        name="unidad"
-                        value={form.unidad}
-                        onChange={onChange}
-                      >
-                        <option value="">— Selecciona —</option>
-                        {unidades.map((u) => (
-                          <option key={u._id} value={u.nombre}>
-                            {u.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="col-md-4">
-                      <label className="form-label">Precio unitario:</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="form-control"
-                        name="precioUnitario"
-                        value={form.precioUnitario}
-                        onChange={onChange}
-                      />
-                    </div>
-                  </>
-                )}
+                <div className="col-md-4">
+                  <label className="form-label">Precio unitario:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="form-control"
+                    name="precioUnitario"
+                    value={form.precioUnitario}
+                    onChange={onChange}
+                  />
+                </div>
               </div>
 
               <div className="d-flex justify-content-end gap-2 mt-3">
@@ -521,11 +380,7 @@ export default function BDCodigos() {
               {/* Selector + Buscar */}
               <div className="row align-items-end mt-4">
                 <div className="col-md-9">
-                  <label className="form-label">
-                    {tipo === "servicio"
-                      ? "Seleccionar Servicio:"
-                      : "Seleccionar Refacción:"}
-                  </label>
+                  <label className="form-label">Seleccionar Refacción:</label>
                   <select
                     className="form-select"
                     value={refSel}
@@ -572,33 +427,6 @@ export default function BDCodigos() {
                   <span className="text-muted small">entries</span>
                 </div>
 
-                <div className="btn-group">
-                  <button
-                    type="button"
-                    className={
-                      "btn btn-sm " +
-                      (tipo === "refaccion"
-                        ? "btn-outline-secondary active"
-                        : "btn-outline-secondary")
-                    }
-                    onClick={() => handleTipoClick("refaccion")}
-                  >
-                    Refacciones
-                  </button>
-                  <button
-                    type="button"
-                    className={
-                      "btn btn-sm " +
-                      (tipo === "servicio"
-                        ? "btn-outline-secondary active"
-                        : "btn-outline-secondary")
-                    }
-                    onClick={() => handleTipoClick("servicio")}
-                  >
-                    Servicios
-                  </button>
-                </div>
-
                 <div className="d-flex align-items-center gap-2">
                   <span className="text-muted small">Search:</span>
                   <input
@@ -620,16 +448,9 @@ export default function BDCodigos() {
                       Código {chev(sort, "codigo")}
                     </th>
                     <th>Descripción</th>
-                    {tipo === "refaccion" && <th>Marca</th>}
-                    {tipo === "refaccion" && <th>Unidad</th>}
-                    {tipo === "refaccion" && <th>Precio</th>}
-                    {tipo === "servicio" && (
-                      <th role="button" onClick={() => changeSort("grupoServicio")}>
-                        Grupo {chev(sort, "grupoServicio")}
-                      </th>
-                    )}
-                    {tipo === "servicio" && <th>Código SAT</th>}
-                    {tipo === "servicio" && <th>Descripción SAT</th>}
+                    <th>Marca</th>
+                    <th>Unidad</th>
+                    <th>Precio</th>
                     <th style={{ width: 80 }} className="text-center">
                       Acciones
                     </th>
@@ -638,10 +459,7 @@ export default function BDCodigos() {
                 <tbody>
                   {pageData.length === 0 ? (
                     <tr>
-                      <td
-                        colSpan={tipo === "servicio" ? 7 : 6}
-                        className="text-center py-4"
-                      >
+                      <td colSpan={7} className="text-center py-4">
                         Sin registros
                       </td>
                     </tr>
@@ -651,32 +469,13 @@ export default function BDCodigos() {
                         <td>{x.codigo || String(x._id).slice(-4)}</td>
                         <td>{x.codigo || x.numeroParte}</td>
                         <td>{x.descripcion}</td>
-                        {tipo === "refaccion" && (
-                          <td>{x.marca || "—"}</td>
-                        )}
-                        {tipo === "refaccion" && (
-                          <td>{x.unidad || "—"}</td>
-                        )}
-                        {tipo === "refaccion" && (
-                          <td>
-                            {x.precioUnitario != null && x.precioUnitario !== ""
-                              ? `$${Number(x.precioUnitario).toFixed(2)}`
-                              : "—"}
-                          </td>
-                        )}
-                        {tipo === "servicio" && (
-                          <td>
-                            <span className="badge bg-secondary">
-                              {GRUPO_LABELS[x.grupoServicio] || x.grupoServicio || "—"}
-                            </span>
-                          </td>
-                        )}
-                        {tipo === "servicio" && (
-                          <td>{x.codigoSat || "—"}</td>
-                        )}
-                        {tipo === "servicio" && (
-                          <td>{x.descripcionSat || "—"}</td>
-                        )}
+                        <td>{x.marca || "—"}</td>
+                        <td>{x.unidad || "—"}</td>
+                        <td>
+                          {x.precioUnitario != null && x.precioUnitario !== ""
+                            ? `$${Number(x.precioUnitario).toFixed(2)}`
+                            : "—"}
+                        </td>
                         <td className="text-center">
                           <button
                             className="btn btn-link text-primary p-0 me-2"
@@ -701,8 +500,7 @@ export default function BDCodigos() {
 
               <div className="d-flex align-items-center justify-content-between pb-3">
                 <div className="small text-muted">
-                  Página {pageSafe} de {totalPages} — {filtered.length} registros
-                  {tipo === "servicio" ? " servicios" : " refacciones"}
+                  Página {pageSafe} de {totalPages} — {filtered.length} registros refacciones
                 </div>
                 <ul className="pagination pagination-sm mb-0">
                   <li className={`page-item ${pageSafe === 1 ? "disabled" : ""}`}>
