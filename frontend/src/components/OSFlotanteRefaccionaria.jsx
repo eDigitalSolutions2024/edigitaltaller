@@ -149,6 +149,26 @@ export default function OSFlotanteRefaccionaria() {
     };
   }, []);
 
+  // Al girar la tablet cambia window.innerWidth/innerHeight pero `pos` se
+  // mantiene con las coordenadas viejas: si el widget vivía pegado a la
+  // esquina derecha en horizontal, queda fuera de la vista en vertical.
+  // Reajustamos a los nuevos límites (lo devuelve a la esquina derecha).
+  useEffect(() => {
+    const onResize = () => {
+      setPos((prev) => {
+        const maxX = Math.max(0, window.innerWidth - (widgetRef.current?.offsetWidth || 280));
+        const maxY = Math.max(0, window.innerHeight - (widgetRef.current?.offsetHeight || 50));
+        return { x: Math.min(prev.x, maxX), y: Math.min(prev.y, maxY) };
+      });
+    };
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
+
   const total = ordenes.solicitudes.length + ordenes.porSurtir.length;
 
   if (!esRefaccionario || total === 0) return null;
@@ -226,7 +246,12 @@ export default function OSFlotanteRefaccionaria() {
                             {tiempoTranscurrido(os.fechaEnvioRefaccionaria || os.updatedAt || os.createdAt)}
                           </span>
                         </div>
-                        <div className="osref-orden__cliente">{nombreCliente(os)}</div>
+                        <div className="osref-orden__cliente">
+                          {nombreCliente(os)}
+                          {os.cliente?.esEmpleado && (
+                            <div><span className="badge bg-warning text-dark">Empleado</span></div>
+                          )}
+                        </div>
                         <div className="osref-orden__vehiculo">
                           {[os.marca, os.modelo, os.anio].filter(Boolean).join(' ') || '—'}
                         </div>

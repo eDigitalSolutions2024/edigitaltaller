@@ -342,6 +342,15 @@ export default function VehiculoOrdenDetalle() {
         </div>
       )}
 
+      {/* Motivo de la cancelación: solo existe mientras la orden sigue cancelada,
+          se limpia en el backend al restablecerla (PUT /:id/restablecer) */}
+      {esCancelada && orden.motivoCancelacion && (
+        <div className="alert alert-light border border-danger-subtle text-center mb-3">
+          <div className="fw-bold mb-1">Motivo de la cancelación</div>
+          <div className="fs-4">{orden.motivoCancelacion}</div>
+        </div>
+      )}
+
       {/* Banner solo lectura cuando la orden es de otro asesor */}
       {!esCerrada && !esCancelada && soloConsulta && (
         <div className="alert alert-warning text-center py-2 mb-3">

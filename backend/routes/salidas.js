@@ -215,7 +215,7 @@ router.get('/ordenes', async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(parseInt(limit, 10) || 100)
       .select({ ordenServicio: 1, marca: 1, modelo: 1, placas: 1, fechaRecepcion: 1, estadoOrden: 1, cliente: 1 })
-      .populate('cliente', 'nombre apellidoPaterno apellidoMaterno tipoCliente gobierno');
+      .populate('cliente', 'nombre apellidoPaterno apellidoMaterno tipoCliente gobierno esEmpleado');
 
     console.log('GET /salidas/ordenes -> encontrados =', docs.length);
 

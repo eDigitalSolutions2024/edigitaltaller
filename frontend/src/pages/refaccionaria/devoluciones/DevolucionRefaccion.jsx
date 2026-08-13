@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import Dropdown from "../../../components/Dropdown";
 import {
   searchFacturasDevolucion,
   prefillDevolucionRefaccion,
@@ -283,16 +284,16 @@ export default function DevolucionRefaccion() {
             <div className="row g-3">
               <div className="col-sm-4">
                 <label className="form-label">Devolución por</label>
-                <select
+                <Dropdown
                   className="form-select"
                   name="tipoDevolucion"
                   value={head.tipoDevolucion}
                   onChange={onTipo}
                 >
                   {TIPOS.map((t) => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
+                    <Dropdown.Option key={t.value} value={t.value}>{t.label}</Dropdown.Option>
                   ))}
-                </select>
+                </Dropdown>
               </div>
 
               <div className="col-sm-4 position-relative">

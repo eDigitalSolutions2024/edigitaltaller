@@ -20,12 +20,8 @@ export function canSeeModule(role, module) {
 
 /**
  * Ruta inicial según el rol al entrar a la app.
+ * Todos los roles inician en el Dashboard.
  */
 export function defaultRouteForRole(role) {
-  if (role === 'refaccionario')   return '/refaccionaria';
-  if (role === 'asesor_servicio') return '/clientes/consulta';
-  if (role === 'captura')         return '/reportes';
-  if (role === 'auditoria')       return '/reportes';
-  if (role === 'cajas')           return '/cajas/buscar';
   return '/dashboard';
 }

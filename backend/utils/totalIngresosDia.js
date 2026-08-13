@@ -21,7 +21,7 @@ function limitesDiaLocal(fecha) {
 
 // Suma lo efectivamente cobrado en un día (pagos no cancelados de los 3
 // comprobantes), para comparar contra el conteo físico de Gestión de Caja.
-// Mismo patrón $elemMatch + refiltro en JS que buildReporteCajasIngresos
+// Mismo patrón $elemMatch + refiltro en JS que buildReporteRemisionesDiario
 // (backend/routes/reportes.js), pero cruzando los 3 tipos de comprobante.
 async function calcularTotalIngresosDia(fecha) {
   const { desde, hasta } = limitesDiaLocal(fecha);

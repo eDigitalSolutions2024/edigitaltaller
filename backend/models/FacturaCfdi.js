@@ -61,6 +61,16 @@ const FacturaCfdiSchema = new Schema(
       rfc: { type: String, default: "" },
       regimenFiscal: { type: String, default: "" },
       codigoPostalFiscal: { type: String, default: "" },
+      direccion: {
+        calle: { type: String, default: "" },
+        numeroExterior: { type: String, default: "" },
+        numeroInterior: { type: String, default: "" },
+        colonia: { type: String, default: "" },
+        codigoPostal: { type: String, default: "" },
+        ciudad: { type: String, default: "" },
+        estado: { type: String, default: "" },
+      },
+      pais: { type: String, default: "" },
     },
 
     // Orden principal de la factura. Se conserva para el historial, los
@@ -108,6 +118,7 @@ const FacturaCfdiSchema = new Schema(
       nombre: String,
       regimenFiscal: String,
       lugarExpedicion: String,
+      telefono: String,
       noCertificado: String,
     },
 

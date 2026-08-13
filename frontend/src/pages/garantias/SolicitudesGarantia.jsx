@@ -1,11 +1,13 @@
 // src/pages/garantias/SolicitudesGarantia.jsx
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { listGarantias, resolverGarantia } from "../../api/garantias";
+import Dropdown from "../../components/Dropdown";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { listGarantias, resolverGarantia, cancelarOrdenGarantia } from "../../api/garantias";
 import { getUser } from "../../auth";
 import http from "../../api/http";
 import { TARIFA_HORA, calcImporteHoras } from "../../utils/manoObra";
 import { formatFecha as formatFechaBase } from "../../utils/fechas";
+import ModalCancelarGarantia from "./ModalCancelarGarantia";
 
 const LIMIT = 10;
 
@@ -13,15 +15,57 @@ const ESTADO_BADGE = {
   PENDIENTE: "bg-warning text-dark",
   APROBADA: "bg-success",
   NEGADA: "bg-danger",
+  NO_APLICA: "bg-secondary",
 };
 
-// En pantalla la garantía se maneja como Pendiente / Autorizada / Negada
-// (en la base de datos se conserva APROBADA).
+// En pantalla la garantía se maneja como Pendiente / Autorizada / Negada /
+// No aplica (en la base de datos se conserva APROBADA).
 const ESTADO_LABEL = {
   PENDIENTE: "PENDIENTE",
   APROBADA: "AUTORIZADA",
   NEGADA: "NEGADA",
+  NO_APLICA: "NO APLICA",
 };
+
+// Prepara los datos para prellenar una nueva orden de servicio a partir de
+// una solicitud de garantía cancelada por "No aplica": mismos datos del
+// cliente y del vehículo, y las fallas capturadas en Servicio o Reparación.
+// Se excluyen a propósito los servicios y las refacciones ya solicitados.
+function buildPrefillNoAplica(v, asesor, nuevaOrdenServicio) {
+  const sr = v.servicioReparacion || {};
+  return {
+    cliente: v.cliente,
+    ordenOrigenFolio: v.ordenServicio,
+    ordenServicioPrefill: nuevaOrdenServicio || "",
+    vehiculo: {
+      marca: v.marca || "",
+      modelo: v.modelo || "",
+      anio: v.anio || "",
+      color: v.color || "",
+      serie: v.serie || "",
+      placas: v.placas || "",
+      kmsMillas: v.kmsMillas || "",
+      nacionalidad: v.nacionalidad || "",
+      motor: v.motor || "",
+      numeroEconomico: v.numeroEconomico || "",
+      traccion: v.traccion || "",
+      nombreUsuarioDejaVehiculo: v.nombreUsuarioDejaVehiculo || "",
+    },
+    servicioReparacion: {
+      fallasReportadasCliente: sr.fallasReportadasCliente || "",
+      infoLlantas: sr.infoLlantas || "",
+      revisionFallas: sr.revisionFallas || "",
+      fallasMotorOtros: sr.fallasMotorOtros || "",
+      sistemaElectricoAire: sr.sistemaElectricoAire || "",
+      suspensionDireccionFrenos: sr.suspensionDireccionFrenos || "",
+      sistemaEnfriamiento: sr.sistemaEnfriamiento || "",
+    },
+    // Accesorios, daños e indicadores del tablero capturados en la
+    // inspección física de la orden que se cancela.
+    inspeccionFisica: v.inspeccionFisica || {},
+    asesor: asesor ? { id: asesor._id, name: asesor.name } : null,
+  };
+}
 
 function formatMoney(n) {
   return new Intl.NumberFormat("es-MX", {
@@ -163,12 +207,24 @@ function TablaManoObra({ manoObra, nombreManoObra }) {
 export default function SolicitudesGarantia() {
   const user = getUser();
   const puedeResolver = ["admin", "jefe"].includes(user?.role);
+  // Cancelar la orden reasigna el asesor de la orden de reemplazo, lo cual
+  // solo puede hacer un admin (mismo permiso que PUT /vehiculos/:id/cambiar-asesor).
+  const puedeCancelarOrden = user?.role === "admin";
+  const navigate = useNavigate();
 
   // Folio recibido desde la consulta de garantías (/garantias?os=OS-023):
   // prefiltra la lista y expande esa solicitud al cargar.
   const [searchParams] = useSearchParams();
   const osParam = searchParams.get("os") || "";
   const autoExpandRef = useRef(!!osParam);
+
+  // _id recibido al llegar desde la notificación "Garantía no aplica" (ver
+  // Soporte/SoporteFlotante → /garantias?highlight=<id>): expande y resalta
+  // esa fila para que el admin la revise (autorizar, marcar "No aplica" y
+  // cancelar, o dejarla como está).
+  const highlightParam = searchParams.get("highlight") || "";
+  const [highlightedId, setHighlightedId] = useState(highlightParam);
+  const highlightRef = useRef(null);
 
   const [solicitudes, setSolicitudes] = useState([]);
   const [total, setTotal] = useState(0);
@@ -189,6 +245,10 @@ export default function SolicitudesGarantia() {
   const [edits, setEdits] = useState({});
   const [expandida, setExpandida] = useState(null);
   const [procesando, setProcesando] = useState(null);
+
+  // Solicitud sobre la que se muestra el modal de cancelar orden (ver "No aplica")
+  const [cancelObjetivo, setCancelObjetivo] = useState(null);
+  const [cancelando, setCancelando] = useState(false);
 
   // Para mostrar nombres en la mano de obra de las órdenes
   const [mecanicos, setMecanicos] = useState([]);
@@ -251,17 +311,28 @@ export default function SolicitudesGarantia() {
         if (match) setExpandida(match._id);
         autoExpandRef.current = false;
       }
+
+      // Expande la solicitud notificada por un asesor ("Garantía no aplica")
+      if (highlightParam && data.some((v) => v._id === highlightParam)) {
+        setExpandida(highlightParam);
+      }
     } catch (err) {
       console.error("Error cargando solicitudes de garantía:", err);
       setError("No se pudieron cargar las solicitudes de garantía.");
     } finally {
       setLoading(false);
     }
-  }, [filtroEstado, searchDebounced, page, osParam]);
+  }, [filtroEstado, searchDebounced, page, osParam, highlightParam]);
 
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  // Lleva la vista hasta la fila resaltada una vez que se renderiza.
+  useEffect(() => {
+    if (!highlightedId || loading) return;
+    highlightRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightedId, loading, solicitudes]);
 
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
@@ -316,6 +387,60 @@ export default function SolicitudesGarantia() {
     }
   };
 
+  const handleNoAplica = async (v) => {
+    const e = edits[v._id] || {};
+
+    if (!String(e.motivo || "").trim()) {
+      alert('Para marcar "No aplica" es obligatorio capturar el motivo.');
+      return;
+    }
+
+    const ok = window.confirm(
+      `¿Marcar como "No aplica" la garantía de la orden ${v.ordenServicio}? Después podrás cancelar esa orden desde este mismo menú.`
+    );
+    if (!ok) return;
+
+    try {
+      setProcesando(v._id);
+      const res = await resolverGarantia(v._id, {
+        accion: "NO_APLICA",
+        motivo: e.motivo.trim(),
+      });
+      if (res.data?.vehiculo) reemplazarSolicitud(res.data.vehiculo);
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.msg || 'Error al marcar la garantía como "No aplica".');
+    } finally {
+      setProcesando(null);
+    }
+  };
+
+  const handleConfirmarCancelar = async (asesor, nuevaOrdenServicio) => {
+    if (!cancelObjetivo) return;
+    try {
+      setCancelando(true);
+      const res = await cancelarOrdenGarantia(cancelObjetivo._id);
+      const vehiculoActualizado = res.data?.vehiculo;
+      if (vehiculoActualizado) reemplazarSolicitud(vehiculoActualizado);
+
+      setCancelObjetivo(null);
+      navigate("/vehiculo/entrada", {
+        state: {
+          prefillGarantiaNoAplica: buildPrefillNoAplica(
+            vehiculoActualizado || cancelObjetivo,
+            asesor,
+            nuevaOrdenServicio
+          ),
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.msg || "Error al cancelar la orden.");
+    } finally {
+      setCancelando(false);
+    }
+  };
+
   return (
     <div className="container-fluid">
       <h2 className="text-center fw-bold my-3" style={{ letterSpacing: "2px" }}>
@@ -328,19 +453,20 @@ export default function SolicitudesGarantia() {
           <div className="row g-2 align-items-end">
             <div className="col-12 col-md-3">
               <label className="form-label mb-1 fw-semibold">Estado</label>
-              <select
-                className="form-select form-select-sm"
+              <Dropdown
+                className="form-select-sm"
                 value={filtroEstado}
                 onChange={(e) => {
                   setFiltroEstado(e.target.value);
                   setPage(1);
                 }}
               >
-                <option value="">Todas</option>
-                <option value="PENDIENTE">Pendientes</option>
-                <option value="APROBADA">Autorizadas</option>
-                <option value="NEGADA">Negadas</option>
-              </select>
+                <Dropdown.Option value="">Todas</Dropdown.Option>
+                <Dropdown.Option value="PENDIENTE">Pendientes</Dropdown.Option>
+                <Dropdown.Option value="APROBADA">Autorizadas</Dropdown.Option>
+                <Dropdown.Option value="NEGADA">Negadas</Dropdown.Option>
+                <Dropdown.Option value="NO_APLICA">No aplica</Dropdown.Option>
+              </Dropdown>
             </div>
             <div className="col-12 col-md-4">
               <label className="form-label mb-1 fw-semibold">
@@ -405,6 +531,7 @@ export default function SolicitudesGarantia() {
                   const pendiente = g.estado === "PENDIENTE";
                   const editable = pendiente && !loading;
                   const abierta = expandida === v._id;
+                  const resaltada = highlightedId === v._id;
                   const ordenAnterior =
                     g.ordenAnterior && typeof g.ordenAnterior === "object"
                       ? g.ordenAnterior
@@ -412,19 +539,30 @@ export default function SolicitudesGarantia() {
 
                   return (
                     <React.Fragment key={v._id}>
-                      <tr>
+                      <tr
+                        ref={resaltada ? highlightRef : undefined}
+                        className={resaltada ? "table-warning" : undefined}
+                      >
                         <td className="text-center">
                           <button
                             type="button"
                             className="btn btn-sm btn-outline-secondary"
                             title="Ver detalle de las órdenes"
-                            onClick={() => setExpandida(abierta ? null : v._id)}
+                            onClick={() => {
+                              setExpandida(abierta ? null : v._id);
+                              if (resaltada) setHighlightedId("");
+                            }}
                           >
                             {abierta ? "▾" : "▸"}
                           </button>
                         </td>
                         <td className="text-center">
-                          <div className="fw-bold">{v.ordenServicio}</div>
+                          <div className="fw-bold">
+                            {v.ordenServicio}
+                            {resaltada && (
+                              <span className="badge bg-warning text-dark ms-1">Notificada</span>
+                            )}
+                          </div>
                           <small className="text-muted">
                             {(v.estadoOrden || "").replaceAll("_", " ")}
                           </small>
@@ -432,7 +570,12 @@ export default function SolicitudesGarantia() {
                         <td className="text-center fw-semibold">
                           {g.ordenAnteriorFolio || "—"}
                         </td>
-                        <td>{nombreCliente(v.cliente)}</td>
+                        <td>
+                          {nombreCliente(v.cliente)}
+                          {v.cliente?.esEmpleado && (
+                            <div><span className="badge bg-warning text-dark">Empleado</span></div>
+                          )}
+                        </td>
                         <td className="text-center">{formatFecha(g.fechaSolicitud)}</td>
                         <td className="text-center">
                           <span className={`badge ${ESTADO_BADGE[g.estado] || "bg-secondary"}`}>
@@ -462,22 +605,52 @@ export default function SolicitudesGarantia() {
                         <td className="text-center">
                           {pendiente ? (
                             puedeResolver ? (
-                              <button
-                                type="button"
-                                className="btn btn-success btn-sm py-0"
-                                style={{ fontSize: 12 }}
-                                disabled={procesando === v._id}
-                                onClick={() => handleAutorizar(v)}
-                              >
-                                Autorizar
-                              </button>
+                              <div className="d-flex flex-column gap-1">
+                                <button
+                                  type="button"
+                                  className="btn btn-success btn-sm py-0"
+                                  style={{ fontSize: 12 }}
+                                  disabled={procesando === v._id}
+                                  onClick={() => handleAutorizar(v)}
+                                >
+                                  Autorizar
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-outline-danger btn-sm py-0"
+                                  style={{ fontSize: 12 }}
+                                  disabled={procesando === v._id}
+                                  onClick={() => handleNoAplica(v)}
+                                >
+                                  No aplica
+                                </button>
+                              </div>
                             ) : (
                               <small className="text-muted">Pendiente de autorizar</small>
+                            )
+                          ) : g.estado === "NO_APLICA" && v.estadoOrden !== "CANCELADA" ? (
+                            puedeCancelarOrden ? (
+                              <button
+                                type="button"
+                                className="btn btn-danger btn-sm py-0"
+                                style={{ fontSize: 12 }}
+                                onClick={() => setCancelObjetivo(v)}
+                              >
+                                Cancelar
+                              </button>
+                            ) : (
+                              <small className="text-muted">No aplica · pendiente de cancelar</small>
                             )
                           ) : (
                             <small className="text-muted">
                               {formatFecha(g.fechaResolucion)}
                               {g.resueltoPor ? ` · ${g.resueltoPor}` : ""}
+                              {v.estadoOrden === "CANCELADA" && (
+                                <>
+                                  <br />
+                                  <span className="badge bg-danger">Orden cancelada</span>
+                                </>
+                              )}
                             </small>
                           )}
                         </td>
@@ -643,6 +816,15 @@ export default function SolicitudesGarantia() {
           </p>
         </div>
       </div>
+
+      {cancelObjetivo && (
+        <ModalCancelarGarantia
+          solicitud={cancelObjetivo}
+          guardando={cancelando}
+          onClose={() => !cancelando && setCancelObjetivo(null)}
+          onConfirm={handleConfirmarCancelar}
+        />
+      )}
     </div>
   );
 }

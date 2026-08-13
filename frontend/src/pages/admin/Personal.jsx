@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import Dropdown from '../../components/Dropdown';
 import { FaEye, FaEyeSlash, FaUserShield, FaUserTimes, FaCopy } from 'react-icons/fa';
 import {
   getUsers,
@@ -531,9 +532,9 @@ export default function Personal() {
                     </div>
                     <div className="col-md-3">
                       <label className="form-label">Puesto</label>
-                      <select name="puesto" className="form-select" value={form.puesto} onChange={handleChange}>
-                        {PUESTOS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                      </select>
+                      <Dropdown name="puesto" className="form-select" value={form.puesto} onChange={handleChange}>
+                        {PUESTOS.map(p => <Dropdown.Option key={p.value} value={p.value}>{p.label}</Dropdown.Option>)}
+                      </Dropdown>
                     </div>
                     <div className="col-md-3">
                       <label className="form-label">Teléfono</label>
@@ -584,9 +585,9 @@ export default function Personal() {
                     </div>
                     <div className="col-md-3">
                       <label className="form-label">Rol</label>
-                      <select name="role" className="form-select" value={form.role} onChange={handleChange}>
-                        {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-                      </select>
+                      <Dropdown name="role" className="form-select" value={form.role} onChange={handleChange}>
+                        {ROLES.map(r => <Dropdown.Option key={r.value} value={r.value}>{r.label}</Dropdown.Option>)}
+                      </Dropdown>
                     </div>
 
                     {/* Contraseña — al crear O al dar acceso nuevo */}
@@ -656,18 +657,18 @@ export default function Personal() {
               />
             </div>
             <div className="col-auto">
-              <select className="form-select form-select-sm" value={filtro} onChange={e => setFiltro(e.target.value)}>
-                <option value="todos">Todos</option>
-                <option value="con_acceso">Con acceso al sistema</option>
-                <option value="sin_acceso">Sin acceso al sistema</option>
-              </select>
+              <Dropdown className="form-select-sm" value={filtro} onChange={e => setFiltro(e.target.value)}>
+                <Dropdown.Option value="todos">Todos</Dropdown.Option>
+                <Dropdown.Option value="con_acceso">Con acceso al sistema</Dropdown.Option>
+                <Dropdown.Option value="sin_acceso">Sin acceso al sistema</Dropdown.Option>
+              </Dropdown>
             </div>
             <div className="col-auto">
-              <select className="form-select form-select-sm" value={filtroActivo} onChange={e => setFiltroActivo(e.target.value)}>
-                <option value="activos">Solo activos</option>
-                <option value="inactivos">Solo inactivos</option>
-                <option value="todos">Todos los estados</option>
-              </select>
+              <Dropdown className="form-select-sm" value={filtroActivo} onChange={e => setFiltroActivo(e.target.value)}>
+                <Dropdown.Option value="activos">Solo activos</Dropdown.Option>
+                <Dropdown.Option value="inactivos">Solo inactivos</Dropdown.Option>
+                <Dropdown.Option value="todos">Todos los estados</Dropdown.Option>
+              </Dropdown>
             </div>
             <div className="col-auto ms-auto text-muted small">
               {listaFiltrada.length} registro{listaFiltrada.length !== 1 ? 's' : ''}

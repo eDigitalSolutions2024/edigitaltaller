@@ -48,7 +48,7 @@ function escribirManifest(dir, manifest) {
   fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest));
 }
 
-const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares emails rfc regimenFiscal codigoPostalFiscal facturacion direccion asesorResponsable';
+const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares emails rfc regimenFiscal codigoPostalFiscal facturacion direccion pais asesorResponsable esEmpleado';
 
 // Grupo timbrado en la orden: nombre + miembros (solo informativo, para
 // mostrar junto al asesor en listados/detalle/impresos).
@@ -916,6 +916,7 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
       crearNuevaVersionCotizacion,
       accionVentaCliente,
       crearNuevaVersionVentaCliente,
+      motivoCancelacion,
     } = req.body;
 
     const vehiculo = await Vehiculo.findById(id);
@@ -1067,6 +1068,11 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
       } else {
         if (estadoOrden === 'CANCELADA' && vehiculo.estadoOrden !== 'CANCELADA') {
           vehiculo.estadoAnterior = vehiculo.estadoOrden;
+          if (typeof motivoCancelacion === 'string' && motivoCancelacion.trim()) {
+            vehiculo.motivoCancelacion = motivoCancelacion.trim();
+            vehiculo.canceladoPor = req.user?.name || req.user?.username || req.user?.email || '';
+            vehiculo.fechaCancelacion = new Date();
+          }
         }
         vehiculo.estadoOrden = estadoOrden;
       }
@@ -1747,6 +1753,12 @@ router.put('/:id/restablecer', proteger, requiereRol('admin'), async (req, res) 
       if (vehiculo.estadoOrden === 'PENDIENTE_CERRAR') {
         vehiculo.pendienteCierre = true;
       }
+    }
+
+    if (estadoPrevio === 'CANCELADA') {
+      vehiculo.motivoCancelacion = '';
+      vehiculo.canceladoPor = '';
+      vehiculo.fechaCancelacion = null;
     }
 
     await vehiculo.save();

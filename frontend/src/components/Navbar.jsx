@@ -5,6 +5,7 @@ import '../styles/Navbar.css';
 import { canSeeModule } from '../utils/roles';
 import http from '../api/http';
 import { getRefaccionariaAlerts } from '../api/vehiculos';
+import { resetAppNavStack } from '../utils/appNavStack';
 
 export default function Navbar({ collapsed, onToggle }) {
   const user = getUser();
@@ -130,6 +131,7 @@ useEffect(() => {
       // aunque falle, cerramos sesión en el cliente
     }
     logout();
+    resetAppNavStack();
     navigate("/login");
   };
 

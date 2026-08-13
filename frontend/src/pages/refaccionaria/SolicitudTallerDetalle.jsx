@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import Dropdown from "../../components/Dropdown";
 import {
   getVehiculoById,
   saveRequisicionDiagnostico,
@@ -281,18 +282,18 @@ function _ModalSeleccionarCodigoLegado({ onSelect, onClose }) {
                         {/* Proveedor */}
                         <div className="col-md-6">
                           <label className="form-label form-label-sm mb-1">Proveedor</label>
-                          <select
-                            className="form-select form-select-sm"
+                          <Dropdown
+                            className="form-select-sm"
                             value={formNuevo.proveedor}
                             onChange={(e) => setFormNuevo((f) => ({ ...f, proveedor: e.target.value }))}
                           >
-                            <option value="">— Seleccionar —</option>
+                            <Dropdown.Option value="">— Seleccionar —</Dropdown.Option>
                             {proveedores.map((p) => (
-                              <option key={p._id} value={p.nombreProveedor || p.aliasProveedor || p._id}>
+                              <Dropdown.Option key={p._id} value={p.nombreProveedor || p.aliasProveedor || p._id}>
                                 {p.nombreProveedor || p.aliasProveedor}
-                              </option>
+                              </Dropdown.Option>
                             ))}
-                          </select>
+                          </Dropdown>
                         </div>
                         {/* Marca */}
                         <div className="col-md-6">
@@ -307,16 +308,16 @@ function _ModalSeleccionarCodigoLegado({ onSelect, onClose }) {
                         {/* Unidad */}
                         <div className="col-md-6">
                           <label className="form-label form-label-sm mb-1">Unidad <span className="text-muted small">(opcional)</span></label>
-                          <select
-                            className="form-select form-select-sm"
+                          <Dropdown
+                            className="form-select-sm"
                             value={formNuevo.unidad}
                             onChange={(e) => setFormNuevo((f) => ({ ...f, unidad: e.target.value }))}
                           >
-                            <option value="">— Seleccionar —</option>
+                            <Dropdown.Option value="">— Seleccionar —</Dropdown.Option>
                             {unidades.map((u) => (
-                              <option key={u._id} value={u.nombre || u.clave}>{u.nombre || u.clave}</option>
+                              <Dropdown.Option key={u._id} value={u.nombre || u.clave}>{u.nombre || u.clave}</Dropdown.Option>
                             ))}
-                          </select>
+                          </Dropdown>
                         </div>
                         {/* Precio unitario */}
                         <div className="col-md-6">
@@ -876,32 +877,32 @@ export default function SolicitudTallerDetalle() {
                   <div className="row g-2">
                     <div className="col-6 col-md-4">
                       <label className="form-label form-label-sm mb-1">Unidad</label>
-                      <select
-                        className="form-select form-select-sm"
+                      <Dropdown
+                        className="form-select-sm"
                         value={itemSeleccionado.nuevaOpcion?.unidad || ""}
                         onChange={(e) => cambiarNuevaOpcion(selectedIndex, "unidad", e.target.value)}
                         disabled={unidades.length === 0 || itemSeleccionado.nuevaOpcion?._camposBloqueados?.includes("unidad")}
                       >
-                        <option value="">—</option>
+                        <Dropdown.Option value="">—</Dropdown.Option>
                         {unidades.map((u) => (
-                          <option key={u._id} value={u.nombre}>{u.nombre}</option>
+                          <Dropdown.Option key={u._id} value={u.nombre}>{u.nombre}</Dropdown.Option>
                         ))}
-                      </select>
+                      </Dropdown>
                     </div>
 
                     <div className="col-6 col-md-4">
                       <label className="form-label form-label-sm mb-1">Tipo</label>
-                      <select
-                        className="form-select form-select-sm"
+                      <Dropdown
+                        className="form-select-sm"
                         value={itemSeleccionado.nuevaOpcion?.tipo || ""}
                         onChange={(e) => cambiarNuevaOpcion(selectedIndex, "tipo", e.target.value)}
                       >
-                        <option value="">— Selec. —</option>
-                        <option value="Original">Original</option>
-                        <option value="Usado">Usado</option>
-                        <option value="Generico">Genérico</option>
-                        <option value="Alterna">Alterna</option>
-                      </select>
+                        <Dropdown.Option value="">— Selec. —</Dropdown.Option>
+                        <Dropdown.Option value="Original">Original</Dropdown.Option>
+                        <Dropdown.Option value="Usado">Usado</Dropdown.Option>
+                        <Dropdown.Option value="Generico">Genérico</Dropdown.Option>
+                        <Dropdown.Option value="Alterna">Alterna</Dropdown.Option>
+                      </Dropdown>
                     </div>
 
                     <div className="col-6 col-md-4">
@@ -985,14 +986,14 @@ export default function SolicitudTallerDetalle() {
                     </div>
                     <div className="col-6 col-md-2">
                       <label className="form-label form-label-sm mb-1">Moneda</label>
-                      <select
-                        className="form-select form-select-sm"
+                      <Dropdown
+                        className="form-select-sm"
                         value={itemSeleccionado.nuevaOpcion?.moneda || "MN"}
                         onChange={(e) => cambiarNuevaOpcion(selectedIndex, "moneda", e.target.value)}
                       >
-                        <option value="MN">MN</option>
-                        <option value="USD">USD</option>
-                      </select>
+                        <Dropdown.Option value="MN">MN</Dropdown.Option>
+                        <Dropdown.Option value="USD">USD</Dropdown.Option>
+                      </Dropdown>
                     </div>
 
 
@@ -1030,16 +1031,16 @@ export default function SolicitudTallerDetalle() {
 
                     <div className="col-4 col-md-2">
                       <label className="form-label form-label-sm mb-1">Core</label>
-                      <select
-                        className="form-select form-select-sm"
+                      <Dropdown
+                        className="form-select-sm"
                         value={itemSeleccionado.nuevaOpcion?.core || ""}
                         onChange={(e) => cambiarNuevaOpcion(selectedIndex, "core", e.target.value)}
                       >
-                        <option value="">—</option>
-                        <option value="SI">SI</option>
-                        <option value="NO">NO</option>
-                        <option value="N/A">N/A</option>
-                      </select>
+                        <Dropdown.Option value="">—</Dropdown.Option>
+                        <Dropdown.Option value="SI">SI</Dropdown.Option>
+                        <Dropdown.Option value="NO">NO</Dropdown.Option>
+                        <Dropdown.Option value="N/A">N/A</Dropdown.Option>
+                      </Dropdown>
                     </div>
 
                     {itemSeleccionado.nuevaOpcion?.core === "SI" && (
@@ -1089,17 +1090,17 @@ export default function SolicitudTallerDetalle() {
           <span className="fw-bold">Opciones cotizadas</span>
           <div className="d-flex align-items-center gap-2">
             <label className="form-label form-label-sm mb-0 text-muted">Filtrar:</label>
-            <select
-              className="form-select form-select-sm"
+            <Dropdown
+              className="form-select-sm"
               style={{ width: "auto" }}
               value={filtroOpcion === null ? "" : String(filtroOpcion)}
               onChange={(e) => setFiltroOpcion(e.target.value === "" ? null : Number(e.target.value))}
             >
-              <option value="">Todas las refacciones</option>
+              <Dropdown.Option value="">Todas las refacciones</Dropdown.Option>
               {refacciones.map((item, i) => (
-                <option key={i} value={i}>{item.refaccion}</option>
+                <Dropdown.Option key={i} value={i}>{item.refaccion}</Dropdown.Option>
               ))}
-            </select>
+            </Dropdown>
           </div>
         </div>
         <div className="card-body p-0">

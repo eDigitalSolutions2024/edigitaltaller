@@ -132,13 +132,13 @@ exports.generarVentaClientePDF = async (res, orden) => {
 <head>
   <meta charset="utf-8" />
   <style>
-    @page { size: Legal; margin: 10mm; }
+    @page { size: A4; margin: 0; }
     body {
       font-family: Helvetica, Arial, sans-serif;
       font-size: 16px;
       color: #000;
       margin: 0;
-      padding: 0;
+      padding: 8mm 10mm 10mm 10mm;
     }
 
     .top {
@@ -495,9 +495,12 @@ ${WATERMARK_CSS}
     await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
 
     const pdfBuffer = await page.pdf({
-      format: 'Legal',
+      format: 'A4',
       printBackground: true,
-      margin: { top: '8mm', bottom: '10mm', left: '10mm', right: '10mm' },
+      // Sin margen: el <body> ya trae su propio padding equivalente. Así la
+      // marca de agua, que se mide en vw/vh, puede cubrir la hoja completa
+      // sin que el margen de impresión la recorte.
+      margin: { top: 0, bottom: 0, left: 0, right: 0 },
     });
 
     res.contentType('application/pdf');

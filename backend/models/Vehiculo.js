@@ -17,7 +17,7 @@ const ESTADOS_ORDEN = [
 ];
 
 // ===== Cajas: catálogos =====
-const BANCOS_CAJA = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER', 'DOLARES', 'EFECTIVOS'];
+const BANCOS_CAJA = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER', 'DOLARES', 'EFECTIVOS', 'CHEQUE', 'TRANSFERENCIA'];
 const TIPO_NOTA = ['Contado', 'Credito', 'Cancelada'];
 
 // ===== Solicitud de Garantía =====
@@ -27,7 +27,7 @@ const garantiaSchema = new Schema(
   {
     estado: {
       type: String,
-      enum: ['PENDIENTE', 'APROBADA', 'NEGADA'],
+      enum: ['PENDIENTE', 'APROBADA', 'NEGADA', 'NO_APLICA'],
       default: 'PENDIENTE',
     },
     motivo: { type: String, default: '' },
@@ -78,6 +78,12 @@ const vehiculoSchema = new Schema(
 
     // Solicitud de garantía (null = orden normal)
     garantia: { type: garantiaSchema, default: null },
+
+    // Motivo capturado al cancelar la orden desde Presupuesto y Venta al
+    // Cliente (ver PUT /:id/presupuesto-venta con estadoOrden: CANCELADA).
+    motivoCancelacion: { type: String, default: '' },
+    canceladoPor: { type: String, default: '' },
+    fechaCancelacion: { type: Date, default: null },
 
     fechaSolicitudRefacciones: { type: Date, default: null },
     fechaRespuestaRefaccionaria: { type: Date, default: null },
@@ -590,7 +596,7 @@ pendienteCierre: { type: Boolean, default: false },
         // (ver nota arriba sobre no ponerle default a `numero`).
         reciboProvisional: {
           numero: { type: Number },
-          formaPago: { type: String, enum: ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE'], default: 'EFECTIVO' },
+          formaPago: { type: String, enum: ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFERENCIA'], default: 'EFECTIVO' },
           chequeNumero: { type: String, default: '' },
           concepto: { type: String, default: '' },
           razon: { type: String, default: '' },

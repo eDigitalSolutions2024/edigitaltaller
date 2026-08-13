@@ -262,7 +262,12 @@ export default function CajaOrdenDetalle() {
                   <tbody>
                     <tr>
                       <th className="ps-2" style={{ width: "40%" }}>Cliente</th>
-                      <td>{nombreCliente || "-"}</td>
+                      <td>
+                        {nombreCliente || "-"}
+                        {c.esEmpleado && (
+                          <div><span className="badge bg-warning text-dark">Empleado</span></div>
+                        )}
+                      </td>
                     </tr>
                     <tr>
                       <th className="ps-2">Marca / Modelo</th>

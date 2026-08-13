@@ -97,6 +97,7 @@ const ClienteSchema = new Schema(
 
     // Fiscal/ubicación comunes
     requiereFacturacion: { type: Boolean, default: false },
+    esEmpleado: { type: Boolean, default: false },
     rfc: { type: String, trim: true, uppercase: true },
 
     // 👇 NUEVOS — necesarios para facturación CFDI 4.0

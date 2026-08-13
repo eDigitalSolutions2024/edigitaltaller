@@ -56,8 +56,10 @@ function sincronizaFiscalEnObjeto(body) {
   return body;
 }
 
-// Edición parcial (p. ej. Nueva Factura, que solo manda RFC/régimen/CP): se
-// devuelven rutas con punto para no reemplazar el subdocumento `facturacion`
+const CAMPOS_DIRECCION = ["calle", "numeroExterior", "numeroInterior", "colonia", "ciudad", "estado"];
+
+// Edición parcial (p. ej. Nueva Factura, que solo manda RFC/régimen/CP/dirección):
+// se devuelven rutas con punto para no reemplazar el subdocumento `facturacion`
 // completo. No aplica cuando el body ya trae `facturacion` (Mongo no admite en
 // un mismo $set la ruta padre y sus hijas) ni cuando el cliente se está
 // marcando como que no requiere facturación, porque ahí se quiere limpiar.
@@ -71,6 +73,10 @@ function setsFiscalAnidados(body) {
   }
   if (noVacio(body.codigoPostalFiscal)) {
     sets["facturacion.direccion.codigoPostal"] = String(body.codigoPostalFiscal).trim();
+  }
+  for (const campo of CAMPOS_DIRECCION) {
+    const valor = body.direccion?.[campo];
+    if (noVacio(valor)) sets[`facturacion.direccion.${campo}`] = String(valor).trim();
   }
   return sets;
 }

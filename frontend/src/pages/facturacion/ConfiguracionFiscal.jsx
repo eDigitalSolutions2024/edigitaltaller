@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import Dropdown from "../../components/Dropdown";
 import api from "../../api/http";
 import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 import {
@@ -20,6 +21,7 @@ export default function ConfiguracionFiscal() {
     nombre: "",
     regimenFiscal: "",
     lugarExpedicion: "",
+    telefono: "",
     serie: "",
     folioInterno: "",
   });
@@ -249,6 +251,7 @@ export default function ConfiguracionFiscal() {
           nombre: d.nombre || "",
           regimenFiscal: d.regimenFiscal || "",
           lugarExpedicion: d.lugarExpedicion || "",
+          telefono: d.telefono || "",
           serie: d.serie || "",
           folioInterno: d.folioInterno || "",
         });
@@ -392,17 +395,28 @@ export default function ConfiguracionFiscal() {
 
           <div className="col-md-6">
             <label className="form-label">Régimen fiscal</label>
-            <select name="regimenFiscal" className="form-select" value={form.regimenFiscal} onChange={onChange}>
-              <option value="">-- Seleccionar --</option>
+            <Dropdown name="regimenFiscal" className="form-select" value={form.regimenFiscal} onChange={onChange}>
+              <Dropdown.Option value="">-- Seleccionar --</Dropdown.Option>
               {REGIMEN_FISCAL_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+                <Dropdown.Option key={o.value} value={o.value}>{o.label}</Dropdown.Option>
               ))}
-            </select>
+            </Dropdown>
           </div>
 
           <div className="col-md-6">
             <label className="form-label">Lugar de expedición (CP)</label>
             <input name="lugarExpedicion" className="form-control" value={form.lugarExpedicion} onChange={onChange} />
+          </div>
+
+          <div className="col-md-6">
+            <label className="form-label">Teléfono(s)</label>
+            <input
+              name="telefono"
+              className="form-control"
+              placeholder="(656) 623-5651 al 54, (656) 618-4934 y 4926"
+              value={form.telefono}
+              onChange={onChange}
+            />
           </div>
 
           <div className="col-md-3">

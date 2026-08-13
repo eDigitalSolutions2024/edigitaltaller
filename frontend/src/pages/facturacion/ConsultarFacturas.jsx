@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import Dropdown from "../../components/Dropdown";
 import { listFacturasCfdi, getFacturaCfdiById, getFacturaCfdiPdf } from "../../api/facturasCfdi";
 
 function money(n) {
@@ -166,15 +167,15 @@ export default function ConsultarFacturas() {
           </div>
           <div className="col-6 col-md-2">
             <label className="form-label">Estatus</label>
-            <select
+            <Dropdown
               className="form-select"
               value={filtros.estatus}
               onChange={(e) => onFiltro("estatus", e.target.value)}
             >
-              <option value="todos">Todos</option>
-              <option value="generada">Generada</option>
-              <option value="cancelada">Cancelada</option>
-            </select>
+              <Dropdown.Option value="todos">Todos</Dropdown.Option>
+              <Dropdown.Option value="generada">Generada</Dropdown.Option>
+              <Dropdown.Option value="cancelada">Cancelada</Dropdown.Option>
+            </Dropdown>
           </div>
           <div className="col-6 col-md-2 d-flex align-items-end">
             <button className="btn btn-outline-secondary w-100" onClick={limpiar}>

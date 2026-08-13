@@ -1,5 +1,6 @@
 // src/pages/refaccionaria/components/ModalAltaProveedor.jsx
 import { useState } from "react";
+import Dropdown from "../../../components/Dropdown";
 import { createProveedor } from "../../../api/providers";
 
 const EMPTY_FORM = {
@@ -141,12 +142,12 @@ export default function ModalAltaProveedor({ onProveedorCreado, onClose }) {
               </div>
               <div className="col-md-6">
                 <label className="form-label fw-semibold">Condiciones de Pago</label>
-                <select name="condicionesPago" className="form-select" value={form.condicionesPago} onChange={onChange}>
-                  <option value="">Selecciona...</option>
-                  <option value="contado">Contado</option>
-                  <option value="credito">Crédito</option>
-                  <option value="mixto">Mixto</option>
-                </select>
+                <Dropdown name="condicionesPago" className="form-select" value={form.condicionesPago} onChange={onChange}>
+                  <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                  <Dropdown.Option value="contado">Contado</Dropdown.Option>
+                  <Dropdown.Option value="credito">Crédito</Dropdown.Option>
+                  <Dropdown.Option value="mixto">Mixto</Dropdown.Option>
+                </Dropdown>
               </div>
               <div className="col-md-6">
                 <label className="form-label fw-semibold">Días de Crédito</label>

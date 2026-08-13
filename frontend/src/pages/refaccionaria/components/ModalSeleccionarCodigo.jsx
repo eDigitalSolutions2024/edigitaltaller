@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import Dropdown from "../../../components/Dropdown";
 import { getUnidadesMedida } from "../../../api/configuracion";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
@@ -249,18 +250,18 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
                     </div>
                     <div className="col-md-6">
                       <label className="form-label form-label-sm mb-1">Proveedor</label>
-                      <select
-                        className="form-select form-select-sm"
+                      <Dropdown
+                        className="form-select-sm"
                         value={formNuevo.proveedor}
                         disabled
                       >
-                        <option value="">— Seleccionar —</option>
+                        <Dropdown.Option value="">— Seleccionar —</Dropdown.Option>
                         {proveedores.map((p) => (
-                          <option key={p._id} value={p.nombreProveedor || p.aliasProveedor || p._id}>
+                          <Dropdown.Option key={p._id} value={p.nombreProveedor || p.aliasProveedor || p._id}>
                             {p.nombreProveedor || p.aliasProveedor}
-                          </option>
+                          </Dropdown.Option>
                         ))}
-                      </select>
+                      </Dropdown>
                     </div>
                     <div className="col-md-6">
                       <label className="form-label form-label-sm mb-1">Marca <span className="text-muted small">(opcional)</span></label>
@@ -273,16 +274,16 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
                     </div>
                     <div className="col-md-6">
                       <label className="form-label form-label-sm mb-1">Unidad <span className="text-muted small">(opcional)</span></label>
-                      <select
-                        className="form-select form-select-sm"
+                      <Dropdown
+                        className="form-select-sm"
                         value={formNuevo.unidad}
                         onChange={(e) => setFormNuevo((f) => ({ ...f, unidad: e.target.value }))}
                       >
-                        <option value="">— Seleccionar —</option>
+                        <Dropdown.Option value="">— Seleccionar —</Dropdown.Option>
                         {unidades.map((u) => (
-                          <option key={u._id} value={u.nombre || u.clave}>{u.nombre || u.clave}</option>
+                          <Dropdown.Option key={u._id} value={u.nombre || u.clave}>{u.nombre || u.clave}</Dropdown.Option>
                         ))}
-                      </select>
+                      </Dropdown>
                     </div>
                     <div className="col-md-6">
                       <label className="form-label form-label-sm mb-1">Precio unitario <span className="text-muted small">(opcional)</span></label>
@@ -348,18 +349,18 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
                           </div>
                           <div className="col-md-6">
                             <label className="form-label form-label-sm mb-1">Proveedor</label>
-                            <select
-                              className="form-select form-select-sm"
+                            <Dropdown
+                              className="form-select-sm"
                               value={formNuevo.proveedor}
                               onChange={(e) => setFormNuevo((f) => ({ ...f, proveedor: e.target.value }))}
                             >
-                              <option value="">— Seleccionar —</option>
+                              <Dropdown.Option value="">— Seleccionar —</Dropdown.Option>
                               {proveedores.map((p) => (
-                                <option key={p._id} value={p.nombreProveedor || p.aliasProveedor || p._id}>
+                                <Dropdown.Option key={p._id} value={p.nombreProveedor || p.aliasProveedor || p._id}>
                                   {p.nombreProveedor || p.aliasProveedor}
-                                </option>
+                                </Dropdown.Option>
                               ))}
-                            </select>
+                            </Dropdown>
                           </div>
                           <div className="col-md-6">
                             <label className="form-label form-label-sm mb-1">Marca <span className="text-muted small">(opcional)</span></label>
@@ -372,16 +373,16 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
                           </div>
                           <div className="col-md-6">
                             <label className="form-label form-label-sm mb-1">Unidad <span className="text-muted small">(opcional)</span></label>
-                            <select
-                              className="form-select form-select-sm"
+                            <Dropdown
+                              className="form-select-sm"
                               value={formNuevo.unidad}
                               onChange={(e) => setFormNuevo((f) => ({ ...f, unidad: e.target.value }))}
                             >
-                              <option value="">— Seleccionar —</option>
+                              <Dropdown.Option value="">— Seleccionar —</Dropdown.Option>
                               {unidades.map((u) => (
-                                <option key={u._id} value={u.nombre || u.clave}>{u.nombre || u.clave}</option>
+                                <Dropdown.Option key={u._id} value={u.nombre || u.clave}>{u.nombre || u.clave}</Dropdown.Option>
                               ))}
-                            </select>
+                            </Dropdown>
                           </div>
                           <div className="col-md-6">
                             <label className="form-label form-label-sm mb-1">Precio unitario <span className="text-muted small">(opcional)</span></label>

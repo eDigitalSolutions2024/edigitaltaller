@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import Dropdown from "../../components/Dropdown";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { listOrdenesCaja } from "../../api/cajas";
 import { formatFecha } from "../../utils/fechas";
@@ -182,17 +183,17 @@ export default function CajasBuscarOrden() {
             </div>
             <div className="col-md-3">
               <label className="form-label mb-0">Ordenar por</label>
-              <select
+              <Dropdown
                 className="form-select"
                 value={sort}
                 onChange={(e) => setSort(e.target.value)}
               >
                 {OPCIONES_ORDEN.map((o) => (
-                  <option key={o.value} value={o.value}>
+                  <Dropdown.Option key={o.value} value={o.value}>
                     {o.label}
-                  </option>
+                  </Dropdown.Option>
                 ))}
-              </select>
+              </Dropdown>
             </div>
             <div className="col-md-3 text-md-end">
               <button
@@ -245,6 +246,9 @@ export default function CajasBuscarOrden() {
                             .join(" ")
                         : r.cliente?.nombre) ||
                       "-"}
+                    {r.cliente?.esEmpleado && (
+                      <div><span className="badge bg-warning text-dark">Empleado</span></div>
+                    )}
                   </td>
                   <td>{(r.marca || "") + (r.modelo ? " / " + r.modelo : "") || "-"}</td>
                   <td className="text-center">{r.serie || "-"}</td>

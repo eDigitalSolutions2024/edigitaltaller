@@ -7,6 +7,7 @@ const FiscalConfigSchema = new mongoose.Schema(
     nombre: { type: String, required: true, trim: true },
     regimenFiscal: { type: String, required: true, trim: true },
     lugarExpedicion: { type: String, required: true, trim: true }, // CP emisor
+    telefono: { type: String, default: "", trim: true },
 
     // Series / folios
     serie: { type: String, default: "", trim: true },

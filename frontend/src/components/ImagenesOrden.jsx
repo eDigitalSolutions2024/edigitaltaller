@@ -1,5 +1,5 @@
 // src/components/ImagenesOrden.jsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import {
   subirImagenesOrden,
   eliminarImagenOrden,
@@ -7,6 +7,7 @@ import {
   eliminarImagenTemp,
 } from "../api/vehiculos";
 import { getUser } from "../auth";
+import { comprimirImagenes } from "../utils/comprimirImagen";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 const SERVER = API.replace(/\/api$/, "");
@@ -16,16 +17,30 @@ const SERVER = API.replace(/\/api$/, "");
 // al folio real (ver handleSubmit en VehiculoNuevoForm). Por eso este
 // componente acepta `ordenId` XOR `tempId`: si ya hay orden, sube/borra ahí;
 // si no, opera contra el endpoint temporal con el mismo shape de respuesta.
-export default function ImagenesOrden({ ordenId, tempId, imagenes = [], onChange, readOnly = false }) {
+const ImagenesOrden = forwardRef(function ImagenesOrden(
+  { ordenId, tempId, imagenes = [], onChange, readOnly = false },
+  ref
+) {
   const inputGaleriaRef = useRef(null);
   const inputCamaraRef = useRef(null);
   const [subiendo, setSubiendo] = useState(false);
+  // Promesa de la subida en curso (si hay una): permite que el formulario
+  // padre, al desmontarse antes de que termine, espere a que la subida se
+  // resuelva antes de borrar la carpeta temporal (si se borra primero, la
+  // subida en curso la recrea después y esa imagen queda huérfana en disco).
+  const subidaEnCursoRef = useRef(Promise.resolve());
+  useImperativeHandle(ref, () => ({
+    esperarSubidasPendientes: () => subidaEnCursoRef.current,
+  }));
   const [zoomIndex, setZoomIndex] = useState(null);
   // Formatos que el navegador no puede previsualizar inline (p. ej. HEIC de
   // iPhone/iPad) disparan onError en <img>; se listan aquí para mostrar un
   // ícono + nombre de archivo en vez de dejar que el navegador rendericé el
   // texto alternativo suelto encima del recuadro.
   const [erroresCarga, setErroresCarga] = useState(() => new Set());
+  // Evita relanzar la verificación/alert varias veces para la misma imagen
+  // (onError puede disparar más de una vez, o desde el thumbnail y el zoom).
+  const imagenesVerificadasRef = useRef(new Set());
 
   const modoTemporal = !ordenId;
   const puedeSubir = ordenId || tempId;
@@ -49,41 +64,84 @@ export default function ImagenesOrden({ ordenId, tempId, imagenes = [], onChange
     });
   };
 
-  const handleSeleccion = async (e) => {
+  const handleSeleccion = (e) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
     const usuario = getUser();
-    try {
-      setSubiendo(true);
-      const res = modoTemporal
-        ? await subirImagenesTemp(tempId, files)
-        : await subirImagenesOrden(ordenId, files, usuario?.name || usuario?.username || "");
-      const nuevasImagenes = res.data?.imagenes || [];
-      if (onChange) onChange(nuevasImagenes);
-    } catch (err) {
-      console.error("Error subiendo imágenes:", err);
-      const msg = err?.response?.data?.msg || "Error al subir las imágenes.";
-      alert(msg);
-    } finally {
-      setSubiendo(false);
-      if (inputGaleriaRef.current) inputGaleriaRef.current.value = "";
-      if (inputCamaraRef.current) inputCamaraRef.current.value = "";
-    }
+    const promesa = (async () => {
+      try {
+        setSubiendo(true);
+        const archivos = await comprimirImagenes(files);
+        const res = modoTemporal
+          ? await subirImagenesTemp(tempId, archivos)
+          : await subirImagenesOrden(ordenId, archivos, usuario?.name || usuario?.username || "");
+        const nuevasImagenes = res.data?.imagenes || [];
+        if (onChange) onChange(nuevasImagenes);
+      } catch (err) {
+        console.error("Error subiendo imágenes:", err);
+        const msg = err?.response?.data?.msg || "Error al subir las imágenes.";
+        alert(msg);
+      } finally {
+        setSubiendo(false);
+        if (inputGaleriaRef.current) inputGaleriaRef.current.value = "";
+        if (inputCamaraRef.current) inputCamaraRef.current.value = "";
+      }
+    })();
+
+    subidaEnCursoRef.current = promesa;
+  };
+
+  const eliminarImagen = async (imagen) => {
+    const res = modoTemporal
+      ? await eliminarImagenTemp(tempId, imagen.filename)
+      : await eliminarImagenOrden(ordenId, imagen._id);
+    const nuevasImagenes = res.data?.imagenes || [];
+    if (onChange) onChange(nuevasImagenes);
+    return nuevasImagenes;
   };
 
   const handleEliminar = async (imagen) => {
     if (!window.confirm("¿Eliminar esta imagen?")) return;
     try {
-      const res = modoTemporal
-        ? await eliminarImagenTemp(tempId, imagen.filename)
-        : await eliminarImagenOrden(ordenId, imagen._id);
-      const nuevasImagenes = res.data?.imagenes || [];
-      if (onChange) onChange(nuevasImagenes);
+      await eliminarImagen(imagen);
       setZoomIndex(null);
     } catch (err) {
       console.error("Error eliminando imagen:", err);
       alert("Error al eliminar la imagen.");
+    }
+  };
+
+  // El navegador dispara onError tanto cuando el archivo ya no existe en el
+  // servidor (borrado directo en la BD/disco) como cuando existe pero el
+  // formato no se puede previsualizar inline (p. ej. HEIC). Antes ambos casos
+  // se trataban igual, mostrando un link a la URL cruda: para archivos
+  // borrados eso llevaba a la página de error "Cannot GET /uploads/...".
+  // Aquí se verifica con un HEAD si el archivo realmente sigue existiendo
+  // para diferenciar ambos casos.
+  const handleErrorCarga = async (img) => {
+    if (imagenesVerificadasRef.current.has(img.filename)) return;
+    imagenesVerificadasRef.current.add(img.filename);
+
+    let noExiste = false;
+    try {
+      const resp = await fetch(`${SERVER}${img.url}`, { method: "HEAD" });
+      noExiste = resp.status === 404;
+    } catch {
+      // No se pudo verificar (p. ej. sin conexión); se trata como formato
+      // no soportado para no borrar la referencia por error.
+    }
+
+    if (noExiste) {
+      try {
+        await eliminarImagen(img);
+      } catch (err) {
+        console.error("Error eliminando imagen inexistente:", err);
+      }
+      if (imagenZoom?.filename === img.filename) setZoomIndex(null);
+      alert(`La imagen "${img.filename}" ya no existe en el servidor y fue eliminada del registro.`);
+    } else {
+      marcarErrorCarga(img.filename);
     }
   };
 
@@ -191,7 +249,7 @@ export default function ImagenesOrden({ ordenId, tempId, imagenes = [], onChange
                   src={`${SERVER}${img.url}`}
                   alt=""
                   onClick={() => setZoomIndex(idx)}
-                  onError={() => marcarErrorCarga(img.filename)}
+                  onError={() => handleErrorCarga(img)}
                   style={{
                     width: "100%",
                     height: "100%",
@@ -317,7 +375,7 @@ export default function ImagenesOrden({ ordenId, tempId, imagenes = [], onChange
               src={`${SERVER}${imagenZoom.url}`}
               alt=""
               onClick={(e) => e.stopPropagation()}
-              onError={() => marcarErrorCarga(imagenZoom.filename)}
+              onError={() => handleErrorCarga(imagenZoom)}
               style={{
                 maxWidth: "90vw",
                 maxHeight: "85vh",
@@ -344,7 +402,9 @@ export default function ImagenesOrden({ ordenId, tempId, imagenes = [], onChange
       )}
     </div>
   );
-}
+});
+
+export default ImagenesOrden;
 
 function navBtnStyle(side) {
   return {

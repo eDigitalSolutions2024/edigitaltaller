@@ -11,6 +11,9 @@ export const TIPOS_PROBLEMA_OPCIONES = [
   { value: 'FACTURACION', label: 'Facturación' },
   { value: 'CLIENTES_PROVEEDORES', label: 'Clientes / Proveedores' },
   { value: 'REPORTES_CONFIGURACION', label: 'Reportes / Configuración' },
+  // No se ofrece en el formulario general de Soporte (ver SoporteForm, que
+  // filtra este valor): se crea solo desde el modal de cancelar orden.
+  { value: 'GARANTIA_NO_APLICA', label: 'Garantía no aplica' },
   { value: 'OTRO', label: 'Otro' },
 ];
 

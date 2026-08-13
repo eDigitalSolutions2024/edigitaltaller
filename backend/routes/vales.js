@@ -8,7 +8,7 @@ const { streamValeSalidaPdf } = require('../service/valeSalidaPdf');
 const { regexBusquedaOS } = require('../utils/ordenServicio');
 
 const CONTADOR_VALE = 'valeSalida';
-const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno';
+const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno esEmpleado';
 
 function nombreCliente(c) {
   if (!c) return '';

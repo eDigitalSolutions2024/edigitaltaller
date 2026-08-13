@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Dropdown from '../../components/Dropdown';
 import PeriodoSelector from '../captura/PeriodoSelector';
 import { getReporteOriginalesAbiertas, openReporteOriginalesAbiertasPdf } from '../../api/reportes';
 import { getAsesores } from '../../api/users';
@@ -50,16 +51,16 @@ export default function ReporteOriginalesAuditoria() {
 
       <div className="mb-3" style={{ maxWidth: 280 }}>
         <label className="form-label mb-1 fw-semibold small">Asesor</label>
-        <select
-          className="form-select form-select-sm"
+        <Dropdown
+          className="form-select-sm"
           value={asesor}
           onChange={handleAsesorChange}
         >
-          <option value="">Todos los asesores</option>
+          <Dropdown.Option value="">Todos los asesores</Dropdown.Option>
           {asesores.map((a) => (
-            <option key={a._id} value={a.name}>{a.name}</option>
+            <Dropdown.Option key={a._id} value={a.name}>{a.name}</Dropdown.Option>
           ))}
-        </select>
+        </Dropdown>
       </div>
 
       {error && <div className="alert alert-danger py-2">{error}</div>}

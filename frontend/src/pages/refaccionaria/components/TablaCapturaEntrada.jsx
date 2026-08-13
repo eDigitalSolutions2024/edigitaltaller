@@ -1,5 +1,6 @@
   import { useEffect, useMemo, useState } from "react";
   import { useNavigate } from "react-router-dom";
+  import Dropdown from "../../../components/Dropdown";
   import { getUnidadesMedida } from "../../../api/configuracion";
   import ModalAltaCodigo from "./ModalAltaCodigo";
   import ModalSeleccionarCodigo from "./ModalSeleccionarCodigo";
@@ -312,33 +313,33 @@
                   </td>
 
                   <td>
-                    <select
+                    <Dropdown
                       className="form-select"
                       value={r.unidad}
                       onChange={(e) => handleChange(i, "unidad", e.target.value)}
                       disabled={unidades.length === 0}
                     >
                       {unidades.length === 0
-                        ? <option value="">No hay unidades capturadas</option>
+                        ? <Dropdown.Option value="">No hay unidades capturadas</Dropdown.Option>
                         : <>
-                            <option value="">Selecciona unidad</option>
+                            <Dropdown.Option value="">Selecciona unidad</Dropdown.Option>
                             {unidades.map(u => (
-                              <option key={u._id} value={u.nombre}>{u.nombre}</option>
+                              <Dropdown.Option key={u._id} value={u.nombre}>{u.nombre}</Dropdown.Option>
                             ))}
                           </>
                       }
-                    </select>
+                    </Dropdown>
                   </td>
 
                   <td>
-                    <select
+                    <Dropdown
                       className="form-select"
                       value={r.tipo}
                       onChange={(e) => handleChange(i, "tipo", e.target.value)}
                     >
-                      <option value="">Select...</option>
-                      {tipos.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
+                      <Dropdown.Option value="">Select...</Dropdown.Option>
+                      {tipos.map(t => <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>)}
+                    </Dropdown>
                   </td>
 
                   {/* CÓDIGO INTERNO (BDCodigos) */}
@@ -372,15 +373,15 @@
                   </td>
 
                   <td>
-                    <select
+                    <Dropdown
                       className="form-select"
                       value={r.iva}
                       onChange={(e) => handleChange(i, "iva", e.target.value)}
                     >
                       {ivaCatalog.map(v => (
-                        <option key={v.value} value={v.value}>{v.label}</option>
+                        <Dropdown.Option key={v.value} value={v.value}>{v.label}</Dropdown.Option>
                       ))}
-                    </select>
+                    </Dropdown>
                   </td>
 
                   <td>

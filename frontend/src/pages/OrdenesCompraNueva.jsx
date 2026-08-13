@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listProveedores } from "../api/providers";
+import Dropdown from "../components/Dropdown";
 import { getOrdenCompraContador } from "../api/configuracion";
 import {
   createOrdenCompraManual,
@@ -110,22 +111,22 @@ export default function OrdenesCompraNueva() {
           <form onSubmit={handleSubmit}>
             <div className="mb-3">
               <label className="form-label mb-1">Proveedor</label>
-              <select
-                className="form-select form-select-sm"
+              <Dropdown
+                className="form-select-sm"
                 value={proveedorId}
                 onChange={(e) => setProveedorId(e.target.value)}
                 disabled={loadingProveedores}
                 required
               >
-                <option value="">
+                <Dropdown.Option value="">
                   {loadingProveedores ? "Cargando..." : "Selecciona un proveedor"}
-                </option>
+                </Dropdown.Option>
                 {proveedores.map((p) => (
-                  <option key={p._id} value={p._id}>
+                  <Dropdown.Option key={p._id} value={p._id}>
                     {p.nombreProveedor}
-                  </option>
+                  </Dropdown.Option>
                 ))}
-              </select>
+              </Dropdown>
             </div>
 
             <div className="mb-3">

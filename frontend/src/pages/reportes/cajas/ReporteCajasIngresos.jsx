@@ -13,8 +13,6 @@ const TIPOS = [
   { key: 'REMISION', label: 'Remisiones' },
 ];
 
-const TIPO_PAGO_LABELS = { COMPLETO: 'Pago Completo', ABONO: 'Abono', ANTICIPO: 'Anticipo' };
-
 function formatMoney(n) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
 }
@@ -192,7 +190,7 @@ export default function ReporteCajasIngresos() {
                   </button>
                 </div>
 
-                {tipo === 'REMISION' ? <ReporteRemisiones data={data} /> : <ReporteFacturasPlano data={data} />}
+                {tipo === 'REMISION' ? <ReporteRemisiones data={data} /> : <ReporteFacturas data={data} />}
               </>
             )}
           </div>
@@ -335,48 +333,108 @@ function ReporteRemisiones({ data }) {
   );
 }
 
-function ReporteFacturasPlano({ data }) {
-  const { data: filas = [], total = 0, totalMonto = 0 } = data;
+function ReporteFacturas({ data }) {
+  const {
+    anticipos = [],
+    anticiposCancelados = [],
+    complementosPago = [],
+    notasCredito = [],
+    facturas = [],
+    facturaGeneral = [],
+    totales = {},
+    deposito = {},
+  } = data;
+  const sinDatos =
+    !anticipos.length &&
+    !anticiposCancelados.length &&
+    !complementosPago.length &&
+    !notasCredito.length &&
+    !facturas.length &&
+    !facturaGeneral.length;
+
   return (
     <>
-      <div className="alert alert-warning py-2 small mt-2">
-        Vista provisional para Facturas — pendiente de rediseño al formato clásico de 9 columnas.
-      </div>
-      <div className="table-responsive">
-        <table className="table table-sm table-bordered table-hover align-middle">
-          <thead className="table-secondary">
-            <tr>
-              <th>Fecha</th>
-              <th>No. Orden</th>
-              <th>Cliente</th>
-              <th>No. Nota</th>
-              <th>Tipo Pago</th>
-              <th className="text-end">Monto</th>
-              <th>Registrado por</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filas.map((p, i) => (
-              <tr key={i}>
-                <td>{formatFecha(p.fecha, { hour: '2-digit', minute: '2-digit' })}</td>
-                <td>{p.ordenServicio || '—'}</td>
-                <td>{p.cliente || '—'}</td>
-                <td>{p.folio ?? '—'}</td>
-                <td>{TIPO_PAGO_LABELS[p.tipoPago] || p.tipoPago}</td>
-                <td className="text-end">{formatMoney(p.monto)}</td>
-                <td>{p.registradoPor || '—'}</td>
+      {sinDatos ? (
+        <div className="alert alert-info py-2">No se encontraron movimientos en el período seleccionado.</div>
+      ) : (
+        <div className="table-responsive mb-2">
+          <table className="table table-sm table-bordered align-middle mb-0">
+            <thead className="table-secondary">
+              <tr>
+                <th>No. Fact</th>
+                <th>No. Orden</th>
+                <th>Nombre del cliente</th>
+                <th className="text-end">Venta del día</th>
+                <th className="text-end">Ingreso de contado</th>
+                <th className="text-end">Ingreso de crédito</th>
+                <th className="text-end">Anticipo</th>
+                <th className="text-end">Cuentas por cobrar</th>
+                <th>Notas</th>
               </tr>
-            ))}
-          </tbody>
-          <tfoot className="table-secondary">
-            <tr>
-              <td colSpan={7} className="fw-bold">
-                Total de movimientos: {total} — Total ingresos: {formatMoney(totalMonto)}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
+            </thead>
+            <tbody>
+              <BandaRemision titulo="Anticipos" filas={anticipos} />
+              <BandaRemision titulo="Anticipos cancelados" filas={anticiposCancelados} />
+              <BandaRemision titulo="Complementos de pago" filas={complementosPago} />
+              <BandaRemision titulo="Notas de crédito" filas={notasCredito} />
+              <BandaRemision titulo="Facturas" filas={facturas} />
+              <BandaRemision titulo="Factura general" filas={facturaGeneral} />
+            </tbody>
+            <tfoot>
+              <tr className="table-light">
+                <td colSpan={3} className="fw-bold">TOTALES</td>
+                <td className="text-end fw-bold">{fmtTotal(totales.totalVentaDia)}</td>
+                <td className="text-end fw-bold">{fmtTotal(totales.totalContado)}</td>
+                <td className="text-end fw-bold">{fmtTotal(totales.totalCredito)}</td>
+                <td className="text-end fw-bold">{fmtTotal(totales.totalAnticipo)}</td>
+                <td className="text-end fw-bold">{fmtTotal(totales.totalPorCobrar)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      <div className="d-flex justify-content-end mb-2">
+        <span className="badge bg-primary fs-6">Total Ingreso: {formatMoney(totales.totalIngreso)}</span>
       </div>
+
+      <TablaDeposito deposito={deposito} />
     </>
+  );
+}
+
+const DEPOSITO_LABELS = [
+  ['cheques', 'Cheques'],
+  ['transferencias', 'Transferencias'],
+  ['tarjetasCD', 'Tarjetas C/D'],
+  ['efectivo', 'Efectivo'],
+];
+
+function TablaDeposito({ deposito }) {
+  return (
+    <div className="table-responsive" style={{ maxWidth: 420 }}>
+      <table className="table table-sm table-bordered align-middle mb-0">
+        <thead className="table-secondary">
+          <tr>
+            <th colSpan={2}>Depósito</th>
+          </tr>
+        </thead>
+        <tbody>
+          {DEPOSITO_LABELS.map(([key, label]) => (
+            <tr key={key}>
+              <td>{label}</td>
+              <td className="text-end">{fmtTotal(deposito[key])}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot className="table-light">
+          <tr>
+            <td className="fw-bold">Total</td>
+            <td className="text-end fw-bold">{formatMoney(deposito.total)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
   );
 }

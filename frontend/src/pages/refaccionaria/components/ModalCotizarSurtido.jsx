@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Dropdown from "../../../components/Dropdown";
 import { getUnidadesMedida } from "../../../api/configuracion";
 import useTipoCambioActual from "../../../hooks/useTipoCambioActual";
 import ModalInventarioAlmacen from "./ModalInventarioAlmacen";
@@ -181,32 +182,32 @@ export default function ModalCotizarSurtido({ refaccionNombre, cant, vehiculo, p
           <div className="row g-2">
             <div className="col-6 col-md-4">
               <label className="form-label form-label-sm mb-1">Unidad</label>
-              <select
-                className="form-select form-select-sm"
+              <Dropdown
+                className="form-select-sm"
                 value={detalle.unidad}
                 onChange={(e) => cambiar("unidad", e.target.value)}
                 disabled={unidades.length === 0}
               >
-                <option value="">—</option>
+                <Dropdown.Option value="">—</Dropdown.Option>
                 {unidades.map((u) => (
-                  <option key={u._id} value={u.nombre}>{u.nombre}</option>
+                  <Dropdown.Option key={u._id} value={u.nombre}>{u.nombre}</Dropdown.Option>
                 ))}
-              </select>
+              </Dropdown>
             </div>
 
             <div className="col-6 col-md-4">
               <label className="form-label form-label-sm mb-1">Tipo</label>
-              <select
-                className="form-select form-select-sm"
+              <Dropdown
+                className="form-select-sm"
                 value={detalle.tipo}
                 onChange={(e) => cambiar("tipo", e.target.value)}
               >
-                <option value="">— Selec. —</option>
-                <option value="Original">Original</option>
-                <option value="Usado">Usado</option>
-                <option value="Generico">Genérico</option>
-                <option value="Alterna">Alterna</option>
-              </select>
+                <Dropdown.Option value="">— Selec. —</Dropdown.Option>
+                <Dropdown.Option value="Original">Original</Dropdown.Option>
+                <Dropdown.Option value="Usado">Usado</Dropdown.Option>
+                <Dropdown.Option value="Generico">Genérico</Dropdown.Option>
+                <Dropdown.Option value="Alterna">Alterna</Dropdown.Option>
+              </Dropdown>
             </div>
 
             <div className="col-6 col-md-4">
@@ -289,14 +290,14 @@ export default function ModalCotizarSurtido({ refaccionNombre, cant, vehiculo, p
             </div>
             <div className="col-6 col-md-2">
               <label className="form-label form-label-sm mb-1">Moneda</label>
-              <select
-                className="form-select form-select-sm"
+              <Dropdown
+                className="form-select-sm"
                 value={detalle.moneda}
                 onChange={(e) => cambiar("moneda", e.target.value)}
               >
-                <option value="MN">MN</option>
-                <option value="USD">USD</option>
-              </select>
+                <Dropdown.Option value="MN">MN</Dropdown.Option>
+                <Dropdown.Option value="USD">USD</Dropdown.Option>
+              </Dropdown>
             </div>
 
             {detalle.moneda === "USD" && (
@@ -333,16 +334,16 @@ export default function ModalCotizarSurtido({ refaccionNombre, cant, vehiculo, p
 
             <div className="col-4 col-md-2">
               <label className="form-label form-label-sm mb-1">Core</label>
-              <select
-                className="form-select form-select-sm"
+              <Dropdown
+                className="form-select-sm"
                 value={detalle.core}
                 onChange={(e) => cambiar("core", e.target.value)}
               >
-                <option value="">—</option>
-                <option value="SI">SI</option>
-                <option value="NO">NO</option>
-                <option value="N/A">N/A</option>
-              </select>
+                <Dropdown.Option value="">—</Dropdown.Option>
+                <Dropdown.Option value="SI">SI</Dropdown.Option>
+                <Dropdown.Option value="NO">NO</Dropdown.Option>
+                <Dropdown.Option value="N/A">N/A</Dropdown.Option>
+              </Dropdown>
             </div>
 
             {detalle.core === "SI" && (

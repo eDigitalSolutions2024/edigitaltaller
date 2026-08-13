@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { useNavigate } from "react-router-dom";
+import Dropdown from "../../components/Dropdown";
 import {
   savePresupuestoVenta,
   openPresupuestoPdf,
@@ -12,6 +13,8 @@ import http from "../../api/http";
 import { TARIFA_HORA, calcImporteHoras } from "../../utils/manoObra";
 import useTipoCambioActual from "../../hooks/useTipoCambioActual";
 import { getUser } from "../../auth";
+import { createTicket } from "../../api/tickets";
+import ModalCancelarOrden from "./ModalCancelarOrden";
 
 export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparacion, readOnly = false }) {
   const navigate = useNavigate();
@@ -720,17 +723,43 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     }
   };
 
-  const handleCancelarOrden = async () => {
-    if (!window.confirm("¿Cancelar esta orden de servicio? Esta acción no se puede deshacer.")) return;
+  const [showCancelarModal, setShowCancelarModal] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
+  const [notificandoAdmin, setNotificandoAdmin] = useState(false);
+
+  const handleConfirmarCancelar = async (motivo) => {
     try {
+      setCancelando(true);
       const res = await savePresupuestoVenta(
         orden._id,
-        buildPayload({ estadoOrden: "CANCELADA" })
+        buildPayload({ estadoOrden: "CANCELADA", motivoCancelacion: motivo })
       );
       if (onSaved) onSaved(res.data.vehiculo);
+      setShowCancelarModal(false);
     } catch (err) {
       console.error(err);
       alert("Error al cancelar la orden.");
+    } finally {
+      setCancelando(false);
+    }
+  };
+
+  const handleNotificarAdmin = async (motivo) => {
+    try {
+      setNotificandoAdmin(true);
+      await createTicket({
+        tipoProblema: "GARANTIA_NO_APLICA",
+        detalle: motivo,
+        ordenServicio: orden._id,
+        folioOrdenServicio: orden.ordenServicio || "",
+      });
+      setShowCancelarModal(false);
+      alert("Se notificó al administrador. La orden sigue activa hasta que la revise en Solicitudes de Garantía.");
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.msg || "Error al notificar al administrador.");
+    } finally {
+      setNotificandoAdmin(false);
     }
   };
 
@@ -1014,17 +1043,17 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                   />
                 </td>
                 <td>
-                  <select
-                    className="form-select form-select-sm"
+                  <Dropdown
+                    className="form-select-sm"
                     value={newPresLine.tipo}
                     onChange={(e) =>
                       setNewPresLine({ ...newPresLine, tipo: e.target.value })
                     }
                   >
-                    <option value="">Sel...</option>
-                    <option value="Original">Original</option>
-                    <option value="Alterna">Alterna</option>
-                  </select>
+                    <Dropdown.Option value="">Sel...</Dropdown.Option>
+                    <Dropdown.Option value="Original">Original</Dropdown.Option>
+                    <Dropdown.Option value="Alterna">Alterna</Dropdown.Option>
+                  </Dropdown>
                 </td>
                 <td>
                   <input
@@ -1077,8 +1106,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                   />
                 </td>
                 <td>
-                  <select
-                    className="form-select form-select-sm"
+                  <Dropdown
+                    className="form-select-sm"
                     value={newPresLine.moneda || "MN"}
                     onChange={(e) => {
                       const moneda = e.target.value;
@@ -1089,9 +1118,9 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       });
                     }}
                   >
-                    <option value="MN">MN</option>
-                    <option value="USD">USD</option>
-                  </select>
+                    <Dropdown.Option value="MN">MN</Dropdown.Option>
+                    <Dropdown.Option value="USD">USD</Dropdown.Option>
+                  </Dropdown>
                 </td>
                 <td>
                   {(newPresLine.moneda || "MN") === "USD" ? (
@@ -1212,7 +1241,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
             <button
               type="button"
               className="btn btn-outline-danger btn-sm"
-              onClick={handleCancelarOrden}
+              onClick={() => setShowCancelarModal(true)}
             >
               Cancelar Orden
             </button>
@@ -1539,32 +1568,32 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                   <div className="row g-2 align-items-end">
                     <div className="col-md-2">
                       <label className="form-label form-label-sm mb-1">Asignar a</label>
-                      <select
-                        className="form-select form-select-sm"
+                      <Dropdown
+                        className="form-select-sm"
                         value={moTipo}
                         onChange={(e) => {
                           setMoTipo(e.target.value);
                           setMoAsignado("");
                         }}
                       >
-                        <option value="mecanico">Mecánico</option>
-                        <option value="carrocero">Carrocero</option>
-                      </select>
+                        <Dropdown.Option value="mecanico">Mecánico</Dropdown.Option>
+                        <Dropdown.Option value="carrocero">Carrocero</Dropdown.Option>
+                      </Dropdown>
                     </div>
                     <div className="col-md-3">
                       <label className="form-label form-label-sm mb-1">
                         {moTipo === "carrocero" ? "Carrocero" : "Mecánico"}
                       </label>
-                      <select
-                        className="form-select form-select-sm"
+                      <Dropdown
+                        className="form-select-sm"
                         value={moAsignado}
                         onChange={(e) => setMoAsignado(e.target.value)}
                       >
-                        <option value="">-- Seleccionar --</option>
+                        <Dropdown.Option value="">-- Seleccionar --</Dropdown.Option>
                         {(moTipo === "carrocero" ? carroceros : mecanicos).map((e) => (
-                          <option key={e._id} value={e._id}>{e.nombre}</option>
+                          <Dropdown.Option key={e._id} value={e._id}>{e.nombre}</Dropdown.Option>
                         ))}
-                      </select>
+                      </Dropdown>
                     </div>
                     <div className="col-md-2">
                       <label className="form-label form-label-sm mb-1">Horas</label>
@@ -1726,6 +1755,16 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
           * Marca las partidas autorizadas por el cliente (✓) y usa "Enviar a Venta" para pasarlas a Venta al Cliente.
         </p>
       </div>
+
+      <ModalCancelarOrden
+        show={showCancelarModal}
+        orden={orden}
+        procesando={cancelando}
+        notificando={notificandoAdmin}
+        onClose={() => setShowCancelarModal(false)}
+        onCancelar={handleConfirmarCancelar}
+        onNotificarAdmin={handleNotificarAdmin}
+      />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import Dropdown from "../../components/Dropdown";
 import { listProveedores } from "../../api/providers";
 import { useNavigate } from "react-router-dom";
 
@@ -86,7 +87,7 @@ export default function ConsultaProveedores() {
           <div className="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
             <div>
               <label className="me-2">Mostrar:</label>
-              <select
+              <Dropdown
                 className="form-select d-inline-block"
                 style={{ width: 90 }}
                 value={limit}
@@ -96,11 +97,11 @@ export default function ConsultaProveedores() {
                 }}
               >
                 {[10, 20, 50, 100].map((n) => (
-                  <option key={n} value={n}>
+                  <Dropdown.Option key={n} value={n}>
                     {n}
-                  </option>
+                  </Dropdown.Option>
                 ))}
-              </select>
+              </Dropdown>
             </div>
 
             <div className="ms-auto">

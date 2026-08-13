@@ -12,6 +12,11 @@ const TIPOS_PROBLEMA = [
   'FACTURACION',
   'CLIENTES_PROVEEDORES',
   'REPORTES_CONFIGURACION',
+  // Un asesor marca, al cancelar una orden, que la garantía asociada no
+  // aplica; no es seleccionable desde el formulario general de Soporte (ver
+  // TIPOS_PROBLEMA_OPCIONES/SoporteForm), se crea solo desde el modal de
+  // cancelar orden (ver ModalCancelarOrden).
+  'GARANTIA_NO_APLICA',
   'OTRO',
 ];
 

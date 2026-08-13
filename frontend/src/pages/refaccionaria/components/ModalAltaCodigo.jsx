@@ -1,5 +1,6 @@
 // src/pages/refaccionaria/components/ModalAltaCodigo.jsx
 import { useState } from "react";
+import Dropdown from "../../../components/Dropdown";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 
@@ -149,17 +150,17 @@ export default function ModalAltaCodigo({ onCodigoCreado, onClose }) {
                 {tipo === "servicio" && (
                   <div className="col-md-6">
                     <label className="form-label">Grupo de servicio</label>
-                    <select
+                    <Dropdown
                       className="form-select"
                       name="grupoServicio"
                       value={form.grupoServicio}
                       onChange={onChange}
                     >
-                      <option value="motor">Mantenimiento del motor</option>
-                      <option value="lubricacion">Lubricación</option>
-                      <option value="revision">Revisión</option>
-                      <option value="otros">Otros servicios</option>
-                    </select>
+                      <Dropdown.Option value="motor">Mantenimiento del motor</Dropdown.Option>
+                      <Dropdown.Option value="lubricacion">Lubricación</Dropdown.Option>
+                      <Dropdown.Option value="revision">Revisión</Dropdown.Option>
+                      <Dropdown.Option value="otros">Otros servicios</Dropdown.Option>
+                    </Dropdown>
                   </div>
                 )}
 

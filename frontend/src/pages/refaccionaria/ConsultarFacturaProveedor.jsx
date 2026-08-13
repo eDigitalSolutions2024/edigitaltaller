@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import Dropdown from "../../components/Dropdown";
 import http from "../../api/http";
 import { getUser } from "../../auth";
 import ModalSeleccionarCodigo from "./components/ModalSeleccionarCodigo";
@@ -451,7 +452,12 @@ function ModalBuscarOrdenEditar({ onSelect, onClose }) {
                         <span className="badge bg-secondary small">{o.estadoOrden?.replace(/_/g, " ") || ""}</span>
                       </div>
                       <div className="small">
-                        <div><span className="text-muted">Cliente:</span> <strong>{cliente}</strong></div>
+                        <div>
+                          <span className="text-muted">Cliente:</span> <strong>{cliente}</strong>
+                          {o.cliente?.esEmpleado && (
+                            <span className="badge bg-warning text-dark ms-1">Empleado</span>
+                          )}
+                        </div>
                         <div><span className="text-muted">Vehículo:</span> <strong>{[o.marca, o.modelo, o.anio].filter(Boolean).join(" ") || "—"}</strong></div>
                         <div><span className="text-muted">Fecha:</span> <strong>{fmtFechaLarga(o.fechaRecepcion)}</strong></div>
                       </div>
@@ -620,9 +626,9 @@ function ModalEditarEntrada({ entrada, onClose, onGuardado }) {
           <div className="row g-3 mb-4">
             <div className="col-md-3">
               <label className="form-label">Tipo de Comprobante</label>
-              <select className="form-select" name="tipoComprobante" value={form.tipoComprobante} onChange={onF}>
-                <option>Factura</option><option>Remisión</option><option>Nota</option><option>Ticket</option>
-              </select>
+              <Dropdown className="form-select" name="tipoComprobante" value={form.tipoComprobante} onChange={onF}>
+                <Dropdown.Option>Factura</Dropdown.Option><Dropdown.Option>Remisión</Dropdown.Option><Dropdown.Option>Nota</Dropdown.Option><Dropdown.Option>Ticket</Dropdown.Option>
+              </Dropdown>
             </div>
             <div className="col-md-3">
               <label className="form-label">Número de Factura</label>
@@ -634,26 +640,26 @@ function ModalEditarEntrada({ entrada, onClose, onGuardado }) {
             </div>
             <div className="col-md-3">
               <label className="form-label">Proveedor</label>
-              <select className="form-select" name="proveedorId" value={form.proveedorId} onChange={onF}>
-                <option value="">— Selecciona —</option>
+              <Dropdown className="form-select" name="proveedorId" value={form.proveedorId} onChange={onF}>
+                <Dropdown.Option value="">— Selecciona —</Dropdown.Option>
                 {proveedores.map(p => (
-                  <option key={p._id} value={p._id}>{p.nombreProveedor || p.aliasProveedor}</option>
+                  <Dropdown.Option key={p._id} value={p._id}>{p.nombreProveedor || p.aliasProveedor}</Dropdown.Option>
                 ))}
-              </select>
+              </Dropdown>
             </div>
             <div className="col-md-3">
               <label className="form-label">Moneda</label>
-              <select className="form-select" name="moneda" value={form.moneda} onChange={onF}>
-                <option value="MXN">MXN - Peso mexicano</option>
-                <option value="USD">USD - Dólar estadounidense</option>
-              </select>
+              <Dropdown className="form-select" name="moneda" value={form.moneda} onChange={onF}>
+                <Dropdown.Option value="MXN">MXN - Peso mexicano</Dropdown.Option>
+                <Dropdown.Option value="USD">USD - Dólar estadounidense</Dropdown.Option>
+              </Dropdown>
             </div>
             <div className="col-md-3">
               <label className="form-label">Forma de Pago</label>
-              <select className="form-select" name="formaPago" value={form.formaPago} onChange={onF}>
-                <option>Crédito</option><option>Contado</option><option>Transferencia</option>
-                <option>Efectivo</option><option>Tarjeta</option>
-              </select>
+              <Dropdown className="form-select" name="formaPago" value={form.formaPago} onChange={onF}>
+                <Dropdown.Option>Crédito</Dropdown.Option><Dropdown.Option>Contado</Dropdown.Option><Dropdown.Option>Transferencia</Dropdown.Option>
+                <Dropdown.Option>Efectivo</Dropdown.Option><Dropdown.Option>Tarjeta</Dropdown.Option>
+              </Dropdown>
             </div>
           </div>
 
@@ -728,9 +734,9 @@ function ModalEditarEntrada({ entrada, onClose, onGuardado }) {
                     <td><input type="number" min="0" step="any" className="form-control form-control-sm" value={c.cantidad ?? 0} onChange={e => onCaptura(i, "cantidad", Number(e.target.value))} /></td>
                     <td><input className="form-control form-control-sm" value={c.unidad || ""} onChange={e => onCaptura(i, "unidad", e.target.value)} /></td>
                     <td>
-                      <select className="form-select form-select-sm" value={c.tipo || ""} onChange={e => onCaptura(i, "tipo", e.target.value)}>
-                        <option value="">—</option><option>Refacción</option><option>Insumo</option><option>Servicio</option>
-                      </select>
+                      <Dropdown className="form-select-sm" value={c.tipo || ""} onChange={e => onCaptura(i, "tipo", e.target.value)}>
+                        <Dropdown.Option value="">—</Dropdown.Option><Dropdown.Option>Refacción</Dropdown.Option><Dropdown.Option>Insumo</Dropdown.Option><Dropdown.Option>Servicio</Dropdown.Option>
+                      </Dropdown>
                     </td>
                     <td>
                       {(() => {
@@ -750,9 +756,9 @@ function ModalEditarEntrada({ entrada, onClose, onGuardado }) {
                     <td><input className="form-control form-control-sm" value={c.marca || ""} onChange={e => onCaptura(i, "marca", e.target.value)} /></td>
                     <td><input type="number" min="0" step="any" className="form-control form-control-sm" value={c.costoUnitario ?? 0} onChange={e => onCaptura(i, "costoUnitario", Number(e.target.value))} /></td>
                     <td>
-                      <select className="form-select form-select-sm" value={c.ivaPct ?? 8} onChange={e => onCaptura(i, "ivaPct", Number(e.target.value))}>
-                        {ivaCatalog.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
-                      </select>
+                      <Dropdown className="form-select-sm" value={c.ivaPct ?? 8} onChange={e => onCaptura(i, "ivaPct", Number(e.target.value))}>
+                        {ivaCatalog.map(v => <Dropdown.Option key={v.value} value={v.value}>{v.label}</Dropdown.Option>)}
+                      </Dropdown>
                     </td>
                     <td><input className="form-control form-control-sm" value={formatCurrency(calcSinIva(c))} readOnly /></td>
                     <td><input className="form-control form-control-sm" value={formatCurrency(calcConIva(c))} readOnly /></td>
@@ -923,11 +929,11 @@ export default function ConsultarFacturaProveedor() {
             </div>
             <div className="col-md-3">
               <label className="form-label">Estado</label>,
-              <select className="form-select" name="estado" value={f.estado} onChange={onF}>
-                <option value="todos">Todos</option>
-                <option value="borrador">Borradores</option>
-                <option value="finalizada">Finalizadas</option>
-              </select>
+              <Dropdown className="form-select" name="estado" value={f.estado} onChange={onF}>
+                <Dropdown.Option value="todos">Todos</Dropdown.Option>
+                <Dropdown.Option value="borrador">Borradores</Dropdown.Option>
+                <Dropdown.Option value="finalizada">Finalizadas</Dropdown.Option>
+              </Dropdown>
             </div>
             <div className="col-md-3">
               <label className="form-label">Search</label>
@@ -936,10 +942,10 @@ export default function ConsultarFacturaProveedor() {
             </div>
             <div className="col-md-1">
               <label className="form-label">Mostrar</label>
-              <select className="form-select" value={limit}
+              <Dropdown className="form-select" value={limit}
                 onChange={(e) => { const l = parseInt(e.target.value) || 10; setLimit(l); fetchData(1, l); }}>
-                <option>10</option><option>25</option><option>50</option><option>100</option>
-              </select>
+                <Dropdown.Option>10</Dropdown.Option><Dropdown.Option>25</Dropdown.Option><Dropdown.Option>50</Dropdown.Option><Dropdown.Option>100</Dropdown.Option>
+              </Dropdown>
             </div>
             <div className="col-md-2 text-end">
               <button className="btn btn-outline-secondary" onClick={reset}>Limpiar</button>

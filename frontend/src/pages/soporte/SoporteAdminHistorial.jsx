@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import Dropdown from '../../components/Dropdown';
 import {
   TIPOS_PROBLEMA_OPCIONES,
   ESTADO_TICKET_BADGE,
@@ -76,29 +77,29 @@ export default function SoporteAdminHistorial() {
           <div className="row g-2 align-items-end">
             <div className="col-12 col-md-4">
               <label className="form-label mb-1 fw-semibold">Tipo de problema</label>
-              <select
-                className="form-select form-select-sm"
+              <Dropdown
+                className="form-select-sm"
                 value={filtroTipo}
                 onChange={(e) => { setFiltroTipo(e.target.value); setPage(1); }}
               >
-                <option value="">Todos</option>
+                <Dropdown.Option value="">Todos</Dropdown.Option>
                 {TIPOS_PROBLEMA_OPCIONES.map((op) => (
-                  <option key={op.value} value={op.value}>{op.label}</option>
+                  <Dropdown.Option key={op.value} value={op.value}>{op.label}</Dropdown.Option>
                 ))}
-              </select>
+              </Dropdown>
             </div>
             <div className="col-12 col-md-3">
               <label className="form-label mb-1 fw-semibold">Estado</label>
-              <select
-                className="form-select form-select-sm"
+              <Dropdown
+                className="form-select-sm"
                 value={filtroEstado}
                 onChange={(e) => { setFiltroEstado(e.target.value); setPage(1); }}
               >
-                <option value="">Todos</option>
-                <option value="PENDIENTE">Pendiente</option>
-                <option value="EN_PROCESO">En Proceso</option>
-                <option value="FINALIZADO">Finalizado</option>
-              </select>
+                <Dropdown.Option value="">Todos</Dropdown.Option>
+                <Dropdown.Option value="PENDIENTE">Pendiente</Dropdown.Option>
+                <Dropdown.Option value="EN_PROCESO">En Proceso</Dropdown.Option>
+                <Dropdown.Option value="FINALIZADO">Finalizado</Dropdown.Option>
+              </Dropdown>
             </div>
           </div>
         </div>

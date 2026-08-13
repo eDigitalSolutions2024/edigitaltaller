@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Dropdown from '../../components/Dropdown';
 import {
   getUsers,
   createUser,
@@ -213,25 +214,25 @@ export default function Usuarios() {
 
               <div className="col-md-6">
                 <label className="form-label">Rol</label>
-                <select
+                <Dropdown
                   name="role"
                   className="form-select"
                   value={form.role}
                   onChange={handleChange}
                 >
-                    <option value="admin">Admin</option>
-                    <option value="recepcion">Recepción</option>
-                    <option value="cajas">Cajas</option>
-                    <option value="captura">Captura</option>
-                    <option value="refaccionario">Refaccionario</option>
-                    <option value="asesor_servicio">Asesor de servicio</option>
-                    <option value="cuentas_por_pagar">Cuentas por pagar</option>
-                    <option value="auditoria">Auditoría</option>
-                    <option value="cuentas_por_cobrar">Cuentas por cobrar</option>
-                    <option value="recursos_humanos">Recursos Humanos</option>
-                    <option value="coordinador">Coordinador</option>
-                    <option value="finanzas">Finanzas</option>
-                </select>
+                    <Dropdown.Option value="admin">Admin</Dropdown.Option>
+                    <Dropdown.Option value="recepcion">Recepción</Dropdown.Option>
+                    <Dropdown.Option value="cajas">Cajas</Dropdown.Option>
+                    <Dropdown.Option value="captura">Captura</Dropdown.Option>
+                    <Dropdown.Option value="refaccionario">Refaccionario</Dropdown.Option>
+                    <Dropdown.Option value="asesor_servicio">Asesor de servicio</Dropdown.Option>
+                    <Dropdown.Option value="cuentas_por_pagar">Cuentas por pagar</Dropdown.Option>
+                    <Dropdown.Option value="auditoria">Auditoría</Dropdown.Option>
+                    <Dropdown.Option value="cuentas_por_cobrar">Cuentas por cobrar</Dropdown.Option>
+                    <Dropdown.Option value="recursos_humanos">Recursos Humanos</Dropdown.Option>
+                    <Dropdown.Option value="coordinador">Coordinador</Dropdown.Option>
+                    <Dropdown.Option value="finanzas">Finanzas</Dropdown.Option>
+                </Dropdown>
               </div>
             </div>
 
