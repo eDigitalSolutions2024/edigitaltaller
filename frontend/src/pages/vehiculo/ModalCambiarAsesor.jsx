@@ -1,5 +1,6 @@
 // src/pages/vehiculo/ModalCambiarAsesor.jsx
 import React, { useEffect, useState } from "react";
+import Dropdown from "../../components/Dropdown";
 import { getAsesores } from "../../api/users";
 
 export default function ModalCambiarAsesor({ asesorActual, guardando, onClose, onConfirm }) {
@@ -66,19 +67,19 @@ export default function ModalCambiarAsesor({ asesorActual, guardando, onClose, o
             {cargando ? (
               <div className="text-muted small">Cargando asesores...</div>
             ) : (
-              <select
+              <Dropdown
                 className="form-select"
                 value={seleccionado}
                 onChange={(e) => setSeleccionado(e.target.value)}
                 disabled={guardando}
               >
-                <option value="">-- Seleccionar --</option>
+                <Dropdown.Option value="">-- Seleccionar --</Dropdown.Option>
                 {asesores.map((a) => (
-                  <option key={a._id} value={a._id}>
+                  <Dropdown.Option key={a._id} value={a._id}>
                     {a.name}
-                  </option>
+                  </Dropdown.Option>
                 ))}
-              </select>
+              </Dropdown>
             )}
           </div>
         </div>

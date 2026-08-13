@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Dropdown from "../../components/Dropdown";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 
@@ -165,18 +166,18 @@ export default function SalidaInventario() {
 
                 <div className="col-md-3">
                   <label className="form-label">Orden de Servicio:</label>
-                  <select
+                  <Dropdown
                     className="form-select"
                     value={os}
                     onChange={e => setOs(e.target.value)}
                   >
-                    <option value="">Seleccione una OS...</option>
+                    <Dropdown.Option value="">Seleccione una OS...</Dropdown.Option>
                     {ordenes.map(o => (
-                      <option key={o._id} value={o.ordenServicio}>
+                      <Dropdown.Option key={o._id} value={o.ordenServicio}>
                         {o.label}
-                      </option>
+                      </Dropdown.Option>
                     ))}
-                  </select>
+                  </Dropdown>
                 </div>
 
                 <div className="col-md-2">
@@ -193,18 +194,18 @@ export default function SalidaInventario() {
 
                 <div className="col-md-4">
                   <label className="form-label">Refacción:</label>
-                  <select
+                  <Dropdown
                     className="form-select"
                     value={codigoSel}
                     onChange={(e) => setCodigoSel(e.target.value)}
                   >
-                    <option value="">Select an Option</option>
+                    <Dropdown.Option value="">Select an Option</Dropdown.Option>
                     {catalogo.map((o) => (
-                      <option key={o._id} value={o._id}>
+                      <Dropdown.Option key={o._id} value={o._id}>
                         {o.label}
-                      </option>
+                      </Dropdown.Option>
                     ))}
-                  </select>
+                  </Dropdown>
                 </div>
               </div>
 

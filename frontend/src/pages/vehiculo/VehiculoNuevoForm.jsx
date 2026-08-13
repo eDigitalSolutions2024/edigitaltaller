@@ -1,6 +1,7 @@
 // src/pages/vehiculo/VehiculoNuevoForm.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { createVehiculo, updateDatosOrden, descartarImagenesTemp } from "../../api/vehiculos";
+import Dropdown from "../../components/Dropdown";
+import { createVehiculo, updateDatosOrden, descartarImagenesTemp, cambiarAsesorOrden } from "../../api/vehiculos";
 import { upsertGarageVehiculo, searchGarageVehiculos } from "../../api/garage";
 import VehicleDamageCanvas from "../../components/VehicleDamageCanvas";
 import ImagenesOrden from "../../components/ImagenesOrden";
@@ -100,6 +101,10 @@ export default function VehiculoNuevoForm({
   onCreated,
   vehiculoGarage,
   garantia, // { ordenAnterior, motivo } cuando la orden nace de una solicitud de garantía
+  servicioReparacionPrefill, // fallas de Servicio o Reparación al recrear una orden por garantía "No aplica"
+  inspeccionFisicaPrefill, // accesorios, daños e indicadores del tablero (mismo caso de "No aplica")
+  asesorReasignar, // { id, name } asesor a asignar tras crear (mismo caso de "No aplica")
+  ordenServicioPrefill, // folio sugerido por quien canceló (mismo caso de "No aplica"); sigue siendo editable
   sinVehiculo = false,
 }) {
   const esParticular = cliente?.tipoCliente === "Particular";
@@ -221,31 +226,43 @@ export default function VehiculoNuevoForm({
   // orden (modo creación); se genera una sola vez por instancia del formulario.
   const tempIdImagenesRef = useRef(null);
   if (!tempIdImagenesRef.current) tempIdImagenesRef.current = generarUUID();
+  const imagenesOrdenRef = useRef(null);
 
   // Si el formulario se abandona sin guardar la orden (se desmonta), se
-  // descartan de inmediato las imágenes que se hayan subido de forma
-  // temporal; si la orden sí se guarda, esa carpeta temporal ya fue migrada
-  // y esta llamada simplemente no encuentra nada que borrar.
+  // descartan las imágenes que se hayan subido de forma temporal; si la
+  // orden sí se guarda, esa carpeta temporal ya fue migrada y esta llamada
+  // simplemente no encuentra nada que borrar. Si al desmontar todavía hay
+  // una subida en curso, se espera a que termine antes de borrar: si se
+  // borrara primero, la subida en curso recrearía la carpeta después y esa
+  // imagen quedaría huérfana en disco hasta la purga de 24h.
   useEffect(() => {
     const eraCreacion = !initialData?._id;
+    const imagenesOrden = imagenesOrdenRef.current;
     return () => {
-      if (eraCreacion) descartarImagenesTemp(tempIdImagenesRef.current);
+      if (!eraCreacion) return;
+      const tempId = tempIdImagenesRef.current;
+      const pendiente = imagenesOrden?.esperarSubidasPendientes?.() ?? Promise.resolve();
+      Promise.resolve(pendiente)
+        .catch(() => {})
+        .finally(() => descartarImagenesTemp(tempId));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 🔹 Al montar, si es ALTA (sin initialData), el folio de OS se captura
-  // manualmente; solo precargamos fecha y hora de recepción.
+  // manualmente (o llega prellenado desde "Cancelar" en Solicitudes de
+  // Garantía, ver ordenServicioPrefill); solo precargamos fecha y hora de
+  // recepción además.
   useEffect(() => {
     if (!initialData) {
       setForm((prev) => ({
         ...prev,
-        ordenServicio: "",
+        ordenServicio: ordenServicioPrefill || "",
         fechaRecepcion: getTodayInputDate(),
         horaRecepcion: getCurrentInputTime(),
       }));
     }
-  }, [initialData]);
+  }, [initialData, ordenServicioPrefill]);
 
   // Precarga datos del cliente cuando llega del padre
   useEffect(() => {
@@ -398,8 +415,28 @@ export default function VehiculoNuevoForm({
       motor:           vehiculoGarage.motor || "",
       numeroEconomico: vehiculoGarage.numeroEconomico || "",
       traccion:        vehiculoGarage.traccion || "",
+      // Solo viene con dato desde el prellenado de "No aplica" (garantía
+      // cancelada); el garaje no guarda quién deja el vehículo.
+      nombreUsuarioDejaVehiculo: vehiculoGarage.nombreUsuarioDejaVehiculo || "",
     }));
   }, [vehiculoGarage]);
+
+  // Pre-llenar accesorios, daños e indicadores del tablero al recrear una
+  // orden a partir de una garantía cancelada por "No aplica" (mismos datos
+  // de la inspección física con los que llegó el vehículo la vez anterior).
+  useEffect(() => {
+    if (!inspeccionFisicaPrefill) return;
+    setForm((prev) => {
+      const next = { ...prev };
+      INSPECCION_FIELDS.forEach((campo) => {
+        if (inspeccionFisicaPrefill[campo] !== undefined) {
+          next[campo] = inspeccionFisicaPrefill[campo];
+        }
+      });
+      return next;
+    });
+    if (inspeccionFisicaPrefill.otros) setOtrosIndicadoresActivo(true);
+  }, [inspeccionFisicaPrefill]);
 
   const handleChange = (e) => {
     if (efectivoReadOnly) return; // no permitir editar en detalle
@@ -465,7 +502,7 @@ export default function VehiculoNuevoForm({
     const formEl = elementoActual.form;
     if (!formEl) return;
     const seleccionables = Array.from(
-      formEl.querySelectorAll("input, select, textarea")
+      formEl.querySelectorAll("input, select, textarea, button.dd-trigger")
     ).filter((el) => !el.disabled && el.tabIndex !== -1 && el.offsetParent !== null);
     const idx = seleccionables.indexOf(elementoActual);
     if (idx > -1 && idx < seleccionables.length - 1) {
@@ -520,6 +557,7 @@ export default function VehiculoNuevoForm({
             },
           }
         : {}),
+      ...(servicioReparacionPrefill ? { servicioReparacion: servicioReparacionPrefill } : {}),
     };
 
     // console.log("PAYLOAD creadoPor:", payload.creadoPor);
@@ -566,6 +604,18 @@ export default function VehiculoNuevoForm({
       window.dispatchEvent(new CustomEvent('orden-creada'));
       // console.log("Vehiculo guardado:", res.data || res);
 
+      // Reasigna el asesor de la orden cuando se recreó a partir de una
+      // garantía cancelada por "No aplica" (el creador sigue siendo quien
+      // canceló, normalmente un admin).
+      if (asesorReasignar?.id && vehiculoCreado?._id) {
+        try {
+          await cambiarAsesorOrden(vehiculoCreado._id, asesorReasignar.id);
+        } catch (asesorErr) {
+          console.error("Error asignando asesor a la nueva orden:", asesorErr);
+          alert("La orden se creó, pero no se pudo asignar el asesor seleccionado. Puedes cambiarlo desde Configuración de la orden.");
+        }
+      }
+
       // Guardar automáticamente en el garaje si tiene serie (sin pedir confirmación)
       if (form.serie?.trim()) {
         try {
@@ -604,16 +654,16 @@ export default function VehiculoNuevoForm({
   const renderSiNoSelect = (name, label) => (
     <div className="col-md-3 col-sm-6 mb-2">
       <label className="form-label">{label}</label>
-      <select
+      <Dropdown
         className="form-select"
         name={name}
         value={form[name]}
         onChange={handleChange}
       >
-        <option value="">Seleccionar...</option>
-        <option value="SI">SI</option>
-        <option value="NO">NO</option>
-      </select>
+        <Dropdown.Option value="">Seleccionar...</Dropdown.Option>
+        <Dropdown.Option value="SI">SI</Dropdown.Option>
+        <Dropdown.Option value="NO">NO</Dropdown.Option>
+      </Dropdown>
     </div>
   );
 
@@ -1060,16 +1110,16 @@ export default function VehiculoNuevoForm({
                 {!sinVehiculo && (
                 <div className="col-12">
                   <label className="form-label">Grua</label>
-                  <select
+                  <Dropdown
                     className="form-select"
                     name="grua"
                     value={form.grua}
                     onChange={handleChange}
                   >
-                    <option value="">Select an Option</option>
-                    <option value="SI">SI</option>
-                    <option value="NO">NO</option>
-                  </select>
+                    <Dropdown.Option value="">Select an Option</Dropdown.Option>
+                    <Dropdown.Option value="SI">SI</Dropdown.Option>
+                    <Dropdown.Option value="NO">NO</Dropdown.Option>
+                  </Dropdown>
                 </div>
                 )}
 
@@ -1272,18 +1322,18 @@ export default function VehiculoNuevoForm({
                   <label className="form-label">
                     Tracción {requiereDatosVehiculo && <span className="text-danger">*</span>}
                   </label>
-                  <select
+                  <Dropdown
                     className="form-select"
                     name="traccion"
                     value={form.traccion}
                     onChange={handleChange}
                     required={requiereDatosVehiculo}
                   >
-                    <option value="">Select an Option</option>
-                    <option value="4x2">4x2</option>
-                    <option value="4x4">4x4</option>
-                    <option value="Otro">Otro</option>
-                  </select>
+                    <Dropdown.Option value="">Select an Option</Dropdown.Option>
+                    <Dropdown.Option value="4x2">4x2</Dropdown.Option>
+                    <Dropdown.Option value="4x4">4x4</Dropdown.Option>
+                    <Dropdown.Option value="Otro">Otro</Dropdown.Option>
+                  </Dropdown>
                 </div>
               </div>
             </div>
@@ -1375,17 +1425,17 @@ export default function VehiculoNuevoForm({
 
                 <div className="col-12">
                   <label className="form-label me-2">Parabrisas</label>
-                  <select
+                  <Dropdown
                     className="form-select d-inline-block w-auto"
                     name="parabrisas"
                     value={form.parabrisas}
                     onChange={handleChange}
                   >
-                    <option value="">Select an Option</option>
-                    <option value="BUENO">Bueno</option>
-                    <option value="MALO">Malo</option>
-                    <option value="QUEBRADO">Quebrado</option>
-                  </select>
+                    <Dropdown.Option value="">Select an Option</Dropdown.Option>
+                    <Dropdown.Option value="BUENO">Bueno</Dropdown.Option>
+                    <Dropdown.Option value="MALO">Malo</Dropdown.Option>
+                    <Dropdown.Option value="QUEBRADO">Quebrado</Dropdown.Option>
+                  </Dropdown>
                 </div>
 
                 <div className="col-12">
@@ -1616,6 +1666,7 @@ export default function VehiculoNuevoForm({
                 Fotografías del vehículo
               </div>
               <ImagenesOrden
+                ref={imagenesOrdenRef}
                 ordenId={initialData?._id}
                 tempId={initialData?._id ? undefined : tempIdImagenesRef.current}
                 imagenes={form.imagenes || []}

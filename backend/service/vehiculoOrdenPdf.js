@@ -206,7 +206,7 @@ function buildOrdenHtml(vehiculo, serviciosDocs = []) {
   .page {
     width: 210mm;
     min-height: 297mm;
-    padding: 8mm 8mm 10mm 8mm;
+    padding: 13mm 13mm 15mm 13mm;
     margin: 0 auto;
     position: relative;
   }
@@ -533,7 +533,10 @@ async function streamVehiculoOrdenPdf(res, vehiculo) {
   const pdfBuffer = await page.pdf({
     format: 'A4',
     printBackground: true,
-    margin: { top: '5mm', bottom: '5mm', left: '5mm', right: '5mm' },
+    // Sin margen: el contenido ya trae su propio padding (ver .page arriba).
+    // Así la marca de agua, que se mide en vw/vh, puede cubrir la hoja
+    // completa sin que el margen de impresión la recorte.
+    margin: { top: 0, bottom: 0, left: 0, right: 0 },
   });
 
   await browser.close();

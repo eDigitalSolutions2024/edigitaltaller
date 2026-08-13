@@ -1,6 +1,7 @@
 // src/pages/vehiculo/VehiculosConsultaGarantias.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import Dropdown from "../../components/Dropdown";
 import { listGarantias } from "../../api/garantias";
 import { formatFecha } from "../../utils/fechas";
 
@@ -10,14 +11,16 @@ const ESTADO_BADGE = {
   PENDIENTE: "bg-warning text-dark",
   APROBADA: "bg-success",
   NEGADA: "bg-danger",
+  NO_APLICA: "bg-secondary",
 };
 
-// En pantalla la garantía se maneja como Pendiente / Autorizada / Negada
-// (en la base de datos se conserva APROBADA).
+// En pantalla la garantía se maneja como Pendiente / Autorizada / Negada /
+// No aplica (en la base de datos se conserva APROBADA).
 const ESTADO_LABEL = {
   PENDIENTE: "PENDIENTE",
   APROBADA: "AUTORIZADA",
   NEGADA: "NEGADA",
+  NO_APLICA: "NO APLICA",
 };
 
 export default function VehiculosConsultaGarantias() {
@@ -90,19 +93,20 @@ export default function VehiculosConsultaGarantias() {
 
         <div className="col-md-3">
           <label className="form-label">Estatus de la garantía:</label>
-          <select
-            className="form-select form-select-sm"
+          <Dropdown
+            className="form-select-sm"
             value={estado}
             onChange={(e) => {
               setEstado(e.target.value);
               setPage(1);
             }}
           >
-            <option value="">Todas</option>
-            <option value="PENDIENTE">Pendientes</option>
-            <option value="APROBADA">Autorizadas</option>
-            <option value="NEGADA">Negadas</option>
-          </select>
+            <Dropdown.Option value="">Todas</Dropdown.Option>
+            <Dropdown.Option value="PENDIENTE">Pendientes</Dropdown.Option>
+            <Dropdown.Option value="APROBADA">Autorizadas</Dropdown.Option>
+            <Dropdown.Option value="NEGADA">Negadas</Dropdown.Option>
+            <Dropdown.Option value="NO_APLICA">No aplica</Dropdown.Option>
+          </Dropdown>
         </div>
 
         <div className="col-md-2">
@@ -177,7 +181,12 @@ export default function VehiculosConsultaGarantias() {
                   title="Abrir en Solicitudes de Garantía"
                 >
                   <td>{o.ordenServicio || o._id}</td>
-                  <td>{clienteNombre}</td>
+                  <td>
+                    {clienteNombre}
+                    {c.esEmpleado && (
+                      <div><span className="badge bg-warning text-dark">Empleado</span></div>
+                    )}
+                  </td>
                   <td className="fw-semibold">{g.ordenAnteriorFolio || "—"}</td>
                   <td>
                     {(o.marca || "") + (o.modelo ? ` / ${o.modelo}` : "")}

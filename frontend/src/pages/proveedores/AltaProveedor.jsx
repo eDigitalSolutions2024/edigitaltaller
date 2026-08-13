@@ -1,6 +1,7 @@
 // src/pages/proveedores/AltaProveedor.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import Dropdown from "../../components/Dropdown";
 import {
   createProveedor,
   getProveedor,
@@ -437,18 +438,18 @@ export default function AltaProveedor() {
                 >
                   Condiciones de Pago:
                 </label>
-                <select
+                <Dropdown
                   id="condicionesPago"
                   name="condicionesPago"
                   className="form-select"
                   value={form.condicionesPago}
                   onChange={onChange}
                 >
-                  <option value="">Selecciona...</option>
-                  <option value="contado">Contado</option>
-                  <option value="credito">Crédito</option>
-                  <option value="mixto">Mixto</option>
-                </select>
+                  <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                  <Dropdown.Option value="contado">Contado</Dropdown.Option>
+                  <Dropdown.Option value="credito">Crédito</Dropdown.Option>
+                  <Dropdown.Option value="mixto">Mixto</Dropdown.Option>
+                </Dropdown>
               </div>
 
               <div className="mb-2">

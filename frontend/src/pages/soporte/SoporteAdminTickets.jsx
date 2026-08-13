@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import Dropdown from '../../components/Dropdown';
 import { getUser } from '../../auth';
 import {
   ESTADO_TICKET_BADGE,
@@ -114,18 +115,18 @@ export default function SoporteAdminTickets() {
           <div className="row g-2 align-items-end">
             <div className="col-12 col-md-3">
               <label className="form-label mb-1 fw-semibold">Estado</label>
-              <select
-                className="form-select form-select-sm"
+              <Dropdown
+                className="form-select-sm"
                 value={filtroEstado}
                 onChange={(e) => {
                   setFiltroEstado(e.target.value);
                   setPage(1);
                 }}
               >
-                <option value="">Todos activos</option>
-                <option value="PENDIENTE">Pendientes</option>
-                <option value="EN_PROCESO">En Proceso</option>
-              </select>
+                <Dropdown.Option value="">Todos activos</Dropdown.Option>
+                <Dropdown.Option value="PENDIENTE">Pendientes</Dropdown.Option>
+                <Dropdown.Option value="EN_PROCESO">En Proceso</Dropdown.Option>
+              </Dropdown>
             </div>
             <div className="col-12 col-md-2">
               <button type="button" className="btn btn-outline-primary btn-sm w-100" onClick={cargar} disabled={loading}>

@@ -1,5 +1,6 @@
 // src/pages/refaccionaria/BDCodigos.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
+import Dropdown from "../../components/Dropdown";
 import ModalAltaProveedor from "./components/ModalAltaProveedor";
 import { getUnidadesMedida } from "../../api/configuracion";
 
@@ -294,7 +295,7 @@ export default function BDCodigos() {
                   <label className="form-label">
                     Proveedor: <span className="text-danger">*</span>
                   </label>
-                  <select
+                  <Dropdown
                     className="form-select"
                     name="proveedor"
                     value={form.proveedor}
@@ -306,14 +307,14 @@ export default function BDCodigos() {
                       setForm((f) => ({ ...f, proveedor: e.target.value }));
                     }}
                   >
-                    <option value="">— Selecciona —</option>
+                    <Dropdown.Option value="">— Selecciona —</Dropdown.Option>
                     {proveedores.map((p) => (
-                      <option key={p._id} value={p.nombreProveedor || p.nombre || p.aliasProveedor}>
+                      <Dropdown.Option key={p._id} value={p.nombreProveedor || p.nombre || p.aliasProveedor}>
                         {p.nombreProveedor || p.nombre || p.aliasProveedor || p.rfc}
-                      </option>
+                      </Dropdown.Option>
                     ))}
-                    <option value="__nuevo__">➕ Dar de alta nuevo proveedor...</option>
-                  </select>
+                    <Dropdown.Option value="__nuevo__">➕ Dar de alta nuevo proveedor...</Dropdown.Option>
+                  </Dropdown>
                 </div>
 
                 <div className="col-md-4">
@@ -328,19 +329,19 @@ export default function BDCodigos() {
 
                 <div className="col-md-4">
                   <label className="form-label">Unidad:</label>
-                  <select
+                  <Dropdown
                     className="form-select"
                     name="unidad"
                     value={form.unidad}
                     onChange={onChange}
                   >
-                    <option value="">— Selecciona —</option>
+                    <Dropdown.Option value="">— Selecciona —</Dropdown.Option>
                     {unidades.map((u) => (
-                      <option key={u._id} value={u.nombre}>
+                      <Dropdown.Option key={u._id} value={u.nombre}>
                         {u.nombre}
-                      </option>
+                      </Dropdown.Option>
                     ))}
-                  </select>
+                  </Dropdown>
                 </div>
 
                 <div className="col-md-4">
@@ -381,18 +382,18 @@ export default function BDCodigos() {
               <div className="row align-items-end mt-4">
                 <div className="col-md-9">
                   <label className="form-label">Seleccionar Refacción:</label>
-                  <select
+                  <Dropdown
                     className="form-select"
                     value={refSel}
                     onChange={(e) => setRefSel(e.target.value)}
                   >
-                    <option value="">—</option>
+                    <Dropdown.Option value="">—</Dropdown.Option>
                     {visibleOptions.map((o) => (
-                      <option key={o._id} value={o._id}>
+                      <Dropdown.Option key={o._id} value={o._id}>
                         {o.label}
-                      </option>
+                      </Dropdown.Option>
                     ))}
-                  </select>
+                  </Dropdown>
                 </div>
                 <div className="col-md-3">
                   <button
@@ -410,20 +411,20 @@ export default function BDCodigos() {
               <div className="d-flex align-items-center justify-content-between mb-2">
                 <div className="d-flex align-items-center gap-2">
                   <span className="text-muted small">Show</span>
-                  <select
+                  <Dropdown
                     value={pageSize}
-                    className="form-select form-select-sm"
+                    className="form-select-sm"
                     onChange={(e) => {
                       setPageSize(Number(e.target.value));
                       setPage(1);
                     }}
                   >
                     {PAGE_SIZES.map((n) => (
-                      <option key={n} value={n}>
+                      <Dropdown.Option key={n} value={n}>
                         {n}
-                      </option>
+                      </Dropdown.Option>
                     ))}
-                  </select>
+                  </Dropdown>
                   <span className="text-muted small">entries</span>
                 </div>
 

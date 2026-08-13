@@ -1,6 +1,7 @@
 // frontend/src/pages/refaccionaria/EntradaInventario.jsx
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import Dropdown from "../../components/Dropdown";
 import TablaCapturaEntrada from "./components/TablaCapturaEntrada";
 import ModalAltaProveedor from "./components/ModalAltaProveedor";
 import ModalAltaCodigo from "./components/ModalAltaCodigo";
@@ -111,7 +112,12 @@ function ModalBuscarOrden({ onSelect, onClose }) {
                         <span className="badge bg-secondary small">{o.estadoOrden?.replace(/_/g, " ") || ""}</span>
                       </div>
                       <div className="small">
-                        <div><span className="text-muted">Cliente:</span> <strong>{cliente}</strong></div>
+                        <div>
+                          <span className="text-muted">Cliente:</span> <strong>{cliente}</strong>
+                          {o.cliente?.esEmpleado && (
+                            <span className="badge bg-warning text-dark ms-1">Empleado</span>
+                          )}
+                        </div>
                         <div><span className="text-muted">Vehículo:</span> <strong>{[o.marca, o.modelo, o.anio].filter(Boolean).join(" ") || "—"}</strong></div>
                         <div><span className="text-muted">Fecha:</span> <strong>{fmtFecha(o.fechaRecepcion)}</strong></div>
                         {o.devueltoPor && (
@@ -378,12 +384,12 @@ export default function EntradaInventario() {
                   <div className="row g-3 align-items-end">
                     <div className="col-12 col-md-6">
                       <label className="form-label">Tipo de Comprobante</label>
-                      <select className="form-select" name="comprobante" value={form.comprobante} onChange={onChange}>
-                        <option>Factura</option>
-                        <option>Remisión</option>
-                        <option>Nota</option>
-                        <option>Ticket</option>
-                      </select>
+                      <Dropdown className="form-select" name="comprobante" value={form.comprobante} onChange={onChange}>
+                        <Dropdown.Option>Factura</Dropdown.Option>
+                        <Dropdown.Option>Remisión</Dropdown.Option>
+                        <Dropdown.Option>Nota</Dropdown.Option>
+                        <Dropdown.Option>Ticket</Dropdown.Option>
+                      </Dropdown>
                     </div>
                     <div className="col-12 col-md-6">
                       <label className="form-label">Número de Factura y/o Remisión</label>
@@ -398,20 +404,20 @@ export default function EntradaInventario() {
                   <div className="row g-3 align-items-end mt-1">
                     <div className="col-12 col-md-6">
                       <label className="form-label">Moneda</label>
-                      <select className="form-select" name="moneda" value={form.moneda} onChange={onChange}>
-                        <option value="MXN">MXN - Peso mexicano</option>
-                        <option value="USD">USD - Dólar estadounidense</option>
-                      </select>
+                      <Dropdown className="form-select" name="moneda" value={form.moneda} onChange={onChange}>
+                        <Dropdown.Option value="MXN">MXN - Peso mexicano</Dropdown.Option>
+                        <Dropdown.Option value="USD">USD - Dólar estadounidense</Dropdown.Option>
+                      </Dropdown>
                     </div>
                     <div className="col-12 col-md-6">
                       <label className="form-label">Forma de Pago</label>
-                      <select className="form-select" name="formaPago" value={form.formaPago} onChange={onChange}>
-                        <option>Crédito</option>
-                        <option>Contado</option>
-                        <option>Transferencia</option>
-                        <option>Efectivo</option>
-                        <option>Tarjeta</option>
-                      </select>
+                      <Dropdown className="form-select" name="formaPago" value={form.formaPago} onChange={onChange}>
+                        <Dropdown.Option>Crédito</Dropdown.Option>
+                        <Dropdown.Option>Contado</Dropdown.Option>
+                        <Dropdown.Option>Transferencia</Dropdown.Option>
+                        <Dropdown.Option>Efectivo</Dropdown.Option>
+                        <Dropdown.Option>Tarjeta</Dropdown.Option>
+                      </Dropdown>
                     </div>
                   </div>
 
@@ -419,15 +425,15 @@ export default function EntradaInventario() {
                   <div className="row g-3 align-items-end mt-1">
                     <div className="col-12 col-md-6">
                       <label className="form-label">Proveedor</label>
-                      <select className="form-select" name="proveedorId" value={form.proveedorId} onChange={onChange}>
-                        <option value="">— Selecciona —</option>
+                      <Dropdown className="form-select" name="proveedorId" value={form.proveedorId} onChange={onChange}>
+                        <Dropdown.Option value="">— Selecciona —</Dropdown.Option>
                         {proveedores.map((p) => (
-                          <option key={p._id} value={p._id}>
+                          <Dropdown.Option key={p._id} value={p._id}>
                             {p.nombreProveedor || p.nombre || p.aliasProveedor || p.rfc}
-                          </option>
+                          </Dropdown.Option>
                         ))}
-                        <option value="__nuevo__">➕ Dar de alta nuevo proveedor...</option>
-                      </select>
+                        <Dropdown.Option value="__nuevo__">➕ Dar de alta nuevo proveedor...</Dropdown.Option>
+                      </Dropdown>
                     </div>
                     <div className="col-12 col-md-6">
                       <label className="form-label">Fecha Factura</label>

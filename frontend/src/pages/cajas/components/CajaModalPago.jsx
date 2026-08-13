@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import Dropdown from "../../../components/Dropdown";
 import useTipoCambioActual from "../../../hooks/useTipoCambioActual";
 import { getUser } from "../../../auth";
 import { openReciboProvisionalPdf, openReciboDolaresPdf } from "../../../api/cajas";
@@ -10,7 +11,7 @@ import {
   openValePdf,
 } from "../../../api/vales";
 
-const BANCOS = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER", "DOLARES", "EFECTIVOS"];
+const BANCOS = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER", "DOLARES", "EFECTIVOS", "CHEQUE", "TRANSFERENCIA"];
 const TIPOS_NOTA = ["Contado", "Credito", "Cancelada"];
 // `nota` es lo que se sugiere en el campo Notas (el descriptor corto que sale
 // en el Reporte Diario de Remisiones), independiente de cómo se llame la opción
@@ -25,6 +26,7 @@ const FORMAS_PAGO_PROVISIONAL = [
   { value: "CREDITO", label: "T. Crédito" },
   { value: "DEBITO", label: "T. Débito" },
   { value: "CHEQUE", label: "Cheque No." },
+  { value: "TRANSFERENCIA", label: "Transferencia" },
 ];
 
 function formatMoney(n) {
@@ -384,23 +386,23 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
               <div className="col-md-6">
                 <div className="mb-2">
                   <label className="form-label mb-0 fw-semibold">Tipo de Pago</label>
-                  <select
+                  <Dropdown
                     className={`form-select${tipoPagoInvalido ? " is-invalid border-danger" : ""}`}
                     value={tipoPago}
                     onChange={(e) => { setTipoPago(e.target.value); setTipoPagoInvalido(false); }}
                   >
-                    <option value="">Selecciona una opción...</option>
+                    <Dropdown.Option value="">Selecciona una opción...</Dropdown.Option>
                     {TIPOS_PAGO.map((t) => (
-                      <option
+                      <Dropdown.Option
                         key={t.value}
                         value={t.value}
                         disabled={t.value === "COMPLETO" && bloqueaFacturacion}
                         title={t.value === "COMPLETO" && bloqueaFacturacion ? "Bloqueado: la orden ya tiene una Remisión" : undefined}
                       >
                         {t.label}
-                      </option>
+                      </Dropdown.Option>
                     ))}
-                  </select>
+                  </Dropdown>
                   {tipoPagoInvalido && <small className="text-danger">Debes elegir un tipo de pago.</small>}
                 </div>
 
@@ -408,15 +410,15 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
                   <>
                     <div className="mb-2">
                       <label className="form-label mb-0 fw-semibold">Comprobante</label>
-                      <select
+                      <Dropdown
                         className={`form-select${comprobanteInvalido ? " is-invalid border-danger" : ""}`}
                         value={comprobante}
                         onChange={(e) => { setComprobante(e.target.value); setComprobanteInvalido(false); }}
                       >
-                        <option value="">Selecciona...</option>
-                        <option value="NOTA_VENTA">Nota de Venta</option>
-                        <option value="REMISION">Remisión</option>
-                      </select>
+                        <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                        <Dropdown.Option value="NOTA_VENTA">Nota de Venta</Dropdown.Option>
+                        <Dropdown.Option value="REMISION">Remisión</Dropdown.Option>
+                      </Dropdown>
                       {comprobanteInvalido && (
                         <small className="text-danger">Debes elegir un comprobante.</small>
                       )}
@@ -425,21 +427,21 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
                     {comprobante === "NOTA_VENTA" && (
                       <div className="row g-2 mb-2">
                         <div className="col-6">
-                          <label className="form-label mb-0">Banco</label>
-                          <select className="form-select" value={banco} onChange={(e) => setBanco(e.target.value)}>
-                            <option value="">Selecciona...</option>
+                          <label className="form-label mb-0">Banco / Forma de pago</label>
+                          <Dropdown className="form-select" value={banco} onChange={(e) => setBanco(e.target.value)}>
+                            <Dropdown.Option value="">Selecciona...</Dropdown.Option>
                             {BANCOS.map((b) => (
-                              <option key={b} value={b}>{b}</option>
+                              <Dropdown.Option key={b} value={b}>{b}</Dropdown.Option>
                             ))}
-                          </select>
+                          </Dropdown>
                         </div>
                         <div className="col-6">
                           <label className="form-label mb-0">Tipo</label>
-                          <select className="form-select" value={tipoNota} onChange={(e) => setTipoNota(e.target.value)}>
+                          <Dropdown className="form-select" value={tipoNota} onChange={(e) => setTipoNota(e.target.value)}>
                             {TIPOS_NOTA.map((t) => (
-                              <option key={t} value={t}>{t}</option>
+                              <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
                             ))}
-                          </select>
+                          </Dropdown>
                         </div>
                       </div>
                     )}
@@ -448,11 +450,11 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
                       <div className="row g-2 mb-2">
                         <div className="col-6">
                           <label className="form-label mb-0">Tipo</label>
-                          <select className="form-select" value={tipoRemision} onChange={(e) => setTipoRemision(e.target.value)}>
+                          <Dropdown className="form-select" value={tipoRemision} onChange={(e) => setTipoRemision(e.target.value)}>
                             {TIPOS_NOTA.map((t) => (
-                              <option key={t} value={t}>{t}</option>
+                              <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
                             ))}
-                          </select>
+                          </Dropdown>
                           <small className="text-muted">
                             La Fecha de Pagada se registra sola cuando la orden queda sin saldo pendiente.
                           </small>
@@ -514,11 +516,11 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
                       </div>
                       <div className="col-6">
                         <label className="form-label mb-0">Tipo de Pago</label>
-                        <select className="form-select" value={formaPago} onChange={(e) => setFormaPago(e.target.value)}>
+                        <Dropdown className="form-select" value={formaPago} onChange={(e) => setFormaPago(e.target.value)}>
                           {FORMAS_PAGO_PROVISIONAL.map((f) => (
-                            <option key={f.value} value={f.value}>{f.label}</option>
+                            <Dropdown.Option key={f.value} value={f.value}>{f.label}</Dropdown.Option>
                           ))}
-                        </select>
+                        </Dropdown>
                       </div>
                     </div>
 
@@ -743,15 +745,15 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
                   </div>
                   <div className="col-md-4">
                     <label className="form-label small fw-semibold">Estatus</label>
-                    <select
+                    <Dropdown
                       className="form-select"
                       value={estatusVale}
                       onChange={(e) => { setEstatusVale(e.target.value); setEstatusValeEditado(true); }}
                     >
                       {ESTATUS_VALE_OPCIONES.map((op) => (
-                        <option key={op} value={op}>{op}</option>
+                        <Dropdown.Option key={op} value={op}>{op}</Dropdown.Option>
                       ))}
-                    </select>
+                    </Dropdown>
                     <small className="text-muted">Se sugiere solo según el Tipo del comprobante; puedes cambiarla.</small>
                   </div>
                   <div className="col-12">

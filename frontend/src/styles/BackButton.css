@@ -1,0 +1,36 @@
+/* Botón "Regresar" — solo visible en móvil.
+   - max-width: 900px cubre el modo retrato (mismo breakpoint que el sidebar).
+   - max-height: 500px cubre teléfonos en horizontal, donde el ancho suele
+     superar 900px pero la altura del viewport se mantiene baja. */
+.back-button {
+  display: none;
+}
+
+@media (max-width: 900px), (max-height: 500px) {
+  .back-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    width: 52px;
+    height: 52px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    z-index: 30;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+  }
+
+  .back-button:active {
+    filter: brightness(0.9);
+  }
+
+  .back-button__arrow {
+    font-size: 26px;
+    line-height: 1;
+  }
+}

@@ -81,6 +81,7 @@ async function getOrCreateConfig() {
       nombre: "EMISOR",
       regimenFiscal: "601",
       lugarExpedicion: "00000",
+      telefono: "",
       serie: "",
       folioInterno: "",
       noCertificado: "",
@@ -118,11 +119,12 @@ router.post("/", async (req, res) => {
   try {
     const cfg = await getOrCreateConfig();
 
-    const { rfc, nombre, regimenFiscal, lugarExpedicion, serie, folioInterno } = req.body || {};
+    const { rfc, nombre, regimenFiscal, lugarExpedicion, telefono, serie, folioInterno } = req.body || {};
     cfg.rfc = (rfc || "").trim().toUpperCase();
     cfg.nombre = (nombre || "").trim().toUpperCase();
     cfg.regimenFiscal = (regimenFiscal || "").trim();
     cfg.lugarExpedicion = (lugarExpedicion || "").trim();
+    cfg.telefono = (telefono || "").trim();
     cfg.serie = (serie || "").trim();
     cfg.folioInterno = (folioInterno || "").trim();
 

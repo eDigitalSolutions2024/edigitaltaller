@@ -3,7 +3,7 @@ const router = express.Router();
 const GarageVehiculo = require('../models/GarageVehiculo');
 const Vehiculo = require('../models/Vehiculo');
 
-const POPULATE_CLIENTES = 'nombre apellidoPaterno tipoCliente empresa gobierno';
+const POPULATE_CLIENTES = 'nombre apellidoPaterno tipoCliente empresa gobierno esEmpleado';
 
 // GET /api/garage — listar todos los vehículos del garaje
 // Siempre calcula el conteo real de órdenes cerradas por serie.

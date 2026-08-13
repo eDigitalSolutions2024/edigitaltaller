@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Dropdown from '../../../components/Dropdown';
 import PeriodoSelector from '../../captura/PeriodoSelector';
 import { getReporteRhCxC, openReporteRhCxCPdf } from '../../../api/reportes';
 import { listarEmpleados } from '../../../api/empleados';
@@ -62,16 +63,16 @@ export default function ReporteRhCxC() {
 
       <div className="mb-3" style={{ maxWidth: 280 }}>
         <label className="form-label mb-1 fw-semibold small">Mecánico</label>
-        <select
-          className="form-select form-select-sm"
+        <Dropdown
+          className="form-select-sm"
           value={mecanico}
           onChange={handleMecanicoChange}
         >
-          <option value="">Todos los mecánicos</option>
+          <Dropdown.Option value="">Todos los mecánicos</Dropdown.Option>
           {mecanicos.map((m) => (
-            <option key={m._id} value={m._id}>{m.nombre}</option>
+            <Dropdown.Option key={m._id} value={m._id}>{m.nombre}</Dropdown.Option>
           ))}
-        </select>
+        </Dropdown>
       </div>
 
       {error && <div className="alert alert-danger py-2">{error}</div>}

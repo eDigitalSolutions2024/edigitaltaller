@@ -252,6 +252,9 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
             <div className="mb-2">
               <small className="text-muted">
                 Órdenes cerradas de <strong>{nombreCliente(cliente)}</strong>
+                {cliente?.esEmpleado && (
+                  <span className="badge bg-warning text-dark ms-1">Empleado</span>
+                )}
                 {cargandoOrdenes ? " — cargando..." : ` (${listaMostrada.length})`}
               </small>
             </div>
@@ -310,6 +313,9 @@ export default function GarantiaModal({ show, cliente, onSolicitar, onClose }) {
                 </div>
                 <div className="small">
                   {nombreCliente(ordenAnterior.cliente)}
+                  {ordenAnterior.cliente?.esEmpleado && (
+                    <span className="badge bg-warning text-dark ms-1">Empleado</span>
+                  )}
                   {" · "}
                   {descVehiculo(ordenAnterior)}
                   {ordenAnterior.placas ? ` · Placas: ${ordenAnterior.placas}` : ""}

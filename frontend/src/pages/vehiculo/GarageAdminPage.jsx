@@ -214,6 +214,9 @@ export default function GarageAdminPage() {
                               style={{ fontSize: "0.88rem" }}
                             >
                               {getNombreCliente(c)}
+                              {c.esEmpleado && (
+                                <span className="badge bg-warning text-dark ms-1">Empleado</span>
+                              )}
                             </li>
                           ))}
                         </ul>
@@ -240,6 +243,9 @@ export default function GarageAdminPage() {
                                 {o.cliente && (
                                   <span className="text-muted ms-2">
                                     — {getNombreCliente(o.cliente)}
+                                    {o.cliente?.esEmpleado && (
+                                      <span className="badge bg-warning text-dark ms-1">Empleado</span>
+                                    )}
                                   </span>
                                 )}
                                 <div className="text-muted" style={{ fontSize: "0.78rem" }}>

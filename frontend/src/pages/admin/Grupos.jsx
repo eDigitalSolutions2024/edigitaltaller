@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import Dropdown from '../../components/Dropdown';
 import { getUsers } from '../../api/users';
 import { listarGrupos, crearGrupo, actualizarGrupo, cambiarEstadoGrupo } from '../../api/grupos';
 
@@ -160,14 +161,14 @@ export default function Grupos() {
               </div>
               <div className="col-md-4">
                 <label className="form-label">Rol <span className="text-danger">*</span></label>
-                <select
+                <Dropdown
                   className="form-select"
                   value={form.rol}
                   onChange={e => setForm(f => ({ ...f, rol: e.target.value, miembros: [] }))}
                 >
-                  <option value="">Selecciona un rol…</option>
-                  {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-                </select>
+                  <Dropdown.Option value="">Selecciona un rol…</Dropdown.Option>
+                  {ROLES.map(r => <Dropdown.Option key={r.value} value={r.value}>{r.label}</Dropdown.Option>)}
+                </Dropdown>
                 <div className="form-text">Solo se puede agrupar personal del mismo rol.</div>
               </div>
             </div>
@@ -220,11 +221,11 @@ export default function Grupos() {
         <div className="card-body">
           <div className="row g-2 mb-3 align-items-center">
             <div className="col-auto">
-              <select className="form-select form-select-sm" value={filtroActivo} onChange={e => setFiltroActivo(e.target.value)}>
-                <option value="activos">Solo activos</option>
-                <option value="inactivos">Solo inactivos</option>
-                <option value="todos">Todos los estados</option>
-              </select>
+              <Dropdown className="form-select-sm" value={filtroActivo} onChange={e => setFiltroActivo(e.target.value)}>
+                <Dropdown.Option value="activos">Solo activos</Dropdown.Option>
+                <Dropdown.Option value="inactivos">Solo inactivos</Dropdown.Option>
+                <Dropdown.Option value="todos">Todos los estados</Dropdown.Option>
+              </Dropdown>
             </div>
             <div className="col-auto ms-auto text-muted small">
               {listaFiltrada.length} grupo{listaFiltrada.length !== 1 ? 's' : ''}

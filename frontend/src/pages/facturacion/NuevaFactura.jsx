@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import Dropdown from "../../components/Dropdown";
 import { listOrdenesServicio, getVehiculoById } from "../../api/vehiculos";
 import { updateCustomer } from "../../api/customers";
 import { listConceptosPreset } from "../../api/conceptosPreset";
@@ -118,6 +119,22 @@ const CONCEPTO_VACIO = {
   valorUnitario: "",
 };
 
+// RFC/Régimen/CP alimentan el atributo DomicilioFiscalReceptor del CFDI; la
+// calle/colonia/ciudad/estado no las exige el SAT en el XML pero sí aparecen
+// impresas en el PDF de la factura (formatDireccion en el backend), así que
+// también se piden aquí si faltan.
+const FISCAL_DRAFT_VACIO = {
+  rfc: "",
+  regimenFiscal: "",
+  codigoPostalFiscal: "",
+  calle: "",
+  numeroExterior: "",
+  numeroInterior: "",
+  colonia: "",
+  ciudad: "",
+  estado: "",
+};
+
 function money(n) {
   const x = Number(n || 0);
   return x.toLocaleString("es-MX", { style: "currency", currency: "MXN" });
@@ -157,20 +174,20 @@ function SelectClaveUnidad({ value, disabled, onChange, opciones, size = "", pla
   const fueraDeCatalogo = value && !opciones.some((u) => u.clave === value);
 
   return (
-    <select
+    <Dropdown
       className={`form-select ${size}`}
       value={value || ""}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
     >
-      {placeholder && <option value="">{placeholder}</option>}
-      {fueraDeCatalogo && <option value={value}>{value}</option>}
+      {placeholder && <Dropdown.Option value="">{placeholder}</Dropdown.Option>}
+      {fueraDeCatalogo && <Dropdown.Option value={value}>{value}</Dropdown.Option>}
       {opciones.map((u) => (
-        <option key={u._id || u.clave} value={u.clave}>
+        <Dropdown.Option key={u._id || u.clave} value={u.clave}>
           {u.clave} - {u.descripcion}
-        </option>
+        </Dropdown.Option>
       ))}
-    </select>
+    </Dropdown>
   );
 }
 
@@ -180,20 +197,20 @@ function SelectCProdServ({ value, disabled, onChange, opciones, size = "", place
   const fueraDeCatalogo = value && !opciones.some((p) => p.cProdServ === value);
 
   return (
-    <select
+    <Dropdown
       className={`form-select ${size}`}
       value={value || ""}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
     >
-      {placeholder && <option value="">{placeholder}</option>}
-      {fueraDeCatalogo && <option value={value}>{value}</option>}
+      {placeholder && <Dropdown.Option value="">{placeholder}</Dropdown.Option>}
+      {fueraDeCatalogo && <Dropdown.Option value={value}>{value}</Dropdown.Option>}
       {opciones.map((p) => (
-        <option key={p._id || p.cProdServ} value={p.cProdServ}>
+        <Dropdown.Option key={p._id || p.cProdServ} value={p.cProdServ}>
           {p.cProdServ} - {p.descripcion}
-        </option>
+        </Dropdown.Option>
       ))}
-    </select>
+    </Dropdown>
   );
 }
 
@@ -228,11 +245,7 @@ export default function NuevaFactura() {
   const [ordenes, setOrdenes] = useState([]);
   const [cliente, setCliente] = useState(null);
 
-  const [fiscalDraft, setFiscalDraft] = useState({
-    rfc: "",
-    regimenFiscal: "",
-    codigoPostalFiscal: "",
-  });
+  const [fiscalDraft, setFiscalDraft] = useState(FISCAL_DRAFT_VACIO);
   const [guardandoFiscal, setGuardandoFiscal] = useState(false);
   const [cancelandoPagoId, setCancelandoPagoId] = useState(null);
 
@@ -274,7 +287,7 @@ export default function NuevaFactura() {
     setShowOrdenes(false);
     setOptsOrdenes([]);
     setOrdenDesglosada("");
-    setFiscalDraft({ rfc: "", regimenFiscal: "", codigoPostalFiscal: "" });
+    setFiscalDraft(FISCAL_DRAFT_VACIO);
 
     setQFactura("");
     setOptsFacturas([]);
@@ -373,7 +386,19 @@ export default function NuevaFactura() {
           tipo: "factura",
           limit: 10,
         });
-        setOptsFacturas(res.data?.docs || []);
+
+        // Ya agregadas: no deben volver a aparecer en la búsqueda.
+        // Distinto cliente: una NC/complemento no puede mezclar receptores,
+        // así que en cuanto hay una factura elegida se acota por su RFC.
+        const facturasAgregadas = esNotaCredito ? facturasNC : facturasPago.map((f) => f.doc);
+        const yaAgregadas = new Set(facturasAgregadas.map((f) => f._id));
+        const rfcBase = facturasAgregadas[0]?.cliente?.rfc;
+
+        const docs = (res.data?.docs || []).filter(
+          (d) => !yaAgregadas.has(d._id) && (!rfcBase || d.cliente?.rfc === rfcBase)
+        );
+
+        setOptsFacturas(docs);
         setShowFacturas(true);
       } catch (e) {
         setOptsFacturas([]);
@@ -383,7 +408,20 @@ export default function NuevaFactura() {
     }, 300);
 
     return () => clearTimeout(t);
-  }, [qFactura, esNotaCredito, esComplementoPago]); // eslint-disable-line
+  }, [qFactura, esNotaCredito, esComplementoPago, facturasNC, facturasPago]); // eslint-disable-line
+
+  const direccionFiscalDeCliente = (c) => {
+    const d = c?.facturacion?.direccion || c?.direccion || {};
+    return {
+      calle: d.calle || "",
+      numeroExterior: d.numeroExterior || "",
+      numeroInterior: d.numeroInterior || "",
+      colonia: d.colonia || "",
+      codigoPostal: d.codigoPostal || "",
+      ciudad: d.ciudad || "",
+      estado: d.estado || "",
+    };
+  };
 
   const datosFiscalesDeCliente = (c) =>
     c
@@ -395,6 +433,8 @@ export default function NuevaFactura() {
           regimenFiscal: c.regimenFiscal || c.facturacion?.regimenFiscal || "",
           codigoPostalFiscal:
             c.codigoPostalFiscal || c.facturacion?.direccion?.codigoPostal || "",
+          direccion: direccionFiscalDeCliente(c),
+          pais: c.pais || "",
         }
       : null;
 
@@ -449,6 +489,12 @@ export default function NuevaFactura() {
           rfc: clienteOrden?.rfc || "",
           regimenFiscal: clienteOrden?.regimenFiscal || "",
           codigoPostalFiscal: clienteOrden?.codigoPostalFiscal || "",
+          calle: clienteOrden?.direccion?.calle || "",
+          numeroExterior: clienteOrden?.direccion?.numeroExterior || "",
+          numeroInterior: clienteOrden?.direccion?.numeroInterior || "",
+          colonia: clienteOrden?.direccion?.colonia || "",
+          ciudad: clienteOrden?.direccion?.ciudad || "",
+          estado: clienteOrden?.direccion?.estado || "",
         });
 
         // El IVA del CFDI arranca con el mismo que se le cobró en la orden
@@ -472,7 +518,7 @@ export default function NuevaFactura() {
     if (ordenDesglosada === id) setOrdenDesglosada("");
     if (!restantes.length) {
       setCliente(null);
-      setFiscalDraft({ rfc: "", regimenFiscal: "", codigoPostalFiscal: "" });
+      setFiscalDraft(FISCAL_DRAFT_VACIO);
     }
 
     // Se retiran también los conceptos que se auto-cargaron desde esta orden.
@@ -602,13 +648,19 @@ export default function NuevaFactura() {
       rfc: base.cliente?.rfc || "",
       regimenFiscal: base.cliente?.regimenFiscal || "",
       codigoPostalFiscal: base.cliente?.codigoPostalFiscal || "",
+      direccion: base.cliente?.direccion || {},
+      pais: base.cliente?.pais || "",
     };
   }, [esFactura, esNotaCredito, cliente, facturasNC, facturasPago]);
 
   const faltanFiscales = useMemo(() => {
     if (!esFactura) return false;
     if (!cliente) return true;
-    return !cliente.rfc || !cliente.regimenFiscal || !cliente.codigoPostalFiscal;
+    if (!cliente.rfc || !cliente.regimenFiscal || !cliente.codigoPostalFiscal) return true;
+    // Número interior es opcional (no todos los domicilios lo tienen); el resto
+    // de la dirección fiscal sí se exige porque se imprime en el PDF de la factura.
+    const d = cliente.direccion || {};
+    return !d.calle || !d.numeroExterior || !d.colonia || !d.ciudad || !d.estado;
   }, [esFactura, cliente]);
 
   const pasoBaseOk = useMemo(() => {
@@ -624,24 +676,35 @@ export default function NuevaFactura() {
     const rfc = String(fiscalDraft.rfc || "").trim().toUpperCase();
     const regimenFiscal = String(fiscalDraft.regimenFiscal || "").trim();
     const codigoPostalFiscal = String(fiscalDraft.codigoPostalFiscal || "").trim();
+    const calle = String(fiscalDraft.calle || "").trim();
+    const numeroExterior = String(fiscalDraft.numeroExterior || "").trim();
+    const numeroInterior = String(fiscalDraft.numeroInterior || "").trim();
+    const colonia = String(fiscalDraft.colonia || "").trim();
+    const ciudad = String(fiscalDraft.ciudad || "").trim();
+    const estado = String(fiscalDraft.estado || "").trim();
 
-    if (!rfc || !regimenFiscal || !codigoPostalFiscal) {
-      return alert("Completa RFC, régimen fiscal y CP fiscal.");
+    if (!rfc || !regimenFiscal || !codigoPostalFiscal || !calle || !numeroExterior || !colonia || !ciudad || !estado) {
+      return alert(
+        "Completa RFC, régimen fiscal, CP fiscal y la dirección fiscal (calle, número exterior, colonia, ciudad y estado)."
+      );
     }
+
+    const direccion = { calle, numeroExterior, numeroInterior, colonia, codigoPostal: codigoPostalFiscal, ciudad, estado };
 
     setGuardandoFiscal(true);
     try {
       // requiereFacturacion deja los datos visibles y editables en el alta de
       // clientes; sin él, esa pantalla oculta la sección y su siguiente guardado
       // borraría el RFC que se acaba de capturar aquí. El backend se encarga de
-      // reflejar régimen y CP también dentro de `facturacion`.
+      // reflejar régimen, CP y dirección también dentro de `facturacion`.
       await updateCustomer(cliente._id, {
         rfc,
         regimenFiscal,
         codigoPostalFiscal,
+        direccion,
         requiereFacturacion: true,
       });
-      setCliente((p) => ({ ...p, rfc, regimenFiscal, codigoPostalFiscal }));
+      setCliente((p) => ({ ...p, rfc, regimenFiscal, codigoPostalFiscal, direccion }));
     } catch (e) {
       alert(
         e?.response?.data?.error || "No se pudo guardar la información fiscal del cliente."
@@ -1531,20 +1594,20 @@ export default function NuevaFactura() {
                     </div>
                     <div className="col-12 col-md-4">
                       <label className="form-label small mb-1">Régimen fiscal</label>
-                      <select
-                        className="form-select form-select-sm"
+                      <Dropdown
+                        className="form-select-sm"
                         value={fiscalDraft.regimenFiscal}
                         onChange={(e) =>
                           setFiscalDraft((p) => ({ ...p, regimenFiscal: e.target.value }))
                         }
                       >
-                        <option value="">-- Seleccionar --</option>
+                        <Dropdown.Option value="">-- Seleccionar --</Dropdown.Option>
                         {REGIMEN_FISCAL_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>
+                          <Dropdown.Option key={o.value} value={o.value}>
                             {o.label}
-                          </option>
+                          </Dropdown.Option>
                         ))}
-                      </select>
+                      </Dropdown>
                     </div>
                     <div className="col-12 col-md-4">
                       <label className="form-label small mb-1">CP fiscal</label>
@@ -1554,6 +1617,61 @@ export default function NuevaFactura() {
                         onChange={(e) =>
                           setFiscalDraft((p) => ({ ...p, codigoPostalFiscal: e.target.value }))
                         }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="row g-2 mt-1">
+                    <div className="col-12 col-md-5">
+                      <label className="form-label small mb-1">Calle</label>
+                      <input
+                        className="form-control form-control-sm"
+                        value={fiscalDraft.calle}
+                        onChange={(e) => setFiscalDraft((p) => ({ ...p, calle: e.target.value }))}
+                      />
+                    </div>
+                    <div className="col-6 col-md-2">
+                      <label className="form-label small mb-1">Núm. exterior</label>
+                      <input
+                        className="form-control form-control-sm"
+                        value={fiscalDraft.numeroExterior}
+                        onChange={(e) =>
+                          setFiscalDraft((p) => ({ ...p, numeroExterior: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="col-6 col-md-2">
+                      <label className="form-label small mb-1">Núm. interior</label>
+                      <input
+                        className="form-control form-control-sm"
+                        value={fiscalDraft.numeroInterior}
+                        onChange={(e) =>
+                          setFiscalDraft((p) => ({ ...p, numeroInterior: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="col-12 col-md-3">
+                      <label className="form-label small mb-1">Colonia</label>
+                      <input
+                        className="form-control form-control-sm"
+                        value={fiscalDraft.colonia}
+                        onChange={(e) => setFiscalDraft((p) => ({ ...p, colonia: e.target.value }))}
+                      />
+                    </div>
+                    <div className="col-6 col-md-3">
+                      <label className="form-label small mb-1">Ciudad</label>
+                      <input
+                        className="form-control form-control-sm"
+                        value={fiscalDraft.ciudad}
+                        onChange={(e) => setFiscalDraft((p) => ({ ...p, ciudad: e.target.value }))}
+                      />
+                    </div>
+                    <div className="col-6 col-md-3">
+                      <label className="form-label small mb-1">Estado</label>
+                      <input
+                        className="form-control form-control-sm"
+                        value={fiscalDraft.estado}
+                        onChange={(e) => setFiscalDraft((p) => ({ ...p, estado: e.target.value }))}
                       />
                     </div>
                   </div>
@@ -2054,18 +2172,18 @@ export default function NuevaFactura() {
 
                 <div className="col-12 col-md-5">
                   <label className="form-label">Forma de pago</label>
-                  <select
+                  <Dropdown
                     className="form-select"
                     value={formaPago}
                     disabled={disabledSteps}
                     onChange={(e) => setFormaPago(e.target.value)}
                   >
                     {FORMA_PAGO.map((x) => (
-                      <option key={x.value} value={x.value}>
+                      <Dropdown.Option key={x.value} value={x.value}>
                         {x.label}
-                      </option>
+                      </Dropdown.Option>
                     ))}
-                  </select>
+                  </Dropdown>
                 </div>
 
                 <div className="col-12 col-md-2">
@@ -2093,47 +2211,47 @@ export default function NuevaFactura() {
               <>
                 <div className="col-12 col-md-5">
                   <label className="form-label">Uso CFDI</label>
-                  <select
+                  <Dropdown
                     className="form-select"
                     value={usoCfdi}
                     disabled={disabledSteps}
                     onChange={(e) => setUsoCfdi(e.target.value)}
                   >
                     {USO_CFDI.map((x) => (
-                      <option key={x.value} value={x.value}>
+                      <Dropdown.Option key={x.value} value={x.value}>
                         {x.label}
-                      </option>
+                      </Dropdown.Option>
                     ))}
-                  </select>
+                  </Dropdown>
                 </div>
 
                 <div className="col-12 col-md-2">
                   <label className="form-label">IVA</label>
-                  <select
+                  <Dropdown
                     className="form-select"
                     value={ivaRate}
                     disabled={disabledSteps}
                     onChange={(e) => setIvaRate(Number(e.target.value))}
                   >
                     {IVA_OPTS.map((x) => (
-                      <option key={String(x.value)} value={x.value}>
+                      <Dropdown.Option key={String(x.value)} value={x.value}>
                         {x.label}
-                      </option>
+                      </Dropdown.Option>
                     ))}
-                  </select>
+                  </Dropdown>
                 </div>
 
                 <div className="col-12 col-md-2">
                   <label className="form-label">Moneda</label>
-                  <select
+                  <Dropdown
                     className="form-select"
                     value={moneda}
                     disabled={disabledSteps}
                     onChange={(e) => setMoneda(e.target.value)}
                   >
-                    <option value="MXN">MXN</option>
-                    <option value="USD">USD</option>
-                  </select>
+                    <Dropdown.Option value="MXN">MXN</Dropdown.Option>
+                    <Dropdown.Option value="USD">USD</Dropdown.Option>
+                  </Dropdown>
                 </div>
 
                 <div className="col-12 col-md-3">
@@ -2155,34 +2273,34 @@ export default function NuevaFactura() {
 
                 <div className="col-12 col-md-4">
                   <label className="form-label">Método de pago</label>
-                  <select
+                  <Dropdown
                     className="form-select"
                     value={metodoPago}
                     disabled={disabledSteps}
                     onChange={(e) => setMetodoPago(e.target.value)}
                   >
                     {METODO_PAGO.map((x) => (
-                      <option key={x.value} value={x.value}>
+                      <Dropdown.Option key={x.value} value={x.value}>
                         {x.label}
-                      </option>
+                      </Dropdown.Option>
                     ))}
-                  </select>
+                  </Dropdown>
                 </div>
 
                 <div className="col-12 col-md-4">
                   <label className="form-label">Forma de pago</label>
-                  <select
+                  <Dropdown
                     className="form-select"
                     value={formaPago}
                     disabled={disabledSteps}
                     onChange={(e) => setFormaPago(e.target.value)}
                   >
                     {FORMA_PAGO.map((x) => (
-                      <option key={x.value} value={x.value}>
+                      <Dropdown.Option key={x.value} value={x.value}>
                         {x.label}
-                      </option>
+                      </Dropdown.Option>
                     ))}
-                  </select>
+                  </Dropdown>
                 </div>
 
                 <div className="col-12 col-md-4">

@@ -11,7 +11,7 @@ const { registrarMovimientoTerminal } = require('../utils/cierreCajaTerminales')
 const { generarComprobanteCajaPDF } = require('../service/cajaComprobantePdf');
 const { generarReciboProvisionalPDF, generarReciboDolaresPDF } = require('../service/cajaRecibosPdf');
 
-const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares emails rfc direccion asesorResponsable';
+const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares emails rfc direccion asesorResponsable esEmpleado';
 const POPULATE_GRUPO = { path: 'grupoId', select: 'nombre miembros', populate: { path: 'miembros', select: 'name' } };
 const CONTADOR_NOTA_VENTA = 'notaVenta';
 const CONTADOR_REMISION = 'remision';

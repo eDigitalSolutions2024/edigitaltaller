@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import Dropdown from "../../components/Dropdown";
 import { listOrdenesServicio } from "../../api/vehiculos";
 import { getMisGrupos } from "../../api/grupos";
 import { useNavigate } from "react-router-dom";
@@ -141,7 +142,7 @@ export default function VehiculosConsultaOrdenes() {
       setGlobalError("");
       setGlobalSearched(true);
       const res = await listOrdenesServicio({
-        searchOs: globalOs.trim(),
+        search: globalOs.trim(),
         page: 1,
         limit: 50,
       });
@@ -173,12 +174,12 @@ export default function VehiculosConsultaOrdenes() {
           <form className="row g-2 align-items-end" onSubmit={handleGlobalSearch}>
             <div className="col-md-6">
               <label className="form-label mb-0 fw-bold">
-                Búsqueda General por Orden de Servicio
+                Búsqueda General por Orden de Servicio o Cliente
               </label>
               <input
                 type="text"
                 className="form-control"
-                placeholder="Ej. OS001"
+                placeholder="Ej. OS001 o nombre del cliente"
                 value={globalOs}
                 onChange={(e) => setGlobalOs(e.target.value)}
               />
@@ -230,6 +231,9 @@ export default function VehiculosConsultaOrdenes() {
                             .filter(Boolean)
                             .join(" ") ||
                           "-"}
+                        {r.cliente?.esEmpleado && (
+                          <div><span className="badge bg-warning text-dark">Empleado</span></div>
+                        )}
                       </td>
                       <td>
                         {(r.marca || "") + (r.modelo ? " / " + r.modelo : "") ||
@@ -292,13 +296,13 @@ export default function VehiculosConsultaOrdenes() {
 
             <div className="col-md-2">
               <label className="form-label mb-0">Mostrar</label>
-              <select
+              <Dropdown
                 className="form-select"
                 value={limit}
                 disabled
               >
-                <option value={10}>10 entries</option>
-              </select>
+                <Dropdown.Option value={10}>10 entries</Dropdown.Option>
+              </Dropdown>
             </div>
 
             <div className="col-md-4">
@@ -389,6 +393,9 @@ export default function VehiculosConsultaOrdenes() {
                 .join(" ")
             : r.cliente?.nombre) ||
           "-"}
+        {r.cliente?.esEmpleado && (
+          <div><span className="badge bg-warning text-dark">Empleado</span></div>
+        )}
       </td>
       <td>
         {(r.marca || "") + (r.modelo ? " / " + r.modelo : "") || "-"}

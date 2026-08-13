@@ -21,10 +21,14 @@ export default function OrdenServicioTicketLink({ ticket }) {
 
   // RESTABLECER_COBRO manda a Cajas (con la orden ya cargada) en vez de a la
   // orden en sí: ahí es donde el admin ve el historial de pagos y cancela el
-  // abono/anticipo/remisión/nota de venta puntual.
+  // abono/anticipo/remisión/nota de venta puntual. GARANTIA_NO_APLICA manda a
+  // Solicitudes de Garantía con esa fila resaltada, para aprobar/cancelar la
+  // garantía desde ahí (ver SolicitudesGarantia).
   const destino =
     ticket.tipoProblema === 'RESTABLECER_COBRO'
       ? `/cajas/orden/${orden._id}`
+      : ticket.tipoProblema === 'GARANTIA_NO_APLICA'
+      ? `/garantias?highlight=${orden._id}`
       : `/vehiculo/orden/${orden._id}?tab=general`;
 
   const link = (

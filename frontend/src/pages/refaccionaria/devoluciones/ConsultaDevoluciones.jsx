@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import Dropdown from "../../../components/Dropdown";
 import {
   getDevolucionesRefaccion,
   openDevolucionRefaccionPdf,
@@ -100,17 +101,17 @@ export default function ConsultaDevoluciones() {
             </div>
             <div className="col-md-3">
               <label className="form-label">Devolución por</label>
-              <select
+              <Dropdown
                 className="form-select"
                 name="tipo"
                 value={filtros.tipo}
                 onChange={onFiltro}
               >
-                <option value="">Todas</option>
-                <option value="DINERO">Dinero</option>
-                <option value="PIEZA">Pieza x Pieza</option>
-                <option value="VALE">Vale</option>
-              </select>
+                <Dropdown.Option value="">Todas</Dropdown.Option>
+                <Dropdown.Option value="DINERO">Dinero</Dropdown.Option>
+                <Dropdown.Option value="PIEZA">Pieza x Pieza</Dropdown.Option>
+                <Dropdown.Option value="VALE">Vale</Dropdown.Option>
+              </Dropdown>
             </div>
             <div className="col-md-2">
               <label className="form-label">Desde</label>

@@ -278,7 +278,7 @@ function buildHtml(vehiculo, asesorOverride = '', formato = 'operativo') {
 <style>
   * { box-sizing: border-box; font-family: Arial, sans-serif; }
   body { margin: 0; padding: 0; font-size: 10px; color: #000; }
-  .page3 { width: 210mm; padding: 10mm 12mm; margin: 0 auto; }
+  .page3 { width: 210mm; padding: 14mm 16mm; margin: 0 auto; }
   table { border-collapse: collapse; width: 100%; }
   th, td { border: 0.5px solid #000; padding: 2px 3px; vertical-align: middle; }
 ${WATERMARK_CSS}
@@ -401,9 +401,9 @@ ${buildPaginaResumen(vehiculo, fechaRecepcion)}
 <style>
   * { box-sizing: border-box; font-family: Arial, sans-serif; }
   body { margin: 0; padding: 0; font-size: 10px; color: #000; }
-  .page  { width: 210mm; padding: 4mm 5mm; margin: 0 auto; }
-  .page2 { width: 210mm; padding: 8mm 10mm; margin: 0 auto; page-break-before: always; }
-  .page3 { width: 210mm; padding: 10mm 12mm; margin: 0 auto; page-break-before: always; }
+  .page  { width: 210mm; padding: 8mm 9mm; margin: 0 auto; }
+  .page2 { width: 210mm; padding: 12mm 14mm; margin: 0 auto; page-break-before: always; }
+  .page3 { width: 210mm; padding: 14mm 16mm; margin: 0 auto; page-break-before: always; }
   table { border-collapse: collapse; width: 100%; }
   th, td { border: 0.5px solid #000; padding: 2px 3px; vertical-align: middle; }
   .nb td, .nb th { border: none; padding: 1px 2px; }
@@ -797,7 +797,10 @@ async function streamVehiculoOperativoPdf(res, vehiculo, papel = 'a4', asesorOve
   const pdfBuffer = await page.pdf({
     format: pdfFormat,
     printBackground: true,
-    margin: { top: '4mm', bottom: '4mm', left: '4mm', right: '4mm' },
+    // Sin margen: el contenido ya trae su propio padding (ver .page/.page2/
+    // .page3 arriba). Así la marca de agua, que se mide en vw/vh, puede
+    // cubrir la hoja completa sin que el margen de impresión la recorte.
+    margin: { top: 0, bottom: 0, left: 0, right: 0 },
   });
 
   await browser.close();

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import Dropdown from '../../../components/Dropdown';
 import { TERMINALES, calcularTotalesCierre } from '../../../utils/cierreCajaTotales';
 import { openNotaVentaPdf, openRemisionPdf, openReciboProvisionalPdf } from '../../../api/cajas';
 import { openValePdf } from '../../../api/vales';
@@ -242,15 +243,15 @@ export default function CierreCajaResumen({ cierre, accionesCierre }) {
         <div className="card mb-3">
           <div className="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
             <span className="fw-bold">Comprobantes y Vales de Salida</span>
-            <select
-              className="form-select form-select-sm w-auto"
+            <Dropdown
+              className="form-select-sm w-auto"
               value={filtroTipo}
               onChange={(e) => setFiltroTipo(e.target.value)}
             >
               {TIPOS_FILTRO.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
+                <Dropdown.Option key={t.value} value={t.value}>{t.label}</Dropdown.Option>
               ))}
-            </select>
+            </Dropdown>
           </div>
           <div className="table-responsive">
             <table className="table table-sm mb-0">

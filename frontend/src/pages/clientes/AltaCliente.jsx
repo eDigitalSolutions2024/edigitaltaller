@@ -1,6 +1,7 @@
 // src/pages/clientes/AltaCliente.jsx
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import Dropdown from "../../components/Dropdown";
 import { createCustomer, getCustomer, updateCustomer } from "../../api/customers";
 import { getAsesores } from "../../api/users";
 import { getUser } from "../../auth";
@@ -74,6 +75,7 @@ const initial = {
   condicionesPago: "",
   observaciones: "",
   requiereFacturacion: false,
+  esEmpleado: false,
   pais: "México",
 
   // EMPRESA (Privada/Arrendadora)
@@ -401,13 +403,13 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
       <div className="form-grid">
         <div className="form-row">
           <label>Tipo de Cliente</label>
-          <select value={form.tipoCliente} onChange={onTipoChange}>
+          <Dropdown value={form.tipoCliente} onChange={onTipoChange}>
             {CLIENT_TYPES.map((t) => (
-              <option key={t} value={t}>
+              <Dropdown.Option key={t} value={t}>
                 {t}
-              </option>
+              </Dropdown.Option>
             ))}
-          </select>
+          </Dropdown>
         </div>
       </div>
 
@@ -554,13 +556,13 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
 
           <div className="form-row">
             <label>País</label>
-            <select
+            <Dropdown
               value={form.pais ?? "México"}
               onChange={(e) => upd("pais", e.target.value)}
             >
-              <option value="México">México</option>
-              <option value="Estados Unidos">Estados Unidos</option>
-            </select>
+              <Dropdown.Option value="México">México</Dropdown.Option>
+              <Dropdown.Option value="Estados Unidos">Estados Unidos</Dropdown.Option>
+            </Dropdown>
           </div>
 
         </div>
@@ -638,13 +640,13 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
 
             <div className="form-row">
               <label>País</label>
-              <select
+              <Dropdown
                 value={form.pais ?? "México"}
                 onChange={(e) => upd("pais", e.target.value)}
               >
-                <option value="México">México</option>
-                <option value="Estados Unidos">Estados Unidos</option>
-              </select>
+                <Dropdown.Option value="México">México</Dropdown.Option>
+                <Dropdown.Option value="Estados Unidos">Estados Unidos</Dropdown.Option>
+              </Dropdown>
             </div>
 
           </div>
@@ -743,13 +745,13 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
 
             <div className="form-row">
               <label>País</label>
-              <select
+              <Dropdown
                 value={form.pais ?? "México"}
                 onChange={(e) => upd("pais", e.target.value)}
               >
-                <option value="México">México</option>
-                <option value="Estados Unidos">Estados Unidos</option>
-              </select>
+                <Dropdown.Option value="México">México</Dropdown.Option>
+                <Dropdown.Option value="Estados Unidos">Estados Unidos</Dropdown.Option>
+              </Dropdown>
             </div>
 
             
@@ -859,13 +861,13 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
 
             <div className="form-row">
               <label>País</label>
-              <select
+              <Dropdown
                 value={form.pais ?? "México"}
                 onChange={(e) => upd("pais", e.target.value)}
               >
-                <option value="México">México</option>
-                <option value="Estados Unidos">Estados Unidos</option>
-              </select>
+                <Dropdown.Option value="México">México</Dropdown.Option>
+                <Dropdown.Option value="Estados Unidos">Estados Unidos</Dropdown.Option>
+              </Dropdown>
             </div>
 
           </div>
@@ -953,6 +955,18 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
         </>
       )}
 
+      {/* ===== Empleado ===== */}
+      <div className="facturacion-toggle">
+        <label className="checkbox-inline">
+          <input
+            type="checkbox"
+            checked={form.esEmpleado || false}
+            onChange={(e) => upd("esEmpleado", e.target.checked)}
+          />
+          ¿Es empleado?
+        </label>
+      </div>
+
       {/* ===== Facturación ===== */}
       <div className="facturacion-toggle">
         <label className="checkbox-inline">
@@ -980,33 +994,33 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
 
             <div className="form-row">
               <label>Régimen Fiscal</label>
-              <select
+              <Dropdown
                 value={form.facturacion?.regimenFiscal ?? ""}
                 onChange={(e) => upd("facturacion.regimenFiscal", e.target.value)}
               >
-                <option value="">-- Seleccionar --</option>
+                <Dropdown.Option value="">-- Seleccionar --</Dropdown.Option>
                 {REGIMEN_FISCAL_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                  <Dropdown.Option key={o.value} value={o.value}>{o.label}</Dropdown.Option>
                 ))}
-              </select>
+              </Dropdown>
             </div>
 
             <div className="form-row">
               <label>Uso de CFDI</label>
-              <select
+              <Dropdown
                 value={form.facturacion?.usoCFDI ?? ""}
                 onChange={(e) => upd("facturacion.usoCFDI", e.target.value)}
               >
-                <option value="">-- Seleccionar --</option>
-                <option value="G01">G01 - Adquisición de mercancías</option>
-                <option value="G03">G03 - Gastos en general</option>
-                <option value="I01">I01 - Construcciones</option>
-                <option value="I02">I02 - Mobiliario y equipo de oficina</option>
-                <option value="I04">I04 - Equipo de cómputo</option>
-                <option value="D01">D01 - Honorarios médicos</option>
-                <option value="D10">D10 - Pagos por servicios educativos</option>
-                <option value="S01">S01 - Sin efectos fiscales</option>
-              </select>
+                <Dropdown.Option value="">-- Seleccionar --</Dropdown.Option>
+                <Dropdown.Option value="G01">G01 - Adquisición de mercancías</Dropdown.Option>
+                <Dropdown.Option value="G03">G03 - Gastos en general</Dropdown.Option>
+                <Dropdown.Option value="I01">I01 - Construcciones</Dropdown.Option>
+                <Dropdown.Option value="I02">I02 - Mobiliario y equipo de oficina</Dropdown.Option>
+                <Dropdown.Option value="I04">I04 - Equipo de cómputo</Dropdown.Option>
+                <Dropdown.Option value="D01">D01 - Honorarios médicos</Dropdown.Option>
+                <Dropdown.Option value="D10">D10 - Pagos por servicios educativos</Dropdown.Option>
+                <Dropdown.Option value="S01">S01 - Sin efectos fiscales</Dropdown.Option>
+              </Dropdown>
             </div>
 
             <div className="form-row">
@@ -1073,14 +1087,14 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
 
             <div className="form-row">
               <label>Condiciones de Pago</label>
-              <select
+              <Dropdown
                 value={form.condicionesPago ?? ""}
                 onChange={(e) => upd("condicionesPago", e.target.value)}
               >
-                <option value="">-- Seleccionar --</option>
-                <option value="Contado">Contado</option>
-                <option value="Credito">Crédito</option>
-              </select>
+                <Dropdown.Option value="">-- Seleccionar --</Dropdown.Option>
+                <Dropdown.Option value="Contado">Contado</Dropdown.Option>
+                <Dropdown.Option value="Credito">Crédito</Dropdown.Option>
+              </Dropdown>
             </div>
           </div>
         </>
@@ -1091,17 +1105,17 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
         {isAdmin && (
           <div className="form-row">
             <label>Asesor Responsable</label>
-            <select
+            <Dropdown
               value={form.asesorResponsable ?? ""}
               onChange={(e) => upd("asesorResponsable", e.target.value)}
             >
-              <option value="">-- Seleccionar --</option>
+              <Dropdown.Option value="">-- Seleccionar --</Dropdown.Option>
               {empleados.map((user) => (
-                <option key={user._id} value={user.name}>
+                <Dropdown.Option key={user._id} value={user.name}>
                   {user.name}
-                </option>
+                </Dropdown.Option>
               ))}
-            </select>
+            </Dropdown>
           </div>
         )}
 

@@ -213,6 +213,9 @@ export default function PorSurtir() {
                         <strong>{nombreAsesor(orden)}</strong>
                       </div>
                       <span className="ms-3 text-muted">{nombreCliente(orden)}</span>
+                      {orden.cliente?.esEmpleado && (
+                        <span className="ms-1 badge bg-warning text-dark">Empleado</span>
+                      )}
                       <span className="ms-3 text-muted">
                         {[orden.marca, orden.modelo, orden.anio].filter(Boolean).join(" ") || "Sin vehículo"}
                       </span>

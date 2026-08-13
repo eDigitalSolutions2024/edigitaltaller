@@ -1,9 +1,11 @@
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import Sidebar from "../components/Navbar";
 import OSFlotante from "../components/OSFlotante";
 import OSFlotanteRefaccionaria from "../components/OSFlotanteRefaccionaria";
 import SoporteFlotante from "../components/SoporteFlotante";
+import BackButton from "../components/BackButton";
+import { recordVisit } from "../utils/appNavStack";
 import "../styles/Navbar.css";
 
 export default function AppLayout() {
@@ -11,6 +13,7 @@ export default function AppLayout() {
     () => localStorage.getItem("sidebar_collapsed") === "1"
   );
   const [hidden, setHidden] = useState(true); // en móvil: empieza oculto
+  const location = useLocation();
 
   const toggleCollapse = () => setCollapsed(c => !c);
   const showSidebar   = () => setHidden(false);
@@ -20,6 +23,10 @@ export default function AppLayout() {
     localStorage.setItem("sidebar_collapsed", collapsed ? "1" : "0");
   }, [collapsed]);
 
+  useEffect(() => {
+    recordVisit(location.pathname);
+  }, [location.pathname]);
+
   return (
     <div className={`app-shell ${collapsed ? "is-collapsed" : ""} ${hidden ? "is-hidden" : ""}`}>
       {/* Tu Navbar SIN cambios de diseño ni props extra */}
@@ -27,6 +34,8 @@ export default function AppLayout() {
 
       {/* Overlay móvil para cerrar tocando fuera */}
       <div className="app-overlay" onClick={hideSidebar} />
+
+      <BackButton />
 
       {/* Contenido */}
       <main className="app-content">

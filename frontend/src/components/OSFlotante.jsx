@@ -166,6 +166,26 @@ export default function OSFlotante() {
     };
   }, []);
 
+  // Al girar la tablet cambia window.innerWidth/innerHeight pero `pos` se
+  // mantiene con las coordenadas viejas: si el widget vivía pegado a la
+  // esquina derecha en horizontal, queda fuera de la vista en vertical.
+  // Reajustamos a los nuevos límites (lo devuelve a la esquina derecha).
+  useEffect(() => {
+    const onResize = () => {
+      setPos((prev) => {
+        const maxX = Math.max(0, window.innerWidth - (widgetRef.current?.offsetWidth || 280));
+        const maxY = Math.max(0, window.innerHeight - (widgetRef.current?.offsetHeight || 50));
+        return { x: Math.min(prev.x, maxX), y: Math.min(prev.y, maxY) };
+      });
+    };
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
+
   if (!esAsesor) return null;
 
   const grupoNombre = ordenes.find(os => os.grupoId?.nombre)?.grupoId?.nombre || '';
@@ -221,7 +241,12 @@ export default function OSFlotante() {
                     os.creadoPor !== miNombre && (
                     <div className="os-flotante__asesor">👤 {os.creadoPor}</div>
                   )}
-                  <div className="os-flotante__cliente">{nombreCliente(os)}</div>
+                  <div className="os-flotante__cliente">
+                    {nombreCliente(os)}
+                    {os.cliente?.esEmpleado && (
+                      <div><span className="badge bg-warning text-dark">Empleado</span></div>
+                    )}
+                  </div>
                   <div className="os-flotante__vehiculo">
                     {[os.marca, os.modelo, os.anio].filter(Boolean).join(' ')}
                     {os.color && <span className="os-flotante__color"> · {os.color}</span>}

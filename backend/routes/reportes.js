@@ -10,14 +10,14 @@ const { streamReporteVentasAsesoresPdf } = require('../service/reporteVentasAses
 const { streamReporteOrdenesAbiertasPdf } = require('../service/reporteOrdenesAbiertasPdf');
 const { streamReporteOriginalesAbiertasPdf } = require('../service/reporteOriginalesAbiertasPdf');
 const { streamReporteGarantiasPdf } = require('../service/reporteGarantiasPdf');
-const { streamReporteCajasIngresosPdf } = require('../service/reporteCajasIngresosPdf');
 const { streamReporteRemisionesDiarioPdf } = require('../service/reporteRemisionesDiarioPdf');
+const { streamReporteFacturasDiarioPdf } = require('../service/reporteFacturasDiarioPdf');
 const { streamReporteRhCxCPdf } = require('../service/reporteRhCxCPdf');
 const { streamReporteHorasTecnicoPdf } = require('../service/reporteHorasTecnicoPdf');
 const { calcImporteHoras } = require('../utils/manoObra');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
 
-const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares';
+const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares esEmpleado';
 const POPULATE_GRUPO = { path: 'grupoId', select: 'nombre miembros', populate: { path: 'miembros', select: 'name' } };
 
 function buildDateFilter(desde, hasta) {
@@ -498,51 +498,11 @@ router.get('/garantias-pdf', async (req, res) => {
 });
 
 // ===== Reporte de Cajas: Ingresos (Facturas / Remisiones) =====
-// Aplana los pagos de todas las órdenes cuyo comprobante y fecha caigan en el
-// rango pedido. `tipo` es el mismo enum de pagos.comprobante.
+// `tipo` es el mismo enum de pagos.comprobante. Ambos tipos usan el formato
+// clásico de 9 columnas: Remisiones vía buildReporteRemisionesDiario, y
+// Facturas vía buildReporteFacturasDiario (más abajo).
 
 const TIPOS_COMPROBANTE_CAJA = ['NOTA_VENTA', 'REMISION'];
-
-async function buildReporteCajasIngresos({ desde, hasta, tipo }) {
-  const d = new Date(desde);
-  const h = new Date(hasta);
-
-  const ordenes = await Vehiculo.find({
-    pagos: { $elemMatch: { comprobante: tipo, fecha: { $gte: d, $lte: h } } },
-  })
-    .populate('cliente', POPULATE_CLIENTE)
-    .lean();
-
-  const data = [];
-  for (const o of ordenes) {
-    for (const p of o.pagos || []) {
-      if (p.comprobante !== tipo) continue;
-      // Un comprobante cancelado (p. ej. la remisión que pasó a factura) ya no
-      // es un ingreso: se factura aparte y contarlo aquí lo duplicaría.
-      if (p.cancelado) continue;
-      const f = new Date(p.fecha);
-      if (f < d || f > h) continue;
-      data.push({
-        fecha: p.fecha,
-        ordenServicio: o.ordenServicio || '',
-        cliente: nombreCliente(o.cliente),
-        folio: tipo === 'NOTA_VENTA' ? p.notaVenta?.numero ?? null : p.remision?.numero ?? null,
-        tipoPago: p.tipoPago || '',
-        montoPesos: p.montoPesos || 0,
-        montoDolares: p.montoDolares || 0,
-        tipoCambio: p.tipoCambio || 0,
-        monto: p.monto || 0,
-        referencia: p.referencia || '',
-        registradoPor: p.registradoPor || '',
-      });
-    }
-  }
-
-  data.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-  const totalMonto = data.reduce((s, r) => s + r.monto, 0);
-
-  return { data, total: data.length, totalMonto };
-}
 
 // ===== Reporte Diario de Remisiones (formato clásico de 9 columnas) =====
 // Reconstruye, a partir de pagos[] (comprobante=REMISION), las 4 secciones
@@ -718,6 +678,272 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
   };
 }
 
+// ===== Reporte Diario de Facturas (formato clásico de 9 columnas) =====
+// Análogo a buildReporteRemisionesDiario, pero para el comprobante NOTA_VENTA
+// combinado con los documentos fiscales reales (FacturaCfdi). Bandas, en
+// orden:
+//   1. Anticipos del día (pagos NOTA_VENTA, tipoPago=ANTICIPO, activos)
+//   2. Anticipos cancelados (mismos pagos, cancelado=true: se cancelan porque
+//      la orden ya se facturó) — igual columna Anticipo, en negativo.
+//   3. Complementos de pago (FacturaCfdi tipoFactura=complementoPago): dinero
+//      cobrado hoy de una factura a crédito (PPD) emitida antes.
+//   4. Notas de crédito (FacturaCfdi tipoFactura=notaCredito): descuentan de
+//      la Venta del Día y de Cuentas por Cobrar, igual que una cancelación.
+//   5. Facturas del día (FacturaCfdi tipoFactura=factura, una sola orden).
+//   6. Factura general del día (FacturaCfdi tipoFactura=factura que agrupa
+//      varias órdenes): misma banda que Facturas, pero con el desglose de
+//      las notas de venta que la componen en la columna Notas.
+const BANCOS_TARJETA_CD = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
+// Catálogo SAT c_FormaPago usado en FacturaCfdi.pago.formaPago (complementos
+// de pago): solo se mapean los códigos que representan un depósito real.
+const SAT_FORMA_PAGO_A_DEPOSITO = {
+  '01': 'efectivo',
+  '02': 'cheques',
+  '03': 'transferencias',
+  '04': 'tarjetasCD',
+  '28': 'tarjetasCD',
+  '29': 'tarjetasCD',
+};
+
+function bancoADeposito(banco) {
+  if (banco === 'EFECTIVOS' || banco === 'DOLARES') return 'efectivo';
+  if (banco === 'CHEQUE') return 'cheques';
+  if (banco === 'TRANSFERENCIA') return 'transferencias';
+  if (BANCOS_TARJETA_CD.includes(banco)) return 'tarjetasCD';
+  return null;
+}
+
+function formaPagoProvisionalADeposito(formaPago) {
+  if (formaPago === 'EFECTIVO') return 'efectivo';
+  if (formaPago === 'CHEQUE') return 'cheques';
+  if (formaPago === 'TRANSFERENCIA') return 'transferencias';
+  if (formaPago === 'CREDITO' || formaPago === 'DEBITO') return 'tarjetasCD';
+  return null;
+}
+
+async function buildReporteFacturasDiario({ desde, hasta }) {
+  const d = new Date(desde);
+  const h = new Date(hasta);
+
+  const deposito = { efectivo: 0, cheques: 0, transferencias: 0, tarjetasCD: 0 };
+  const sumarDeposito = (bucket, monto) => {
+    if (bucket) deposito[bucket] += monto;
+  };
+
+  // ---- 1 y 2: Anticipos (NOTA_VENTA) ----
+  const ordenesAnticipo = await Vehiculo.find({
+    pagos: { $elemMatch: { comprobante: 'NOTA_VENTA', tipoPago: 'ANTICIPO', fecha: { $gte: d, $lte: h } } },
+  })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
+
+  const anticipos = [];
+  const anticiposCancelados = [];
+  const vehiculoIdsAnticipoCancelado = new Set();
+  const filasAnticipoCancelado = [];
+
+  let totalVentaDia = 0;
+  let totalContado = 0;
+  let totalCredito = 0;
+  let totalAnticipo = 0;
+  let totalPorCobrar = 0;
+
+  for (const o of ordenesAnticipo) {
+    for (const p of o.pagos || []) {
+      if (p.comprobante !== 'NOTA_VENTA' || p.tipoPago !== 'ANTICIPO') continue;
+      const f = new Date(p.fecha);
+      if (f < d || f > h) continue;
+
+      const base = {
+        folio: 'ANT',
+        ordenServicio: o.ordenServicio || '',
+        cliente: nombreCliente(o.cliente),
+        fecha: p.fecha,
+        notas: p.notas || '',
+      };
+
+      if (p.cancelado) {
+        const fila = { ...base, anticipo: -p.monto };
+        anticiposCancelados.push(fila);
+        vehiculoIdsAnticipoCancelado.add(String(o._id));
+        filasAnticipoCancelado.push({ fila, vehiculoId: String(o._id) });
+        totalAnticipo -= p.monto;
+      } else {
+        anticipos.push({ ...base, anticipo: p.monto });
+        totalAnticipo += p.monto;
+        sumarDeposito(bancoADeposito(p.notaVenta?.banco), p.monto);
+      }
+    }
+  }
+
+  // Folio del CFDI vigente al que pasó cada anticipo cancelado, igual que en
+  // el Reporte Diario de Remisiones.
+  if (vehiculoIdsAnticipoCancelado.size) {
+    const ids = [...vehiculoIdsAnticipoCancelado];
+    const facturasVigentes = await FacturaCfdi.find({
+      tipoFactura: 'factura',
+      estatus: 'generada',
+      $or: [{ 'orden.vehiculoId': { $in: ids } }, { 'ordenes.vehiculoId': { $in: ids } }],
+    })
+      .select('serie folio fecha orden ordenes')
+      .sort({ fecha: 1 })
+      .lean();
+
+    const folioPorVehiculo = new Map();
+    for (const f of facturasVigentes) {
+      const folioCfdi = `${f.serie || ''}${f.folio || ''}`;
+      if (!folioCfdi) continue;
+      const vids = [f.orden?.vehiculoId, ...(f.ordenes || []).map((x) => x.vehiculoId)];
+      for (const vid of vids) if (vid) folioPorVehiculo.set(String(vid), folioCfdi);
+    }
+    for (const { fila, vehiculoId } of filasAnticipoCancelado) {
+      const folioCfdi = folioPorVehiculo.get(vehiculoId);
+      if (folioCfdi) fila.notas = fila.notas ? `${fila.notas} ${folioCfdi}` : folioCfdi;
+    }
+  }
+
+  // ---- 3: Complementos de pago ----
+  const complementosPagoDocs = await FacturaCfdi.find({
+    tipoFactura: 'complementoPago',
+    fecha: { $gte: d, $lte: h },
+  })
+    .select('serie folio fecha cliente pago relacionadas orden ordenes')
+    .lean();
+
+  const complementosPago = complementosPagoDocs.map((f) => {
+    const rel = f.relacionadas?.[0];
+    const monto = f.pago?.monto || 0;
+    totalCredito += monto;
+    sumarDeposito(SAT_FORMA_PAGO_A_DEPOSITO[f.pago?.formaPago], monto);
+    return {
+      folio: `${f.serie || ''}${f.folio || ''}`,
+      ordenServicio: f.orden?.ordenServicio || (f.ordenes || []).map((x) => x.ordenServicio).join(', '),
+      cliente: f.cliente?.nombre || '',
+      fecha: f.fecha,
+      ingresoCredito: monto,
+      notas: rel ? `COMPLEMENTO DE PAGO FACTURA ${rel.serie || ''}${rel.folio || ''}` : 'COMPLEMENTO DE PAGO',
+    };
+  });
+
+  // ---- 4: Notas de crédito ----
+  const notasCreditoDocs = await FacturaCfdi.find({
+    tipoFactura: 'notaCredito',
+    fecha: { $gte: d, $lte: h },
+  })
+    .select('serie folio fecha cliente totales relacionadas orden ordenes')
+    .lean();
+
+  const notasCredito = notasCreditoDocs.map((f) => {
+    const rel = f.relacionadas?.[0];
+    const total = f.totales?.total || 0;
+    totalVentaDia -= total;
+    totalPorCobrar -= total;
+    return {
+      folio: `${f.serie || ''}${f.folio || ''}`,
+      ordenServicio: f.orden?.ordenServicio || (f.ordenes || []).map((x) => x.ordenServicio).join(', '),
+      cliente: f.cliente?.nombre || '',
+      fecha: f.fecha,
+      ventaDia: -total,
+      cuentasPorCobrar: -total,
+      notas: rel ? `NOTA DE CREDITO FACTURA ${rel.serie || ''}${rel.folio || ''}` : 'NOTA DE CREDITO',
+    };
+  });
+
+  // ---- 5 y 6: Facturas y Factura general ----
+  const facturaDocs = await FacturaCfdi.find({
+    tipoFactura: 'factura',
+    estatus: 'generada',
+    fecha: { $gte: d, $lte: h },
+  })
+    .select('serie folio fecha cliente totales cfdi orden ordenes')
+    .lean();
+
+  const facturas = [];
+  const facturaGeneral = [];
+
+  // Cada factura (agrupe una o varias órdenes) se cruza con los pagos
+  // NOTA_VENTA (Liquida) de esas órdenes: alimenta la tabla Depósito con la
+  // forma en que realmente entró el dinero, y si agrupa varias órdenes,
+  // además arma el desglose que va en Notas.
+  const vehiculoIdsFacturas = [];
+  const facturasConOrdenes = [];
+
+  for (const f of facturaDocs) {
+    const ordenes = f.ordenes?.length ? f.ordenes : f.orden?.vehiculoId ? [f.orden] : [];
+    const total = f.totales?.total || 0;
+    const esPue = (f.cfdi?.metodoPago || 'PUE') !== 'PPD';
+
+    totalVentaDia += total;
+    if (esPue) totalContado += total;
+    else totalPorCobrar += total;
+
+    const tieneAnticipoCanceladoPrevio = ordenes.some((o) => vehiculoIdsAnticipoCancelado.has(String(o.vehiculoId)));
+
+    const fila = {
+      folio: `${f.serie || ''}${f.folio || ''}`,
+      ordenServicio: ordenes.map((o) => o.ordenServicio).filter(Boolean).join(', '),
+      cliente: f.cliente?.nombre || '',
+      fecha: f.fecha,
+      ventaDia: total,
+      ingresoContado: esPue ? total : undefined,
+      cuentasPorCobrar: esPue ? undefined : total,
+      notas: tieneAnticipoCanceladoPrevio ? 'CON ANTICIPO CANCELADO ANTES MENCIONADO' : '',
+    };
+
+    (ordenes.length > 1 ? facturaGeneral : facturas).push(fila);
+    facturasConOrdenes.push({ fila, ordenes });
+    for (const o of ordenes) if (o.vehiculoId) vehiculoIdsFacturas.push(String(o.vehiculoId));
+  }
+
+  // Pagos NOTA_VENTA (Liquida, vigentes) de cada orden facturada: alimentan
+  // la tabla Depósito con la forma real de cobro; cuando la factura agrupa
+  // varias órdenes, además arman el desglose en Notas con el mismo estilo
+  // del reporte en papel: "(folio $monto CON banco)--(folio $monto CON banco)".
+  if (vehiculoIdsFacturas.length) {
+    const vehiculosNotaVenta = await Vehiculo.find({ _id: { $in: vehiculoIdsFacturas } })
+      .select('pagos')
+      .lean();
+    const pagosPorVehiculo = new Map(vehiculosNotaVenta.map((v) => [String(v._id), v.pagos || []]));
+
+    for (const { fila, ordenes } of facturasConOrdenes) {
+      const partes = [];
+      for (const o of ordenes) {
+        const pagos = pagosPorVehiculo.get(String(o.vehiculoId)) || [];
+        for (const p of pagos) {
+          if (p.comprobante !== 'NOTA_VENTA' || p.tipoPago !== 'COMPLETO' || p.cancelado) continue;
+          sumarDeposito(bancoADeposito(p.notaVenta?.banco), p.monto);
+          if (ordenes.length > 1) {
+            const folioNota = p.notaVenta?.numero != null ? `P${p.notaVenta.numero}` : 'S/N';
+            partes.push(`(${folioNota} $${(p.monto || 0).toFixed(2)} CON ${p.notaVenta?.banco || 'S/D'})`);
+          }
+        }
+      }
+      if (partes.length) fila.notas = `PUBLICO GENERAL. = ${partes.join('--')}`;
+    }
+  }
+
+  anticipos.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  anticiposCancelados.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  complementosPago.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  notasCredito.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  facturas.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  facturaGeneral.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+
+  const totalIngreso = totalContado + totalCredito + totalAnticipo;
+  const totalDeposito = deposito.efectivo + deposito.cheques + deposito.transferencias + deposito.tarjetasCD;
+
+  return {
+    anticipos,
+    anticiposCancelados,
+    complementosPago,
+    notasCredito,
+    facturas,
+    facturaGeneral,
+    totales: { totalVentaDia, totalContado, totalCredito, totalAnticipo, totalPorCobrar, totalIngreso },
+    deposito: { ...deposito, total: totalDeposito },
+  };
+}
+
 // ===== Resumen diario de Remisiones (para rangos de más de un día) =====
 // Devuelve el Total Ingreso (y demás totales) de cada día del rango, en vez
 // del detalle completo, reusando buildReporteRemisionesDiario día por día
@@ -799,7 +1025,7 @@ router.get('/cajas-ingresos', async (req, res) => {
       return res.json({ ok: true, tipo, ...resultado });
     }
 
-    const resultado = await buildReporteCajasIngresos({ desde, hasta, tipo });
+    const resultado = await buildReporteFacturasDiario({ desde, hasta });
     return res.json({ ok: true, tipo, ...resultado });
   } catch (err) {
     console.error('Error reporte cajas ingresos:', err);
@@ -824,8 +1050,8 @@ router.get('/cajas-ingresos-pdf', async (req, res) => {
       return;
     }
 
-    const resultado = await buildReporteCajasIngresos({ desde, hasta, tipo });
-    await streamReporteCajasIngresosPdf(res, resultado, desde, hasta, tipo);
+    const resultado = await buildReporteFacturasDiario({ desde, hasta });
+    await streamReporteFacturasDiarioPdf(res, resultado, desde, hasta);
   } catch (err) {
     console.error('Error PDF reporte cajas ingresos:', err);
     if (!res.headersSent) res.status(500).json({ ok: false, msg: 'Error generando PDF' });

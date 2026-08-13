@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Dropdown from "../../components/Dropdown";
 import { getUser } from "../../auth";
 import http from "../../api/http";
 
@@ -179,13 +180,13 @@ export default function ConsultarInventario() {
               <div className="d-flex align-items-center gap-3">
                 <div className="d-flex align-items-center gap-2">
                   <span className="text-muted small">Show</span>
-                  <select
+                  <Dropdown
                     value={pageSize}
-                    className="form-select form-select-sm"
+                    className="form-select-sm"
                     onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
                   >
-                    {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
-                  </select>
+                    {PAGE_SIZES.map((n) => <Dropdown.Option key={n} value={n}>{n}</Dropdown.Option>)}
+                  </Dropdown>
                   <span className="text-muted small">entries</span>
                 </div>
 

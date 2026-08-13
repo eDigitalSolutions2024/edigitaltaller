@@ -146,7 +146,12 @@ export default function SolicitudesTaller() {
                   return (
                     <tr key={orden._id} className={tiempo.rowClassName}>
                       <td>{orden.ordenServicio || "-"}</td>
-                      <td>{nombreCliente(orden)}</td>
+                      <td>
+                        {nombreCliente(orden)}
+                        {orden.cliente?.esEmpleado && (
+                          <div><span className="badge bg-warning text-dark">Empleado</span></div>
+                        )}
+                      </td>
                       <td>{descripcionVehiculo(orden)}</td>
                       <td>{orden.placas || "-"}</td>
                       <td>{orden.refaccionesSolicitadas?.length || 0}</td>

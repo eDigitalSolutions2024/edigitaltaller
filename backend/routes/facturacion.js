@@ -23,6 +23,33 @@ function money(n) {
 function safe(s) {
   return String(s || "").trim();
 }
+/* Domicilio fiscal del receptor en 2 líneas: calle/número/colonia y ciudad/estado/CP/país */
+function formatDireccion(direccion, pais) {
+  const d = direccion || {};
+  const linea1 = [
+    safe(d.calle),
+    safe(d.numeroExterior) && `# ${safe(d.numeroExterior)}`,
+    safe(d.numeroInterior) && `Int. ${safe(d.numeroInterior)}`,
+    safe(d.colonia) && `${safe(d.colonia)}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const linea2 = [
+    safe(d.ciudad),
+    safe(d.estado),
+    safe(d.codigoPostal) && `C.P. ${safe(d.codigoPostal)}`,
+    safe(pais),
+  ]
+    .filter(Boolean)
+    .join(", ");
+  return { linea1: linea1 || "—", linea2: linea2 || "—" };
+}
+// Domicilio impreso del emisor: no vive en FiscalConfig (que solo guarda el CP
+// de expedición), así que se usa el mismo domicilio fijo que ya imprimen las
+// demás plantillas del sistema (orden de compra, vales de salida, reportes).
+const EMISOR_DIRECCION_LINEA1 = "PASEO TRIUNFO DE LA REPÚBLICA #322-B";
+const EMISOR_DIRECCION_LINEA2 = "COL. SAN LORENZO, C.P. 32320, CD. JUÁREZ, CHIH.";
+
 function fechaHora(d = new Date()) {
   return d.toLocaleString("es-MX", {
     year: "numeric",
@@ -222,24 +249,32 @@ function drawHeaderComprobante(doc, ui, { emisor, tipoLabel, meta }) {
   const logoY = M + 4;
   const logoH = ui.logo(M, logoY, emisorBoxW) || 0;
 
+  const emisorBoxH = 94;
   const emisorBoxY = Math.max(M + 52, logoY + logoH + 6);
-  ui.box(M, emisorBoxY, emisorBoxW, 62);
+  ui.box(M, emisorBoxY, emisorBoxW, emisorBoxH);
   doc.font("Helvetica-Bold").fontSize(9);
   doc.text(safe(emisor.nombre) || "EMISOR (configura la Configuración Fiscal)", M + 8, emisorBoxY + 8, {
     width: 304,
     align: "center",
   });
-  doc.font("Helvetica").fontSize(8);
-  doc.text(`Expedido en C.P. ${safe(emisor.lugarExpedicion) || "—"}`, M + 8, emisorBoxY + 22, {
-    width: 304,
-    align: "center",
-  });
-  doc.text(`Régimen Fiscal: ${safe(emisor.regimenFiscal) || "—"}`, M + 8, emisorBoxY + 34, {
+  doc.font("Helvetica").fontSize(7.5);
+  doc.text(EMISOR_DIRECCION_LINEA1, M + 8, emisorBoxY + 20, { width: 304, align: "center" });
+  doc.text(EMISOR_DIRECCION_LINEA2, M + 8, emisorBoxY + 30, { width: 304, align: "center" });
+  doc.text(`Tel: ${safe(emisor.telefono) || "—"}`, M + 8, emisorBoxY + 42, {
     width: 304,
     align: "center",
   });
   doc.font("Helvetica-Bold").fontSize(8);
-  doc.text(`RFC Emisor: ${safe(emisor.rfc) || "—"}`, M + 8, emisorBoxY + 46, {
+  doc.text(`RFC Emisor: ${safe(emisor.rfc) || "—"}`, M + 8, emisorBoxY + 54, {
+    width: 304,
+    align: "center",
+  });
+  doc.font("Helvetica").fontSize(7.5);
+  doc.text(`Régimen Fiscal: ${safe(emisor.regimenFiscal) || "—"}`, M + 8, emisorBoxY + 66, {
+    width: 304,
+    align: "center",
+  });
+  doc.text(`Expedido en C.P. ${safe(emisor.lugarExpedicion) || "—"}`, M + 8, emisorBoxY + 77, {
     width: 304,
     align: "center",
   });
@@ -260,7 +295,7 @@ function drawHeaderComprobante(doc, ui, { emisor, tipoLabel, meta }) {
   y = ui.labelValueBox(rightX, y, rightW, "UUID", m.uuid);
   y = ui.labelValueBox(rightX, y, rightW, "Certificado digital", safe(emisor.noCertificado) || "—");
 
-  return Math.max(y, emisorBoxY + 62) + 8;
+  return Math.max(y, emisorBoxY + emisorBoxH) + 8;
 }
 
 /* Bloque receptor + vehículo + tipo de factura */
@@ -272,7 +307,7 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
   const ordenUnica = listaOrdenes.length === 1 ? listaOrdenes[0] : null;
   const listaRelacionadas = Array.isArray(relacionadas) ? relacionadas : [];
 
-  const h = 92;
+  const h = 118;
   ui.box(M, y0, W, h);
 
   // --- Receptor (izquierda) ---
@@ -281,6 +316,11 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
   ui.kv(rx, ry, "RFC Receptor:", safe(cliente?.rfc), 78, 260);
   ry += 13;
   doc.font("Helvetica-Bold").fontSize(8).text(safe(cliente?.nombre) || "—", rx, ry, { width: 255 });
+  ry += 13;
+  const dirReceptor = formatDireccion(cliente?.direccion, cliente?.pais);
+  ui.oneLine(dirReceptor.linea1, rx, ry, 255, 7);
+  ry += 10;
+  ui.oneLine(dirReceptor.linea2, rx, ry, 255, 7);
   ry += 13;
   ui.kv(rx, ry, "Régimen Fiscal:", safe(cliente?.regimenFiscal), 78, 260);
   ry += 13;
@@ -294,9 +334,10 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
   let vy = y0 + 8;
 
   if (ordenUnica) {
-    ui.kv(vx, vy, "Orden:", ordenUnica.ordenServicio, 42, 150);
     if (!ordenUnica.sinVehiculo) {
-      vy += 13;
+      // Numero de orden no necesaria
+      // ui.kv(vx, vy, "Orden:", ordenUnica.ordenServicio, 42, 150);
+      // vy += 13;
       ui.kv(vx, vy, "Marca:", ordenUnica.marca, 42, 150);
       vy += 13;
       ui.kv(vx, vy, "Modelo:", `${safe(ordenUnica.modelo)} ${safe(ordenUnica.anio)}`.trim(), 42, 150);
@@ -623,7 +664,8 @@ function drawReciboElectronicoPago(doc, data) {
   doc.text(`R.F.C.: ${safe(emisor.rfc) || "—"}`, M, emisorY + 13, { width: emisorBoxW, align: "center" });
   doc.text(`Régimen fiscal: ${safe(emisor.regimenFiscal) || "—"}`, M, emisorY + 25, { width: emisorBoxW, align: "center" });
   doc.text(`Expedido en C.P. ${safe(emisor.lugarExpedicion) || "—"}`, M, emisorY + 37, { width: emisorBoxW, align: "center" });
-  const emisorBlockBottom = emisorY + 49;
+  doc.fontSize(7.5).text(`Tel: ${safe(emisor.telefono) || "—"}`, M, emisorY + 49, { width: emisorBoxW, align: "center" });
+  const emisorBlockBottom = emisorY + 61;
 
   // Barra derecha
   const rightX = M + 352;
@@ -648,8 +690,9 @@ function drawReciboElectronicoPago(doc, data) {
   ry = ui.labelValueBox(rightX, ry, rightW, "Certificado digital", safe(emisor.noCertificado) || "—");
 
   // ===== Receptor =====
+  const recH = 100;
   const recY = Math.max(M + 96, emisorBlockBottom + 8);
-  ui.box(M, recY, 320, 74);
+  ui.box(M, recY, 320, recH);
   doc.font("Helvetica-Bold").fontSize(8).text("Receptor:", M + 8, recY + 6);
   doc.font("Helvetica-Bold").fontSize(8).text(`RFC ${safe(cliente?.rfc) || "—"}`, M + 70, recY + 6);
   doc.font("Helvetica-Bold").fontSize(9).text(safe(cliente?.nombre) || "—", M + 8, recY + 20, { width: 304 });
@@ -657,8 +700,12 @@ function drawReciboElectronicoPago(doc, data) {
   doc.text(`Régimen Fiscal: ${safe(cliente?.regimenFiscal) || "—"}`, M + 8, recY + 36);
   doc.text(`C.P. Fiscal: ${safe(cliente?.codigoPostalFiscal) || "—"}`, M + 8, recY + 48);
   doc.text(`Uso de CFDI: CP01 - Pagos`, M + 8, recY + 60);
+  const dirReceptorPago = formatDireccion(cliente?.direccion, cliente?.pais);
+  doc.font("Helvetica-Bold").fontSize(7).text("Domicilio:", M + 8, recY + 72);
+  ui.oneLine(dirReceptorPago.linea1, M + 8, recY + 81, 304, 7);
+  ui.oneLine(dirReceptorPago.linea2, M + 8, recY + 91, 304, 7);
 
-  let y = Math.max(recY + 74, ry) + 10;
+  let y = Math.max(recY + recH, ry) + 10;
 
   // ===== Forma de pago / importe =====
   ui.box(M, y, W, 28);
@@ -832,6 +879,7 @@ router.post("/preview", async (req, res) => {
       rfc: cfg?.rfc || "",
       regimenFiscal: cfg?.regimenFiscal || "",
       lugarExpedicion: cfg?.lugarExpedicion || "",
+      telefono: cfg?.telefono || "",
       noCertificado: cfg?.noCertificado || "",
     };
 
@@ -901,6 +949,7 @@ router.get("/factura/:id/pdf", async (req, res) => {
         rfc: cfg?.rfc || "",
         regimenFiscal: cfg?.regimenFiscal || "",
         lugarExpedicion: cfg?.lugarExpedicion || "",
+        telefono: cfg?.telefono || "",
         noCertificado: cfg?.noCertificado || "",
       };
     }

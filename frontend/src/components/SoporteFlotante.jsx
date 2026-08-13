@@ -127,6 +127,26 @@ export default function SoporteFlotante() {
     };
   }, []);
 
+  // Al girar la tablet cambia window.innerWidth/innerHeight pero `pos` se
+  // mantiene con las coordenadas viejas: si el widget vivía pegado a la
+  // esquina derecha en horizontal, queda fuera de la vista en vertical.
+  // Reajustamos a los nuevos límites (lo devuelve a la esquina derecha).
+  useEffect(() => {
+    const onResize = () => {
+      setPos((prev) => {
+        const maxX = Math.max(0, window.innerWidth - (widgetRef.current?.offsetWidth || 280));
+        const maxY = Math.max(0, window.innerHeight - (widgetRef.current?.offsetHeight || 50));
+        return { x: Math.min(prev.x, maxX), y: Math.min(prev.y, maxY) };
+      });
+    };
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
+
   const total = tickets.pendientes.length + tickets.enProceso.length;
 
   if (!esAdmin || total === 0) return null;
@@ -182,10 +202,13 @@ export default function SoporteFlotante() {
     cerrarModal();
     // RESTABLECER_COBRO manda a Cajas (con la orden ya cargada): ahí es donde
     // el admin ve el historial de pagos y cancela el abono/anticipo/remisión/
-    // nota de venta puntual.
+    // nota de venta puntual. GARANTIA_NO_APLICA manda a Solicitudes de
+    // Garantía con esa fila resaltada.
     const destino =
       ticketSeleccionado.tipoProblema === 'RESTABLECER_COBRO'
         ? `/cajas/orden/${ordenId}`
+        : ticketSeleccionado.tipoProblema === 'GARANTIA_NO_APLICA'
+        ? `/garantias?highlight=${ordenId}`
         : `/vehiculo/orden/${ordenId}?tab=general`;
     navigate(destino);
   };
@@ -319,7 +342,9 @@ export default function SoporteFlotante() {
 
                   {ticketSeleccionado.ordenServicio?._id && (
                     <button type="button" className="btn btn-outline-primary btn-sm w-100" onClick={irAOrden}>
-                      Ir a la orden de servicio {ticketSeleccionado.folioOrdenServicio || ''} →
+                      {ticketSeleccionado.tipoProblema === 'GARANTIA_NO_APLICA'
+                        ? `Ir a la solicitud de garantía ${ticketSeleccionado.folioOrdenServicio || ''} →`
+                        : `Ir a la orden de servicio ${ticketSeleccionado.folioOrdenServicio || ''} →`}
                     </button>
                   )}
                 </div>

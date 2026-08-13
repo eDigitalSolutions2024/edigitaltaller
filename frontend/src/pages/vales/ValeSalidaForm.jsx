@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import Dropdown from '../../components/Dropdown';
 import { getUser } from '../../auth';
 import { listOrdenesServicio } from '../../api/vehiculos';
 import {
@@ -43,6 +44,7 @@ function snapshotFromOrden(o) {
     vehiculo: o._id,
     asesor: o.creadoPor || '',
     nombreCliente: nombreCliente(o.cliente),
+    clienteEsEmpleado: o.cliente?.esEmpleado || false,
     marca: o.marca || '',
     tipo: o.modelo || '',
     modelo: o.anio || '',
@@ -272,7 +274,11 @@ export default function ValeSalidaForm() {
                       className="list-group-item list-group-item-action py-1 px-2 small"
                       onMouseDown={() => seleccionarOrden(o)}
                     >
-                      <strong>{o.ordenServicio}</strong> — {nombreCliente(o.cliente) || 'Sin cliente'} · {o.marca || ''} {o.modelo || ''}
+                      <strong>{o.ordenServicio}</strong> — {nombreCliente(o.cliente) || 'Sin cliente'}
+                      {o.cliente?.esEmpleado && (
+                        <span className="badge bg-warning text-dark ms-1">Empleado</span>
+                      )}
+                      {' '}· {o.marca || ''} {o.modelo || ''}
                     </button>
                   ))}
                 </div>
@@ -320,11 +326,11 @@ export default function ValeSalidaForm() {
 
             <div className="col-md-4">
               <label className="form-label small fw-semibold">Estatus</label>
-              <select className="form-select" value={form.estatus} onChange={handleChange('estatus')}>
+              <Dropdown className="form-select" value={form.estatus} onChange={handleChange('estatus')}>
                 {ESTATUS_VALE_OPCIONES.map((op) => (
-                  <option key={op} value={op}>{op}</option>
+                  <Dropdown.Option key={op} value={op}>{op}</Dropdown.Option>
                 ))}
-              </select>
+              </Dropdown>
             </div>
 
             <div className="col-12">
@@ -340,7 +346,11 @@ export default function ValeSalidaForm() {
 
           {snapshot && (
             <div className="alert alert-info mt-3 py-2 small mb-0">
-              <strong>Datos encontrados:</strong> {snapshot.nombreCliente || '—'} · {snapshot.marca || '—'} {snapshot.tipo || ''} · Placas: {snapshot.placas || '—'} · Asesor: {snapshot.asesor || '—'}
+              <strong>Datos encontrados:</strong> {snapshot.nombreCliente || '—'}
+              {snapshot.clienteEsEmpleado && (
+                <span className="badge bg-warning text-dark ms-1">Empleado</span>
+              )}
+              {' '}· {snapshot.marca || '—'} {snapshot.tipo || ''} · Placas: {snapshot.placas || '—'} · Asesor: {snapshot.asesor || '—'}
             </div>
           )}
 

@@ -275,6 +275,9 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor }) {
           </div>
           <div className="mb-1">
             <strong>{labelNombrePrincipal}:</strong> {nombrePrincipal}
+            {c.esEmpleado && (
+              <div><span className="badge bg-warning text-dark">Empleado</span></div>
+            )}
           </div>
           <div className="mb-1">
             <strong>{labelNombreContacto}:</strong> {nombreContacto}

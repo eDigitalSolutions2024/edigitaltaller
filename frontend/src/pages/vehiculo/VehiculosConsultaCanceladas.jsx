@@ -154,7 +154,12 @@ export default function VehiculoConsultaCanceladas() {
                   style={{ cursor: "pointer" }}
                 >
                   <td>{o.ordenServicio || o._id}</td>
-                  <td>{clienteNombre}</td>
+                  <td>
+                    {clienteNombre}
+                    {c.esEmpleado && (
+                      <div><span className="badge bg-warning text-dark">Empleado</span></div>
+                    )}
+                  </td>
                   <td>
                     {(o.marca || "") + (o.modelo ? ` / ${o.modelo}` : "")}
                   </td>

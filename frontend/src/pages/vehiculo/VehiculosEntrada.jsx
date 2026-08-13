@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { getClientes } from "../../api/customers";
 import VehiculoNuevoForm from "./VehiculoNuevoForm";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import ModalAltaCliente from "../../components/ModalAltaCliente";
 import GarageModal from "./GarageModal";
 import GarantiaModal from "./GarantiaModal";
@@ -43,8 +43,41 @@ export default function VehiculoEntrada() {
   const [showGarantiaModal, setShowGarantiaModal] = useState(false);
   const [garantiaInfo, setGarantiaInfo] = useState(null); // { ordenAnterior, motivo }
 
+  // Prellenado al llegar desde "Cancelar" en Solicitudes de Garantía (estado
+  // "No aplica"): mismos datos del cliente/vehículo + fallas de Servicio o
+  // Reparación, excluyendo servicios y refacciones solicitadas.
+  const [servicioReparacionPrefill, setServicioReparacionPrefill] = useState(null);
+  const [inspeccionFisicaPrefill, setInspeccionFisicaPrefill] = useState(null);
+  const [asesorReasignar, setAsesorReasignar] = useState(null);
+  const [prefillOrigenFolio, setPrefillOrigenFolio] = useState("");
+  const [ordenServicioPrefill, setOrdenServicioPrefill] = useState("");
+
   const navigate = useNavigate();
+  const location = useLocation();
   const tabsRef = useRef(null);
+
+  // Consume el prefill recibido por navigate(state) una sola vez y limpia el
+  // state para que no se reaplique si el usuario navega y regresa.
+  useEffect(() => {
+    const prefill = location.state?.prefillGarantiaNoAplica;
+    if (!prefill) return;
+
+    setClienteSeleccionado(prefill.cliente);
+    setMostrarAcciones(true);
+    setQ(nombreClienteBusqueda(prefill.cliente));
+    setVehiculoGarage(prefill.vehiculo || null);
+    setGarantiaInfo(null);
+    setSinVehiculo(false);
+    setServicioReparacionPrefill(prefill.servicioReparacion || null);
+    setInspeccionFisicaPrefill(prefill.inspeccionFisica || null);
+    setAsesorReasignar(prefill.asesor || null);
+    setPrefillOrigenFolio(prefill.ordenOrigenFolio || "");
+    setOrdenServicioPrefill(prefill.ordenServicioPrefill || "");
+    setMostrarFormNuevoCarro(true);
+
+    navigate(location.pathname, { replace: true, state: {} });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   // 1) Cargar clientes al montar
   useEffect(() => {
@@ -95,6 +128,16 @@ export default function VehiculoEntrada() {
     setFiltrados(resultado);
   }, [q, clientes]);
 
+  // Limpia el prefill de "Cancelar" (No aplica) al saltar a cualquier otro
+  // flujo, para que no se reaplique sobre una orden distinta.
+  const limpiarPrefillNoAplica = () => {
+    setServicioReparacionPrefill(null);
+    setInspeccionFisicaPrefill(null);
+    setAsesorReasignar(null);
+    setPrefillOrigenFolio("");
+    setOrdenServicioPrefill("");
+  };
+
   const handleSeleccion = async (cliente) => {
     setClienteSeleccionado(cliente);
     setMostrarAcciones(true);
@@ -102,6 +145,7 @@ export default function VehiculoEntrada() {
     setVehiculoGarage(null);
     setGarantiaInfo(null);
     setSinVehiculo(false);
+    limpiarPrefillNoAplica();
 
     setQ(nombreClienteBusqueda(cliente));
   };
@@ -110,6 +154,7 @@ export default function VehiculoEntrada() {
     setVehiculoGarage(null);
     setGarantiaInfo(null);
     setSinVehiculo(false);
+    limpiarPrefillNoAplica();
     setMostrarFormNuevoCarro(true);
   };
 
@@ -117,6 +162,7 @@ export default function VehiculoEntrada() {
     setVehiculoGarage(null);
     setGarantiaInfo(null);
     setSinVehiculo(true);
+    limpiarPrefillNoAplica();
     setMostrarFormNuevoCarro(true);
   };
 
@@ -128,6 +174,7 @@ export default function VehiculoEntrada() {
     setVehiculoGarage(v);
     setGarantiaInfo(null);
     setSinVehiculo(false);
+    limpiarPrefillNoAplica();
     setMostrarFormNuevoCarro(true);
     setShowGarageModal(false);
   };
@@ -142,6 +189,7 @@ export default function VehiculoEntrada() {
     setGarantiaInfo({ ordenAnterior, motivo });
     setVehiculoGarage(ordenAnterior);
     setSinVehiculo(false);
+    limpiarPrefillNoAplica();
     setMostrarFormNuevoCarro(true);
     setShowGarantiaModal(false);
   };
@@ -185,6 +233,7 @@ export default function VehiculoEntrada() {
                   setVehiculoGarage(null);
                   setGarantiaInfo(null);
                   setSinVehiculo(false);
+                  limpiarPrefillNoAplica();
                 }}
               />
             </div>
@@ -303,12 +352,29 @@ export default function VehiculoEntrada() {
         </div>
       )}
 
+      {/* Aviso de orden generada al cancelar una garantía "No aplica" */}
+      {mostrarFormNuevoCarro && clienteSeleccionado && asesorReasignar && (
+        <div className="alert alert-warning mt-3 mb-0">
+          <strong>Nueva orden</strong> generada al cancelar la orden{" "}
+          <strong>{prefillOrigenFolio}</strong> (garantía "No aplica"). Se
+          prellenaron los datos del cliente, el vehículo, las fallas
+          reportadas y la inspección física (accesorios, daños e
+          indicadores del tablero), excluyendo los servicios y refacciones
+          solicitados.
+          {" "}Asesor asignado: <strong>{asesorReasignar.name}</strong>.
+        </div>
+      )}
+
       {/* Formulario de nuevo vehículo */}
       {mostrarFormNuevoCarro && clienteSeleccionado && (
         <VehiculoNuevoForm
           cliente={clienteSeleccionado}
           vehiculoGarage={vehiculoGarage}
           garantia={garantiaInfo}
+          servicioReparacionPrefill={servicioReparacionPrefill}
+          inspeccionFisicaPrefill={inspeccionFisicaPrefill}
+          asesorReasignar={asesorReasignar}
+          ordenServicioPrefill={ordenServicioPrefill}
           sinVehiculo={sinVehiculo}
           onCreated={handleVehiculoCreado}
         />

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import Dropdown from "../../../components/Dropdown";
 
 function formatMoney(n) {
   return new Intl.NumberFormat("es-MX", {
@@ -158,28 +159,28 @@ export default function CajaModalDescuento({ show, descuentos = [], ventaRows = 
 
             <div className="mb-2">
               <label className="form-label mb-0 fw-semibold">Aplica a</label>
-              <select
+              <Dropdown
                 className="form-select"
                 value={form.lineaId}
                 onChange={(e) => setForm((f) => ({ ...f, lineaId: e.target.value }))}
               >
-                <option value="">Toda la orden</option>
+                <Dropdown.Option value="">Toda la orden</Dropdown.Option>
                 {lineasDisponibles.map((r) => (
-                  <option key={r._id} value={r._id}>{r.concepto}</option>
+                  <Dropdown.Option key={r._id} value={r._id}>{r.concepto}</Dropdown.Option>
                 ))}
-              </select>
+              </Dropdown>
             </div>
 
             <div className="mb-2">
               <label className="form-label mb-0 fw-semibold">Tipo de Descuento</label>
-              <select
+              <Dropdown
                 className="form-select"
                 value={form.tipo}
                 onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value }))}
               >
-                <option value="MONTO">Monto fijo ($)</option>
-                <option value="PORCENTAJE">Porcentaje (%)</option>
-              </select>
+                <Dropdown.Option value="MONTO">Monto fijo ($)</Dropdown.Option>
+                <Dropdown.Option value="PORCENTAJE">Porcentaje (%)</Dropdown.Option>
+              </Dropdown>
             </div>
 
             <div className="mb-2">

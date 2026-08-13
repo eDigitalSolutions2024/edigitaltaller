@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import Dropdown from "../../../components/Dropdown";
 import { FaPrint, FaBan, FaFlag } from "react-icons/fa";
 import { formatFecha } from "../../../utils/fechas";
 
@@ -67,17 +68,17 @@ export default function CajaHistorialPagos({
   return (
     <div>
       <div className="d-flex justify-content-end mb-2">
-        <select
-          className="form-select form-select-sm"
+        <Dropdown
+          className="form-select-sm"
           style={{ width: "auto" }}
           value={filtro}
           onChange={(e) => setFiltro(e.target.value)}
         >
-          <option value="TODOS">Todos los comprobantes</option>
-          <option value="NOTA_VENTA">Nota de Venta</option>
-          <option value="REMISION">Remisión</option>
-          <option value="RECIBO_PROVISIONAL">Recibo Provisional</option>
-        </select>
+          <Dropdown.Option value="TODOS">Todos los comprobantes</Dropdown.Option>
+          <Dropdown.Option value="NOTA_VENTA">Nota de Venta</Dropdown.Option>
+          <Dropdown.Option value="REMISION">Remisión</Dropdown.Option>
+          <Dropdown.Option value="RECIBO_PROVISIONAL">Recibo Provisional</Dropdown.Option>
+        </Dropdown>
       </div>
 
       <div className="table-responsive mb-3">

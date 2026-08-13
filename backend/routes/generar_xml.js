@@ -664,6 +664,16 @@ router.post("/xml", async (req, res) => {
           rfc: receptor.rfc,
           regimenFiscal: receptor.regimenFiscal,
           codigoPostalFiscal: receptor.cp,
+          direccion: {
+            calle: cliente.direccion?.calle || "",
+            numeroExterior: cliente.direccion?.numeroExterior || "",
+            numeroInterior: cliente.direccion?.numeroInterior || "",
+            colonia: cliente.direccion?.colonia || "",
+            codigoPostal: cliente.direccion?.codigoPostal || "",
+            ciudad: cliente.direccion?.ciudad || "",
+            estado: cliente.direccion?.estado || "",
+          },
+          pais: cliente.pais || "",
         },
         orden: {
           vehiculoId: ordenPrincipal?._id || null,
@@ -692,6 +702,7 @@ router.post("/xml", async (req, res) => {
           nombre: cfg.nombre,
           regimenFiscal: cfg.regimenFiscal,
           lugarExpedicion: cfg.lugarExpedicion,
+          telefono: cfg.telefono || "",
           noCertificado: cfg.noCertificado,
         },
         totales: {
@@ -728,6 +739,7 @@ router.post("/xml", async (req, res) => {
           nombre: cfg.nombre,
           regimenFiscal: cfg.regimenFiscal,
           lugarExpedicion: cfg.lugarExpedicion,
+          telefono: cfg.telefono || "",
           noCertificado: cfg.noCertificado,
         },
         receptor: {

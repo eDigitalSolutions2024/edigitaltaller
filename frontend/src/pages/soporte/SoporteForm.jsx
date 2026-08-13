@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import Dropdown from '../../components/Dropdown';
 import { getUser } from '../../auth';
 import { listOrdenesServicio } from '../../api/vehiculos';
 import { getAsesores } from '../../api/users';
@@ -196,11 +197,11 @@ export default function SoporteForm() {
 
             <div className="col-md-4">
               <label className="form-label small fw-semibold">Tipo de problema</label>
-              <select className="form-select" value={form.tipoProblema} onChange={handleChange('tipoProblema')}>
-                {TIPOS_PROBLEMA_OPCIONES.map((op) => (
-                  <option key={op.value} value={op.value}>{op.label}</option>
+              <Dropdown className="form-select" value={form.tipoProblema} onChange={handleChange('tipoProblema')}>
+                {TIPOS_PROBLEMA_OPCIONES.filter((op) => op.value !== 'GARANTIA_NO_APLICA').map((op) => (
+                  <Dropdown.Option key={op.value} value={op.value}>{op.label}</Dropdown.Option>
                 ))}
-              </select>
+              </Dropdown>
             </div>
 
             {!esRestablecerCaja && (
@@ -228,7 +229,11 @@ export default function SoporteForm() {
                         className="list-group-item list-group-item-action py-1 px-2 small"
                         onMouseDown={() => seleccionarOrden(o)}
                       >
-                        <strong>{o.ordenServicio}</strong> — {nombreCliente(o.cliente) || 'Sin cliente'} · {o.marca || ''} {o.modelo || ''}
+                        <strong>{o.ordenServicio}</strong> — {nombreCliente(o.cliente) || 'Sin cliente'}
+                        {o.cliente?.esEmpleado && (
+                          <span className="badge bg-warning text-dark ms-1">Empleado</span>
+                        )}
+                        {' '}· {o.marca || ''} {o.modelo || ''}
                       </button>
                     ))}
                   </div>
@@ -251,16 +256,16 @@ export default function SoporteForm() {
             {esCambioAsesor && (
               <div className="col-md-6">
                 <label className="form-label small fw-semibold">Cambiar a asesor</label>
-                <select
+                <Dropdown
                   className="form-select"
                   value={asesorSolicitadoId}
                   onChange={(e) => setAsesorSolicitadoId(e.target.value)}
                 >
-                  <option value="">-- Seleccionar --</option>
+                  <Dropdown.Option value="">-- Seleccionar --</Dropdown.Option>
                   {asesores.map((a) => (
-                    <option key={a._id} value={a._id}>{a.name}</option>
+                    <Dropdown.Option key={a._id} value={a._id}>{a.name}</Dropdown.Option>
                   ))}
-                </select>
+                </Dropdown>
               </div>
             )}
 

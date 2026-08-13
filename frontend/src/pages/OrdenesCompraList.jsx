@@ -1,6 +1,7 @@
 // src/pages/OrdenesCompraList.jsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import Dropdown from "../components/Dropdown";
 import {
   fetchOrdenesCompra,
   downloadOrdenCompraPdf,
@@ -69,17 +70,17 @@ export default function OrdenesCompraList() {
           >
             <div className="col-md-3">
               <label className="form-label mb-1">Estado</label>
-              <select
-                className="form-select form-select-sm"
+              <Dropdown
+                className="form-select-sm"
                 value={estado}
                 onChange={(e) => setEstado(e.target.value)}
               >
                 {ESTADOS.map((op) => (
-                  <option key={op.value} value={op.value}>
+                  <Dropdown.Option key={op.value} value={op.value}>
                     {op.label}
-                  </option>
+                  </Dropdown.Option>
                 ))}
-              </select>
+              </Dropdown>
             </div>
 
             <div className="col-md-4">

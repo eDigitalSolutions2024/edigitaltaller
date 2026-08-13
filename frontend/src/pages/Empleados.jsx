@@ -1,5 +1,6 @@
 // src/pages/Empleados.jsx
 import React, { useEffect, useState } from "react";
+import Dropdown from "../components/Dropdown";
 import {
   listarEmpleados,
   crearEmpleado,
@@ -159,18 +160,18 @@ function Empleados() {
 
               <div className="col-md-3">
                 <label className="form-label fw-semibold">Puesto</label>
-                <select
+                <Dropdown
                   name="puesto"
                   value={form.puesto}
                   onChange={handleChange}
                   className="form-select"
                 >
                   {puestos.map((p) => (
-                    <option key={p.value} value={p.value}>
+                    <Dropdown.Option key={p.value} value={p.value}>
                       {p.label}
-                    </option>
+                    </Dropdown.Option>
                   ))}
-                </select>
+                </Dropdown>
               </div>
 
               <div className="col-md-2">
@@ -250,15 +251,15 @@ function Empleados() {
           <div className="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
             <div className="empleados-filtro">
               <span className="fw-semibold me-2">Filtrar por estado:</span>
-              <select
+              <Dropdown
                 value={filtroActivo}
                 onChange={(e) => setFiltroActivo(e.target.value)}
-                className="form-select form-select-sm d-inline-block w-auto"
+                className="form-select-sm d-inline-block w-auto"
               >
-                <option value="todos">Todos</option>
-                <option value="true">Solo activos</option>
-                <option value="false">Solo inactivos</option>
-              </select>
+                <Dropdown.Option value="todos">Todos</Dropdown.Option>
+                <Dropdown.Option value="true">Solo activos</Dropdown.Option>
+                <Dropdown.Option value="false">Solo inactivos</Dropdown.Option>
+              </Dropdown>
             </div>
 
             {cargando && (
