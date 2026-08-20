@@ -1,5 +1,7 @@
 import http from './http';
 
+const API = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+
 export const getTiposCambio = () =>
   http.get('/configuracion/tipo-cambio').then(r => r.data);
 
@@ -80,3 +82,17 @@ export const getFondoCaja = () =>
 
 export const actualizarFondoCaja = (valor) =>
   http.put('/configuracion/fondo-caja', { valor }).then(r => r.data);
+
+export const getContratoOrdenServicio = () =>
+  http.get('/configuracion/contrato-orden-servicio').then(r => r.data);
+
+export const actualizarContratoOrdenServicio = (payload) =>
+  http.put('/configuracion/contrato-orden-servicio', payload).then(r => r.data);
+
+export const getHistorialContratoOrdenServicio = () =>
+  http.get('/configuracion/contrato-orden-servicio/historial').then(r => r.data);
+
+// Sin token: se abre directo en el visor de PDF (ver PdfViewer/usePdfModal),
+// igual que el resto de los PDFs de vehiculos.js.
+export const getContratoOrdenServicioPdfUrl = (versionId) =>
+  `${API}/configuracion/contrato-orden-servicio/historial/${versionId}/pdf`;

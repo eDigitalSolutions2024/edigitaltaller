@@ -10,6 +10,9 @@ const fs = require('fs');
 const path = require('path');
 const { dayjsFecha } = require('../utils/fechas');
 const { WATERMARK_CSS, watermarkHtml } = require('../utils/pdfWatermark');
+const { esc } = require('../utils/htmlEscape');
+const { CONTRATO_CSS, buildContratoBodyHtml } = require('../utils/contratoOrdenServicioHtml');
+const ContratoOrdenServicio = require('../models/ContratoOrdenServicio');
 
 // Carga el logo una sola vez al iniciar el módulo
 let LOGO_DATA_URL = '';
@@ -24,14 +27,6 @@ try {
 function fmtFecha(fechaISO) {
   if (!fechaISO) return '';
   return dayjsFecha(fechaISO).format('DD/MM/YYYY');
-}
-
-function esc(str) {
-  if (str === null || str === undefined) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 }
 
 function chk(val) {
@@ -157,84 +152,22 @@ function buildPaginaResumen(vehiculo, fechaRecepcion) {
 }
 
 // ---------- PÁGINA 4: CONTRATO ----------
-function buildPagina3() {
+// El contenido (título, cláusulas y pie de página) viene de la versión de
+// ContratoOrdenServicio vigente cuando se creó esta orden — ver
+// contratoOrdenServicioHtml.js para el layout compartido con el PDF
+// standalone del historial (Configuración > Contrato de Orden de Servicio).
+function buildPagina3(contrato, firmaClienteDataUrl) {
   return `
 <!-- ==================== PÁGINA 4: CONTRATO ==================== -->
 <div class="page3">
-
-  <div class="contrato-titulo">
-    CONDICIONES DEL CONTRATO DE PRESTACIÓN DE SERVICIOS DE REPARACIÓN Y/O MANTENIMIENTO DE VEHÍCULOS
-  </div>
-
-  <ol class="contrato-lista">
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;En virtud de este contrato (*), el Distribuidor presta el servicio de reparación y/o mantenimiento al cliente (Consumidor), del vehículo cuyas características se detallan en este contrato.
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;El Cliente expresa ser el dueño del vehículo y/o estar facultado para autorizar la reparación y/o mantenimiento del vehículo descrito en el presente contrato, por lo que acepta las condiciones y términos bajo las cuales se realizará la prestación del servicio descrita en el presente contrato.
-      Asimismo, es sabedor de las posibles consecuencias que puede sufrir el vehículo con motivo de su reparación y/o mantenimiento y se responsabiliza de las mismas. El consumidor acepta haber tenido a la vista los precios por mano de obra, partes y/o refacciones a emplear en las operaciones a efectuar por parte del Distribuidor.
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;El precio total por concepto de la prestación del servicio de reparación y/o mantenimiento será cubierto en las instalaciones del Distribuidor y en moneda nacional en la forma y término expresados en este contrato, incluyendo, en su caso, las partes y/o refacciones y los servicios adicionales que el cliente haya aceptado previamente.
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;En la situación de que el Cliente solicite, o en su caso, el Distribuidor avise al Cliente de servicios adicionales a los establecidos en el presente contrato, este último los podrá autorizar vía telefónica. Asimismo, todas las quejas y sugerencias serán atendidas en el domicilio, teléfonos y horarios de atención señalados en la carátula o anverso del presente contrato.
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;Las condiciones generales del vehículo materia de reparación y/o mantenimiento, son las siguientes:
-      <strong>Exteriores:</strong> (&#160;&#160;) Limpiadores (plumas); (&#160;&#160;) Unidades de las luces; (&#160;&#160;) Antena; (&#160;&#160;) Espejos laterales; (&#160;&#160;) Cristales; (&#160;&#160;) Tapones de ruedas; (&#160;&#160;) Molduras completas; (&#160;&#160;) Tapón de gasolina; (&#160;&#160;) Claxon;
-      <strong>Interiores:</strong> (&#160;&#160;) Instrumentos del tablero; (&#160;&#160;) Calefacción; (&#160;&#160;) Aire acondicionado; (&#160;&#160;) Radio/Tipo; (&#160;&#160;) Bocinas; (&#160;&#160;) Encendedor; (&#160;&#160;) Espejo retrovisor; (&#160;&#160;) Ceniceros; (&#160;&#160;) Cinturones de seguridad; (&#160;&#160;) Tapetes; (&#160;&#160;) Manijas y/o controles interiores; (&#160;&#160;) Equipo adicional; (&#160;&#160;) Accesorios;
-      <strong>Aditamentos especiales:</strong> (&#160;&#160;) Otros.
-      El vehículo se encuentra en las siguientes condiciones generales: Aspectos mecánicos _______________ aspectos de carrocería _______________.
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;La prestación del servicio de reparación y/o mantenimiento del vehículo materia de este contrato, se otorga (&#160;&#160;) sin garantía; (&#160;&#160;) con garantía por un plazo de _______, (Art. 77 de la LFPC* no podrá ser inferior a 90 días) contados a partir de la entrega del vehículo. Para la garantía en partes, piezas, refacciones y accesorios. El distribuidor transmitirá la otorgada por la fabricante, la garantía deberá hacerse válida en el domicilio, teléfonos y horarios de atención señalados en la carátula o anverso del presente contrato, siempre y cuando no se haya efectuado una reparación por un tercero. El tiempo que dure la reparación y/o mantenimiento del vehículo, bajo la protección de la garantía, no es computable dentro del plazo de la misma. Las partes y/o refacciones empleadas en la reparación y/o mantenimiento del vehículo materia de este contrato, son nuevas y apropiadas para el funcionamiento del mismo. De igual forma, los gastos en que incurra el Cliente para hacer válida la garantía en un domicilio diverso al del Distribuidor, deberán ser cubiertos por éste.
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;El Distribuidor será el responsable por las descomposturas, daños o pérdidas parciales o totales imputables a él, mientras el vehículo se encuentre bajo su resguardo para llevar a cabo la presentación del servicio de reparación y/o mantenimiento, o como consecuencia de la prestación del servicio, o bien, en el cumplimiento de la garantía, de acuerdo a lo establecido en el presente contrato. Asimismo, el Cliente autoriza al Distribuidor a usar el vehículo para efectos de prueba o verificación de las operaciones a realizar o realizadas. El cliente libera al Distribuidor de cualquier responsabilidad que hubiere surgido o pudiera surgir con relación al origen, propiedad o posesión del vehículo.
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;El cliente podrá revocar su consentimiento, en un plazo de 5 días hábiles mediante aviso personal, correo electrónico o correo certificado, siempre y cuando no se hayan iniciado los trabajos de reparación y/o mantenimiento.
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;En caso de que apliquen restricciones, estas se le darán a conocer al cliente.
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;En caso de que el consumidor cancele la operación, está obligado a pagar de manera inmediata y previa a la entrega del vehículo, el importe de las operaciones efectuadas y partes y/o refacciones colocadas o adquiridas hasta el retiro del mismo.
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;Son causas de rescisión del presente contrato: (i) Que el Distribuidor incumpla en la fecha y lugar de entrega del vehículo por causas imputables a él.- El Cliente le notificará por escrito el incumplimiento de dicha obligación y el Distribuidor entregará de manera inmediata el vehículo, debiendo descontar del monto total de la operación, la cantidad equivalente al ______% por concepto de pena convencional (ii) Que el Cliente incumpla con su obligación de pago.- En el evento que el Cliente incumpla con el pago por el concepto de la reparación y/o mantenimiento del vehículo, el Distribuidor le notificará por escrito su incumplimiento y podrá exigirle la rescisión o cumplimiento por mora, más la pena convencional del ______% del monto total de la operación. Las penas convencionales deberán ser equitativas y de la misma magnitud para las partes.
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;El Consumidor deberá recoger el vehículo en la fecha y lugar establecida en el presente contrato, en caso contrario, se obliga a pagar al Distribuidor, la cantidad que resulte por concepto de almacenaje del vehículo por cada día que transcurra, tomando como referencia una tarifa no mayor al precio general establecido para estacionamientos públicos ubicados en la localidad del Distribuidor. Transcurrido un plazo de 15 días naturales a partir de la fecha señalada para la entrega del vehículo, y el Cliente no acuda a recoger el mismo, el Distribuidor sin responsabilidad alguna, pondrá a disposición de la autoridad correspondiente dicho vehículo. Sin perjuicio de lo anterior, el Distribuidor podrá realizar el cobro correspondiente por el concepto de almacenaje.
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;El Distribuidor se obliga a expedir la factura o comprobante de pago por las operaciones efectuadas, en la cual se especificarán los precios por mano de obra, refacciones, materiales y accesorios empleados, así como la garantía que en su caso se otorgue, conforme al artículo 62 de la Ley Federal de Protección al Consumidor.
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;El Distribuidor se obliga a: (i) No ceder o transmitir a terceros, con fines mercadotécnicos o publicitarios, los datos e información proporcionada por el consumidor con motivo del presente contrato (ii) No enviar publicidad sobre bienes y servicios, salvo autorización expresa del consumidor en la presente cláusula.<br>
-      <div class="firma-linea">Firma o rúbrica de autorización del consumidor: _______________________________</div>
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;Las partes están de acuerdo en someterse a la competencia de la Procuraduría Federal del Consumidor en la vía administrativa para resolver cualquier controversia que se suscite sobre la interpretación o cumplimiento de los términos y condiciones del presente contrato y de las disposiciones de la Ley Federal de Protección al Consumidor, la Norma Oficial Mexicana NOM-174-SCFI-2007, Prácticas comerciales-Elementos de información para la prestación de servicios en general y cualquier otra disposición aplicable, sin perjuicio del derecho que tienen las partes de someterse a la jurisdicción de los Tribunales competentes del domicilio del Distribuidor, renunciando las partes expresamente a cualquier otra jurisdicción que pudiera corresponderles por razón de sus domicilios futuros.
-    </li>
-
-    <li>&nbsp;&nbsp;&nbsp;&nbsp;El Cliente y Distribuidor aceptan la realización de la prestación del servicio de reparación y/o mantenimiento, en los términos establecidos en este contrato, y sabedores de su alcance legal, lo firman por duplicado.
-    </li>
-  </ol>
-
-  <!-- Pie de página del contrato -->
-  <div class="contrato-pie">
-    <p>(*) El presente contrato fue registrado en la Procuraduría Federal del Consumidor bajo el número 115-2019 de fecha 10 de Enero de 2019</p>
-    <p>*LFPC.- Ley Federal de Protección al Consumidor</p>
-  </div>
-
+${buildContratoBodyHtml(contrato, firmaClienteDataUrl)}
 </div>
 `;
 }
 
 // ---------- HTML PRINCIPAL ----------
 
-function buildHtml(vehiculo, asesorOverride = '', formato = 'operativo') {
+function buildHtml(vehiculo, asesorOverride = '', formato = 'operativo', contrato = null) {
   // Si la orden es de un grupo, en el PDF se muestra quién lo está
   // imprimiendo (quien presionó el botón), no necesariamente quien la creó.
   const asesor = vehiculo.creadoPor || '';
@@ -251,13 +184,17 @@ function buildHtml(vehiculo, asesorOverride = '', formato = 'operativo') {
 
   // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas no se
   // concatenan porque en registros migrados/viejos pueden quedar huérfanos.
-  const nombreCliente = gob.nombreGobierno ||
-    (c.tipoCliente === 'Particular'
-      ? [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ')
-      : (c.nombre || '')) || '';
-  const nombreFiscal = (c.empresa?.razonSocial || '').trim();
-  const mostrarNombreFiscal = !!nombreFiscal &&
-    nombreFiscal.toLowerCase() !== nombreCliente.trim().toLowerCase();
+  // Para Empresa Privada/Arrendadora y Gobierno el nombre principal es el
+  // fiscal (razón social / nombre oficial de gobierno); Empresa Privada y
+  // Arrendadora además muestran el nombre comercial en una segunda línea.
+  const tipoClienteEnc = c.tipoCliente || 'Particular';
+  const esParticularCliente = tipoClienteEnc === 'Particular';
+  const esEmpresaCliente = tipoClienteEnc === 'Empresa Privada' || tipoClienteEnc === 'Empresa Arrendadora';
+  const nombreCliente = esParticularCliente
+    ? [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ')
+    : (gob.nombreGobierno || c.empresa?.razonSocial || c.nombre || '');
+  const labelNombreCliente = esParticularCliente ? 'NOMBRE DEL CLIENTE' : 'NOMBRE FISCAL';
+  const nombreComercial = esEmpresaCliente ? (c.nombre || '') : '';
   const telefono  = [tel.lada, tel.numero].filter(Boolean).join(' ');
   const celular   = [cel.lada, cel.numero].filter(Boolean).join(' ');
   const correo    = (c.emails || [])[0] || '';
@@ -357,7 +294,10 @@ ${buildPaginaResumen(vehiculo, fechaRecepcion)}
           ESTOY DEACUERDO QUE UNA VEZ NOTIFICADO POR EL ASESOR DE SERVICIO QUE MI VEHICULO YA ESTA TERMINADO, DEBO RECOGERLO EN UN LAPSO NO MAYOR DE 24 HRS, DE LO CONTRARIO PAGARE UN HOSPEDAJE DE DOSCIENTOS SESENTA PESOS DIARIOS
         </p>
 
-        <div style="margin-top:60px;font-size:10px;">
+        <div style="margin-top:${vehiculo.firmaAutorizacionCliente ? '15' : '60'}px;font-size:10px;">
+          ${vehiculo.firmaAutorizacionCliente
+            ? `<img src="${vehiculo.firmaAutorizacionCliente}" style="display:block;height:45px;margin:0 auto;"/>`
+            : ''}
           <div style="border-top:1.5px solid #000;margin-bottom:6px;"></div>
           <div style="text-align:center;font-weight:bold;font-size:9px;line-height:1.4;">
             AUTORIZACIÓN Y FIRMA DEL CLIENTE Y/O SUS REPRESENTANTES
@@ -433,53 +373,7 @@ ${buildPaginaResumen(vehiculo, fechaRecepcion)}
     margin-bottom: 6px;
   }
 
-  /* ── PÁGINA 3: CONTRATO ── */
-  .contrato-titulo {
-    font-size: 12px;
-    font-weight: bold;
-    font-style: italic;
-    color: #000000;
-    text-align: left;
-    margin-bottom: 25px;
-    line-height: 1.4;
-    text-align: justify;
-    text-justify: inter-word;
-  }
-  .contrato-lista {
-    margin: 0;
-    padding-left: 22px;
-    list-style-type: decimal;
-  }
-  .contrato-lista li {
-    font-size: 9px;
-    line-height: 1.3;
-    text-align: justify;
-    text-justify: inter-word;
-    margin-bottom: 1px;
-    color: #000000;
-  }
-  .contrato-lista li strong {
-    font-weight: bold;
-  }
-  .firma-linea {
-    margin-top: 4px;
-    font-size: 8.2px;
-    border-top: 0.5px solid #555;
-    padding-top: 3px;
-    display: inline-block;
-  }
-  .contrato-pie {
-    margin-top: 50px;
-    padding-top: 5px;
-    font-size: 10px;
-    font-style: italic;
-    color: #000000;
-    line-height: 1.5;
-    font-weight: 900;
-    text-align: justify;
-    text-justify: inter-word;
-  }
-  .contrato-pie p { margin: 1px 0; }
+${CONTRATO_CSS}
 
   .condiciones-s p{
     font-size:8px;
@@ -522,21 +416,15 @@ ${watermarkHtml(vehiculo)}
 <!-- NOMBRE + ORDEN -->
 <table style="margin-bottom:2px;">
   <tr>
-    <td class="gh" style="width:22%;font-size:9px;">NOMBRE DEL CLIENTE:</td>
+    <td class="gh" style="width:22%;font-size:9px;">${labelNombreCliente}:</td>
     <td style="width:48%;font-size:11px;font-weight:bold;">${esc(nombreCliente)}</td>
-    ${mostrarNombreFiscal ? `
-      <td rowspan="2" class="gh c" style="width:17%;font-size:9px;">ORDEN DE SERVICIO</td>
-      <td rowspan="2" class="c" style="width:13%;"><span class="orden-num">${esc(vehiculo.ordenServicio)}</span></td>` : `
-
-      <td class="gh c" style="width:17%;font-size:9px;">ORDEN DE SERVICIO</td>
-      <td class="c" style="width:13%;"><span class="orden-num">${esc(vehiculo.ordenServicio)}</span></td>
-    `}
-    
+    <td rowspan="${nombreComercial ? 2 : 1}" class="gh c" style="width:17%;font-size:9px;">ORDEN DE SERVICIO</td>
+    <td rowspan="${nombreComercial ? 2 : 1}" class="c" style="width:13%;"><span class="orden-num">${esc(vehiculo.ordenServicio)}</span></td>
   </tr>
-  ${mostrarNombreFiscal ? `
+  ${nombreComercial ? `
   <tr>
-    <td class="gh" style="font-size:9px;">NOMBRE FISCAL:</td>
-    <td style="font-size:10px;">${esc(nombreFiscal)}</td>
+    <td class="gh" style="font-size:9px;">NOMBRE COMERCIAL:</td>
+    <td style="font-size:10px;">${esc(nombreComercial)}</td>
   </tr>` : ''}
 </table>
 
@@ -768,7 +656,7 @@ ${sinVehiculo ? '' : `
 
 </div>`}
 
-${buildPagina3()}
+${buildPagina3(contrato, vehiculo.firmaAutorizacionCliente)}
 
 </body>
 </html>`;
@@ -777,7 +665,22 @@ ${buildPagina3()}
 // ---------- FUNCIÓN PRINCIPAL ----------
 
 async function streamVehiculoOperativoPdf(res, vehiculo, papel = 'a4', asesorOverride = '', formato = 'operativo') {
-  const html = buildHtml(vehiculo, asesorOverride, formato);
+  // El formato "cliente" no incluye la página del contrato, así que se evita
+  // la consulta a BD si no hace falta. Para "operativo" se usa la versión del
+  // contrato que estaba vigente cuando se CREÓ esta orden (vehiculo.contratoOrdenServicio,
+  // asignada al crear la orden — ver POST /api/vehiculos) y no la más reciente:
+  // así, al editar el contrato en Configuración, solo las órdenes nuevas cambian
+  // y las ya existentes siguen imprimiendo el texto con el que se abrieron.
+  // Las órdenes creadas antes de que existiera este campo no tienen referencia,
+  // así que caen a la versión vigente actual (getOrCreate) como respaldo.
+  let contrato = null;
+  if (formato !== 'cliente') {
+    contrato = vehiculo.contratoOrdenServicio
+      ? await ContratoOrdenServicio.findById(vehiculo.contratoOrdenServicio)
+      : null;
+    if (!contrato) contrato = await ContratoOrdenServicio.getOrCreate();
+  }
+  const html = buildHtml(vehiculo, asesorOverride, formato, contrato);
 
   const formatMap = {
     a4:     'A4',

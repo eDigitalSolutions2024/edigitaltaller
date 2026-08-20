@@ -6,9 +6,10 @@ import Dropdown from "../components/Dropdown";
 import { getOrdenCompraContador } from "../api/configuracion";
 import {
   createOrdenCompraManual,
-  downloadOrdenCompraPdf,
+  getOrdenCompraPdfBlobUrl,
 } from "../api/ordenesCompra";
 import { getUser } from "../auth";
+import usePdfModal from "../hooks/usePdfModal";
 
 function buildDomicilio(p) {
   if (!p) return "";
@@ -26,6 +27,7 @@ function buildDomicilio(p) {
 export default function OrdenesCompraNueva() {
   const navigate = useNavigate();
   const user = getUser();
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   const [proveedores, setProveedores] = useState([]);
   const [proveedorId, setProveedorId] = useState("");
@@ -85,10 +87,14 @@ export default function OrdenesCompraNueva() {
       alert(`Orden de compra ${oc.numero} generada correctamente.`);
 
       if (oc?._id) {
-        await downloadOrdenCompraPdf(oc._id);
+        const url = await getOrdenCompraPdfBlobUrl(oc._id);
+        // Espera a que el usuario cierre el PDF antes de navegar: si
+        // navegáramos de inmediato, se desmontaría esta página (y el modal
+        // con ella) antes de que llegara a verse.
+        abrirPdf(url, "orden-compra.pdf", "Orden de Compra", () => navigate("/ordenes-compra"));
+      } else {
+        navigate("/ordenes-compra");
       }
-
-      navigate("/ordenes-compra");
     } catch (err) {
       console.error(err);
       alert(err.message || "Error al generar la orden de compra.");
@@ -187,6 +193,7 @@ export default function OrdenesCompraNueva() {
           </form>
         </div>
       </div>
+      {pdfModal}
     </div>
   );
 }

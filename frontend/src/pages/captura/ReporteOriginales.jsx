@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import PeriodoSelector from './PeriodoSelector';
-import { getReporteOriginales, openReporteOriginalesPdf } from '../../api/reportes';
+import { getReporteOriginales, getReporteOriginalesPdfUrl } from '../../api/reportes';
+import usePdfModal from '../../hooks/usePdfModal';
 
 export default function ReporteOriginales() {
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
   const [rango, setRango] = useState(null);
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   const handleBuscar = async (desde, hasta) => {
     setCargando(true);
@@ -49,7 +51,7 @@ export default function ReporteOriginales() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => openReporteOriginalesPdf(rango.desde, rango.hasta)}
+                onClick={() => abrirPdf(getReporteOriginalesPdfUrl(rango.desde, rango.hasta), "reporte-originales.pdf", "Reporte de Originales")}
               >
                 Ver PDF
               </button>
@@ -100,6 +102,7 @@ export default function ReporteOriginales() {
           )}
         </>
       )}
+      {pdfModal}
     </div>
   );
 }

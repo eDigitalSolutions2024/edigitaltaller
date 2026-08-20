@@ -4,9 +4,11 @@ import {
   saveRequisicionDiagnostico,
   generarOrdenCompra,
 } from "../../api/vehiculos";
-import http from "../../api/http"; // 👈 para descargar el PDF de la OC
+import { getOrdenCompraPdfBlobUrl } from "../../api/ordenesCompra";
+import usePdfModal from "../../hooks/usePdfModal";
 
 export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPresupuesto, readOnly = false }) {
+  const { pdfModal, abrirPdf } = usePdfModal();
   const [diagnostico, setDiagnostico] = useState("");
   const [rows, setRows] = useState([]); // refaccionesSolicitadas
   const [cargos, setCargos] = useState([]); // cargosEnOrden
@@ -287,13 +289,8 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
     if (!ordenCompraId) return;
 
     try {
-      const resp = await http.get(`/ordenes-compra/${ordenCompraId}/pdf`, {
-        responseType: "blob",
-      });
-
-      const blob = new Blob([resp.data], { type: "application/pdf" });
-      const url = window.URL.createObjectURL(blob);
-      window.open(url, "_blank");
+      const url = await getOrdenCompraPdfBlobUrl(ordenCompraId);
+      abrirPdf(url, "orden-compra.pdf", "Orden de Compra");
     } catch (err) {
       console.error(err);
       alert("No se pudo abrir el PDF de la orden de compra.");
@@ -723,6 +720,7 @@ export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPre
         )}
 
       </div>
+      {pdfModal}
     </div>
   );
 }

@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import Dropdown from '../../../components/Dropdown';
 import { TERMINALES, calcularTotalesCierre } from '../../../utils/cierreCajaTotales';
-import { openNotaVentaPdf, openRemisionPdf, openReciboProvisionalPdf } from '../../../api/cajas';
-import { openValePdf } from '../../../api/vales';
+import { getNotaVentaPdfUrl, getRemisionPdfUrl, getReciboProvisionalPdfUrl } from '../../../api/cajas';
+import { getValePdfUrl } from '../../../api/vales';
+import usePdfModal from '../../../hooks/usePdfModal';
 
 function formatMoney(n) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
@@ -11,11 +12,11 @@ function formatMoney(n) {
 // Abre el PDF del comprobante (Nota de Venta / Remisión / Recibo Provisional)
 // al pulsar su fila en la tabla combinada — mismos endpoints que usa
 // CajaOrdenDetalle para imprimir el comprobante de un pago.
-function abrirComprobantePdf(c) {
+function abrirComprobantePdf(c, abrirPdf) {
   if (!c.vehiculoId || !c.pagoId) return;
-  if (c.tipo === 'NOTA_VENTA') openNotaVentaPdf(c.vehiculoId, c.pagoId);
-  else if (c.tipo === 'REMISION') openRemisionPdf(c.vehiculoId, c.pagoId);
-  else if (c.tipo === 'RECIBO_PROVISIONAL') openReciboProvisionalPdf(c.vehiculoId, c.pagoId);
+  if (c.tipo === 'NOTA_VENTA') abrirPdf(getNotaVentaPdfUrl(c.vehiculoId, c.pagoId), 'nota-venta.pdf', 'Nota de Venta');
+  else if (c.tipo === 'REMISION') abrirPdf(getRemisionPdfUrl(c.vehiculoId, c.pagoId), 'remision.pdf', 'Remisión');
+  else if (c.tipo === 'RECIBO_PROVISIONAL') abrirPdf(getReciboProvisionalPdfUrl(c.vehiculoId, c.pagoId), 'recibo-provisional.pdf', 'Recibo Provisional');
 }
 
 const TIPOS_FILTRO = [
@@ -29,7 +30,7 @@ const TIPOS_FILTRO = [
 // Combina comprobantes (Nota de Venta / Remisión / Recibo Provisional) y
 // vales de salida en una sola lista agrupada por Orden, para ver de un
 // vistazo todo lo generado para una misma orden en el día.
-function combinarPorOrden(cierre, filtroTipo) {
+function combinarPorOrden(cierre, filtroTipo, abrirPdf) {
   const filas = [
     ...(cierre.comprobantes || []).map((c, i) => ({
       key: `c-${i}`,
@@ -43,7 +44,7 @@ function combinarPorOrden(cierre, filtroTipo) {
       registradoPor: c.registradoPor || '—',
       fecha: c.fecha,
       clickable: !!(c.vehiculoId && c.pagoId),
-      onClick: () => abrirComprobantePdf(c),
+      onClick: () => abrirComprobantePdf(c, abrirPdf),
     })),
     ...(cierre.valesSalida || []).map((v) => ({
       key: `v-${v._id || v.noVale}`,
@@ -57,7 +58,7 @@ function combinarPorOrden(cierre, filtroTipo) {
       registradoPor: v.cajero || '—',
       fecha: v.fecha,
       clickable: !!v._id,
-      onClick: () => v._id && openValePdf(v._id),
+      onClick: () => v._id && abrirPdf(getValePdfUrl(v._id), 'vale.pdf', 'Vale de Salida'),
     })),
   ].filter((f) => !filtroTipo || f.tipo === filtroTipo);
 
@@ -83,7 +84,8 @@ function combinarPorOrden(cierre, filtroTipo) {
 export default function CierreCajaResumen({ cierre, accionesCierre }) {
   const totales = calcularTotalesCierre(cierre);
   const [filtroTipo, setFiltroTipo] = useState('');
-  const grupos = useMemo(() => combinarPorOrden(cierre, filtroTipo), [cierre, filtroTipo]);
+  const { pdfModal, abrirPdf } = usePdfModal();
+  const grupos = useMemo(() => combinarPorOrden(cierre, filtroTipo, abrirPdf), [cierre, filtroTipo, abrirPdf]);
 
   return (
     <div className="row g-3">
@@ -301,6 +303,7 @@ export default function CierreCajaResumen({ cierre, accionesCierre }) {
           </div>
         </div>
       </div>
+      {pdfModal}
     </div>
   );
 }

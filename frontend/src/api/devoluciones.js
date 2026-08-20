@@ -16,7 +16,4 @@ export const getDevolucionesRefaccion = (params) =>
 export const createDevolucionRefaccion = (payload) =>
   http.post('/devoluciones/refaccion', payload);
 
-export const openDevolucionRefaccionPdf = (id) => {
-  const url = `${BASE_URL}/devoluciones/refaccion/${id}/pdf`;
-  window.open(url, '_blank', 'noopener');
-};
+export const getDevolucionRefaccionPdfUrl = (id) => `${BASE_URL}/devoluciones/refaccion/${id}/pdf`;

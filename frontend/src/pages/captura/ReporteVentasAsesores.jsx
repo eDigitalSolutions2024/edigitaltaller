@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import PeriodoSelector from './PeriodoSelector';
-import { getReporteVentasAsesores, openReporteVentasAsesoresPdf } from '../../api/reportes';
+import { getReporteVentasAsesores, getReporteVentasAsesoresPdfUrl } from '../../api/reportes';
+import usePdfModal from '../../hooks/usePdfModal';
 
 const fmt = (n) =>
   new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n || 0);
@@ -10,6 +11,7 @@ export default function ReporteVentasAsesores() {
   const [error, setError] = useState('');
   const [resultado, setResultado] = useState(null);
   const [rango, setRango] = useState(null);
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   const handleBuscar = async (desde, hasta) => {
     setCargando(true);
@@ -55,7 +57,7 @@ export default function ReporteVentasAsesores() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => openReporteVentasAsesoresPdf(rango.desde, rango.hasta)}
+                onClick={() => abrirPdf(getReporteVentasAsesoresPdfUrl(rango.desde, rango.hasta), "reporte-ventas-asesores.pdf", "Reporte de Ventas por Asesor")}
               >
                 Ver PDF
               </button>
@@ -143,6 +145,7 @@ export default function ReporteVentasAsesores() {
           )}
         </>
       )}
+      {pdfModal}
     </div>
   );
 }

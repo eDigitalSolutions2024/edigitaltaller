@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import Dropdown from "../../../components/Dropdown";
 import {
   getDevolucionesRefaccion,
-  openDevolucionRefaccionPdf,
+  getDevolucionRefaccionPdfUrl,
 } from "../../../api/devoluciones";
+import usePdfModal from "../../../hooks/usePdfModal";
 
 const toYMD = (v) => (v ? String(v).slice(0, 10) : "");
 
@@ -35,6 +36,7 @@ export default function ConsultaDevoluciones() {
   const [devoluciones, setDevoluciones] = useState([]);
   const [cargando, setCargando] = useState(false);
   const debounceRef = useRef(null);
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   const buscar = async (f) => {
     setCargando(true);
@@ -186,7 +188,7 @@ export default function ConsultaDevoluciones() {
                         <button
                           type="button"
                           className="btn btn-sm btn-outline-primary"
-                          onClick={() => openDevolucionRefaccionPdf(d._id)}
+                          onClick={() => abrirPdf(getDevolucionRefaccionPdfUrl(d._id), "devolucion.pdf", "Devolución de Refacción")}
                         >
                           PDF
                         </button>
@@ -199,6 +201,7 @@ export default function ConsultaDevoluciones() {
           )}
         </div>
       </div>
+      {pdfModal}
     </div>
   );
 }

@@ -12,11 +12,12 @@ export async function createOrdenCompraManual(payload) {
   return data;
 }
 
-export async function downloadOrdenCompraPdf(id) {
+// Devuelve una blob URL (requiere el token de auth, por eso no es una URL
+// directa como los demás PDFs) lista para pasarle a abrirPdf().
+export async function getOrdenCompraPdfBlobUrl(id) {
   const resp = await http.get(`/ordenes-compra/${id}/pdf`, {
     responseType: "blob",
   });
   const blob = new Blob([resp.data], { type: "application/pdf" });
-  const url = window.URL.createObjectURL(blob);
-  window.open(url, "_blank");
+  return window.URL.createObjectURL(blob);
 }

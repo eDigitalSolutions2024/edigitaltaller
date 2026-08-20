@@ -11,6 +11,7 @@ import {
   cambiarEstadoTicket,
   resolverCambioAsesorTicket,
   resolverRestablecerCajaTicket,
+  resolverGarantiaTicket,
 } from '../../api/tickets';
 import OrdenServicioTicketLink from '../../components/OrdenServicioTicketLink';
 
@@ -79,6 +80,24 @@ export default function SoporteAdminTickets() {
     try {
       setProcesando(t._id);
       await resolverCambioAsesorTicket(t._id, accion);
+      cargar();
+    } catch (err) {
+      alert(err.response?.data?.msg || 'Error al resolver la solicitud.');
+    } finally {
+      setProcesando(null);
+    }
+  };
+
+  const handleResolverGarantia = async (t, decision) => {
+    const pregunta =
+      decision === 'APLICA'
+        ? `¿Marcar "Aplica" la garantía de la orden ${t.folioOrdenServicio}? Se desbloqueará para que el asesor la siga trabajando.`
+        : `¿Marcar "No aplica" la garantía de la orden ${t.folioOrdenServicio}? Se cancelará esa orden y se creará automáticamente una nueva orden para el mismo asesor, pendiente de capturar el número de OS.`;
+    const ok = window.confirm(pregunta);
+    if (!ok) return;
+    try {
+      setProcesando(t._id);
+      await resolverGarantiaTicket(t._id, decision);
       cargar();
     } catch (err) {
       alert(err.response?.data?.msg || 'Error al resolver la solicitud.');
@@ -238,6 +257,27 @@ export default function SoporteAdminTickets() {
                         onClick={() => handleResolverRestablecerCaja(t, 'NEGAR')}
                       >
                         Negar
+                      </button>
+                    </div>
+                  ) : t.tipoProblema === 'GARANTIA_NO_APLICA' && t.estado !== 'FINALIZADO' ? (
+                    <div className="d-flex gap-1 justify-content-center">
+                      <button
+                        type="button"
+                        className="btn btn-success btn-sm py-0"
+                        style={{ fontSize: 12 }}
+                        disabled={procesando === t._id}
+                        onClick={() => handleResolverGarantia(t, 'APLICA')}
+                      >
+                        Aplica
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm py-0"
+                        style={{ fontSize: 12 }}
+                        disabled={procesando === t._id}
+                        onClick={() => handleResolverGarantia(t, 'NO_APLICA')}
+                      >
+                        No aplica
                       </button>
                     </div>
                   ) : t.estado === 'PENDIENTE' ? (

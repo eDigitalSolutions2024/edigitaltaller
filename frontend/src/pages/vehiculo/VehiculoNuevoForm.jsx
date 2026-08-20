@@ -124,6 +124,7 @@ export default function VehiculoNuevoForm({
 
     // ----- Datos cliente GOBIERNO / EMPRESA -----
     nombreGobierno: "",
+    nombreFiscal: "", // Empresa Privada/Arrendadora: razón social
     nombreContactoGobierno: "",
     nombreDependencia: "",
     nombreContactoDependencia: "",
@@ -301,6 +302,7 @@ export default function VehiculoNuevoForm({
         : {
             // EMPRESA / GOBIERNO
             nombreGobierno: gob.nombreGobierno || cliente.nombre || "",
+            nombreFiscal: cliente.empresa?.razonSocial || "",
             nombreContactoGobierno:
               cliente.apellidoPaterno ||
               cliente.empresa?.contacto?.nombre ||
@@ -374,6 +376,7 @@ export default function VehiculoNuevoForm({
           }
         : {
             nombreGobierno: gob.nombreGobierno || c.nombre || "",
+            nombreFiscal: c.empresa?.razonSocial || "",
             nombreContactoGobierno: c.apellidoPaterno || contactoGob.nombre || c.empresa?.contacto?.nombre || "",
             nombreDependencia: dep.nombre || "",
             nombreContactoDependencia: contactoDep.nombre || "",
@@ -568,6 +571,10 @@ export default function VehiculoNuevoForm({
     if (initialData?._id) {
       try {
         setGuardando(true);
+        // Si hay fotos capturadas hace apenas un instante y aún subiendo en
+        // segundo plano, se espera a que terminen antes de confirmar, para
+        // no dar por guardada la orden mientras falta alguna imagen.
+        await imagenesOrdenRef.current?.esperarSubidasPendientes?.();
         const res = await updateDatosOrden(initialData._id, payload);
         const vehiculoActualizado = res.data?.vehiculo || res.data;
         if (onCreated) onCreated(vehiculoActualizado);
@@ -598,6 +605,10 @@ export default function VehiculoNuevoForm({
 
     try {
       setGuardando(true);
+      // Igual que en edición: se espera a que terminen las fotos que sigan
+      // subiendo en segundo plano para que la migración de imágenes
+      // temporales (en el backend) las encuentre al crear la orden.
+      await imagenesOrdenRef.current?.esperarSubidasPendientes?.();
       const res = await createVehiculo(cliente._id, payload);
       setGuardado(true);
       const vehiculoCreado = res.data?.vehiculo || res.data;
@@ -849,7 +860,18 @@ export default function VehiculoNuevoForm({
                       cliente?.tipoCliente === "Empresa") && (
                       <>
                         <div className="col-12">
-                          <label className="form-label">Nombre Empresa</label>
+                          <label className="form-label">Nombre Fiscal (Razón Social)</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            name="nombreFiscal"
+                            value={form.nombreFiscal}
+                            onChange={handleChange}
+                          />
+                        </div>
+
+                        <div className="col-12">
+                          <label className="form-label">Nombre Comercial</label>
                           <input
                             type="text"
                             className="form-control"
@@ -866,7 +888,7 @@ export default function VehiculoNuevoForm({
                       <>
                         <div className="col-12">
                           <label className="form-label">
-                            Nombre Gobierno
+                            Nombre Fiscal
                           </label>
 
                           <input

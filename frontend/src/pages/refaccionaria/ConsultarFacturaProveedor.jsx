@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import Dropdown from "../../components/Dropdown";
 import http from "../../api/http";
 import { getUser } from "../../auth";
 import ModalSeleccionarCodigo from "./components/ModalSeleccionarCodigo";
+import PdfViewer from "../../components/PdfViewer";
 import { formatFecha } from "../../utils/fechas";
 
 const fmtFechaLarga = (iso) => formatFecha(iso, { dateStyle: "medium" }) || "—";
@@ -214,13 +216,21 @@ function ModalVerDetalle({ entrada, onClose }) {
 
   const totalGeneral = (entrada.captura || []).reduce((sum, r) => sum + calcTotal(r), 0);
 
-  return (
+  // Portal directo a <body>, igual que el modal de usePdfModal.js: al
+  // imprimir desde el visor embebido de abajo, el CSS de impresión oculta
+  // todo lo que sea hijo de <body> salvo lo marcado pdfmodal-backdrop — este
+  // modal muestra mucho más que el PDF (datos, tabla de captura), así que
+  // esas secciones se marcan aparte con d-print-none (utilidad de
+  // Bootstrap) para que en el papel solo quede la fotografía de la factura.
+  return createPortal(
     <>
       <div
         onClick={onClose}
+        className="pdfmodal-backdrop"
         style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1040 }}
       />
       <div
+        className="pdfmodal-box"
         style={{
           position: "fixed", top: "50%", left: "50%",
           transform: "translate(-50%,-50%)",
@@ -231,7 +241,7 @@ function ModalVerDetalle({ entrada, onClose }) {
         }}
       >
         {/* Encabezado del modal */}
-        <div className="d-flex justify-content-between align-items-center p-3 border-bottom">
+        <div className="d-flex justify-content-between align-items-center p-3 border-bottom d-print-none">
           <h5 className="mb-0">Detalle de Factura</h5>
           <button
             onClick={onClose}
@@ -239,9 +249,9 @@ function ModalVerDetalle({ entrada, onClose }) {
           >×</button>
         </div>
 
-        <div style={{ overflowY: "auto", padding: 24 }}>
+        <div className="pdfmodal-body" style={{ overflowY: "auto", padding: 24 }}>
           {/* Datos generales */}
-          <div className="row g-3 mb-4">
+          <div className="row g-3 mb-4 d-print-none">
             <div className="col-6 col-md-4">
               <small className="text-muted d-block">Tipo de Comprobante</small>
               <strong>{entrada.tipoComprobante || "—"}</strong>
@@ -274,7 +284,7 @@ function ModalVerDetalle({ entrada, onClose }) {
 
           {/* Orden vinculada */}
           {entrada.ordenVinculada?.usadaEnOrden && (
-            <div className="mb-4 border rounded p-3" style={{ background: "#f0f7ff" }}>
+            <div className="mb-4 border rounded p-3 d-print-none" style={{ background: "#f0f7ff" }}>
               <h6 className="text-uppercase mb-3" style={{ fontSize: "0.78rem", letterSpacing: 1, color: "#0d6efd" }}>
                 Orden de Servicio Vinculada
               </h6>
@@ -300,14 +310,13 @@ function ModalVerDetalle({ entrada, onClose }) {
           {/* Fotografía de la factura */}
           {entrada.fotoFactura?.url && (
             <div className="mb-4">
-              <h6 className="text-uppercase text-muted mb-2">Fotografía de Factura</h6>
+              <h6 className="text-uppercase text-muted mb-2 d-print-none">Fotografía de Factura</h6>
               {entrada.fotoFactura.mimetype === "application/pdf" ? (
-                <iframe
+                <PdfViewer
+                  key={entrada._id}
                   src={`${SERVER}${entrada.fotoFactura.url}`}
-                  title="Factura PDF"
-                  width="100%"
-                  height="400px"
-                  style={{ border: "1px solid #dee2e6", borderRadius: 4 }}
+                  fileName={`factura_${entrada.numero || entrada._id}.pdf`}
+                  height={400}
                 />
               ) : (
                 <img
@@ -327,6 +336,7 @@ function ModalVerDetalle({ entrada, onClose }) {
           )}
 
           {/* Tabla de captura */}
+          <div className="d-print-none">
           <h6 className="text-uppercase text-muted mb-2">Detalle de Captura</h6>
           {(!entrada.captura || entrada.captura.length === 0) ? (
             <p className="text-muted">Sin renglones de captura registrados.</p>
@@ -370,13 +380,15 @@ function ModalVerDetalle({ entrada, onClose }) {
               </table>
             </div>
           )}
+          </div>
         </div>
 
-        <div className="p-3 border-top d-flex justify-content-end">
+        <div className="p-3 border-top d-flex justify-content-end d-print-none">
           <button className="btn btn-outline-secondary" onClick={onClose}>Cerrar</button>
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 }
 
@@ -1070,6 +1082,7 @@ export default function ConsultarFacturaProveedor() {
       {/* Modal ver detalle */}
       {entradaDetalle && (
         <ModalVerDetalle
+          key={entradaDetalle._id}
           entrada={entradaDetalle}
           onClose={() => setEntradaDetalle(null)}
         />

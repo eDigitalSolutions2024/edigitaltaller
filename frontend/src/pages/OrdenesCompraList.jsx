@@ -4,8 +4,9 @@ import { useNavigate } from "react-router-dom";
 import Dropdown from "../components/Dropdown";
 import {
   fetchOrdenesCompra,
-  downloadOrdenCompraPdf,
+  getOrdenCompraPdfBlobUrl,
 } from "../api/ordenesCompra";
+import usePdfModal from "../hooks/usePdfModal";
 
 const ESTADOS = [
   { value: "", label: "Todos" },
@@ -17,6 +18,7 @@ const ESTADOS = [
 
 export default function OrdenesCompraList() {
   const navigate = useNavigate();
+  const { pdfModal, abrirPdf } = usePdfModal();
   const [items, setItems] = useState([]);
   const [estado, setEstado] = useState("");
   const [search, setSearch] = useState("");
@@ -173,7 +175,7 @@ export default function OrdenesCompraList() {
                       <button
                         type="button"
                         className="btn btn-sm btn-outline-primary"
-                        onClick={() => downloadOrdenCompraPdf(oc._id)}
+                        onClick={async () => abrirPdf(await getOrdenCompraPdfBlobUrl(oc._id), "orden-compra.pdf", "Orden de Compra")}
                       >
                         Ver PDF
                       </button>
@@ -185,6 +187,7 @@ export default function OrdenesCompraList() {
           </div>
         </div>
       </div>
+      {pdfModal}
     </div>
   );
 }

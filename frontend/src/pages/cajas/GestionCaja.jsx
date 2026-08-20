@@ -4,13 +4,14 @@ import {
   guardarCierreCaja,
   cerrarCierreCaja,
   restablecerCierreCaja,
-  openCierreCajaPdf,
+  getCierreCajaPdfUrl,
 } from '../../api/reportes';
 import { createTicket } from '../../api/tickets';
 import { getUser } from '../../auth';
 import CierreCajaResumen from './components/CierreCajaResumen';
 import CajaModalVale from './components/CajaModalVale';
 import useTipoCambioActual from '../../hooks/useTipoCambioActual';
+import usePdfModal from '../../hooks/usePdfModal';
 
 function hoyISO() {
   const d = new Date();
@@ -54,6 +55,7 @@ export default function GestionCaja() {
   const fecha = hoyISO();
   const esAdmin = getUser()?.role === 'admin';
   const { tipoCambio: tipoCambioConfig, loading: cargandoTipoCambio } = useTipoCambioActual();
+  const { pdfModal, abrirPdf } = usePdfModal();
   const [cierre, setCierre] = useState(null);
   const [form, setForm] = useState(null);
   const [cargando, setCargando] = useState(true);
@@ -483,14 +485,14 @@ export default function GestionCaja() {
                 <button
                   type="button"
                   className="btn btn-sm btn-outline-danger"
-                  onClick={() => openCierreCajaPdf(fecha)}
+                  onClick={() => abrirPdf(getCierreCajaPdfUrl(fecha), "cierre-caja.pdf", "Cierre de Caja")}
                 >
                   Generar PDF
                 </button>
                 <button
                   type="button"
                   className="btn btn-sm btn-danger"
-                  onClick={() => openCierreCajaPdf(fecha)}
+                  onClick={() => abrirPdf(getCierreCajaPdfUrl(fecha), "cierre-caja.pdf", "Cierre de Caja")}
                   disabled={!cerrada}
                   title={!cerrada ? 'Disponible cuando la caja esté cerrada' : ''}
                 >
@@ -510,6 +512,7 @@ export default function GestionCaja() {
         onClose={() => setMostrarModalVale(false)}
         onAdd={agregarValeDesdeModal}
       />
+      {pdfModal}
     </div>
   );
 }

@@ -6,6 +6,8 @@ const TipoCambioSie = require('../models/TipoCambioSie');
 const UnidadMedida = require('../models/UnidadMedida');
 const Mecanico = require('../models/Mecanico');
 const Contador = require('../models/Contador');
+const ContratoOrdenServicio = require('../models/ContratoOrdenServicio');
+const { streamContratoOrdenServicioPdf } = require('../service/ContratoOrdenServicioPdf');
 const banxicoService = require('../service/banxicoService');
 
 const { proteger, requiereRol } = require('../middleware/auth');
@@ -597,6 +599,88 @@ router.patch('/mecanicos/:id/status', proteger, requiereRol('admin'), async (req
     res.json(mecanico);
   } catch (error) {
     res.status(500).json({ message: 'Error al cambiar estatus del mecánico', error: error.message });
+  }
+});
+
+// ===============================
+// CONTRATO DE ORDEN DE SERVICIO
+// (texto legal impreso en el "Formato Operativo". Es un historial de
+// versiones append-only: cada PUT crea un documento nuevo en vez de
+// sobrescribir el anterior, para que las órdenes ya creadas —que quedan
+// ligadas a la versión vigente cuando se crearon, ver Vehiculo.contratoOrdenServicio—
+// sigan imprimiendo su contrato original y solo las órdenes nuevas usen el
+// contenido recién editado)
+// ===============================
+
+// GET /api/configuracion/contrato-orden-servicio
+// Versión vigente (la más reciente). Sin restricción de rol: la necesita
+// cualquier usuario autenticado, tanto la generación de PDF como la pantalla
+// de Configuración al cargar.
+router.get('/contrato-orden-servicio', proteger, async (req, res) => {
+  try {
+    const contrato = await ContratoOrdenServicio.getOrCreate();
+    res.json(contrato);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener el contrato de orden de servicio', error: error.message });
+  }
+});
+
+// PUT /api/configuracion/contrato-orden-servicio
+// Crea una nueva versión (no modifica las anteriores).
+router.put('/contrato-orden-servicio', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { titulo, clausulas, piePagina } = req.body;
+
+    if (!titulo || !titulo.trim()) {
+      return res.status(400).json({ message: 'El título del contrato es obligatorio' });
+    }
+
+    if (!Array.isArray(clausulas) || clausulas.filter((c) => typeof c === 'string' && c.trim()).length === 0) {
+      return res.status(400).json({ message: 'El contrato debe tener al menos una cláusula' });
+    }
+
+    if (piePagina !== undefined && !Array.isArray(piePagina)) {
+      return res.status(400).json({ message: 'El pie de página debe ser una lista de textos' });
+    }
+
+    const nuevaVersion = await ContratoOrdenServicio.create({
+      titulo: titulo.trim(),
+      clausulas: clausulas.map((c) => String(c).trim()).filter(Boolean),
+      piePagina: (piePagina || []).map((p) => String(p).trim()).filter(Boolean),
+    });
+
+    res.json(nuevaVersion);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al actualizar el contrato de orden de servicio', error: error.message });
+  }
+});
+
+// GET /api/configuracion/contrato-orden-servicio/historial
+// Lista ligera (sin cláusulas) de todas las versiones, más reciente primero.
+router.get('/contrato-orden-servicio/historial', proteger, async (req, res) => {
+  try {
+    const historial = await ContratoOrdenServicio.find()
+      .sort({ createdAt: -1 })
+      .select('titulo createdAt');
+    res.json(historial);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener el historial del contrato', error: error.message });
+  }
+});
+
+// GET /api/configuracion/contrato-orden-servicio/historial/:id/pdf
+// Descarga/vista de una versión puntual como PDF. Sin `proteger`: igual que
+// las rutas de PDF de vehiculos.js, se carga directo con la URL (visor de
+// PDF / window.open), que no manda el header Authorization.
+router.get('/contrato-orden-servicio/historial/:id/pdf', async (req, res) => {
+  try {
+    const version = await ContratoOrdenServicio.findById(req.params.id);
+    if (!version) {
+      return res.status(404).json({ message: 'Versión de contrato no encontrada' });
+    }
+    await streamContratoOrdenServicioPdf(res, version);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al generar el PDF del contrato', error: error.message });
   }
 });
 

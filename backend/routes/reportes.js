@@ -32,11 +32,9 @@ function buildDateFilter(desde, hasta) {
   };
 }
 
-// Nombre "principal" capturado en Alta de Clientes: para empresas es el campo
-// raíz `nombre` (Nombre Contacto Empresa/Arrendadora), para Empresa Gobierno
-// el Nombre Gobierno y para particulares el nombre completo. En clientes
-// migrados del sistema viejo la raíz `nombre` trae duplicada la razón social;
-// en ese caso el contacto real vive en empresa.contacto.nombre.
+// Nombre "principal" mostrado en los reportes: para Empresa Privada/Arrendadora
+// es el nombre fiscal (razón social), para Empresa Gobierno el Nombre Gobierno
+// y para particulares el nombre completo.
 // apellidoPaterno/apellidoMaterno son campos exclusivos de "Particular": en
 // clientes de empresa/gobierno migrados (o editados antes del fix en
 // clientes.js que los limpia al guardar) pueden quedar huérfanos con datos
@@ -48,10 +46,7 @@ function nombreCliente(c) {
     return c.gobierno?.nombreGobierno || c.nombre || '';
   }
   if (c.tipoCliente === 'Empresa Privada' || c.tipoCliente === 'Empresa Arrendadora') {
-    const nombreRaiz = (c.nombre || '').trim();
-    const razonSocial = c.empresa?.razonSocial || '';
-    if (nombreRaiz && nombreRaiz !== razonSocial) return nombreRaiz;
-    return c.empresa?.contacto?.nombre || nombreRaiz || razonSocial;
+    return c.empresa?.razonSocial || c.nombre || '';
   }
   return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ');
 }
@@ -705,6 +700,18 @@ const SAT_FORMA_PAGO_A_DEPOSITO = {
   '29': 'tarjetasCD',
 };
 
+// Etiqueta legible de la forma de pago SAT para las Notas del Complemento de
+// Pago (un complemento no tiene "banco" como los pagos de Cajas, solo el
+// código c_FormaPago del SAT).
+const SAT_FORMA_PAGO_LABEL = {
+  '01': 'EFECTIVO',
+  '02': 'CHEQUE',
+  '03': 'TRANSFERENCIA',
+  '04': 'TARJETA DE CRÉDITO',
+  '28': 'TARJETA DE DÉBITO',
+  '29': 'TARJETA DE SERVICIOS',
+};
+
 function bancoADeposito(banco) {
   if (banco === 'EFECTIVOS' || banco === 'DOLARES') return 'efectivo';
   if (banco === 'CHEQUE') return 'cheques';
@@ -730,75 +737,162 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     if (bucket) deposito[bucket] += monto;
   };
 
-  // ---- 1 y 2: Anticipos (NOTA_VENTA) ----
-  const ordenesAnticipo = await Vehiculo.find({
-    pagos: { $elemMatch: { comprobante: 'NOTA_VENTA', tipoPago: 'ANTICIPO', fecha: { $gte: d, $lte: h } } },
-  })
-    .populate('cliente', POPULATE_CLIENTE)
-    .lean();
-
-  const anticipos = [];
-  const anticiposCancelados = [];
-  const vehiculoIdsAnticipoCancelado = new Set();
-  const filasAnticipoCancelado = [];
-
   let totalVentaDia = 0;
   let totalContado = 0;
   let totalCredito = 0;
   let totalAnticipo = 0;
   let totalPorCobrar = 0;
 
-  for (const o of ordenesAnticipo) {
+  // ---- 1: Anticipos vigentes (NOTA_VENTA + ANTICIPO, no cancelados) ----
+  const ordenesAnticipoVigente = await Vehiculo.find({
+    pagos: {
+      $elemMatch: {
+        comprobante: 'NOTA_VENTA',
+        tipoPago: 'ANTICIPO',
+        cancelado: { $ne: true },
+        fecha: { $gte: d, $lte: h },
+      },
+    },
+  })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
+
+  const anticipos = [];
+  for (const o of ordenesAnticipoVigente) {
     for (const p of o.pagos || []) {
-      if (p.comprobante !== 'NOTA_VENTA' || p.tipoPago !== 'ANTICIPO') continue;
+      if (p.comprobante !== 'NOTA_VENTA' || p.tipoPago !== 'ANTICIPO' || p.cancelado) continue;
       const f = new Date(p.fecha);
       if (f < d || f > h) continue;
 
-      const base = {
+      anticipos.push({
         folio: 'ANT',
         ordenServicio: o.ordenServicio || '',
         cliente: nombreCliente(o.cliente),
         fecha: p.fecha,
+        anticipo: p.monto,
         notas: p.notas || '',
-      };
-
-      if (p.cancelado) {
-        const fila = { ...base, anticipo: -p.monto };
-        anticiposCancelados.push(fila);
-        vehiculoIdsAnticipoCancelado.add(String(o._id));
-        filasAnticipoCancelado.push({ fila, vehiculoId: String(o._id) });
-        totalAnticipo -= p.monto;
-      } else {
-        anticipos.push({ ...base, anticipo: p.monto });
-        totalAnticipo += p.monto;
-        sumarDeposito(bancoADeposito(p.notaVenta?.banco), p.monto);
-      }
+      });
+      totalAnticipo += p.monto;
+      sumarDeposito(bancoADeposito(p.notaVenta?.banco), p.monto);
     }
   }
 
-  // Folio del CFDI vigente al que pasó cada anticipo cancelado, igual que en
-  // el Reporte Diario de Remisiones.
-  if (vehiculoIdsAnticipoCancelado.size) {
-    const ids = [...vehiculoIdsAnticipoCancelado];
-    const facturasVigentes = await FacturaCfdi.find({
-      tipoFactura: 'factura',
-      estatus: 'generada',
-      $or: [{ 'orden.vehiculoId': { $in: ids } }, { 'ordenes.vehiculoId': { $in: ids } }],
-    })
-      .select('serie folio fecha orden ordenes')
-      .sort({ fecha: 1 })
-      .lean();
+  // ---- 2: Anticipos y remisiones cancelados que pasaron a factura ----
+  // A diferencia de la sección anterior, se filtran por la fecha en que se
+  // canceló el comprobante (cuando se facturó la orden), no la fecha en que
+  // se generó: es ese evento el que corresponde al día de este reporte.
+  const ordenesConCancelados = await Vehiculo.find({
+    pagos: {
+      $elemMatch: {
+        cancelado: true,
+        comprobante: { $in: ['NOTA_VENTA', 'REMISION'] },
+        $or: [
+          { canceladoEn: { $gte: d, $lte: h } },
+          { canceladoEn: null, fecha: { $gte: d, $lte: h } },
+        ],
+      },
+    },
+  })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
 
-    const folioPorVehiculo = new Map();
-    for (const f of facturasVigentes) {
-      const folioCfdi = `${f.serie || ''}${f.folio || ''}`;
-      if (!folioCfdi) continue;
-      const vids = [f.orden?.vehiculoId, ...(f.ordenes || []).map((x) => x.vehiculoId)];
-      for (const vid of vids) if (vid) folioPorVehiculo.set(String(vid), folioCfdi);
+  const candidatosCancelados = [];
+  for (const o of ordenesConCancelados) {
+    for (const p of o.pagos || []) {
+      if (!p.cancelado) continue;
+      const esAnticipo = p.comprobante === 'NOTA_VENTA' && p.tipoPago === 'ANTICIPO';
+      const esRemision = p.comprobante === 'REMISION';
+      if (!esAnticipo && !esRemision) continue;
+      const fechaEvento = new Date(p.canceladoEn || p.fecha);
+      if (fechaEvento < d || fechaEvento > h) continue;
+      candidatosCancelados.push({ o, p, esRemision, fechaEvento });
     }
-    for (const { fila, vehiculoId } of filasAnticipoCancelado) {
-      const folioCfdi = folioPorVehiculo.get(vehiculoId);
-      if (folioCfdi) fila.notas = fila.notas ? `${fila.notas} ${folioCfdi}` : folioCfdi;
+  }
+
+  const anticiposCancelados = [];
+  // Factura a la que pasó cada anticipo/remisión cancelado, para cruzar con
+  // Facturas/Factura general más abajo (marca la nota de cancelado previo y
+  // el desglose de PUBLICO GENERAL). El tipo (ANTICIPO/REMISION) decide la
+  // redacción: solo los anticipos quedan listados arriba en "Anticipos
+  // cancelados", así que solo ellos pueden decir "ANTES MENCIONADO".
+  const cruceAnticipoPorOrdenFactura = new Map(); // `${facturaId}_${vehiculoId}` -> { tipo, monto }
+
+  if (candidatosCancelados.length) {
+    // Enlace real (pago.facturaId), disponible para todo lo cancelado desde
+    // que se generó la factura (ver generar_xml.js).
+    const idsDirectos = [
+      ...new Set(candidatosCancelados.filter((c) => c.p.facturaId).map((c) => String(c.p.facturaId))),
+    ];
+    const facturasDirectas = idsDirectos.length
+      ? await FacturaCfdi.find({ _id: { $in: idsDirectos } }).select('serie folio').lean()
+      : [];
+    const folioPorFacturaId = new Map(
+      facturasDirectas.map((f) => [String(f._id), `${f.serie || ''}${f.folio || ''}`])
+    );
+
+    // Fallback por vehiculoId, solo para pagos cancelados antes de que
+    // existiera pago.facturaId.
+    const vehiculoIdsSinFacturaId = [
+      ...new Set(candidatosCancelados.filter((c) => !c.p.facturaId).map((c) => String(c.o._id))),
+    ];
+    const folioYFacturaIdPorVehiculo = new Map();
+    if (vehiculoIdsSinFacturaId.length) {
+      const facturasVigentes = await FacturaCfdi.find({
+        tipoFactura: 'factura',
+        estatus: 'generada',
+        $or: [
+          { 'orden.vehiculoId': { $in: vehiculoIdsSinFacturaId } },
+          { 'ordenes.vehiculoId': { $in: vehiculoIdsSinFacturaId } },
+        ],
+      })
+        .select('serie folio fecha orden ordenes')
+        .sort({ fecha: 1 })
+        .lean();
+      for (const f of facturasVigentes) {
+        const folioCfdi = `${f.serie || ''}${f.folio || ''}`;
+        if (!folioCfdi) continue;
+        const vids = [f.orden?.vehiculoId, ...(f.ordenes || []).map((x) => x.vehiculoId)];
+        for (const vid of vids) {
+          if (vid && !folioYFacturaIdPorVehiculo.has(String(vid))) {
+            folioYFacturaIdPorVehiculo.set(String(vid), { facturaId: String(f._id), folio: folioCfdi });
+          }
+        }
+      }
+    }
+
+    for (const { o, p, esRemision, fechaEvento } of candidatosCancelados) {
+      let facturaIdResuelta = p.facturaId ? String(p.facturaId) : null;
+      let folioCfdi = facturaIdResuelta ? folioPorFacturaId.get(facturaIdResuelta) : null;
+      if (!folioCfdi) {
+        const legado = folioYFacturaIdPorVehiculo.get(String(o._id));
+        if (legado) {
+          facturaIdResuelta = legado.facturaId;
+          folioCfdi = legado.folio;
+        }
+      }
+      // Sin factura resuelta = se canceló por error de captura (ver
+      // cajas.js): no es una cancelación por facturación, no pertenece aquí.
+      if (!folioCfdi) continue;
+
+      cruceAnticipoPorOrdenFactura.set(`${facturaIdResuelta}_${String(o._id)}`, {
+        tipo: esRemision ? 'REMISION' : 'ANTICIPO',
+        monto: p.monto,
+      });
+
+      // Esta banda solo lista anticipos cancelados: una remisión cancelada
+      // no es un anticipo (nunca sumó a totalAnticipo en la sección de
+      // Anticipos vigentes), solo sirve arriba para el cruce con Facturas.
+      if (esRemision) continue;
+
+      anticiposCancelados.push({
+        folio: 'ANT',
+        ordenServicio: o.ordenServicio || '',
+        cliente: `SE CANCELÓ ANTICIPO Y PASA A FACTURA ${folioCfdi}`,
+        fecha: fechaEvento,
+        anticipo: -p.monto,
+        notas: p.notas || '',
+      });
+      totalAnticipo -= p.monto;
     }
   }
 
@@ -815,13 +909,17 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     const monto = f.pago?.monto || 0;
     totalCredito += monto;
     sumarDeposito(SAT_FORMA_PAGO_A_DEPOSITO[f.pago?.formaPago], monto);
+    const formaPagoLabel = SAT_FORMA_PAGO_LABEL[f.pago?.formaPago] || '';
+    const notaFactura = rel
+      ? `COMPLEMENTO DE PAGO FACTURA ${rel.serie || ''}${rel.folio || ''}`
+      : 'COMPLEMENTO DE PAGO';
     return {
       folio: `${f.serie || ''}${f.folio || ''}`,
       ordenServicio: f.orden?.ordenServicio || (f.ordenes || []).map((x) => x.ordenServicio).join(', '),
       cliente: f.cliente?.nombre || '',
       fecha: f.fecha,
       ingresoCredito: monto,
-      notas: rel ? `COMPLEMENTO DE PAGO FACTURA ${rel.serie || ''}${rel.folio || ''}` : 'COMPLEMENTO DE PAGO',
+      notas: formaPagoLabel ? `${notaFactura} - ${formaPagoLabel}` : notaFactura,
     };
   });
 
@@ -841,11 +939,13 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     return {
       folio: `${f.serie || ''}${f.folio || ''}`,
       ordenServicio: f.orden?.ordenServicio || (f.ordenes || []).map((x) => x.ordenServicio).join(', '),
-      cliente: f.cliente?.nombre || '',
+      cliente: rel
+        ? `NOTA DE CREDITO APLICADA A FACTURA ${rel.serie || ''}${rel.folio || ''}`
+        : 'NOTA DE CREDITO',
       fecha: f.fecha,
       ventaDia: -total,
       cuentasPorCobrar: -total,
-      notas: rel ? `NOTA DE CREDITO FACTURA ${rel.serie || ''}${rel.folio || ''}` : 'NOTA DE CREDITO',
+      notas: f.cliente?.nombre || '',
     };
   });
 
@@ -868,6 +968,21 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
   const vehiculoIdsFacturas = [];
   const facturasConOrdenes = [];
 
+  // Solo los anticipos cancelados quedan listados arriba en "Anticipos
+  // cancelados" (las remisiones canceladas no), así que solo ellos pueden
+  // decir "ANTES MENCIONADO"; una remisión cancelada se explica sola.
+  function notaCanceladoPrevio(facturaIdStr, ordenes) {
+    const tipos = new Set();
+    for (const o of ordenes) {
+      if (!o.vehiculoId) continue;
+      const cruce = cruceAnticipoPorOrdenFactura.get(`${facturaIdStr}_${String(o.vehiculoId)}`);
+      if (cruce) tipos.add(cruce.tipo);
+    }
+    if (!tipos.size) return '';
+    if (tipos.has('ANTICIPO')) return 'CON ANTICIPO CANCELADO ANTES MENCIONADO';
+    return 'CON REMISIÓN CANCELADA';
+  }
+
   for (const f of facturaDocs) {
     const ordenes = f.ordenes?.length ? f.ordenes : f.orden?.vehiculoId ? [f.orden] : [];
     const total = f.totales?.total || 0;
@@ -877,7 +992,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     if (esPue) totalContado += total;
     else totalPorCobrar += total;
 
-    const tieneAnticipoCanceladoPrevio = ordenes.some((o) => vehiculoIdsAnticipoCancelado.has(String(o.vehiculoId)));
+    const facturaIdStr = String(f._id);
 
     const fila = {
       folio: `${f.serie || ''}${f.folio || ''}`,
@@ -887,11 +1002,11 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       ventaDia: total,
       ingresoContado: esPue ? total : undefined,
       cuentasPorCobrar: esPue ? undefined : total,
-      notas: tieneAnticipoCanceladoPrevio ? 'CON ANTICIPO CANCELADO ANTES MENCIONADO' : '',
+      notas: notaCanceladoPrevio(facturaIdStr, ordenes),
     };
 
     (ordenes.length > 1 ? facturaGeneral : facturas).push(fila);
-    facturasConOrdenes.push({ fila, ordenes });
+    facturasConOrdenes.push({ fila, ordenes, facturaIdStr });
     for (const o of ordenes) if (o.vehiculoId) vehiculoIdsFacturas.push(String(o.vehiculoId));
   }
 
@@ -899,27 +1014,51 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
   // la tabla Depósito con la forma real de cobro; cuando la factura agrupa
   // varias órdenes, además arman el desglose en Notas con el mismo estilo
   // del reporte en papel: "(folio $monto CON banco)--(folio $monto CON banco)".
+  // Si esa orden además tuvo un anticipo/remisión cancelado y enlazado a esta
+  // misma factura, se combina en una sola parte con el monto total de la
+  // orden, igual que en el reporte de referencia.
   if (vehiculoIdsFacturas.length) {
     const vehiculosNotaVenta = await Vehiculo.find({ _id: { $in: vehiculoIdsFacturas } })
       .select('pagos')
       .lean();
     const pagosPorVehiculo = new Map(vehiculosNotaVenta.map((v) => [String(v._id), v.pagos || []]));
 
-    for (const { fila, ordenes } of facturasConOrdenes) {
+    for (const { fila, ordenes, facturaIdStr } of facturasConOrdenes) {
       const partes = [];
       for (const o of ordenes) {
-        const pagos = pagosPorVehiculo.get(String(o.vehiculoId)) || [];
+        const vehiculoIdStr = String(o.vehiculoId);
+        const pagos = pagosPorVehiculo.get(vehiculoIdStr) || [];
+        const cruce = cruceAnticipoPorOrdenFactura.get(`${facturaIdStr}_${vehiculoIdStr}`);
+
         for (const p of pagos) {
           if (p.comprobante !== 'NOTA_VENTA' || p.tipoPago !== 'COMPLETO' || p.cancelado) continue;
           sumarDeposito(bancoADeposito(p.notaVenta?.banco), p.monto);
-          if (ordenes.length > 1) {
-            const folioNota = p.notaVenta?.numero != null ? `P${p.notaVenta.numero}` : 'S/N';
-            partes.push(`(${folioNota} $${(p.monto || 0).toFixed(2)} CON ${p.notaVenta?.banco || 'S/D'})`);
+          if (ordenes.length <= 1) continue;
+
+          const folioNota = p.notaVenta?.numero != null ? `P${p.notaVenta.numero}` : 'S/N';
+          const montoNotaVenta = p.monto || 0;
+          if (cruce) {
+            const totalOrden = montoNotaVenta + cruce.monto;
+            const textoCruce =
+              cruce.tipo === 'ANTICIPO' ? 'CON ANTICIPO CANCELADO ANTES MENCIONADO' : 'CON REMISIÓN CANCELADA';
+            partes.push(
+              `(${folioNota} $${totalOrden.toFixed(2)}, $${cruce.monto.toFixed(2)} ${textoCruce} Y $${montoNotaVenta.toFixed(2)} CON ${p.notaVenta?.banco || 'S/D'})`
+            );
+          } else {
+            partes.push(`(${folioNota} $${montoNotaVenta.toFixed(2)} CON ${p.notaVenta?.banco || 'S/D'})`);
           }
         }
       }
       if (partes.length) fila.notas = `PUBLICO GENERAL. = ${partes.join('--')}`;
     }
+  }
+
+  // En "Factura general" el receptor fiscal (normalmente PUBLICO GENERAL) no
+  // aporta nada útil en la columna Cliente: se reemplaza por el desglose que
+  // se arma en Notas y esa columna se deja vacía.
+  for (const fila of facturaGeneral) {
+    fila.cliente = fila.notas || '';
+    fila.notas = '';
   }
 
   anticipos.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
@@ -990,21 +1129,52 @@ async function buildResumenDiarioRemisiones({ desde, hasta }) {
   return porDia.filter((d) => d.totalMovimientos > 0);
 }
 
-// GET /api/reportes/cajas-ingresos-dias?desde=...&hasta=...&tipo=REMISION
+async function buildResumenDiarioFacturas({ desde, hasta }) {
+  const dias = enumerarDiasLocal(new Date(desde), new Date(hasta));
+
+  const porDia = await Promise.all(
+    dias.map(async (dia) => {
+      const rep = await buildReporteFacturasDiario({
+        desde: dia.desde.toISOString(),
+        hasta: dia.hasta.toISOString(),
+      });
+      const totalMovimientos =
+        rep.anticipos.length +
+        rep.anticiposCancelados.length +
+        rep.complementosPago.length +
+        rep.notasCredito.length +
+        rep.facturas.length +
+        rep.facturaGeneral.length;
+      return {
+        desde: dia.desde.toISOString(),
+        hasta: dia.hasta.toISOString(),
+        totalMovimientos,
+        totales: rep.totales,
+      };
+    })
+  );
+
+  return porDia.filter((d) => d.totalMovimientos > 0);
+}
+
+// GET /api/reportes/cajas-ingresos-dias?desde=...&hasta=...&tipo=REMISION|NOTA_VENTA
 router.get('/cajas-ingresos-dias', async (req, res) => {
   try {
     const { desde, hasta, tipo } = req.query;
     if (!desde || !hasta) {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
-    if (tipo !== 'REMISION') {
-      return res.status(400).json({ ok: false, msg: 'Este resumen solo aplica a tipo REMISION' });
+    if (tipo !== 'REMISION' && tipo !== 'NOTA_VENTA') {
+      return res.status(400).json({ ok: false, msg: 'Tipo inválido: usa REMISION o NOTA_VENTA' });
     }
 
-    const dias = await buildResumenDiarioRemisiones({ desde, hasta });
+    const dias =
+      tipo === 'REMISION'
+        ? await buildResumenDiarioRemisiones({ desde, hasta })
+        : await buildResumenDiarioFacturas({ desde, hasta });
     return res.json({ ok: true, dias });
   } catch (err) {
-    console.error('Error resumen diario remisiones:', err);
+    console.error('Error resumen diario cajas-ingresos:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });

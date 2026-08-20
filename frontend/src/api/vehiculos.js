@@ -46,13 +46,12 @@ export const savePresupuestoVenta = (id, payload) =>
 // 👇 nuevo ayudante
 // papel: 'a4' | 'carta' | 'oficio'
 // formato: 'operativo' (recepción/servicio + contrato) | 'cliente' (solo resumen)
-export const openOperativoPdf = (id, papel = 'carta', formato = 'operativo') => {
+export const getOperativoPdfUrl = (id, papel = 'carta', formato = 'operativo') => {
   const usuario = getUser();
   const asesor = usuario?.name || usuario?.username || '';
   // El backend solo usa este nombre si la orden pertenece a un grupo (para
   // mostrar en el PDF a quien lo está imprimiendo, no a quien la creó).
-  const url = `${API}/vehiculos/${id}/operativo-pdf?papel=${papel}&asesor=${encodeURIComponent(asesor)}&formato=${formato}`;
-  window.open(url, "_blank", "noopener");
+  return `${API}/vehiculos/${id}/operativo-pdf?papel=${papel}&asesor=${encodeURIComponent(asesor)}&formato=${formato}`;
 };
 
 // 👇 abre el PDF de impresión / contrato
@@ -68,10 +67,7 @@ export async function generarOrdenCompra(ordenId, refaccion) {
   return data; // aquí te puede regresar { numeroOC, idOC, ... }
 };
 
-export const openPresupuestoPdf = (id) => {
-  const url = `${API}/vehiculos/${id}/presupuesto-pdf`;
-  window.open(url, "_blank", "noopener");
-};
+export const getPresupuestoPdfUrl = (id) => `${API}/vehiculos/${id}/presupuesto-pdf`;
 
 // Cerrar orden
 export const closeOrden = (id) =>
@@ -85,10 +81,7 @@ export const restoreOrden = (id) =>
 export const cambiarAsesorOrden = (id, asesorId) =>
   http.put(`/vehiculos/${id}/cambiar-asesor`, { asesorId });
 
-export const openVentaClientePdf = (id) => {
-  const url = `${API}/vehiculos/${id}/venta-cliente-pdf`;
-  window.open(url, "_blank", "noopener");
-};
+export const getVentaClientePdfUrl = (id) => `${API}/vehiculos/${id}/venta-cliente-pdf`;
 
 export const marcarSurtidas = (id, presupuesto) =>
   http.put(`/vehiculos/${id}/surtir`, { presupuesto });
@@ -125,18 +118,26 @@ export const descartarImagenesTemp = (tempId) =>
 export const getMisOrdenes = () =>
   http.get('/vehiculos/mis-ordenes');
 
+// Filtro condicional: solo las órdenes que atendió este refaccionario, o las
+// que nadie ha atendido aún (el backend resuelve devueltoPor vacío/null como
+// "sin dueño, visible a todos"). Pasar null/undefined para no filtrar.
+export const filtroDevueltoPor = (nombreRefaccionario) =>
+  nombreRefaccionario ? { devueltoPor: nombreRefaccionario } : {};
+
 // Filtros que definen lo que un refaccionario tiene realmente por surtir:
 // sus propias órdenes (o las que nadie atendió) y que aún traigan refacciones
 // autorizadas sin surtir.
 export const filtrosPorSurtir = (nombreRefaccionario) => ({
   conPendientesSurtir: true,
-  ...(nombreRefaccionario ? { devueltoPor: nombreRefaccionario } : {}),
+  ...filtroDevueltoPor(nombreRefaccionario),
 });
 
 export const getRefaccionariaAlerts = (nombreRefaccionario) => {
   const surtir = filtrosPorSurtir(nombreRefaccionario);
   return Promise.all([
-    http.get('/vehiculos/ordenes', { params: { estado: 'PENDIENTE_REFACCIONARIA', limit: 1 } }),
+    http.get('/vehiculos/ordenes', {
+      params: { ...filtroDevueltoPor(nombreRefaccionario), estado: 'PENDIENTE_REFACCIONARIA', limit: 1 },
+    }),
     http.get('/vehiculos/ordenes', { params: { ...surtir, estado: 'PENDIENTE_SURTIR', limit: 1 } }),
     http.get('/vehiculos/ordenes', { params: { ...surtir, estado: 'REPARACION_EN_CURSO', limit: 1 } }),
   ]).then(([sol, ps, ric]) => ({

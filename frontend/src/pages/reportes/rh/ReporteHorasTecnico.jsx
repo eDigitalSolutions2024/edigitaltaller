@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import PeriodoSelector from '../../captura/PeriodoSelector';
-import { getReporteHorasTecnico, openReporteHorasTecnicoPdf } from '../../../api/reportes';
+import { getReporteHorasTecnico, getReporteHorasTecnicoPdfUrl } from '../../../api/reportes';
+import usePdfModal from '../../../hooks/usePdfModal';
 import { formatFecha } from '../../../utils/fechas';
 
 function formatMoney(n) {
@@ -23,6 +24,7 @@ export default function ReporteHorasTecnico() {
   const [data, setData] = useState(null);
   const [rango, setRango] = useState(null);
   const [estado, setEstado] = useState('cerradas');
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   const buscar = async (desde, hasta, estadoFiltro) => {
     setCargando(true);
@@ -92,7 +94,7 @@ export default function ReporteHorasTecnico() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => openReporteHorasTecnicoPdf(rango.desde, rango.hasta, estado)}
+                onClick={() => abrirPdf(getReporteHorasTecnicoPdfUrl(rango.desde, rango.hasta, estado), "reporte-horas-tecnico.pdf", "Reporte de Horas por Técnico")}
               >
                 Ver PDF
               </button>
@@ -163,6 +165,7 @@ export default function ReporteHorasTecnico() {
           )}
         </>
       )}
+      {pdfModal}
     </div>
   );
 }

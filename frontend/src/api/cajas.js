@@ -33,24 +33,11 @@ export const actualizarDescuento = (id, descuentoId, payload) =>
 export const eliminarDescuento = (id, descuentoId) =>
   http.delete(`/cajas/${id}/descuentos/${descuentoId}`);
 
-// Impresión (pendiente de implementar el PDF real) — imprime el último pago
-// registrado con ese comprobante.
-export const openNotaVentaPdf = (id, pagoId) => {
-  const url = `${API}/cajas/${id}/nota-venta-pdf?pagoId=${pagoId}`;
-  window.open(url, "_blank", "noopener");
-};
+// Impresión — el último pago registrado con ese comprobante.
+export const getNotaVentaPdfUrl = (id, pagoId) => `${API}/cajas/${id}/nota-venta-pdf?pagoId=${pagoId}`;
 
-export const openRemisionPdf = (id, pagoId) => {
-  const url = `${API}/cajas/${id}/remision-pdf?pagoId=${pagoId}`;
-  window.open(url, "_blank", "noopener");
-};
+export const getRemisionPdfUrl = (id, pagoId) => `${API}/cajas/${id}/remision-pdf?pagoId=${pagoId}`;
 
-export const openReciboProvisionalPdf = (id, pagoId) => {
-  const url = `${API}/cajas/${id}/recibo-provisional-pdf?pagoId=${pagoId}`;
-  window.open(url, "_blank", "noopener");
-};
+export const getReciboProvisionalPdfUrl = (id, pagoId) => `${API}/cajas/${id}/recibo-provisional-pdf?pagoId=${pagoId}`;
 
-export const openReciboDolaresPdf = (id, pagoId) => {
-  const url = `${API}/cajas/${id}/recibo-dolares-pdf?pagoId=${pagoId}`;
-  window.open(url, "_blank", "noopener");
-};
+export const getReciboDolaresPdfUrl = (id, pagoId) => `${API}/cajas/${id}/recibo-dolares-pdf?pagoId=${pagoId}`;

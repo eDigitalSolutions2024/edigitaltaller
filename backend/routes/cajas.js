@@ -6,7 +6,7 @@ const Cliente = require('../models/Cliente');
 const Contador = require('../models/Contador');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { regexBusquedaOS } = require('../utils/ordenServicio');
-const { calcularTotalesOrden } = require('../utils/cajaTotales');
+const { calcularTotalesOrden, sincronizarFechaPagadaRemisiones } = require('../utils/cajaTotales');
 const { registrarMovimientoTerminal } = require('../utils/cierreCajaTerminales');
 const { generarComprobanteCajaPDF } = require('../service/cajaComprobantePdf');
 const { generarReciboProvisionalPDF, generarReciboDolaresPDF } = require('../service/cajaRecibosPdf');
@@ -17,34 +17,6 @@ const CONTADOR_NOTA_VENTA = 'notaVenta';
 const CONTADOR_REMISION = 'remision';
 const CONTADOR_RECIBO_PROVISIONAL = 'reciboProvisional';
 const CONTADOR_RECIBO_DOLARES = 'reciboDolares';
-
-// Tolerancia de centavos para dar por liquidada una orden (los totales se
-// recalculan con floats: IVA y descuentos en porcentaje).
-const TOLERANCIA_SALDO = 0.01;
-
-// La Fecha de Pagada de una Remisión no se captura a mano: el sistema la marca
-// en cuanto la orden se queda sin saldo pendiente, y la vuelve a limpiar si el
-// saldo reaparece (p. ej. al cancelar un pago o quitar un descuento). Recibe el
-// documento ya hidratado de Mongoose y solo guarda si algo cambió.
-async function sincronizarFechaPagadaRemisiones(vehiculo, fecha = new Date()) {
-  const { saldoPendiente } = calcularTotalesOrden(vehiculo);
-  const liquidada = saldoPendiente <= TOLERANCIA_SALDO;
-
-  let cambio = false;
-  for (const p of vehiculo.pagos || []) {
-    if (p.comprobante !== 'REMISION' || p.cancelado || !p.remision) continue;
-    if (liquidada && !p.remision.fechaPagada) {
-      p.remision.fechaPagada = fecha;
-      cambio = true;
-    } else if (!liquidada && p.remision.fechaPagada) {
-      p.remision.fechaPagada = null;
-      cambio = true;
-    }
-  }
-
-  if (cambio) await vehiculo.save();
-  return vehiculo;
-}
 
 // GET /api/cajas -> lista de órdenes para el módulo de Cajas. A diferencia de
 // /vehiculos/ordenes (que Cajas usaba antes), aquí se listan las órdenes sin
@@ -341,16 +313,23 @@ router.post('/:id/pagos', proteger, async (req, res) => {
 });
 
 // POST /api/cajas/:id/pagos/:pagoId/cancelar -> cancela un pago ya registrado
-// (solo admin). Casos de uso: la orden se cobró con Anticipo o Remisión y el
-// cliente pide factura, o el pago se restablece porque se registró por error
-// (ver ticket RESTABLECER_COBRO en Soporte). El pago no se borra (su folio ya
-// se consumió y los reportes lo necesitan): queda marcado como cancelado y
-// deja de contar como abonado. En las remisiones además se marca
-// remision.tipo = 'Cancelada', que es lo que ya leía el Reporte Diario de
-// Remisiones para mostrarlas como "SE CANCELA REMISIÓN Y PASA A FACTURA".
+// (solo admin), EXCLUSIVAMENTE para corregir errores de captura (ver ticket
+// RESTABLECER_COBRO en Soporte). Cancelar un anticipo/remisión porque la
+// orden se facturó ya NO pasa por aquí: eso lo hace automáticamente
+// generar_xml.js al generar la factura, enlazando el pago con
+// pago.facturaId. Un pago cancelado por este endpoint deja facturaId en
+// null a propósito, para que el Reporte de Facturas no lo confunda con una
+// cancelación real por facturación. El pago no se borra (su folio ya se
+// consumió y los reportes lo necesitan): queda marcado como cancelado y deja
+// de contar como abonado. En las remisiones además se marca remision.tipo =
+// 'Cancelada'.
 router.post('/:id/pagos/:pagoId/cancelar', proteger, requiereRol('admin'), async (req, res) => {
   try {
     const { motivo = '' } = req.body || {};
+    const motivoFinal = String(motivo).trim();
+    if (!motivoFinal) {
+      return res.status(400).json({ ok: false, msg: 'Captura el motivo de la cancelación.' });
+    }
 
     const vehiculo = await Vehiculo.findById(req.params.id);
     if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
@@ -362,9 +341,6 @@ router.post('/:id/pagos/:pagoId/cancelar', proteger, requiereRol('admin'), async
     }
 
     const esRemision = pago.comprobante === 'REMISION';
-    const motivoFinal =
-      String(motivo).trim() ||
-      (esRemision ? 'Se cancela remisión y pasa a factura' : 'Se cancela anticipo y pasa a factura');
 
     pago.cancelado = true;
     pago.canceladoEn = new Date();

@@ -90,11 +90,11 @@ export default function ConsultaClientes() {
                 c.gobierno?.nombreGobierno || "—"
               ) : c.tipoCliente === "Empresa Privada" || c.tipoCliente === "Empresa Arrendadora" ? (
                 <>
-                  {c.nombre || "—"}
-                  {c.empresa?.razonSocial &&
-                    c.empresa.razonSocial.trim().toLowerCase() !== (c.nombre || "").trim().toLowerCase() && (
+                  {c.empresa?.razonSocial || c.nombre || "—"}
+                  {c.nombre &&
+                    c.nombre.trim().toLowerCase() !== (c.empresa?.razonSocial || "").trim().toLowerCase() && (
                       <span style={{ display: "block", fontSize: "12px", color: "var(--color-text-info)" }}>
-                        {c.empresa.razonSocial}
+                        {c.nombre}
                       </span>
                     )}
                 </>

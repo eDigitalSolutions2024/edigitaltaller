@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import Dropdown from '../../../components/Dropdown';
 import PeriodoSelector from '../../captura/PeriodoSelector';
-import { getReporteRhCxC, openReporteRhCxCPdf } from '../../../api/reportes';
+import { getReporteRhCxC, getReporteRhCxCPdfUrl } from '../../../api/reportes';
 import { listarEmpleados } from '../../../api/empleados';
 import { formatFecha } from '../../../utils/fechas';
+import usePdfModal from '../../../hooks/usePdfModal';
 
 function formatMoney(n) {
   return new Intl.NumberFormat('es-MX', {
@@ -20,6 +21,7 @@ export default function ReporteRhCxC() {
   const [rango, setRango] = useState(null);
   const [mecanicos, setMecanicos] = useState([]);
   const [mecanico, setMecanico] = useState('');
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   useEffect(() => {
     listarEmpleados({ puesto: 'mecanico', activo: true })
@@ -93,7 +95,7 @@ export default function ReporteRhCxC() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => openReporteRhCxCPdf(rango.desde, rango.hasta, mecanico)}
+                onClick={() => abrirPdf(getReporteRhCxCPdfUrl(rango.desde, rango.hasta, mecanico), "reporte-rh-cxc.pdf", "Reporte RH — CxC")}
               >
                 Ver PDF
               </button>
@@ -152,6 +154,7 @@ export default function ReporteRhCxC() {
           )}
         </>
       )}
+      {pdfModal}
     </div>
   );
 }

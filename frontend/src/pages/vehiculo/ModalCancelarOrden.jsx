@@ -9,7 +9,7 @@ const MOTIVO_NO_APLICA_GARANTIA = "No aplica garantía";
 // botón para notificar al administrador en vez de cancelar directamente: solo
 // un admin puede resolver si la garantía aplica o no (ver Solicitudes de
 // Garantía / ModalCancelarGarantia).
-export default function ModalCancelarOrden({ show, orden, procesando, notificando, onClose, onCancelar, onNotificarAdmin }) {
+export default function ModalCancelarOrden({ show, orden, procesando, notificando, puedeCancelarDirecto = true, onClose, onCancelar, onNotificarAdmin }) {
   const [motivo, setMotivo] = useState("");
 
   useEffect(() => {
@@ -21,6 +21,7 @@ export default function ModalCancelarOrden({ show, orden, procesando, notificand
   const esGarantia = !!orden?.garantia;
   const ocupado = !!procesando || !!notificando;
   const motivoListo = motivo.trim().length > 0;
+  const soloNotificar = esGarantia && !puedeCancelarDirecto;
 
   return (
     <div
@@ -41,8 +42,17 @@ export default function ModalCancelarOrden({ show, orden, procesando, notificand
               <div className="alert alert-warning py-2">
                 Esta orden es una solicitud de garantía
                 {orden.garantia?.ordenAnteriorFolio ? ` sobre la orden ${orden.garantia.ordenAnteriorFolio}` : ""}.
-                Si la garantía no aplica, es mejor <strong>notificar al administrador</strong>{" "}
-                para que la revise y decida si cancela la orden, en vez de cancelarla tú directamente.
+                {soloNotificar ? (
+                  <>
+                    {" "}Solo un administrador puede cancelarla. <strong>Notifica al administrador</strong>{" "}
+                    para que la revise y decida si aplica o no; mientras la resuelve, la orden quedará bloqueada.
+                  </>
+                ) : (
+                  <>
+                    {" "}Si la garantía no aplica, es mejor <strong>notificar al administrador</strong>{" "}
+                    para que la revise y decida si cancela la orden, en vez de cancelarla tú directamente.
+                  </>
+                )}
               </div>
             )}
 
@@ -82,14 +92,16 @@ export default function ModalCancelarOrden({ show, orden, procesando, notificand
                 {notificando ? "Notificando..." : "Notificar administrador"}
               </button>
             )}
-            <button
-              type="button"
-              className="btn btn-danger fw-semibold"
-              disabled={!motivoListo || ocupado}
-              onClick={() => onCancelar(motivo.trim())}
-            >
-              {procesando ? "Cancelando..." : "Cancelar orden"}
-            </button>
+            {!soloNotificar && (
+              <button
+                type="button"
+                className="btn btn-danger fw-semibold"
+                disabled={!motivoListo || ocupado}
+                onClick={() => onCancelar(motivo.trim())}
+              >
+                {procesando ? "Cancelando..." : "Cancelar orden"}
+              </button>
+            )}
           </div>
         </div>
       </div>

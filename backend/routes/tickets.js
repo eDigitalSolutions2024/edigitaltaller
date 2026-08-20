@@ -5,9 +5,11 @@ const router = express.Router();
 const Ticket = require('../models/Ticket');
 const Contador = require('../models/Contador');
 const User = require('../models/User');
+const Vehiculo = require('../models/Vehiculo');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { reasignarAsesorOrden } = require('../utils/reasignarAsesor');
 const { restablecerCierreCajaDia } = require('../utils/restablecerCierreCajaDia');
+const { aplicarGarantia, noAplicaGarantia } = require('../utils/resolverGarantiaTicket');
 
 const { TIPOS_PROBLEMA, ESTADOS_TICKET } = Ticket;
 const CONTADOR_TICKET = 'ticket';
@@ -66,6 +68,27 @@ router.post('/', proteger, async (req, res) => {
       }
     }
 
+    // Notificar "Garantía no aplica" desde ModalCancelarOrden: solo tiene
+    // sentido sobre una orden que sea una solicitud de garantía todavía sin
+    // resolver, y no se puede notificar dos veces mientras ya hay un ticket
+    // pendiente (ver garantia.ticketPendiente / PUT :id/resolver-garantia).
+    let ordenGarantiaBloqueo = null;
+    if (tipoProblema === 'GARANTIA_NO_APLICA') {
+      if (!ordenServicio) {
+        return res.status(400).json({ ok: false, msg: 'Selecciona la orden de garantía a notificar.' });
+      }
+      ordenGarantiaBloqueo = await Vehiculo.findById(ordenServicio).select('garantia');
+      if (!ordenGarantiaBloqueo || !ordenGarantiaBloqueo.garantia) {
+        return res.status(400).json({ ok: false, msg: 'Esta orden no es una solicitud de garantía.' });
+      }
+      if (ordenGarantiaBloqueo.garantia.estado !== 'PENDIENTE') {
+        return res.status(400).json({ ok: false, msg: 'Esta solicitud de garantía ya fue resuelta.' });
+      }
+      if (ordenGarantiaBloqueo.garantia.ticketPendiente) {
+        return res.status(409).json({ ok: false, msg: 'Ya se notificó al administrador; espera a que resuelva el ticket pendiente.' });
+      }
+    }
+
     const contador = await Contador.findOneAndUpdate(
       { nombre: CONTADOR_TICKET },
       { $inc: { valor: 1 } },
@@ -85,6 +108,10 @@ router.post('/', proteger, async (req, res) => {
       asesorSolicitadoNombre,
       fechaCierreCaja: fechaCierreCajaNormalizada,
     });
+
+    if (tipoProblema === 'GARANTIA_NO_APLICA') {
+      await Vehiculo.findByIdAndUpdate(ordenServicio, { 'garantia.ticketPendiente': ticket._id });
+    }
 
     return res.status(201).json({ ok: true, data: ticket });
   } catch (err) {
@@ -260,6 +287,58 @@ router.put('/:id/resolver-restablecer-caja', proteger, requiereRol('admin'), asy
       return res.status(err.status).json({ ok: false, msg: err.message });
     }
     console.error('Error resolviendo ticket de restablecer caja:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// PUT /api/tickets/:id/resolver-garantia — Aplica o No aplica una solicitud
+// de garantía notificada desde ModalCancelarOrden (solo admin).
+// APLICA: solo desbloquea la orden; la aprobación formal de la garantía
+// (checkbox Autoriza Carreón + motivo) se sigue haciendo desde Solicitudes de
+// Garantía (PUT /api/garantias/:id/resolver), sin duplicar esa validación aquí.
+// NO_APLICA: cancela la orden y crea automáticamente la de reemplazo para el
+// mismo asesor, pendiente de capturar el número de OS.
+router.put('/:id/resolver-garantia', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { decision } = req.body;
+
+    if (!['APLICA', 'NO_APLICA'].includes(decision)) {
+      return res.status(400).json({ ok: false, msg: 'Decisión inválida. Usa APLICA o NO_APLICA.' });
+    }
+
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) {
+      return res.status(404).json({ ok: false, msg: 'Ticket no encontrado' });
+    }
+
+    if (ticket.tipoProblema !== 'GARANTIA_NO_APLICA') {
+      return res.status(400).json({ ok: false, msg: 'Este ticket no es una notificación de garantía.' });
+    }
+    if (ticket.estado === 'FINALIZADO') {
+      return res.status(400).json({ ok: false, msg: 'El ticket ya fue finalizado.' });
+    }
+
+    const resueltoPor = req.user.name || req.user.username || req.user.email || '';
+
+    if (decision === 'APLICA') {
+      await aplicarGarantia(ticket.ordenServicio);
+    } else {
+      const { ordenReemplazo } = await noAplicaGarantia(ticket.ordenServicio, resueltoPor);
+      ticket.ordenReemplazoId = ordenReemplazo._id;
+    }
+
+    ticket.estado = 'FINALIZADO';
+    ticket.resultado = decision === 'APLICA' ? 'APROBADO' : 'RECHAZADO';
+    ticket.fechaCambioEstado = new Date();
+    ticket.actualizadoPor = resueltoPor;
+    await ticket.save();
+
+    return res.json({ ok: true, data: ticket });
+  } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ ok: false, msg: err.message });
+    }
+    console.error('Error resolviendo ticket de garantía:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });
