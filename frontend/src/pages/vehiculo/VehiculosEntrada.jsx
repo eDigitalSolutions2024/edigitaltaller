@@ -10,12 +10,17 @@ import { getUser } from "../../auth";
 
 // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas no se
 // concatenan porque en registros migrados/viejos pueden quedar huérfanos.
+// Empresa Privada/Arrendadora muestran el nombre fiscal (razón social) en
+// lugar del nombre comercial; Gobierno sigue mostrando su nombre oficial.
 function nombreClienteBusqueda(c) {
-  if (c.tipoCliente && c.tipoCliente !== "Particular") {
+  if (!c) return "Sin nombre";
+  if (c.tipoCliente === "Empresa Gobierno") {
     return c.gobierno?.nombreGobierno || c.nombre || "Sin nombre";
   }
+  if (c.tipoCliente === "Empresa Privada" || c.tipoCliente === "Empresa Arrendadora") {
+    return c.empresa?.razonSocial || c.nombre || "Sin nombre";
+  }
   return (
-    c.gobierno?.nombreGobierno ||
     [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") ||
     "Sin nombre"
   );
@@ -118,12 +123,14 @@ export default function VehiculoEntrada() {
         c.apellidoMaterno,
       ].filter(Boolean).join(" ");
 
-      const nombreFiltro =
-        c.gobierno?.nombreGobierno ||
-        nombreCompleto ||
-        "";
+      // Permite buscar tanto por nombre comercial como por nombre fiscal.
+      const candidatos = [
+        c.gobierno?.nombreGobierno,
+        c.empresa?.razonSocial,
+        nombreCompleto,
+      ].filter(Boolean);
 
-      return nombreFiltro.toLowerCase().includes(term);
+      return candidatos.some((n) => n.toLowerCase().includes(term));
     });
     setFiltrados(resultado);
   }, [q, clientes]);
@@ -188,7 +195,7 @@ export default function VehiculoEntrada() {
   const handleGarantiaSolicitada = ({ ordenAnterior, motivo }) => {
     setGarantiaInfo({ ordenAnterior, motivo });
     setVehiculoGarage(ordenAnterior);
-    setSinVehiculo(false);
+    setSinVehiculo(!!ordenAnterior?.sinVehiculo);
     limpiarPrefillNoAplica();
     setMostrarFormNuevoCarro(true);
     setShowGarantiaModal(false);

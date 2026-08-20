@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import PeriodoSelector from '../captura/PeriodoSelector';
-import { getReporteOrdenesAbiertas, openReporteOrdenesAbiertasPdf } from '../../api/reportes';
+import { getReporteOrdenesAbiertas, getReporteOrdenesAbiertasPdfUrl } from '../../api/reportes';
 import { formatFecha } from '../../utils/fechas';
+import usePdfModal from '../../hooks/usePdfModal';
 
 export default function OrdenesAbiertas() {
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [resultado, setResultado] = useState(null);
   const [rango, setRango] = useState(null);
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   const handleBuscar = async (desde, hasta) => {
     setCargando(true);
@@ -51,7 +53,7 @@ export default function OrdenesAbiertas() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => openReporteOrdenesAbiertasPdf(rango.desde, rango.hasta)}
+                onClick={() => abrirPdf(getReporteOrdenesAbiertasPdfUrl(rango.desde, rango.hasta), "ordenes-abiertas.pdf", "Órdenes Abiertas")}
               >
                 Ver PDF
               </button>
@@ -145,6 +147,7 @@ export default function OrdenesAbiertas() {
           )}
         </>
       )}
+      {pdfModal}
     </div>
   );
 }

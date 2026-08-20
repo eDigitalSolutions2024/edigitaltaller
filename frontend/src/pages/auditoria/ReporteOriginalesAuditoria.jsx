@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import Dropdown from '../../components/Dropdown';
 import PeriodoSelector from '../captura/PeriodoSelector';
-import { getReporteOriginalesAbiertas, openReporteOriginalesAbiertasPdf } from '../../api/reportes';
+import { getReporteOriginalesAbiertas, getReporteOriginalesAbiertasPdfUrl } from '../../api/reportes';
 import { getAsesores } from '../../api/users';
 import { formatFecha } from '../../utils/fechas';
+import usePdfModal from '../../hooks/usePdfModal';
 
 export default function ReporteOriginalesAuditoria() {
   const [cargando, setCargando] = useState(false);
@@ -12,6 +13,7 @@ export default function ReporteOriginalesAuditoria() {
   const [rango, setRango] = useState(null);
   const [asesores, setAsesores] = useState([]);
   const [asesor, setAsesor] = useState('');
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   useEffect(() => {
     getAsesores().then(setAsesores).catch(() => {});
@@ -78,7 +80,7 @@ export default function ReporteOriginalesAuditoria() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => openReporteOriginalesAbiertasPdf(rango.desde, rango.hasta, asesor)}
+                onClick={() => abrirPdf(getReporteOriginalesAbiertasPdfUrl(rango.desde, rango.hasta, asesor), "reporte-originales.pdf", "Reporte de Originales")}
               >
                 Ver PDF
               </button>
@@ -126,6 +128,7 @@ export default function ReporteOriginalesAuditoria() {
           )}
         </>
       )}
+      {pdfModal}
     </div>
   );
 }

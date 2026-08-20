@@ -9,8 +9,9 @@ import {
   buscarOrdenParaVale,
   createVale,
   getVales,
-  openValePdf,
+  getValePdfUrl,
 } from '../../api/vales';
+import usePdfModal from '../../hooks/usePdfModal';
 
 const VACIO = {
   noOrden: '',
@@ -57,6 +58,7 @@ function snapshotFromOrden(o) {
 
 export default function ValeSalidaForm() {
   const user = getUser();
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   const [form, setForm] = useState(VACIO);
   const [noVale, setNoVale] = useState('');
@@ -236,7 +238,7 @@ export default function ValeSalidaForm() {
       setMensaje({ tipo: 'warning', texto: 'Guarda el vale antes de imprimir.' });
       return;
     }
-    openValePdf(valeGuardadoId);
+    abrirPdf(getValePdfUrl(valeGuardadoId), 'vale.pdf', 'Vale de Salida');
   };
 
   return (
@@ -412,7 +414,7 @@ export default function ValeSalidaForm() {
                         <button
                           type="button"
                           className="btn btn-sm btn-outline-danger"
-                          onClick={() => openValePdf(v._id)}
+                          onClick={() => abrirPdf(getValePdfUrl(v._id), 'vale.pdf', 'Vale de Salida')}
                         >
                           Impresión
                         </button>
@@ -425,6 +427,7 @@ export default function ValeSalidaForm() {
           )}
         </div>
       </div>
+      {pdfModal}
     </div>
   );
 }

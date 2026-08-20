@@ -4,10 +4,11 @@ import {
   searchFacturasDevolucion,
   prefillDevolucionRefaccion,
   createDevolucionRefaccion,
-  openDevolucionRefaccionPdf,
+  getDevolucionRefaccionPdfUrl,
 } from "../../../api/devoluciones";
 import { getRefaccionarios } from "../../../api/users";
 import { getUser } from "../../../auth";
+import usePdfModal from "../../../hooks/usePdfModal";
 
 const hoyYMD = () => new Date().toISOString().slice(0, 10);
 const toYMD = (v) => (v ? String(v).slice(0, 10) : "");
@@ -66,6 +67,7 @@ const fmtMoneda = (n) =>
   Number(n || 0).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function DevolucionRefaccion() {
+  const { pdfModal, abrirPdf } = usePdfModal();
   const [head, setHead] = useState(headInicial());
   const [refacciones, setRefacciones] = useState([{ ...REFACCION_INICIAL }]);
   const [cantidad, setCantidad] = useState({ ...CANT_INICIAL });
@@ -262,7 +264,7 @@ export default function DevolucionRefaccion() {
         firmas,
       };
       const { data } = await createDevolucionRefaccion(payload);
-      openDevolucionRefaccionPdf(data.devId);
+      abrirPdf(getDevolucionRefaccionPdfUrl(data.devId), "devolucion.pdf", "Devolución de Refacción");
       limpiar();
     } catch (err) {
       console.error("submit error:", err?.response || err);
@@ -785,6 +787,7 @@ export default function DevolucionRefaccion() {
           </button>
         </div>
       </form>
+      {pdfModal}
     </div>
   );
 }

@@ -1,0 +1,113 @@
+/* Centrado con margin auto (no flexbox): con justify-content:center, al
+   hacer zoom y que la página quede más ancha que el contenedor, el navegador
+   "atrapa" el scroll de un lado (bug conocido de centrar contenido que se
+   desborda con flex/grid) — se puede mover hacia un lado pero no al otro.
+   margin:auto no tiene ese problema: centra mientras entra y, si se desborda,
+   se alinea a la izquierda dejando scroll libre hacia ambos lados. */
+.pdfviewer-page {
+  margin: 0 auto;
+}
+
+/* La regla @page (margin:0 y size: portrait/landscape según el documento
+   cargado) se define en PdfViewer.jsx, no aquí — necesita la orientación
+   real de CADA documento (varios reportes se generan apaisados), que solo
+   se conoce después de cargar el PDF. */
+
+/* Al imprimir, se oculta todo excepto el modal del visor (ver PdfViewer.jsx
+   y usePdfModal.js). FreeKiosk intercepta window.print() llamado sobre la
+   página misma; abrir una ventana/pestaña nueva para imprimir no es fiable
+   en ese WebView.
+
+   El modal se monta con un portal directo a <body> (ver usePdfModal.js) y
+   aquí se oculta con display:none todo lo DEMÁS que sea hijo de <body> —
+   no con el truco clásico de visibility:hidden + position:absolute. Ese
+   truco es conocido por ser poco confiable con documentos de VARIAS
+   páginas: distintos navegadores paginan distinto contenido posicionado
+   de forma absoluta cuyos ancestros tienen overflow/alto fijo (aunque
+   estén ocultos, siguen "existiendo" para el layout) — en Firefox llegó a
+   repetir la misma hoja en cada página impresa, y forzar el ancestro a
+   position:static hacía que la primera hoja apareciera chica y centrada.
+   Con display:none esos ancestros quedan totalmente fuera del árbol de
+   render en vez de solo ocultos, así que el modal es el único contenido
+   de la página y fluye en varias hojas de la forma normal (la que los
+   navegadores paginan de forma más consistente). */
+@media print {
+  /* .pdfmodal-box normalmente va ANIDADA dentro de .pdfmodal-backdrop (ver
+     usePdfModal.js) y esta regla nunca la toca directamente. Pero algunos
+     modales (ej. "Detalle de Factura" en ConsultarFacturaProveedor.jsx)
+     usan fondo oscuro y caja como divs HERMANOS, ambos con position:fixed
+     — al portalarlos los dos quedan como hijos directos de <body>, así
+     que hay que preservar también .pdfmodal-box aquí o se ocultaría junto
+     con todo lo demás. */
+  body > *:not(.pdfmodal-backdrop):not(.pdfmodal-box) {
+    display: none !important;
+  }
+  .pdfmodal-header,
+  .pdfviewer-toolbar {
+    display: none !important;
+  }
+  /* Cada uno de estos contenedores trae, para la vista en pantalla, algún
+     margin/padding/border propio (ver los estilos inline en usePdfModal.js
+     y PdfViewer.jsx) que aquí hay que anular explícitamente — de lo
+     contrario, aunque no se vean (display:none en sus hijos irrelevantes),
+     ese espaciado sigue "ocupando" lugar arriba del contenido real y deja
+     una franja en blanco antes de que empiece la primera hoja. */
+  .pdfmodal-backdrop,
+  .pdfmodal-box,
+  .pdfmodal-body {
+    position: static !important;
+    display: block !important;
+    width: auto !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: none !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+  .pdfviewer-print-area {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+  }
+  /* La página se renderiza al ancho del visor EN PANTALLA (para que no se
+     vea diminuta dentro de un modal grande — ver PdfViewer.jsx), que puede
+     ser mucho más ancho que una hoja física. react-pdf fija ese ancho como
+     estilo inline en la página y su canvas; se sobreescribe aquí para que
+     la imagen ya renderizada se reescale al ancho real de la hoja en vez de
+     salir agrandada/recortada. */
+  .pdfviewer-page,
+  .pdfviewer-page canvas {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  /* Salto de página explícito entre cada hoja renderizada, en vez de
+     dejar que el navegador adivine dónde cortar según el desborde natural
+     del contenido — sin esto, un pequeño desajuste de altura (el margin-
+     bottom entre hojas, redondeos de escala, etc.) puede hacer que el
+     navegador inserte una página de más casi en blanco. */
+  .pdfviewer-page-wrap {
+    margin-bottom: 0 !important;
+    break-after: page;
+    page-break-after: always;
+    /* Ver el comentario junto a --pdfviewer-alto-hoja en PdfViewer.jsx:
+       fija la hoja a la altura física exacta de la página (si ya se
+       conoce) en vez de dejar que el navegador la calcule solo a partir
+       del contenido — evita hojas de más por redondeos de un navegador a
+       otro. overflow:hidden es solo por si redondea unas fracciones de
+       punto de más; nunca debería recortar contenido real. */
+    height: var(--pdfviewer-alto-hoja, auto);
+    overflow: hidden;
+  }
+  .pdfviewer-page-wrap:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+}

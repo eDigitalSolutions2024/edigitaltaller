@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listOrdenesServicio, filtrosPorSurtir } from '../api/vehiculos';
+import { listOrdenesServicio, filtrosPorSurtir, filtroDevueltoPor } from '../api/vehiculos';
 import { getUser } from '../auth';
 import '../styles/OSFlotante.css';
 
@@ -62,7 +62,7 @@ export default function OSFlotanteRefaccionaria() {
     try {
       const surtir = filtrosPorSurtir(nombre);
       const [r1, r2, r3] = await Promise.all([
-        listOrdenesServicio({ estado: 'PENDIENTE_REFACCIONARIA', limit: 50 }),
+        listOrdenesServicio({ ...filtroDevueltoPor(nombre), estado: 'PENDIENTE_REFACCIONARIA', limit: 50 }),
         listOrdenesServicio({ ...surtir, estado: 'PENDIENTE_SURTIR', limit: 50 }),
         listOrdenesServicio({ ...surtir, estado: 'REPARACION_EN_CURSO', limit: 50 }),
       ]);

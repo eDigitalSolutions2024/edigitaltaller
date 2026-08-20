@@ -28,4 +28,32 @@ function calcularTotalesOrden(orden) {
   return { subtotal, ivaPct, ivaMonto, totalBruto, descuentoMonto, totalOrden, totalAbonado, saldoPendiente };
 }
 
-module.exports = { calcularTotalesOrden };
+const TOLERANCIA_SALDO = 0.01;
+
+// La Fecha de Pagada de una Remisión no se captura a mano: el sistema la marca
+// en cuanto la orden se queda sin saldo pendiente, y la vuelve a limpiar si el
+// saldo reaparece (p. ej. al cancelar un pago o quitar un descuento). Recibe el
+// documento ya hidratado de Mongoose y solo guarda si algo cambió. Compartida
+// entre cajas.js (pagos/descuentos manuales) y generar_xml.js (cancelación
+// automática del anticipo/remisión al facturar).
+async function sincronizarFechaPagadaRemisiones(vehiculo, fecha = new Date()) {
+  const { saldoPendiente } = calcularTotalesOrden(vehiculo);
+  const liquidada = saldoPendiente <= TOLERANCIA_SALDO;
+
+  let cambio = false;
+  for (const p of vehiculo.pagos || []) {
+    if (p.comprobante !== 'REMISION' || p.cancelado || !p.remision) continue;
+    if (liquidada && !p.remision.fechaPagada) {
+      p.remision.fechaPagada = fecha;
+      cambio = true;
+    } else if (!liquidada && p.remision.fechaPagada) {
+      p.remision.fechaPagada = null;
+      cambio = true;
+    }
+  }
+
+  if (cambio) await vehiculo.save();
+  return vehiculo;
+}
+
+module.exports = { calcularTotalesOrden, sincronizarFechaPagadaRemisiones };

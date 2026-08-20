@@ -7,8 +7,8 @@ import { listConceptosPreset } from "../../api/conceptosPreset";
 import { listClavesUnidad } from "../../api/clavesUnidad";
 import { listFacturasCfdi } from "../../api/facturasCfdi";
 import { generarVistaPreviaPDF } from "../../api/facturacion";
-import { cancelarPagoCaja } from "../../api/cajas";
 import api from "../../api/http";
+import usePdfModal from "../../hooks/usePdfModal";
 import useTipoCambioActual from "../../hooks/useTipoCambioActual";
 import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 import { calcularTotalesOrden } from "../../utils/cajaTotales";
@@ -155,18 +155,6 @@ function hoyISO() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function downloadTextFile(filename, text, mime = "application/xml") {
-  const blob = new Blob([text], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
 /* Select reutilizable de clave de unidad. Si el concepto trae una clave que no
    está en el catálogo (capturada antes o importada, o el catálogo aún no la
    tiene dada de alta), se agrega como opción para no perderla al editar. */
@@ -247,7 +235,6 @@ export default function NuevaFactura() {
 
   const [fiscalDraft, setFiscalDraft] = useState(FISCAL_DRAFT_VACIO);
   const [guardandoFiscal, setGuardandoFiscal] = useState(false);
-  const [cancelandoPagoId, setCancelandoPagoId] = useState(null);
 
   /* ==========
      SECCIÓN 2B) FACTURAS EMITIDAS (tipos: notaCredito / complementoPago)
@@ -527,37 +514,6 @@ export default function NuevaFactura() {
     const clavesRestantes = new Set(conceptosRestantes.map((c) => c._key));
     setConceptosSeleccionados((prev) => prev.filter((k) => clavesRestantes.has(k)));
     cancelEdit();
-  };
-
-  /* Cancelar el anticipo / la remisión de una orden para poder facturarla.
-     El pago no se borra: conserva su folio y queda marcado como cancelado
-     (deja de contar como abonado en Cajas). */
-  const cancelarPagoOrden = async (ordenId, pago) => {
-    const etiqueta =
-      pago.comprobante === "REMISION"
-        ? `la Remisión N°${pago.remision?.numero ?? "—"}`
-        : `el Anticipo (Recibo Provisional N°${pago.reciboProvisional?.numero ?? "—"})`;
-
-    const ok = window.confirm(
-      `¿Cancelar ${etiqueta} por ${money(pago.monto)} para poder facturar esta orden?\n\n` +
-        "El comprobante conservará su folio pero dejará de contar como pago de la orden."
-    );
-    if (!ok) return;
-
-    setCancelandoPagoId(pago._id);
-    try {
-      const res = await cancelarPagoCaja(ordenId, pago._id);
-      const actualizado = res.data?.vehiculo;
-      // Solo se refrescan los pagos: la orden del listado trae el cliente
-      // poblado con los campos fiscales, que la respuesta de Cajas no incluye.
-      setOrdenes((prev) =>
-        prev.map((o) => (o._id === ordenId ? { ...o, pagos: actualizado?.pagos || o.pagos } : o))
-      );
-    } catch (e) {
-      alert(e?.response?.data?.msg || "No se pudo cancelar el comprobante.");
-    } finally {
-      setCancelandoPagoId(null);
-    }
   };
 
   /* ==========
@@ -1044,7 +1000,7 @@ export default function NuevaFactura() {
   /* ==========
      PREVIEW PDF
   ========== */
-  const [pdfUrl, setPdfUrl] = useState("");
+  const { pdfModal, abrirPdf } = usePdfModal();
   const [pdfLoading, setPdfLoading] = useState(false);
 
   // Sin CProdServ/CUnidad el CFDI queda inválido para el SAT: se bloquea la
@@ -1070,18 +1026,18 @@ export default function NuevaFactura() {
       const res = await generarVistaPreviaPDF(buildPayload());
       const blob = new Blob([res.data], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
-      setPdfUrl(url);
+      abrirPdf(
+        url,
+        "vista-previa.pdf",
+        `Vista previa — ${tipoInfo?.label || "Factura"} (sin timbrado)`,
+        () => URL.revokeObjectURL(url)
+      );
     } catch (e) {
       console.error(e);
       alert("No se pudo generar la vista previa.");
     } finally {
       setPdfLoading(false);
     }
-  };
-
-  const closePdf = () => {
-    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-    setPdfUrl("");
   };
 
   /* ==========
@@ -1096,17 +1052,9 @@ export default function NuevaFactura() {
     if (!puedePreview) return alert("Completa la información antes de generar el XML.");
     if (avisarSiFaltaSat()) return;
 
-    // Facturar una orden que sigue cobrada con anticipo o remisión duplicaría el
-    // ingreso: se avisa (y desde el aviso de arriba se puede cancelar).
-    if (esFactura && comprobantesPorCancelar.length) {
-      const ok = window.confirm(
-        `Hay ${comprobantesPorCancelar.length} comprobante(s) de Cajas vigentes ` +
-          "(anticipo o remisión) en las órdenes seleccionadas.\n\n" +
-          "Lo normal es cancelarlos para que la orden pase a factura. ¿Generar el XML de todos modos?"
-      );
-      if (!ok) return;
-    }
-
+    // El anticipo/remisión vigente de cada orden (si lo hay) se cancela
+    // automáticamente en el backend al generar la factura (ver aviso
+    // informativo más abajo): ya no hace falta cancelarlo a mano antes.
     try {
       setXmlLoading(true);
 
@@ -1121,13 +1069,8 @@ export default function NuevaFactura() {
       setCadenaOriginal(data.cadenaOriginal || "");
       setSello(data.sello || "");
 
-      const rfc = data?.emisor?.rfc || "EMISOR";
-      const folio = data?.cfdi?.folio || "sinfolio";
-      const fname = `${rfc}_${folio}_cfdi.xml`;
-
       if (data.xmlSigned) {
-        downloadTextFile(fname, data.xmlSigned, "application/xml");
-        alert("✅ XML generado y descargado.");
+        alert("✅ XML generado y guardado en el sistema.");
         if (data.persistWarning) alert(data.persistWarning);
       } else {
         alert("XML generado, pero no llegó el xmlSigned.");
@@ -1521,15 +1464,15 @@ export default function NuevaFactura() {
                     </div>
                   ))}
 
-              {/* Anticipos / remisiones vigentes: se cancelan para pasar a factura */}
+              {/* Anticipos / remisiones vigentes: se cancelan solos al generar la factura */}
               {comprobantesPorCancelar.length > 0 && (
-                <div className="alert alert-warning mt-3 mb-0">
+                <div className="alert alert-info mt-3 mb-0">
                   <div className="fw-semibold mb-2">
-                    ⚠️ Estas órdenes ya tienen un anticipo o una remisión en Cajas
+                    ℹ️ Estas órdenes tienen un anticipo o una remisión vigente en Cajas
                   </div>
                   <div className="small mb-2">
-                    Cancélalos para que la orden pase a factura. El comprobante conserva su folio,
-                    pero deja de contar como pago de la orden.
+                    Se cancelarán automáticamente al generar la factura (el comprobante conserva su
+                    folio, pero deja de contar como pago de la orden).
                   </div>
 
                   <div className="table-responsive">
@@ -1540,11 +1483,10 @@ export default function NuevaFactura() {
                           <th>Comprobante</th>
                           <th>Fecha</th>
                           <th className="text-end">Monto</th>
-                          <th style={{ width: 150 }}>Acción</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {comprobantesPorCancelar.map(({ ordenId, ordenServicio, pago }) => (
+                        {comprobantesPorCancelar.map(({ ordenServicio, pago }) => (
                           <tr key={pago._id}>
                             <td>{ordenServicio}</td>
                             <td>
@@ -1556,17 +1498,6 @@ export default function NuevaFactura() {
                             </td>
                             <td>{fechaCorta(pago.fecha)}</td>
                             <td className="text-end">{money(pago.monto)}</td>
-                            <td>
-                              <button
-                                className="btn btn-sm btn-danger"
-                                disabled={cancelandoPagoId === pago._id}
-                                onClick={() => cancelarPagoOrden(ordenId, pago)}
-                              >
-                                {cancelandoPagoId === pago._id
-                                  ? "Cancelando…"
-                                  : "Cancelar y facturar"}
-                              </button>
-                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -2467,37 +2398,7 @@ export default function NuevaFactura() {
         </div>
       )}
 
-      {/* ======================
-          MODAL PDF
-      ====================== */}
-      {pdfUrl && (
-        <div
-          className="position-fixed top-0 start-0 w-100 h-100"
-          style={{ background: "rgba(0,0,0,.45)", zIndex: 9999 }}
-          onClick={closePdf}
-        >
-          <div
-            className="bg-white shadow"
-            style={{
-              width: "92%",
-              height: "92%",
-              margin: "2% auto",
-              borderRadius: 10,
-              overflow: "hidden",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="d-flex justify-content-between align-items-center p-2 border-bottom">
-              <b>Vista previa — {tipoInfo?.label || "Factura"} (sin timbrado)</b>
-              <button className="btn btn-sm btn-outline-danger" onClick={closePdf}>
-                Cerrar
-              </button>
-            </div>
-
-            <iframe title="pdf" src={pdfUrl} style={{ width: "100%", height: "100%", border: 0 }} />
-          </div>
-        </div>
-      )}
+      {pdfModal}
     </div>
   );
 }

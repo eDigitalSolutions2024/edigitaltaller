@@ -1,7 +1,9 @@
 // src/pages/vehiculo/VehiculoOrdenDetalle.jsx
 import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
-import { getVehiculoById, openOperativoPdf } from "../../api/vehiculos";
+import { getVehiculoById, getOperativoPdfUrl } from "../../api/vehiculos";
+import usePdfModal from "../../hooks/usePdfModal";
+import http from "../../api/http";
 import { getMisGrupos } from "../../api/grupos";
 import { getUser } from "../../auth";
 import VehiculoNuevoForm from "./VehiculoNuevoForm";
@@ -57,6 +59,22 @@ export default function VehiculoOrdenDetalle() {
   const [misGrupoIds, setMisGrupoIds] = useState([]);
   const tabFromUrl = searchParams.get("tab");
   const [tab, setTab] = useState(tabFromUrl || "datos");
+  const { pdfModal, abrirPdf } = usePdfModal();
+
+  // Guarda la firma capturada en el visor y reabre el PDF con una URL
+  // distinta (?v=timestamp) para forzar que se vuelva a pedir al backend
+  // en vez de reusar el que ya se había cargado — el documento ya trae la
+  // firma incluida porque el PDF se genera al vuelo en cada solicitud.
+  const firmarFormatoOperativo = async (ordenId, dataUrl) => {
+    await http.put(`/vehiculos/${ordenId}/firma-operativo`, { firma: dataUrl });
+    abrirPdf(
+      `${getOperativoPdfUrl(ordenId, "carta")}&v=${Date.now()}`,
+      "formato-operativo.pdf",
+      "Formato Operativo",
+      undefined,
+      (nuevaFirma) => firmarFormatoOperativo(ordenId, nuevaFirma)
+    );
+  };
 
   // Cambia el tab y persiste en la URL para que el refresh restaure el tab correcto.
   // También refresca la orden: si alguien más la cerró/restableció mientras esta
@@ -100,7 +118,11 @@ export default function VehiculoOrdenDetalle() {
     orden?.creadoPor === miNombre ||
     esDeMiGrupo;
   const soloConsulta = !esAdmin && !esPropia;
-  const soloLectura = esCerrada || esCancelada || soloConsulta;
+  // Hay un ticket GARANTIA_NO_APLICA pendiente de que el admin decida si la
+  // garantía aplica (ver ModalCancelarOrden / SoporteAdminTickets): la orden
+  // queda de solo lectura para todos, incluido admin, hasta que lo resuelva.
+  const bloqueadaPorGarantia = !!orden?.garantia?.ticketPendiente;
+  const soloLectura = esCerrada || esCancelada || soloConsulta || bloqueadaPorGarantia;
 
   const currentStep = ESTADO_STEP[orden?.estadoOrden] ?? 0;
   const isPast = (tabKey) => !orden ? false : TAB_STEP[tabKey] < currentStep;
@@ -358,13 +380,27 @@ export default function VehiculoOrdenDetalle() {
         </div>
       )}
 
+      {/* Banner solo lectura mientras un ticket de garantía está pendiente */}
+      {bloqueadaPorGarantia && (
+        <div className="alert alert-warning text-center py-2 mb-3">
+          <strong>Orden bloqueada.</strong> Hay un ticket de soporte pendiente sobre si la garantía aplica; no se pueden realizar modificaciones hasta que un administrador lo resuelva.
+        </div>
+      )}
+
+      {/* Banner pendiente de capturar OS: orden de reemplazo creada al resolver "No aplica" un ticket de garantía */}
+      {orden.ordenServicioPendiente && (
+        <div className="alert alert-info text-center py-2 mb-3">
+          <strong>Falta capturar el número de orden de servicio.</strong> Captúralo en la pestaña "Datos del Cliente".
+        </div>
+      )}
+
       {/* Contenido de tabs */}
       {tab === "datos" && (
         <VehiculoNuevoForm
           cliente={null}
           initialData={orden}
           readOnly
-          puedeEditar={esAdmin || (esPropia && !esCerrada && !esCancelada)}
+          puedeEditar={esAdmin || (esPropia && !esCerrada && !esCancelada && !bloqueadaPorGarantia)}
           sinVehiculo={orden.sinVehiculo}
         />
       )}
@@ -459,7 +495,13 @@ export default function VehiculoOrdenDetalle() {
           <div className="btn-group">
             <button
               className="btn btn-outline-primary"
-              onClick={() => openOperativoPdf(orden._id, 'carta')}
+              onClick={() => abrirPdf(
+                getOperativoPdfUrl(orden._id, 'carta'),
+                'formato-operativo.pdf',
+                'Formato Operativo',
+                undefined,
+                (dataUrl) => firmarFormatoOperativo(orden._id, dataUrl)
+              )}
             >
               Formato Operativo
             </button>
@@ -492,12 +534,13 @@ export default function VehiculoOrdenDetalle() {
           {' '}
           <button
             className="btn btn-outline-secondary"
-            onClick={() => openOperativoPdf(orden._id, 'carta', 'cliente')}
+            onClick={() => abrirPdf(getOperativoPdfUrl(orden._id, 'carta', 'cliente'), 'formato-cliente.pdf', 'Formato Cliente')}
           >
             Formato Cliente
           </button>
         </div>
       )}
+      {pdfModal}
     </div>
   );
 }

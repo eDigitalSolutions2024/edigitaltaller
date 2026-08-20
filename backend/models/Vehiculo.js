@@ -40,6 +40,12 @@ const garantiaSchema = new Schema(
     costoDiferencia: { type: Number, default: 0 },
     autorizaCarreon: { type: Boolean, default: false },
     resueltoPor: { type: String, default: '' },
+    // Ticket GARANTIA_NO_APLICA abierto por el asesor al intentar cancelar
+    // esta orden (ver ModalCancelarOrden / POST /api/tickets). Mientras esté
+    // seteado, la orden queda de solo lectura (ver soloLectura en
+    // VehiculoOrdenDetalle.jsx) hasta que un admin resuelva el ticket
+    // (PUT /api/tickets/:id/resolver-garantia).
+    ticketPendiente: { type: Schema.Types.ObjectId, ref: 'Ticket', default: null },
   },
   { _id: false }
 );
@@ -59,6 +65,11 @@ const vehiculoSchema = new Schema(
     // no se incluye en el whitelist de PUT /:id/datos, por lo que es
     // inmutable después de creada la orden.
     sinVehiculo: { type: Boolean, default: false },
+
+    // Firma capturada del cliente (data URL PNG) para el Formato Operativo —
+    // se muestra en la sección "AUTORIZACIÓN Y FIRMA DEL CLIENTE...". null
+    // hasta que alguien la capture desde el visor de PDF.
+    firmaAutorizacionCliente: { type: String, default: null },
 
     // NUEVO: estado de la orden
     estadoOrden: {
@@ -105,8 +116,23 @@ const vehiculoSchema = new Schema(
     fechaCierre:{ type: Date, default: null},
 
 
+    // Versión del contrato (ContratoOrdenServicio) vigente al crear esta
+    // orden. Se fija una sola vez, al crearla (ver POST /api/vehiculos y
+    // resolverGarantiaTicket.js), y ya no cambia: así, si el contrato se
+    // edita después desde Configuración, esta orden sigue imprimiendo el
+    // texto con el que se abrió y solo las órdenes nuevas usan el nuevo.
+    // null en órdenes creadas antes de este campo (caen al contrato vigente
+    // actual al imprimir, ver VehiculoOperativoPdf.js).
+    contratoOrdenServicio: { type: Schema.Types.ObjectId, ref: 'ContratoOrdenServicio', default: null },
+
     // ----- Datos de Orden / cabecera -----
     ordenServicio: String,
+    // true en la orden de reemplazo auto-creada al resolver un ticket
+    // GARANTIA_NO_APLICA como "No aplica" (ver resolverGarantiaTicket.js):
+    // esa orden nace con ordenServicio en blanco hasta que el asesor
+    // capture el folio real desde la pestaña Datos (PUT /:id/datos, que
+    // limpia esta bandera en cuanto llega un folio no vacío).
+    ordenServicioPendiente: { type: Boolean, default: false },
     fechaRecepcion: Date,
     horaRecepcion: String,
 
@@ -572,6 +598,10 @@ pendienteCierre: { type: Boolean, default: false },
         canceladoEn: { type: Date, default: null },
         canceladoPor: { type: String, default: '' },
         motivoCancelacion: { type: String, default: '' },
+        // Factura a la que pasó este pago cuando se cancela porque se
+        // facturó la orden (ver generar_xml.js). Null cuando la cancelación
+        // fue una corrección manual por error de captura (ver cajas.js).
+        facturaId: { type: Schema.Types.ObjectId, ref: 'FacturaCfdi', default: null },
 
         // Presente solo si comprobante === 'NOTA_VENTA'
         // numero sin default: si se le pone `default: null`, Mongoose lo agrega

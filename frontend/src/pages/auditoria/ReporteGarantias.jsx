@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import Dropdown from '../../components/Dropdown';
 import PeriodoSelector from '../captura/PeriodoSelector';
-import { getReporteGarantias, openReporteGarantiasPdf } from '../../api/reportes';
+import { getReporteGarantias, getReporteGarantiasPdfUrl } from '../../api/reportes';
 import { getAsesores } from '../../api/users';
 import { formatFecha } from '../../utils/fechas';
+import usePdfModal from '../../hooks/usePdfModal';
 
 function formatMoney(n) {
   return new Intl.NumberFormat('es-MX', {
@@ -20,6 +21,7 @@ export default function ReporteGarantias() {
   const [rango, setRango] = useState(null);
   const [asesores, setAsesores] = useState([]);
   const [asesor, setAsesor] = useState('');
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   useEffect(() => {
     getAsesores().then(setAsesores).catch(() => {});
@@ -90,7 +92,7 @@ export default function ReporteGarantias() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => openReporteGarantiasPdf(rango.desde, rango.hasta, asesor)}
+                onClick={() => abrirPdf(getReporteGarantiasPdfUrl(rango.desde, rango.hasta, asesor), "reporte-garantias.pdf", "Reporte de Garantías")}
               >
                 Ver PDF
               </button>
@@ -147,6 +149,7 @@ export default function ReporteGarantias() {
           )}
         </>
       )}
+      {pdfModal}
     </div>
   );
 }

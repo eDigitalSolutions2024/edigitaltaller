@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Dropdown from "../../components/Dropdown";
+import usePdfModal from "../../hooks/usePdfModal";
 import { listFacturasCfdi, getFacturaCfdiById, getFacturaCfdiPdf } from "../../api/facturasCfdi";
 
 function money(n) {
@@ -95,7 +96,7 @@ export default function ConsultarFacturas() {
      VER PDF
   ========== */
   const [pdfLoadingId, setPdfLoadingId] = useState(null);
-  const [pdfModal, setPdfModal] = useState(null); // { folio, url }
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   const verPdf = async (f) => {
     setPdfLoadingId(f._id);
@@ -104,11 +105,12 @@ export default function ConsultarFacturas() {
       const blob = new Blob([res.data], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
       const folio = [f.serie, f.folio].filter(Boolean).join("-");
-      setPdfModal({
-        folio: folio || "—",
-        archivo: `factura_${folio.replace(/[^\w-]/g, "") || "cfdi"}.pdf`,
+      abrirPdf(
         url,
-      });
+        `factura_${folio.replace(/[^\w-]/g, "") || "cfdi"}.pdf`,
+        `PDF — Folio ${folio || "—"}`,
+        () => URL.revokeObjectURL(url)
+      );
     } catch (e) {
       console.error(e);
       alert("No se pudo generar el PDF de esta factura.");
@@ -116,20 +118,6 @@ export default function ConsultarFacturas() {
       setPdfLoadingId(null);
     }
   };
-
-  const cerrarPdfModal = () => {
-    setPdfModal((prev) => {
-      if (prev?.url) URL.revokeObjectURL(prev.url);
-      return null;
-    });
-  };
-
-  // Libera el blob si el componente se desmonta con el modal abierto
-  useEffect(() => {
-    return () => {
-      if (pdfModal?.url) URL.revokeObjectURL(pdfModal.url);
-    };
-  }, [pdfModal]);
 
   return (
     <div className="container-fluid py-3" style={{ maxWidth: 1400 }}>
@@ -309,46 +297,7 @@ export default function ConsultarFacturas() {
         </div>
       )}
 
-      {/* Modal Ver PDF */}
-      {pdfModal && (
-        <div
-          className="position-fixed top-0 start-0 w-100 h-100"
-          style={{ background: "rgba(0,0,0,.45)", zIndex: 9999 }}
-          onClick={cerrarPdfModal}
-        >
-          <div
-            className="bg-white shadow"
-            style={{
-              width: "92%",
-              height: "92%",
-              margin: "2% auto",
-              borderRadius: 10,
-              overflow: "hidden",
-              display: "flex",
-              flexDirection: "column",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="d-flex justify-content-between align-items-center p-2 border-bottom">
-              <b>PDF — Folio {pdfModal.folio}</b>
-              <div className="d-flex gap-2">
-                <a
-                  className="btn btn-sm btn-outline-primary"
-                  href={pdfModal.url}
-                  download={pdfModal.archivo}
-                >
-                  Descargar
-                </a>
-                <button className="btn btn-sm btn-outline-danger" onClick={cerrarPdfModal}>
-                  Cerrar
-                </button>
-              </div>
-            </div>
-
-            <iframe title="pdf" src={pdfModal.url} style={{ flex: 1, width: "100%", border: 0 }} />
-          </div>
-        </div>
-      )}
+      {pdfModal}
     </div>
   );
 }

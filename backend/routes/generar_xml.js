@@ -8,6 +8,9 @@ const { Xslt, XmlParser } = require("xslt-processor");
 
 const FiscalConfig = require("../models/FiscalConfig");
 const FacturaCfdi = require("../models/FacturaCfdi");
+const Vehiculo = require("../models/Vehiculo");
+const { sincronizarFechaPagadaRemisiones } = require("../utils/cajaTotales");
+const { registrarMovimientoTerminal } = require("../utils/cierreCajaTerminales");
 
 const router = express.Router();
 
@@ -416,6 +419,60 @@ function injectSello(xmlUnsigned, selloB64) {
   return xmlUnsigned.replace(/Sello=""/, `Sello="${selloB64}"`);
 }
 
+// Al generar una factura de ingreso, cualquier anticipo o remisión vigente de
+// las órdenes facturadas deja de tener sentido como comprobante de cobro
+// aparte: se cancela automáticamente y se enlaza a la factura recién creada
+// (pago.facturaId), en vez de dejar que un admin lo cancele a mano sin dejar
+// registrado a qué factura pasó (eso queda solo para corregir errores de
+// captura, ver POST /api/cajas/:id/pagos/:pagoId/cancelar).
+async function cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc) {
+  const folioFactura = `${facturaDoc.serie || ""}${facturaDoc.folio || ""}`;
+
+  for (const o of ordenes) {
+    if (!o?._id) continue;
+    const vehiculo = await Vehiculo.findById(o._id);
+    if (!vehiculo) continue;
+
+    const pagosPorCancelar = (vehiculo.pagos || []).filter(
+      (p) =>
+        !p.cancelado &&
+        ((p.comprobante === "NOTA_VENTA" && p.tipoPago === "ANTICIPO") || p.comprobante === "REMISION")
+    );
+    if (!pagosPorCancelar.length) continue;
+
+    for (const pago of pagosPorCancelar) {
+      const esRemision = pago.comprobante === "REMISION";
+      const motivo = `Se cancela ${esRemision ? "remisión" : "anticipo"} y pasa a factura ${folioFactura}`;
+
+      pago.cancelado = true;
+      pago.canceladoEn = new Date();
+      pago.canceladoPor = "Sistema (factura)";
+      pago.motivoCancelacion = motivo;
+      // A diferencia de la cancelación manual por error (cajas.js), aquí NO
+      // se pisa pago.notas: conserva la referencia original del cobro (banco,
+      // fecha, quién lo recibió), que el Reporte de Facturas sigue mostrando
+      // en la columna Notas junto con la frase "SE CANCELÓ ... Y PASA A
+      // FACTURA" en la columna de cliente.
+      pago.facturaId = facturaDoc._id;
+      if (esRemision) pago.remision.tipo = "Cancelada";
+    }
+
+    await vehiculo.save();
+    // Al dejar de contar como abonado puede reaparecer saldo: las remisiones
+    // vigentes de la orden vuelven a quedar sin Fecha de Pagada.
+    await sincronizarFechaPagadaRemisiones(vehiculo);
+
+    for (const pago of pagosPorCancelar) {
+      if (pago.comprobante !== "NOTA_VENTA") continue;
+      try {
+        await registrarMovimientoTerminal(pago.notaVenta?.banco, -pago.monto, pago.fecha);
+      } catch (errTerminal) {
+        console.error("Error revirtiendo terminal del cierre de caja:", errTerminal);
+      }
+    }
+  }
+}
+
 /* =========================
    ENDPOINT
    POST /api/generar-xml/xml
@@ -718,6 +775,10 @@ router.post("/xml", async (req, res) => {
       });
 
       facturaId = facturaDoc._id;
+
+      if (tipoFactura === "factura" && ordenes.length) {
+        await cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc);
+      }
     } catch (persistErr) {
       console.error("No se pudo guardar FacturaCfdi:", persistErr);
       persistWarning =

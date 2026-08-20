@@ -2,13 +2,13 @@ import React, { useEffect, useState } from "react";
 import Dropdown from "../../../components/Dropdown";
 import useTipoCambioActual from "../../../hooks/useTipoCambioActual";
 import { getUser } from "../../../auth";
-import { openReciboProvisionalPdf, openReciboDolaresPdf } from "../../../api/cajas";
+import { getReciboProvisionalPdfUrl, getReciboDolaresPdfUrl } from "../../../api/cajas";
 import {
   ESTATUS_VALE_OPCIONES,
   getSiguienteNumeroVale,
   getSiguienteDig,
   createVale,
-  openValePdf,
+  getValePdfUrl,
 } from "../../../api/vales";
 
 const BANCOS = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER", "DOLARES", "EFECTIVOS", "CHEQUE", "TRANSFERENCIA"];
@@ -50,7 +50,7 @@ function telefonoCelularOrden(orden) {
   return [cel.lada, cel.numero].filter(Boolean).join(" ");
 }
 
-export default function CajaModalPago({ show, orden, saldoPendiente, onClose, onSubmit, onValeGuardado }) {
+export default function CajaModalPago({ show, orden, saldoPendiente, onClose, onSubmit, onValeGuardado, onImprimir }) {
   const user = getUser();
 
   // Sin valor inicial: el cajero debe elegir explícitamente el tipo de pago.
@@ -323,7 +323,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
       if (generarVale) {
         valeGuardado = await crearVale();
         onValeGuardado && onValeGuardado(valeGuardado);
-        if (imprimirVale) openValePdf(valeGuardado._id);
+        if (imprimirVale) onImprimir(getValePdfUrl(valeGuardado._id), "vale.pdf", "Vale de Salida");
       }
 
       const { pesos, dolares } = montosAplicados();
@@ -344,8 +344,10 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
       });
 
       if (imprimirAlFinalizar && pagoCreado) {
-        if (pagoCreado.reciboProvisional?.numero) openReciboProvisionalPdf(orden._id, pagoCreado._id);
-        if (pagoCreado.reciboDolares?.numero) openReciboDolaresPdf(orden._id, pagoCreado._id);
+        if (pagoCreado.reciboProvisional?.numero)
+          onImprimir(getReciboProvisionalPdfUrl(orden._id, pagoCreado._id), "recibo-provisional.pdf", "Recibo Provisional");
+        if (pagoCreado.reciboDolares?.numero)
+          onImprimir(getReciboDolaresPdfUrl(orden._id, pagoCreado._id), "recibo-dolares.pdf", "Recibo en Dólares");
       }
     } catch (err) {
       console.error(err);

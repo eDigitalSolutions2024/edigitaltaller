@@ -7,13 +7,14 @@ import {
   agregarDescuento,
   actualizarDescuento,
   eliminarDescuento,
-  openNotaVentaPdf,
-  openRemisionPdf,
-  openReciboProvisionalPdf,
-  openReciboDolaresPdf,
+  getNotaVentaPdfUrl,
+  getRemisionPdfUrl,
+  getReciboProvisionalPdfUrl,
+  getReciboDolaresPdfUrl,
 } from "../../api/cajas";
 import { createTicket } from "../../api/tickets";
-import { openValePdf } from "../../api/vales";
+import { getValePdfUrl } from "../../api/vales";
+import usePdfModal from "../../hooks/usePdfModal";
 import http from "../../api/http";
 import { getUser } from "../../auth";
 import { formatFecha } from "../../utils/fechas";
@@ -45,6 +46,7 @@ export default function CajaOrdenDetalle() {
   const { id } = useParams();
   const navigate = useNavigate();
   const esAdmin = getUser()?.role === "admin";
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   const [orden, setOrden] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -154,7 +156,7 @@ export default function CajaOrdenDetalle() {
 
   const handleImprimirUltimoVale = () => {
     if (!orden.ultimoVale?.id) return;
-    openValePdf(orden.ultimoVale.id);
+    abrirPdf(getValePdfUrl(orden.ultimoVale.id), "vale.pdf", "Vale de Salida");
   };
 
   // Órdenes de garantía no se cobran (sin Registrar Pago), pero igual deben
@@ -163,7 +165,7 @@ export default function CajaOrdenDetalle() {
   const handleValeGarantiaGuardado = (vale, imprimir) => {
     handleValeGuardado(vale);
     setShowModalValeGarantia(false);
-    if (imprimir) openValePdf(vale._id);
+    if (imprimir) abrirPdf(getValePdfUrl(vale._id), "vale.pdf", "Vale de Salida");
   };
 
   const handleImprimirNotaVenta = () => {
@@ -172,7 +174,7 @@ export default function CajaOrdenDetalle() {
       alert("Esta orden no tiene ningún pago registrado con Nota de Venta.");
       return;
     }
-    openNotaVentaPdf(orden._id, pago._id);
+    abrirPdf(getNotaVentaPdfUrl(orden._id, pago._id), "nota-venta.pdf", "Nota de Venta");
   };
 
   const handleImprimirRemision = () => {
@@ -181,18 +183,20 @@ export default function CajaOrdenDetalle() {
       alert("Esta orden no tiene ningún pago registrado con Remisión.");
       return;
     }
-    openRemisionPdf(orden._id, pago._id);
+    abrirPdf(getRemisionPdfUrl(orden._id, pago._id), "remision.pdf", "Remisión");
   };
 
   // Imprime el comprobante de un pago específico desde el historial.
   const handleImprimirPago = (pago) => {
-    if (pago.comprobante === "NOTA_VENTA") openNotaVentaPdf(orden._id, pago._id);
-    else openRemisionPdf(orden._id, pago._id);
+    if (pago.comprobante === "NOTA_VENTA") abrirPdf(getNotaVentaPdfUrl(orden._id, pago._id), "nota-venta.pdf", "Nota de Venta");
+    else abrirPdf(getRemisionPdfUrl(orden._id, pago._id), "remision.pdf", "Remisión");
   };
 
-  const handleImprimirReciboProvisional = (pago) => openReciboProvisionalPdf(orden._id, pago._id);
+  const handleImprimirReciboProvisional = (pago) =>
+    abrirPdf(getReciboProvisionalPdfUrl(orden._id, pago._id), "recibo-provisional.pdf", "Recibo Provisional");
 
-  const handleImprimirReciboDolares = (pago) => openReciboDolaresPdf(orden._id, pago._id);
+  const handleImprimirReciboDolares = (pago) =>
+    abrirPdf(getReciboDolaresPdfUrl(orden._id, pago._id), "recibo-dolares.pdf", "Recibo en Dólares");
 
   if (loading) return <p className="text-center mt-4">Cargando orden...</p>;
   if (!orden) return <p className="text-center mt-4">Orden no encontrada.</p>;
@@ -459,6 +463,7 @@ export default function CajaOrdenDetalle() {
         onClose={() => setShowModalPago(false)}
         onSubmit={handleRegistrarPago}
         onValeGuardado={handleValeGuardado}
+        onImprimir={abrirPdf}
       />
       <CajaModalDescuento
         show={showModalDescuento}
@@ -481,6 +486,7 @@ export default function CajaOrdenDetalle() {
         onClose={() => setShowModalValeGarantia(false)}
         onGuardado={handleValeGarantiaGuardado}
       />
+      {pdfModal}
     </div>
   );
 }

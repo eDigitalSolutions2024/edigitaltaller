@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import PeriodoSelector from '../../captura/PeriodoSelector';
-import { getCierreCaja, getHistorialCierresCaja, openCierreCajaPdf } from '../../../api/reportes';
+import { getCierreCaja, getHistorialCierresCaja, getCierreCajaPdfUrl } from '../../../api/reportes';
 import { formatFecha } from '../../../utils/fechas';
 import CierreCajaResumen from '../../cajas/components/CierreCajaResumen';
+import usePdfModal from '../../../hooks/usePdfModal';
 
 function formatMoney(n) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
@@ -28,6 +29,7 @@ export default function ReporteCierreCaja() {
 
   const [cierre, setCierre] = useState(null);
   const [fechaActiva, setFechaActiva] = useState(null);
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   const buscar = async (desde, hasta) => {
     setCargando(true);
@@ -99,7 +101,7 @@ export default function ReporteCierreCaja() {
             <button
               type="button"
               className="btn btn-sm btn-outline-danger"
-              onClick={() => openCierreCajaPdf(fechaActiva)}
+              onClick={() => abrirPdf(getCierreCajaPdfUrl(fechaActiva), "cierre-caja.pdf", "Cierre de Caja")}
             >
               Ver PDF
             </button>
@@ -108,6 +110,7 @@ export default function ReporteCierreCaja() {
           <CierreCajaResumen cierre={cierre} />
         </>
       )}
+      {pdfModal}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { listOrdenesServicio } from "../../api/vehiculos";
+import { listOrdenesServicio, filtroDevueltoPor } from "../../api/vehiculos";
+import { getUser } from "../../auth";
 
 export default function SolicitudesTaller() {
   const navigate = useNavigate();
@@ -8,11 +9,16 @@ export default function SolicitudesTaller() {
   const [loading, setLoading] = useState(false);
   const [now, setNow] = useState(Date.now());
 
+  const usuario = getUser();
+  const esRefaccionario = usuario?.role === "refaccionario";
 
   const cargarSolicitudes = async () => {
     try {
       setLoading(true);
+      // El refaccionario solo ve las solicitudes que ya atendió él mismo
+      // (dueño de la orden) o las que nadie ha reclamado aún; otros roles ven todo.
       const res = await listOrdenesServicio({
+        ...filtroDevueltoPor(esRefaccionario ? usuario?.name : null),
         estado: "PENDIENTE_REFACCIONARIA",
         limit: 100,
       });
@@ -124,7 +130,8 @@ export default function SolicitudesTaller() {
                     <th>Vehículo</th>
                     <th>Placas</th>
                     <th>Refacciones</th>
-                    <th>Solicitante</th> 
+                    <th>Solicitante</th>
+                    <th>Refaccionario</th>
                     <th>Fecha Solicitud</th>
                     <th>Tiempo</th>
                     <th style={{ width: "120px" }}>Acción</th>
@@ -134,7 +141,7 @@ export default function SolicitudesTaller() {
                 <tbody>
                   {ordenes.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="text-center text-muted">
+                      <td colSpan={9} className="text-center text-muted">
                         No hay solicitudes pendientes de refaccionaria.
                       </td>
                     </tr>
@@ -155,7 +162,14 @@ export default function SolicitudesTaller() {
                       <td>{descripcionVehiculo(orden)}</td>
                       <td>{orden.placas || "-"}</td>
                       <td>{orden.refaccionesSolicitadas?.length || 0}</td>
-                      <td>{orden.creadoPor || "-"}</td> 
+                      <td>{orden.creadoPor || "-"}</td>
+                      <td>
+                        {orden.devueltoPor ? (
+                          <span className="badge bg-info text-dark">👤 {orden.devueltoPor}</span>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                       <td>
                         {orden.fechaSolicitudRefacciones
                           ? new Date(orden.fechaSolicitudRefacciones).toLocaleString()

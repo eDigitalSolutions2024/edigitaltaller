@@ -5,9 +5,11 @@ import { useNavigate } from "react-router-dom";
 import Dropdown from "../../components/Dropdown";
 import {
   savePresupuestoVenta,
-  openPresupuestoPdf,
-  openVentaClientePdf,
+  getVehiculoById,
+  getPresupuestoPdfUrl,
+  getVentaClientePdfUrl,
 } from "../../api/vehiculos";
+import usePdfModal from "../../hooks/usePdfModal";
 import { fetchServiciosTaller } from "../../api/codigos";
 import http from "../../api/http";
 import { TARIFA_HORA, calcImporteHoras } from "../../utils/manoObra";
@@ -19,6 +21,7 @@ import ModalCancelarOrden from "./ModalCancelarOrden";
 export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparacion, readOnly = false }) {
   const navigate = useNavigate();
   const esAdmin = getUser()?.role === "admin";
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   // Encabezado
   const [dirigidoA, setDirigidoA] = useState("");
@@ -615,7 +618,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     try {
       const res = await savePresupuestoVenta(orden._id, buildPayload());
       if (onSaved) onSaved(res.data.vehiculo);
-      openPresupuestoPdf(orden._id);
+      abrirPdf(getPresupuestoPdfUrl(orden._id), "presupuesto.pdf", "Presupuesto");
     } catch (err) {
       console.error(err);
       alert("Error al preparar el PDF.");
@@ -701,7 +704,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         buildPayload({ ventaCliente: filasVenta })
       );
       if (onSaved) onSaved(res.data.vehiculo);
-      openVentaClientePdf(orden._id);
+      abrirPdf(getVentaClientePdfUrl(orden._id), "venta-cliente.pdf", "Venta al Cliente");
     } catch (err) {
       console.error(err);
       alert("Error al preparar el PDF de venta al cliente.");
@@ -754,7 +757,12 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         folioOrdenServicio: orden.ordenServicio || "",
       });
       setShowCancelarModal(false);
-      alert("Se notificó al administrador. La orden sigue activa hasta que la revise en Solicitudes de Garantía.");
+      alert("Se notificó al administrador. La orden queda bloqueada hasta que resuelva el ticket.");
+      // Refresca la orden para reflejar de inmediato garantia.ticketPendiente
+      // (recién seteado en el backend) y bloquear la pestaña sin esperar a
+      // que el asesor navegue/refresque manualmente.
+      const res = await getVehiculoById(orden._id);
+      if (onSaved) onSaved(res.data.vehiculo);
     } catch (err) {
       console.error(err);
       alert(err.response?.data?.msg || "Error al notificar al administrador.");
@@ -1761,10 +1769,12 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         orden={orden}
         procesando={cancelando}
         notificando={notificandoAdmin}
+        puedeCancelarDirecto={esAdmin}
         onClose={() => setShowCancelarModal(false)}
         onCancelar={handleConfirmarCancelar}
         onNotificarAdmin={handleNotificarAdmin}
       />
+      {pdfModal}
     </div>
   );
 }

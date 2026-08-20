@@ -8,6 +8,7 @@ import {
   listTickets,
   cambiarEstadoTicket,
   resolverCambioAsesorTicket,
+  resolverGarantiaTicket,
 } from '../api/tickets';
 import '../styles/OSFlotante.css';
 
@@ -194,6 +195,20 @@ export default function SoporteFlotante() {
     }
   };
 
+  const handleResolverGarantia = async (decision) => {
+    if (!ticketSeleccionado) return;
+    try {
+      setProcesando(true);
+      await resolverGarantiaTicket(ticketSeleccionado._id, decision);
+      cerrarModal();
+      cargar();
+    } catch (err) {
+      alert(err.response?.data?.msg || 'Error al resolver la solicitud.');
+    } finally {
+      setProcesando(false);
+    }
+  };
+
   const irAOrden = () => {
     // ordenServicio viene poblado ({ _id, ordenServicio, estadoOrden }, ver
     // GET /tickets en el backend): hay que usar su _id, no el objeto completo.
@@ -357,6 +372,15 @@ export default function SoporteFlotante() {
                       </button>
                       <button type="button" className="btn btn-success" disabled={procesando} onClick={() => handleResolverCambioAsesor('APROBAR')}>
                         Aprobar cambio
+                      </button>
+                    </>
+                  ) : ticketSeleccionado.tipoProblema === 'GARANTIA_NO_APLICA' ? (
+                    <>
+                      <button type="button" className="btn btn-danger" disabled={procesando} onClick={() => handleResolverGarantia('NO_APLICA')}>
+                        No aplica
+                      </button>
+                      <button type="button" className="btn btn-success" disabled={procesando} onClick={() => handleResolverGarantia('APLICA')}>
+                        Aplica
                       </button>
                     </>
                   ) : (

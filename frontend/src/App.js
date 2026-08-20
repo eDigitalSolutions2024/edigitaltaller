@@ -5,6 +5,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { canSeeModule, defaultRouteForRole } from "./utils/roles";
 import { setAccessToken, getAccessToken } from "./api/http";
 import useGlobalUppercase from "./hooks/useGlobalUppercase";
+import useAutoReloadOnDeploy from "./hooks/useAutoReloadOnDeploy";
 
 import LoginPage from "./pages/LoginPage";
 import AppLayout from "./layouts/AppLayout";
@@ -193,6 +194,7 @@ const RolesRoute = ({ children, roles }) => {
 
 export default function App() {
   useGlobalUppercase();
+  useAutoReloadOnDeploy();
 
   return (
     <BrowserRouter>

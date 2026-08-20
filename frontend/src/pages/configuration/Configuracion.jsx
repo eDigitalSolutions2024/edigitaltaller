@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   getTiposCambio,
   crearTipoCambio,
@@ -25,8 +25,11 @@ import {
   actualizarOrdenCompraContador,
   getFondoCaja,
   actualizarFondoCaja,
+  getContratoOrdenServicio,
+  actualizarContratoOrdenServicio,
 } from "../../api/configuracion";
 import TipoCambioHistorialModal from "./components/TipoCambioHistorialModal";
+import ContratoHistorialModal from "./components/ContratoHistorialModal";
 
 import "../../styles/configuracion.css";
 
@@ -67,6 +70,12 @@ export default function Configuracion() {
   const [unidadForm, setUnidadForm] = useState({
     nombre: "",
   });
+
+  const [cargandoContrato, setCargandoContrato] = useState(true);
+  const [contratoTitulo, setContratoTitulo] = useState("");
+  const [contratoClausulasText, setContratoClausulasText] = useState("");
+  const [contratoPiePaginaText, setContratoPiePaginaText] = useState("");
+  const [mostrarHistorialContrato, setMostrarHistorialContrato] = useState(false);
 
   const [mecanicoForm, setMecanicoForm] = useState({
     nombre: "",
@@ -208,6 +217,25 @@ export default function Configuracion() {
         setTipoCambioSie(null);
       } finally {
         setCargandoSie(false);
+      }
+    })();
+  }, []);
+
+  // Se carga aparte de cargarDatos: así los saves de otras tarjetas (que
+  // vuelven a llamar cargarDatos) no pisan lo que el admin esté escribiendo
+  // en el contrato.
+  useEffect(() => {
+    (async () => {
+      try {
+        setCargandoContrato(true);
+        const data = await getContratoOrdenServicio();
+        setContratoTitulo(data?.titulo || "");
+        setContratoClausulasText((data?.clausulas || []).join("\n\n"));
+        setContratoPiePaginaText((data?.piePagina || []).join("\n"));
+      } catch (err) {
+        setError(err.message || "Error al cargar el contrato de orden de servicio");
+      } finally {
+        setCargandoContrato(false);
       }
     })();
   }, []);
@@ -427,6 +455,65 @@ export default function Configuracion() {
     try {
       await cambiarEstadoUnidad(unidad._id, !unidad.activo);
       await cargarDatos();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  // Cada cláusula es un párrafo separado por línea(s) en blanco; dentro de
+  // una cláusula los saltos de línea se colapsan porque el HTML del PDF
+  // (<li>) no respeta \n de todos modos.
+  const clausulasFromText = (texto) =>
+    texto
+      .split(/\n\s*\n/)
+      .map((c) => c.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+
+  const lineasFromText = (texto) =>
+    texto
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+  const previewClausulas = useMemo(
+    () => clausulasFromText(contratoClausulasText),
+    [contratoClausulasText]
+  );
+  const previewPie = useMemo(
+    () => lineasFromText(contratoPiePaginaText),
+    [contratoPiePaginaText]
+  );
+
+  const handleGuardarContrato = async (e) => {
+    e.preventDefault();
+
+    try {
+      setError("");
+
+      if (!contratoTitulo.trim()) {
+        setError("El título del contrato es obligatorio");
+        return;
+      }
+
+      const clausulas = clausulasFromText(contratoClausulasText);
+      if (!clausulas.length) {
+        setError("El contrato debe tener al menos una cláusula");
+        return;
+      }
+
+      const piePagina = lineasFromText(contratoPiePaginaText);
+
+      const res = await actualizarContratoOrdenServicio({
+        titulo: contratoTitulo,
+        clausulas,
+        piePagina,
+      });
+
+      setContratoTitulo(res.titulo);
+      setContratoClausulasText((res.clausulas || []).join("\n\n"));
+      setContratoPiePaginaText((res.piePagina || []).join("\n"));
+
+      mostrarMensaje("Contrato actualizado. Las siguientes órdenes usarán este formato.");
     } catch (err) {
       setError(err.message);
     }
@@ -884,12 +971,106 @@ export default function Configuracion() {
               )}
             </div>
           </section>
+
+          {/* Contrato de Orden de Servicio */}
+          <section className="config-card config-card-full">
+            <div className="config-card-header">
+              <div>
+                <h2>Contrato de Orden de Servicio</h2>
+                <span>
+                  Texto legal impreso en el Formato Operativo. Al guardar se crea una
+                  nueva versión: las órdenes que ya existen conservan el contrato con el
+                  que se crearon y solo las órdenes nuevas usan la versión recién guardada.
+                </span>
+              </div>
+              <div className="config-icon">📜</div>
+            </div>
+
+            <button
+              type="button"
+              className="config-secondary-button"
+              onClick={() => setMostrarHistorialContrato(true)}
+              style={{ alignSelf: "flex-start" }}
+            >
+              Ver historial de versiones
+            </button>
+
+            {cargandoContrato ? (
+              <div className="config-loading">Cargando contrato...</div>
+            ) : (
+              <form onSubmit={handleGuardarContrato} className="config-form">
+                <div className="contrato-editor">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    <label>
+                      Título del contrato
+                      <input
+                        type="text"
+                        value={contratoTitulo}
+                        onChange={(e) => setContratoTitulo(e.target.value)}
+                        required
+                      />
+                    </label>
+
+                    <label>
+                      Cláusulas
+                      <small className="field-hint">
+                        Una cláusula por párrafo; sepáralas dejando una línea en blanco. Se numeran automáticamente.
+                      </small>
+                      <textarea
+                        rows={16}
+                        value={contratoClausulasText}
+                        onChange={(e) => setContratoClausulasText(e.target.value)}
+                        required
+                      />
+                    </label>
+
+                    <label>
+                      Pie de página / notas legales
+                      <small className="field-hint">Una nota por línea (opcional).</small>
+                      <textarea
+                        rows={3}
+                        value={contratoPiePaginaText}
+                        onChange={(e) => setContratoPiePaginaText(e.target.value)}
+                      />
+                    </label>
+
+                    <button type="submit">Guardar contrato</button>
+                  </div>
+
+                  <div className="contrato-preview-wrap">
+                    <span className="contrato-preview-label">Vista previa</span>
+                    <div className="contrato-preview">
+                      <div className="contrato-preview-titulo">{contratoTitulo}</div>
+                      <ol className="contrato-preview-lista">
+                        {previewClausulas.map((clausula, i) => (
+                          <li key={i}>{clausula}</li>
+                        ))}
+                      </ol>
+                      <div className="contrato-preview-firma">
+                        Firma o rúbrica de autorización del consumidor: _______________________________
+                      </div>
+                      <div className="contrato-preview-pie">
+                        {previewPie.map((linea, i) => (
+                          <p key={i}>{linea}</p>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </form>
+            )}
+          </section>
         </div>
       )}
 
       <TipoCambioHistorialModal
         show={mostrarHistorialSie}
         onClose={() => setMostrarHistorialSie(false)}
+      />
+
+      <ContratoHistorialModal
+        show={mostrarHistorialContrato}
+        onClose={() => setMostrarHistorialContrato(false)}
       />
     </div>
   );

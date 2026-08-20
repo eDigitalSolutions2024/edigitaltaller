@@ -245,13 +245,14 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
         telefonos: migarTels(c.telefonos, c.telefono),
         celulares: migarTels(c.celulares, c.celular),
 
-        requiereFacturacion: Boolean(
-          c.rfc ||
-          c.direccion?.calle ||
-          c.direccion?.codigoPostal ||
-          c.facturacion?.direccion?.calle ||
-          c.facturacion?.direccion?.codigoPostal
-        ),
+        requiereFacturacion:
+          c.requiereFacturacion !== undefined
+            ? Boolean(c.requiereFacturacion)
+            : Boolean(
+                c.rfc ||
+                c.facturacion?.direccion?.calle ||
+                c.facturacion?.direccion?.codigoPostal
+              ),
         direccion: { ...initial.direccion, ...(c.direccion || {}) },
         facturacion: {
           ...initial.facturacion,
@@ -580,7 +581,7 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
               />
             </div>
             <div className="form-row">
-              <label>Nombre Contacto Empresa</label>
+              <label>Nombre Comercial</label>
               <input
                 value={form.nombre ?? ""}
                 onChange={(e) => upd("nombre", e.target.value)}
@@ -638,6 +639,14 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
               onChange={(arr) => upd("celulares", arr)}
             />
 
+            <div className="form-row col-12">
+              <label>Contacto</label>
+              <input
+                value={form.empresa?.contacto?.nombre ?? ""}
+                onChange={(e) => upd("empresa.contacto.nombre", e.target.value)}
+              />
+            </div>
+
             <div className="form-row">
               <label>País</label>
               <Dropdown
@@ -658,7 +667,7 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
         <>
           <div className="form-grid">
             <div className="form-row">
-              <label>Nombre Contacto Arrendadora</label>
+              <label>Nombre Comercial</label>
               <input
                 value={form.nombre ?? ""}
                 onChange={(e) => upd("nombre", e.target.value)}
@@ -723,6 +732,14 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
               onChange={(arr) => upd("celulares", arr)}
             />
 
+            <div className="form-row col-2">
+              <label>Contacto</label>
+              <input
+                value={form.empresa?.contacto?.nombre ?? ""}
+                onChange={(e) => upd("empresa.contacto.nombre", e.target.value)}
+              />
+            </div>
+
             <div className="form-row">
               <label>Departamento</label>
               <input
@@ -765,7 +782,7 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
           <h3>Gobierno</h3>
           <div className="form-grid">
             <div className="form-row">
-              <label>Nombre Gobierno</label>
+              <label>Nombre Fiscal</label>
               <input
                 value={form.gobierno?.nombreGobierno ?? ""}
                 onChange={(e) =>
@@ -774,15 +791,6 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
               />
             </div>
 
-            <div className="form-row">
-              <label>Contacto Gobierno (Nombre)</label>
-              <input
-                value={form.gobierno?.contactoGobierno?.nombre ?? ""}
-                onChange={(e) =>
-                  upd("gobierno.contactoGobierno.nombre", e.target.value)
-                }
-              />
-            </div>
             <div className="form-row col-12">
               <label>Correos Electrónicos</label>
               {(form.emails ?? [""]).map((mail, i) => (
@@ -834,6 +842,16 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
               valores={form.gobierno?.contactoGobierno?.telefonos ?? [{ lada: "", numero: "" }]}
               onChange={(arr) => upd("gobierno.contactoGobierno.telefonos", arr)}
             />
+
+            <div className="form-row col-2">
+              <label>Contacto</label>
+              <input
+                value={form.gobierno?.contactoGobierno?.nombre ?? ""}
+                onChange={(e) =>
+                  upd("gobierno.contactoGobierno.nombre", e.target.value)
+                }
+              />
+            </div>
 
             <div className="form-row">
               <label>Departamento</label>

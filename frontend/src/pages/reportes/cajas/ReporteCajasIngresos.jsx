@@ -3,10 +3,11 @@ import PeriodoSelector from '../../captura/PeriodoSelector';
 import ReporteCierreCaja from './ReporteCierreCaja';
 import {
   getReporteCajasIngresos,
-  getReporteRemisionesDias,
-  openReporteCajasIngresosPdf,
+  getReporteCajasIngresosDias,
+  getReporteCajasIngresosPdfUrl,
 } from '../../../api/reportes';
 import { formatFecha } from '../../../utils/fechas';
+import usePdfModal from '../../../hooks/usePdfModal';
 
 const TIPOS = [
   { key: 'NOTA_VENTA', label: 'Facturas' },
@@ -36,8 +37,8 @@ export default function ReporteCajasIngresos() {
   const [error, setError] = useState('');
   const [rango, setRango] = useState(null);
 
-  // Modo lista: rango de más de un día en Remisiones -> se muestra un índice
-  // por día (Total Ingreso de cada uno) en vez del detalle completo.
+  // Modo lista: rango de más de un día (Facturas o Remisiones) -> se muestra
+  // un índice por día (Total Ingreso de cada uno) en vez del detalle completo.
   const [dias, setDias] = useState(null);
 
   // Detalle mostrado (ya sea de un rango de un solo día, de Facturas, o del
@@ -45,6 +46,7 @@ export default function ReporteCajasIngresos() {
   // para pedirlo, y con las que se genera el PDF.
   const [data, setData] = useState(null);
   const [diaActivo, setDiaActivo] = useState(null);
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   const buscar = async (desde, hasta, tipoActual) => {
     setCargando(true);
@@ -54,8 +56,8 @@ export default function ReporteCajasIngresos() {
     setDiaActivo(null);
     setRango({ desde, hasta });
     try {
-      if (tipoActual === 'REMISION' && !mismoDia(desde, hasta)) {
-        const res = await getReporteRemisionesDias(desde, hasta);
+      if (!mismoDia(desde, hasta)) {
+        const res = await getReporteCajasIngresosDias(desde, hasta, tipoActual);
         setDias(res.data.dias);
       } else {
         const res = await getReporteCajasIngresos(desde, hasta, tipoActual);
@@ -73,7 +75,7 @@ export default function ReporteCajasIngresos() {
     setCargando(true);
     setError('');
     try {
-      const res = await getReporteCajasIngresos(dia.desde, dia.hasta, 'REMISION');
+      const res = await getReporteCajasIngresos(dia.desde, dia.hasta, tipo);
       setData(res.data);
       setDiaActivo({ desde: dia.desde, hasta: dia.hasta });
     } catch (err) {
@@ -179,12 +181,12 @@ export default function ReporteCajasIngresos() {
                         ← Volver a la lista
                       </button>
                     )}
-                    <h5 className="mb-0">{tipo === 'REMISION' ? tituloDetalle : `Reporte de ingresos — ${tituloRango}`}</h5>
+                    <h5 className="mb-0">{dias ? tituloDetalle : `Reporte de ingresos — ${tituloRango}`}</h5>
                   </div>
                   <button
                     type="button"
                     className="btn btn-sm btn-outline-danger"
-                    onClick={() => openReporteCajasIngresosPdf(diaActivo.desde, diaActivo.hasta, tipo)}
+                    onClick={() => abrirPdf(getReporteCajasIngresosPdfUrl(diaActivo.desde, diaActivo.hasta, tipo), "reporte-cajas-ingresos.pdf", "Reporte de Ingresos")}
                   >
                     Ver PDF
                   </button>
@@ -196,6 +198,7 @@ export default function ReporteCajasIngresos() {
           </div>
         </div>
       )}
+      {pdfModal}
     </div>
   );
 }

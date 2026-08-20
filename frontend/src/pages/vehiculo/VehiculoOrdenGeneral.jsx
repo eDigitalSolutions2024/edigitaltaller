@@ -1,6 +1,7 @@
 // src/pages/vehiculo/VehiculoOrdenGeneral.jsx
 import React, { useState, useEffect } from "react";
-import { closeOrden, openVentaClientePdf } from "../../api/vehiculos";
+import { closeOrden, getVentaClientePdfUrl } from "../../api/vehiculos";
+import usePdfModal from "../../hooks/usePdfModal";
 import http from "../../api/http";
 import { formatFecha } from "../../utils/fechas";
 import { createTicket } from "../../api/tickets";
@@ -57,6 +58,7 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor }) {
   const [solicitandoRestablecer, setSolicitandoRestablecer] = useState(false);
   const [solicitudEnviada, setSolicitudEnviada] = useState(false);
   const [mecMap, setMecMap] = useState({}); // id → nombre del mecánico
+  const { pdfModal, abrirPdf } = usePdfModal();
 
   // Cargar empleados mecánicos para resolver IDs en manoObra
   useEffect(() => {
@@ -149,15 +151,17 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor }) {
     : esEmpresa
     ? (emp.razonSocial || c.nombre || "")
     : (gob.nombreGobierno || c.nombre || "");
-  const labelNombrePrincipal = esParticular ? "Nombre Cliente" : "Nombre / Razón Social";
+  const labelNombrePrincipal = esParticular ? "Nombre Cliente" : "Nombre Fiscal";
 
-  // Contacto por tipo de cliente
+  // Contacto por tipo de cliente: para Empresa Privada/Arrendadora se muestra
+  // el nombre comercial (distinto del fiscal de arriba); para Gobierno, el
+  // contacto de la dependencia/gobierno.
   const nombreContacto = esEmpresa
-    ? (emp.contacto?.nombre || c.nombre || "")
+    ? (c.nombre || "")
     : esGobierno
     ? (gob.contactoGobierno?.nombre || gob.dependencia?.contacto?.nombre || "")
     : "";
-  const labelNombreContacto = esParticular ? "Contacto" : "Nombre Contacto";
+  const labelNombreContacto = esParticular ? "Contacto" : esEmpresa ? "Nombre Comercial" : "Nombre Contacto";
 
   const telefonoFijo = [tel.lada, tel.numero].filter(Boolean).join(" ");
   const celular = [cel.lada, cel.numero].filter(Boolean).join(" ");
@@ -222,7 +226,7 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor }) {
             <button
               type="button"
               className="btn btn-danger btn-sm"
-              onClick={() => openVentaClientePdf(orden._id)}
+              onClick={() => abrirPdf(getVentaClientePdfUrl(orden._id), "venta-cliente.pdf", "Venta al Cliente")}
             >
               Imprimir Venta Cliente
             </button>
@@ -330,6 +334,10 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor }) {
               </div>
               <div className="mb-1">
                 <strong>KMS/Millas:</strong> {orden.kmsMillas || ""}
+              </div>
+              <div className="mb-1">
+                <strong>Nombre quien deja el vehículo:</strong>{" "}
+                {orden.nombreUsuarioDejaVehiculo || ""}
               </div>
             </>
           )}
@@ -674,6 +682,7 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor }) {
           </div>
         </div>
       </div>
+      {pdfModal}
     </div>
   );
 }

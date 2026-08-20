@@ -23,14 +23,34 @@ const ImagenesOrden = forwardRef(function ImagenesOrden(
 ) {
   const inputGaleriaRef = useRef(null);
   const inputCamaraRef = useRef(null);
-  const [subiendo, setSubiendo] = useState(false);
-  // Promesa de la subida en curso (si hay una): permite que el formulario
-  // padre, al desmontarse antes de que termine, espere a que la subida se
-  // resuelva antes de borrar la carpeta temporal (si se borra primero, la
-  // subida en curso la recrea después y esa imagen queda huérfana en disco).
-  const subidaEnCursoRef = useRef(Promise.resolve());
+  // Vistas previas locales (instantáneas) de fotos que ya se capturaron pero
+  // cuya subida real todavía está en curso o en cola. Permiten seguir
+  // capturando sin esperar a que cada una termine de subir.
+  const [pendientes, setPendientes] = useState([]);
+  const pendientesRef = useRef([]);
+  useEffect(() => {
+    pendientesRef.current = pendientes;
+  }, [pendientes]);
+  // Siempre al día con la última lista confirmada (prop `imagenes`), para
+  // poder fusionar de forma segura la respuesta de cada subida encolada sin
+  // depender de un closure viejo de `handleSeleccion` (ver más abajo).
+  const imagenesRef = useRef(imagenes);
+  useEffect(() => {
+    imagenesRef.current = imagenes;
+  }, [imagenes]);
+  useEffect(() => () => {
+    pendientesRef.current.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+  }, []);
+  // Cadena que serializa las subidas reales (una tras otra) aunque el
+  // usuario dispare varias capturas seguidas sin esperar: evita condiciones
+  // de carrera al escribir el manifest en el servidor si dos subidas
+  // llegaran a la vez. El formulario padre, al desmontarse o al guardar la
+  // orden, espera esta cadena antes de dar por hechas las subidas (si no se
+  // esperara, una subida aún en cola podría no reflejarse en la orden final,
+  // o recrear la carpeta temporal después de que ya se borró).
+  const cadenaSubidasRef = useRef(Promise.resolve());
   useImperativeHandle(ref, () => ({
-    esperarSubidasPendientes: () => subidaEnCursoRef.current,
+    esperarSubidasPendientes: () => cadenaSubidasRef.current,
   }));
   const [zoomIndex, setZoomIndex] = useState(null);
   // Formatos que el navegador no puede previsualizar inline (p. ej. HEIC de
@@ -67,29 +87,55 @@ const ImagenesOrden = forwardRef(function ImagenesOrden(
   const handleSeleccion = (e) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    const listaArchivos = Array.from(files);
+
+    // Se limpia de inmediato (no se espera a que suba) para poder volver a
+    // capturar/seleccionar sin demora.
+    if (inputGaleriaRef.current) inputGaleriaRef.current.value = "";
+    if (inputCamaraRef.current) inputCamaraRef.current.value = "";
 
     const usuario = getUser();
-    const promesa = (async () => {
+
+    // Vista previa local instantánea; la subida real ocurre en segundo plano.
+    const nuevosPendientes = listaArchivos.map((file) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      previewUrl: URL.createObjectURL(file),
+    }));
+    setPendientes((prev) => [...prev, ...nuevosPendientes]);
+    const idsLote = nuevosPendientes.map((p) => p.id);
+
+    cadenaSubidasRef.current = cadenaSubidasRef.current.then(async () => {
       try {
-        setSubiendo(true);
-        const archivos = await comprimirImagenes(files);
+        const archivos = await comprimirImagenes(listaArchivos);
         const res = modoTemporal
           ? await subirImagenesTemp(tempId, archivos)
           : await subirImagenesOrden(ordenId, archivos, usuario?.name || usuario?.username || "");
         const nuevasImagenes = res.data?.imagenes || [];
-        if (onChange) onChange(nuevasImagenes);
+        // Se fusiona con lo último conocido (por filename/_id) en vez de
+        // reemplazar directo: si dos subidas quedaron en cola y la respuesta
+        // de una llegara a reflejar solo su propio lote, esto evita que la
+        // imagen de la subida anterior desaparezca de la vista.
+        if (onChange) {
+          const combinadas = [...imagenesRef.current];
+          nuevasImagenes.forEach((img) => {
+            const key = img._id || img.filename;
+            if (!combinadas.some((c) => (c._id || c.filename) === key)) {
+              combinadas.push(img);
+            }
+          });
+          onChange(combinadas);
+        }
       } catch (err) {
         console.error("Error subiendo imágenes:", err);
         const msg = err?.response?.data?.msg || "Error al subir las imágenes.";
         alert(msg);
       } finally {
-        setSubiendo(false);
-        if (inputGaleriaRef.current) inputGaleriaRef.current.value = "";
-        if (inputCamaraRef.current) inputCamaraRef.current.value = "";
+        setPendientes((prev) => {
+          prev.filter((p) => idsLote.includes(p.id)).forEach((p) => URL.revokeObjectURL(p.previewUrl));
+          return prev.filter((p) => !idsLote.includes(p.id));
+        });
       }
-    })();
-
-    subidaEnCursoRef.current = promesa;
+    });
   };
 
   const eliminarImagen = async (imagen) => {
@@ -156,21 +202,27 @@ const ImagenesOrden = forwardRef(function ImagenesOrden(
               type="button"
               className="btn btn-primary flex-fill"
               style={{ minWidth: 150, padding: "10px 16px", fontSize: 15, fontWeight: 500 }}
-              disabled={subiendo || !puedeSubir}
+              disabled={!puedeSubir}
               onClick={() => inputGaleriaRef.current?.click()}
             >
-              {subiendo ? "Subiendo..." : "📁 Subir imágenes"}
+              📁 Subir imágenes
             </button>
             <button
               type="button"
               className="btn btn-outline-primary flex-fill"
               style={{ minWidth: 150, padding: "10px 16px", fontSize: 15, fontWeight: 500 }}
-              disabled={subiendo || !puedeSubir}
+              disabled={!puedeSubir}
               onClick={() => inputCamaraRef.current?.click()}
             >
               📸 Capturar foto
             </button>
           </div>
+
+          {pendientes.length > 0 && (
+            <p style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 4, marginBottom: 0 }}>
+              Subiendo {pendientes.length} imagen{pendientes.length > 1 ? "es" : ""} en segundo plano…
+            </p>
+          )}
 
           {/* Selección desde archivos/galería, varias a la vez */}
           <input
@@ -200,8 +252,37 @@ const ImagenesOrden = forwardRef(function ImagenesOrden(
         </>
       )}
 
-      {imagenes.length > 0 && (
+      {(imagenes.length > 0 || pendientes.length > 0) && (
         <div className="d-flex flex-wrap gap-2 mt-2">
+          {pendientes.map((p) => (
+            <div key={p.id} style={{ position: "relative", width: 72, height: 72 }}>
+              <img
+                src={p.previewUrl}
+                alt=""
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  borderRadius: 6,
+                  border: "1px solid #ddd",
+                  opacity: 0.6,
+                }}
+              />
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 20,
+                }}
+                title="Subiendo…"
+              >
+                ⏳
+              </div>
+            </div>
+          ))}
           {imagenes.map((img, idx) => (
             <div
               key={img._id || img.filename}

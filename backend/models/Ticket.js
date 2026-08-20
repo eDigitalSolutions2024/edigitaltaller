@@ -39,6 +39,12 @@ const ticketSchema = new Schema(
     ordenServicio: { type: Schema.Types.ObjectId, ref: 'Vehiculo', default: null },
     folioOrdenServicio: { type: String, default: '' },
 
+    // Solo para tipoProblema === 'GARANTIA_NO_APLICA' resuelto como "No
+    // aplica": la orden de reemplazo que se creó automáticamente (ver
+    // backend/utils/resolverGarantiaTicket.js). Nace sin folio (pendiente de
+    // captura), por eso no se guarda un snapshot de texto como con las demás.
+    ordenReemplazoId: { type: Schema.Types.ObjectId, ref: 'Vehiculo', default: null },
+
     // Solo para tipoProblema === 'CAMBIO_ASESOR': el asesor destino que el
     // solicitante pide para la orden. Snapshot de nombre igual que arriba.
     asesorSolicitadoId: { type: Schema.Types.ObjectId, ref: 'User', default: null },

@@ -8,6 +8,7 @@ const Cliente = require('../models/Cliente');
 const OrdenCompra = require('../models/OrdenCompra');
 const User = require('../models/User');
 const Grupo = require('../models/Grupo');
+const ContratoOrdenServicio = require('../models/ContratoOrdenServicio');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { normalizarOrdenServicio, regexBusquedaOS } = require('../utils/ordenServicio');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
@@ -312,6 +313,12 @@ router.post('/', async (req, res) => {
     payload.ordenServicio = folioOS;
     payload.sinVehiculo = data.sinVehiculo === true;
 
+    // Se fija la versión del contrato vigente en este momento; si el
+    // contrato se edita después desde Configuración, esta orden sigue
+    // imprimiendo el texto con el que se creó (ver VehiculoOperativoPdf.js).
+    const contratoVigente = await ContratoOrdenServicio.getOrCreate();
+    payload.contratoOrdenServicio = contratoVigente._id;
+
     // Si quien crea la orden pertenece a un grupo de trabajo activo, se
     // timbra la orden con ese grupo para que el resto de sus miembros la vean
     // como propia (en mis-ordenes / OSFlotante), incluso si el grupo se
@@ -385,11 +392,12 @@ router.post('/', async (req, res) => {
         if (b.nombreDependencia)          clienteUpdate['gobierno.dependencia.nombre']           = b.nombreDependencia;
         if (b.nombreContactoDependencia)  clienteUpdate['gobierno.dependencia.contacto.nombre'] = b.nombreContactoDependencia;
       } else {
-        // Empresa Privada / Empresa Arrendadora: el nombre de la empresa vive
-        // únicamente en "nombre" (ver AltaCliente.jsx). Escribir en "gobierno.*"
-        // aquí fue lo que originalmente dejó datos huérfanos en clientes que
-        // nunca fueron "Empresa Gobierno".
+        // Empresa Privada / Empresa Arrendadora: el nombre comercial vive en
+        // "nombre" y el nombre fiscal en "empresa.razonSocial" (ver AltaCliente.jsx).
+        // Escribir en "gobierno.*" aquí fue lo que originalmente dejó datos
+        // huérfanos en clientes que nunca fueron "Empresa Gobierno".
         if (b.nombreGobierno) clienteUpdate.nombre = b.nombreGobierno;
+        if (b.nombreFiscal) clienteUpdate['empresa.razonSocial'] = b.nombreFiscal;
       }
 
       if (b.rfc) clienteUpdate.rfc = b.rfc;
@@ -711,7 +719,7 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
 
       if (estadoOrden === 'PENDIENTE_AUTORIZACION_CLIENTE') {
         vehiculo.fechaRespuestaRefaccionaria = new Date();
-        if (devueltoPor) vehiculo.devueltoPor = devueltoPor;
+        // devueltoPor se fija más abajo con un update atómico condicionado.
       }
 
       if (estadoOrden === 'PENDIENTE_CERRAR') {
@@ -721,6 +729,19 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
 
 
     await vehiculo.save();
+
+    if (estadoOrden === 'PENDIENTE_AUTORIZACION_CLIENTE' && devueltoPor) {
+      // "Primero en llegar, se queda": solo asigna devueltoPor si en BD sigue
+      // sin dueño, para que dos refaccionarios no puedan reclamar la misma
+      // orden nueva casi al mismo tiempo (evita condición de carrera).
+      await Vehiculo.updateOne(
+        {
+          _id: vehiculo._id,
+          $or: [{ devueltoPor: '' }, { devueltoPor: null }, { devueltoPor: { $exists: false } }],
+        },
+        { $set: { devueltoPor } }
+      );
+    }
 
     const vehiculoConCliente = await Vehiculo.findById(vehiculo._id).populate('cliente', POPULATE_CLIENTE);
     return res.json({ ok: true, vehiculo: vehiculoConCliente });
@@ -922,6 +943,16 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
     const vehiculo = await Vehiculo.findById(id);
     if (!vehiculo) {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+
+    // Bloqueada mientras haya un ticket GARANTIA_NO_APLICA pendiente de que
+    // el admin decida si la garantía aplica (ver POST /api/tickets y
+    // PUT /api/tickets/:id/resolver-garantia).
+    if (vehiculo.garantia?.ticketPendiente) {
+      return res.status(409).json({
+        ok: false,
+        msg: 'Esta orden está bloqueada: hay un ticket de soporte pendiente sobre si la garantía aplica.',
+      });
     }
 
     if (Array.isArray(presupuesto)) {
@@ -1423,6 +1454,31 @@ router.get('/:id/operativo-pdf', async (req, res) => {
   }
 });
 
+// Guarda la firma del cliente (data URL PNG) capturada desde el visor del
+// Formato Operativo — se muestra en la sección "AUTORIZACIÓN Y FIRMA...".
+router.put('/:id/firma-operativo', async (req, res) => {
+  try {
+    const { firma } = req.body;
+    if (typeof firma !== 'string' || !firma.startsWith('data:image/')) {
+      return res.status(400).json({ ok: false, msg: 'Firma inválida.' });
+    }
+
+    const vehiculo = await Vehiculo.findByIdAndUpdate(
+      req.params.id,
+      { firmaAutorizacionCliente: firma },
+      { new: true }
+    ).select('_id');
+
+    if (!vehiculo) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error guardando firma operativo', err);
+    res.status(500).json({ ok: false, msg: 'Error al guardar la firma' });
+  }
+});
+
 // PDF para "Imprimir" / contrato
 router.get('/:id/orden-pdf', async (req, res) => {
   try {
@@ -1477,6 +1533,9 @@ router.put('/:id/datos', async (req, res) => {
             msg: `Ya existe una orden con el número ${folioDuplicado.ordenServicio}.`,
           });
         }
+        // Ya se capturó un folio real: la orden deja de estar "pendiente de
+        // capturar OS" (ver Vehiculo.ordenServicioPendiente).
+        updateVehiculo.ordenServicioPendiente = false;
       }
     }
 
@@ -1511,8 +1570,10 @@ router.put('/:id/datos', async (req, res) => {
           clienteUpdate['gobierno.dependencia.contacto.nombre'] = b.nombreContactoDependencia;
         }
       } else {
-        // Empresa Privada / Empresa Arrendadora: el nombre vive solo en "nombre"
+        // Empresa Privada / Empresa Arrendadora: nombre comercial en "nombre",
+        // nombre fiscal en "empresa.razonSocial"
         if (b.nombreGobierno !== undefined) clienteUpdate.nombre = b.nombreGobierno;
+        if (b.nombreFiscal !== undefined) clienteUpdate['empresa.razonSocial'] = b.nombreFiscal;
       }
 
       if (b.rfc !== undefined) clienteUpdate.rfc = b.rfc;

@@ -60,3 +60,10 @@ export const resolverCambioAsesorTicket = (id, accion) =>
 // el backend reabre de verdad el día de caja solicitado.
 export const resolverRestablecerCajaTicket = (id, accion) =>
   http.put(`/tickets/${id}/resolver-restablecer-caja`, { accion });
+
+// Aplica/No aplica un ticket de tipo GARANTIA_NO_APLICA (solo admin). Al
+// marcar "No aplica", el backend cancela la orden y crea automáticamente la
+// orden de reemplazo para el mismo asesor, pendiente de capturar el número
+// de OS.
+export const resolverGarantiaTicket = (id, decision) =>
+  http.put(`/tickets/${id}/resolver-garantia`, { decision });

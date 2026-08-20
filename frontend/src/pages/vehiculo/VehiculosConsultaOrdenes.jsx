@@ -38,6 +38,21 @@ const ESTADO_LABELS = {
   CANCELADA:                      "Cancelada",
 };
 
+// Nombre a mostrar en la consulta de órdenes: para Empresa Privada/Arrendadora
+// y Gobierno se prioriza el nombre fiscal (razón social / nombre de gobierno)
+// sobre el nombre comercial; para Particular se usa el nombre completo.
+function nombreClienteOrden(c) {
+  if (!c) return "";
+  const tipo = c.tipoCliente || "Particular";
+  if (tipo === "Empresa Gobierno") {
+    return c.gobierno?.nombreGobierno || c.nombre || "";
+  }
+  if (tipo === "Empresa Privada" || tipo === "Empresa Arrendadora") {
+    return c.empresa?.razonSocial || c.nombre || "";
+  }
+  return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ");
+}
+
 const TAB_MAP = {
   INGRESO:                        "datos",
   PENDIENTE_REFACCIONARIA:        "req",
@@ -222,15 +237,7 @@ export default function VehiculosConsultaOrdenes() {
                     >
                       <td className="text-center">{r.ordenServicio || "-"}</td>
                       <td>
-                        {r.cliente?.gobierno?.nombreGobierno ||
-                          [
-                            r.cliente?.nombre,
-                            r.cliente?.apellidoPaterno,
-                            r.cliente?.apellidoMaterno,
-                          ]
-                            .filter(Boolean)
-                            .join(" ") ||
-                          "-"}
+                        {nombreClienteOrden(r.cliente) || "-"}
                         {r.cliente?.esEmpleado && (
                           <div><span className="badge bg-warning text-dark">Empleado</span></div>
                         )}
@@ -386,13 +393,7 @@ export default function VehiculosConsultaOrdenes() {
     >
       <td className="text-center">{r.ordenServicio || "-"}</td>
       <td>
-        {r.cliente?.gobierno?.nombreGobierno ||
-          (r.cliente?.tipoCliente === "Particular"
-            ? [r.cliente?.nombre, r.cliente?.apellidoPaterno, r.cliente?.apellidoMaterno]
-                .filter(Boolean)
-                .join(" ")
-            : r.cliente?.nombre) ||
-          "-"}
+        {nombreClienteOrden(r.cliente) || "-"}
         {r.cliente?.esEmpleado && (
           <div><span className="badge bg-warning text-dark">Empleado</span></div>
         )}

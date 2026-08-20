@@ -26,7 +26,4 @@ export const createVale = (payload) => http.post('/vales', payload);
 
 export const updateVale = (id, payload) => http.put(`/vales/${id}`, payload);
 
-export const openValePdf = (id) => {
-  const url = `${BASE_URL}/vales/${id}/pdf`;
-  window.open(url, '_blank', 'noopener');
-};
+export const getValePdfUrl = (id) => `${BASE_URL}/vales/${id}/pdf`;

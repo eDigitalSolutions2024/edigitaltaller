@@ -22,6 +22,7 @@
 .form-row label{ font-weight:700; color:#334155; }
 .form-row input, .form-row select, .form-row textarea{
   border:1px solid rgba(0,0,0,.12); border-radius:10px; padding:10px 12px; outline:none;
+  width:100%; box-sizing:border-box;
 }
 .phone-inline{ display:grid; grid-template-columns:120px 1fr; gap:8px; }
 .form-row.check{ justify-content:flex-end; }
