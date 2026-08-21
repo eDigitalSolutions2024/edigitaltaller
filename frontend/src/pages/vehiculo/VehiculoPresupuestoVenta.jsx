@@ -17,6 +17,16 @@ import useTipoCambioActual from "../../hooks/useTipoCambioActual";
 import { getUser } from "../../auth";
 import { createTicket } from "../../api/tickets";
 import ModalCancelarOrden from "./ModalCancelarOrden";
+import ModalAnticipoHoras from "./ModalAnticipoHoras";
+
+// Una vez que la orden tiene Remisión o Nota de Venta vigente ya se considera
+// vendida fiscalmente; no se debe poder anticipar más dinero (en horas) fuera
+// de los comprobantes oficiales de Caja. Mismo criterio que cajas.js:210-212.
+function tieneComprobanteFiscal(pagos) {
+  return (pagos || []).some(
+    (p) => !p.cancelado && (p.comprobante === "REMISION" || p.comprobante === "NOTA_VENTA")
+  );
+}
 
 export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparacion, readOnly = false }) {
   const navigate = useNavigate();
@@ -88,6 +98,10 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   const [moHorasOverride, setMoHorasOverride] = useState("");
   const [moFechaPago, setMoFechaPago] = useState("");
   const [serviciosMoSeleccionados, setServiciosMoSeleccionados] = useState({});
+  const [anticiposMO, setAnticiposMO] = useState([]);
+  const [showAnticipoModal, setShowAnticipoModal] = useState(false);
+  const [guardandoMo, setGuardandoMo] = useState(false);
+  const [guardandoAnticipo, setGuardandoAnticipo] = useState(false);
 
   // ===== OBSERVACIONES =====
   const [obsExternas, setObsExternas] = useState("");
@@ -106,6 +120,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     setObservCotizacion(orden.observCotizacion || "");
     setRequiereFactura(!!orden.requiereFactura);
     setMoRows(orden.manoObra || []);
+    setAnticiposMO(orden.anticiposManoObra || []);
     setObsExternas(orden.observacionesExternas || "");
     setObsInternas(orden.observacionesInternas || "");
     setIvaPresupuesto(orden.ivaPresupuesto ?? 8);
@@ -334,7 +349,41 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     setServiciosMoSeleccionados((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const agregarAsignacionMano = () => {
+  // Mano de obra y anticipos se persisten de inmediato (no hasta "Guardar
+  // Orden de Servicio"): cada alta/baja manda solo ese campo al backend, que
+  // solo pisa lo que venga en el body, así que el resto del formulario
+  // (presupuesto, venta al cliente, observaciones, etc.) no se ve afectado.
+  const guardarMoRows = async (nuevoMoRows) => {
+    setGuardandoMo(true);
+    try {
+      const res = await savePresupuestoVenta(orden._id, { manoObra: nuevoMoRows });
+      setMoRows(res.data.vehiculo.manoObra || nuevoMoRows);
+      return true;
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.msg || "Error al guardar la mano de obra.");
+      return false;
+    } finally {
+      setGuardandoMo(false);
+    }
+  };
+
+  const guardarAnticipos = async (nuevoAnticipos) => {
+    setGuardandoAnticipo(true);
+    try {
+      const res = await savePresupuestoVenta(orden._id, { anticiposManoObra: nuevoAnticipos });
+      setAnticiposMO(res.data.vehiculo.anticiposManoObra || nuevoAnticipos);
+      return true;
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.msg || "Error al guardar el anticipo de horas.");
+      return false;
+    } finally {
+      setGuardandoAnticipo(false);
+    }
+  };
+
+  const agregarAsignacionMano = async () => {
     const idsElegidos = Object.entries(serviciosMoSeleccionados)
       .filter(([, marcado]) => marcado)
       .map(([id]) => id);
@@ -368,7 +417,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       };
     });
 
-    setMoRows((prev) => [...prev, ...nuevasFilas]);
+    const ok = await guardarMoRows([...moRows, ...nuevasFilas]);
+    if (!ok) return;
     setServiciosMoSeleccionados({});
     setMoAsignado("");
     setMoHorasOverride("");
@@ -384,7 +434,13 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   };
 
   const removeMoRow = (idx) => {
-    setMoRows((prev) => prev.filter((_, i) => i !== idx));
+    guardarMoRows(moRows.filter((_, i) => i !== idx));
+  };
+
+  const agregarAnticipoHoras = (anticipo) => guardarAnticipos([...anticiposMO, anticipo]);
+
+  const removeAnticipoHoras = (idx) => {
+    guardarAnticipos(anticiposMO.filter((_, i) => i !== idx));
   };
 
   // ===== PRESUPUESTO — HANDLERS =====
@@ -592,6 +648,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     presupuesto: presRows,
     ventaCliente: ventaRows,
     manoObra: moRows,
+    anticiposManoObra: anticiposMO,
     observacionesExternas: obsExternas,
     observacionesInternas: obsInternas,
     dirigidoA,
@@ -1534,8 +1591,21 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
         {!readOnly && (
           <div className="card border-primary mb-3">
-            <div className="card-header bg-primary text-white fw-semibold">
-              Asignar servicio(s) a un mecánico / carrocero
+            <div className="card-header bg-primary text-white fw-semibold d-flex justify-content-between align-items-center">
+              <span>Asignar servicio(s) a un mecánico / carrocero</span>
+              <button
+                type="button"
+                className="btn btn-sm btn-light"
+                onClick={() => setShowAnticipoModal(true)}
+                disabled={tieneComprobanteFiscal(orden.pagos)}
+                title={
+                  tieneComprobanteFiscal(orden.pagos)
+                    ? "No se puede anticipar: esta orden ya tiene una Remisión o Nota de Venta registrada."
+                    : ""
+                }
+              >
+                Anticipar horas
+              </button>
             </div>
             <div className="card-body">
               {serviciosParaManoObra.length === 0 ? (
@@ -1629,8 +1699,9 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                         type="button"
                         className="btn btn-primary btn-sm px-4"
                         onClick={agregarAsignacionMano}
+                        disabled={guardandoMo}
                       >
-                        + Agregar asignación
+                        {guardandoMo ? "Guardando..." : "+ Agregar asignación"}
                       </button>
                     </div>
                   </div>
@@ -1709,6 +1780,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                           type="button"
                           className="btn btn-sm btn-danger"
                           onClick={() => removeMoRow(idx)}
+                          disabled={guardandoMo}
                         >
                           Quitar
                         </button>
@@ -1773,6 +1845,16 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         onClose={() => setShowCancelarModal(false)}
         onCancelar={handleConfirmarCancelar}
         onNotificarAdmin={handleNotificarAdmin}
+      />
+      <ModalAnticipoHoras
+        show={showAnticipoModal}
+        mecanicos={mecanicos}
+        moRows={moRows}
+        anticipos={anticiposMO}
+        guardando={guardandoAnticipo}
+        onClose={() => setShowAnticipoModal(false)}
+        onAdd={agregarAnticipoHoras}
+        onRemove={removeAnticipoHoras}
       />
       {pdfModal}
     </div>

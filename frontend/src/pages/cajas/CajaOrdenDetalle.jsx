@@ -7,6 +7,7 @@ import {
   agregarDescuento,
   actualizarDescuento,
   eliminarDescuento,
+  marcarPendienteFactura,
   getNotaVentaPdfUrl,
   getRemisionPdfUrl,
   getReciboProvisionalPdfUrl,
@@ -121,6 +122,11 @@ export default function CajaOrdenDetalle() {
     setOrden(res.data.vehiculo);
   };
 
+  const handleTogglePendienteFactura = async () => {
+    const res = await marcarPendienteFactura(orden._id, !orden.pendienteFactura);
+    setOrden(res.data.vehiculo);
+  };
+
   // Restablecer un abono/anticipo/remisión/nota de venta: solo admin (botón
   // en el historial, resuelto en el modal CajaModalCancelarPago). El pago
   // conserva su folio, queda marcado "cancelado" y el PDF del comprobante
@@ -219,7 +225,12 @@ export default function CajaOrdenDetalle() {
           <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate(-1)}>
             ← Regresar
           </button>
-          <h4 className="mb-0 fw-bold">Orden {orden.ordenServicio}</h4>
+          <h4 className="mb-0 fw-bold">
+            Orden {orden.ordenServicio}
+            {orden.pendienteFactura && (
+              <span className="badge bg-warning text-dark ms-2">Pendiente de Factura</span>
+            )}
+          </h4>
           <div className="d-flex flex-column align-items-end gap-1">
             <button
               className="btn btn-outline-primary btn-sm"
@@ -322,6 +333,10 @@ export default function CajaOrdenDetalle() {
                     <tr>
                       <th className="ps-2">Fecha Recepción</th>
                       <td>{formatFecha(orden.fechaRecepcion) || "-"}</td>
+                    </tr>
+                    <tr>
+                      <th className="ps-2">Fecha de Cierre</th>
+                      <td>{formatFecha(orden.fechaCierre) || "-"}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -435,6 +450,14 @@ export default function CajaOrdenDetalle() {
             {!esGarantia && (
               <button className="btn btn-warning" onClick={() => setShowModalDescuento(true)}>
                 Agregar Descuento
+              </button>
+            )}
+            {!esGarantia && (
+              <button
+                className={`btn ${orden.pendienteFactura ? "btn-outline-warning" : "btn-outline-dark"}`}
+                onClick={handleTogglePendienteFactura}
+              >
+                {orden.pendienteFactura ? "Quitar de Pendientes de Factura" : "Marcar Pendiente de Factura"}
               </button>
             )}
           </div>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import PeriodoSelector from '../../captura/PeriodoSelector';
 import ReporteCierreCaja from './ReporteCierreCaja';
+import ReportePendientesFactura from './ReportePendientesFactura';
 import {
   getReporteCajasIngresos,
   getReporteCajasIngresosDias,
@@ -131,12 +132,27 @@ export default function ReporteCajasIngresos() {
         >
           Cierre de Caja
         </button>
+        <button
+          type="button"
+          className={'px-3 py-2 rounded-pill me-2 ' + (vista === 'pendientes-factura' ? 'btn btn-primary' : 'btn btn-outline-primary')}
+          onClick={() => setVista('pendientes-factura')}
+        >
+          Pendientes de Factura
+        </button>
       </div>
 
       {vista === 'cierre' && (
         <div className="card shadow-sm">
           <div className="card-body">
             <ReporteCierreCaja />
+          </div>
+        </div>
+      )}
+
+      {vista === 'pendientes-factura' && (
+        <div className="card shadow-sm">
+          <div className="card-body">
+            <ReportePendientesFactura />
           </div>
         </div>
       )}

@@ -388,7 +388,7 @@ router.post('/', async (req, res) => {
         if (b.apellidoMaterno)  clienteUpdate.apellidoMaterno  = b.apellidoMaterno;
       } else if (tipoCliente === 'Empresa Gobierno') {
         if (b.nombreGobierno)             clienteUpdate['gobierno.nombreGobierno']              = b.nombreGobierno;
-        if (b.nombreContactoGobierno)     clienteUpdate['gobierno.contactoGobierno.nombre']     = b.nombreContactoGobierno;
+        if (b.nombreContactoGobierno)     clienteUpdate['gobierno.contactoGobierno.0.nombre']   = b.nombreContactoGobierno;
         if (b.nombreDependencia)          clienteUpdate['gobierno.dependencia.nombre']           = b.nombreDependencia;
         if (b.nombreContactoDependencia)  clienteUpdate['gobierno.dependencia.contacto.nombre'] = b.nombreContactoDependencia;
       } else {
@@ -924,6 +924,7 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
       presupuesto,
       ventaCliente,
       manoObra,
+      anticiposManoObra,
       observacionesExternas,
       observacionesInternas,
       estadoOrden,
@@ -973,6 +974,23 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
 
     if (Array.isArray(manoObra)) {
       vehiculo.manoObra = manoObra;
+    }
+
+    if (Array.isArray(anticiposManoObra)) {
+      // Una vez que la orden tiene Remisión o Nota de Venta ya se considera
+      // vendida fiscalmente; no se pueden agregar más anticipos de horas
+      // (sí se permite quitar uno existente, para corregir un error de
+      // captura). Mismo criterio que el guard de cajas.js:210-212.
+      const yaTieneComprobanteFiscal = (vehiculo.pagos || []).some(
+        (p) => !p.cancelado && (p.comprobante === 'REMISION' || p.comprobante === 'NOTA_VENTA')
+      );
+      if (yaTieneComprobanteFiscal && anticiposManoObra.length > (vehiculo.anticiposManoObra || []).length) {
+        return res.status(400).json({
+          ok: false,
+          msg: 'No se pueden anticipar horas: esta orden ya tiene una Remisión o Nota de Venta registrada.',
+        });
+      }
+      vehiculo.anticiposManoObra = anticiposManoObra;
     }
 
     if (typeof observacionesExternas === 'string') {
@@ -1561,7 +1579,7 @@ router.put('/:id/datos', async (req, res) => {
           clienteUpdate['gobierno.nombreGobierno'] = b.nombreGobierno;
         }
         if (b.nombreContactoGobierno !== undefined) {
-          clienteUpdate['gobierno.contactoGobierno.nombre'] = b.nombreContactoGobierno;
+          clienteUpdate['gobierno.contactoGobierno.0.nombre'] = b.nombreContactoGobierno;
         }
         if (b.nombreDependencia !== undefined) {
           clienteUpdate['gobierno.dependencia.nombre'] = b.nombreDependencia;

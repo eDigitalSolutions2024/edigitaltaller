@@ -143,6 +143,14 @@ const vehiculoSchema = new Schema(
     observCotizacion: { type: String, default: "" },
     requiereFactura: { type: Boolean, default: false },
 
+    // Pendiente de Factura (Cajas): la orden se cerró/cobró pero al cliente
+    // le faltan datos fiscales para generar la factura real; queda visible
+    // en el apartado "Pendientes de Factura" de Cajas hasta que se genere la
+    // factura (se limpia sola, ver generar_xml.js) o un cajero la desmarque.
+    pendienteFactura: { type: Boolean, default: false },
+    pendienteFacturaEn: { type: Date, default: null },
+    pendienteFacturaPor: { type: String, default: '' },
+
     // ----- Datos de vehículo -----
     nombreUsuarioDejaVehiculo: String,
     marca: String,
@@ -546,6 +554,19 @@ const vehiculoSchema = new Schema(
         esCarroceria:     { type: Boolean, default: false },
         carrocero:        { type: String, default: "" },
         precioCarroceria: { type: Number, default: 0 },
+      },
+    ],
+
+    // ===== Anticipos de Horas (mano de obra) =====
+    // Adelantos de pago en horas hechos a un mecánico sobre las horas que
+    // tiene asignadas en manoObra para esta orden. El monto es un snapshot
+    // (horas * TARIFA_HORA vigente al momento del anticipo).
+    anticiposManoObra: [
+      {
+        mecanico: { type: String, default: "" },
+        horas: { type: Number, default: 0 },
+        monto: { type: Number, default: 0 },
+        fecha: { type: Date, default: Date.now },
       },
     ],
 

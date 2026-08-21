@@ -64,6 +64,8 @@ router.get('/', proteger, async (req, res) => {
 
     if (vista === 'garantias') {
       q.garantia = { $ne: null };
+    } else if (vista === 'pendientes_factura') {
+      q.pendienteFactura = true;
     } else if (VISTAS_SOLO_CERRADA.includes(vista)) {
       q.estadoOrden = 'CERRADA';
     }
@@ -117,7 +119,7 @@ router.get('/', proteger, async (req, res) => {
     const conTotales = ordenes.map((orden) => ({ orden, totales: calcularTotalesOrden(orden) }));
 
     const filtradas = conTotales.filter(({ orden, totales }) => {
-      if (vista === 'garantias' || vista === 'cerradas') return true;
+      if (vista === 'garantias' || vista === 'cerradas' || vista === 'pendientes_factura') return true;
       const liquidada = orden.estadoOrden === 'CERRADA' && totales.saldoPendiente <= 0;
       if (vista === 'liquidadas') return liquidada;
       if (vista === 'pendientes') return !liquidada;
@@ -459,6 +461,31 @@ router.delete('/:id/descuentos/:descuentoId', proteger, async (req, res) => {
     return res.json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo) });
   } catch (err) {
     console.error('Error eliminando descuento:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// PATCH /api/cajas/:id/pendiente-factura -> marca o desmarca la orden como
+// pendiente de facturar (al cliente le faltan datos fiscales). Mientras esté
+// marcada aparece en el apartado "Pendientes de Factura" de Cajas; se limpia
+// sola al generar la factura real (ver generar_xml.js) o se puede desmarcar
+// a mano con este mismo endpoint.
+router.patch('/:id/pendiente-factura', proteger, async (req, res) => {
+  try {
+    const { pendienteFactura } = req.body || {};
+
+    const vehiculo = await Vehiculo.findById(req.params.id);
+    if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+
+    vehiculo.pendienteFactura = !!pendienteFactura;
+    vehiculo.pendienteFacturaEn = vehiculo.pendienteFactura ? new Date() : null;
+    vehiculo.pendienteFacturaPor = vehiculo.pendienteFactura ? (req.user?.name || req.user?.username || '') : '';
+    await vehiculo.save();
+    await vehiculo.populate('cliente', POPULATE_CLIENTE);
+
+    return res.json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo) });
+  } catch (err) {
+    console.error('Error actualizando pendiente de factura:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });

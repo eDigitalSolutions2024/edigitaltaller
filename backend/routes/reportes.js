@@ -14,6 +14,7 @@ const { streamReporteRemisionesDiarioPdf } = require('../service/reporteRemision
 const { streamReporteFacturasDiarioPdf } = require('../service/reporteFacturasDiarioPdf');
 const { streamReporteRhCxCPdf } = require('../service/reporteRhCxCPdf');
 const { streamReporteHorasTecnicoPdf } = require('../service/reporteHorasTecnicoPdf');
+const { streamReportePendientesFacturaPdf } = require('../service/reportePendientesFacturaPdf');
 const { calcImporteHoras } = require('../utils/manoObra');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
 
@@ -1469,6 +1470,14 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
       totalPorMecanico[idMecanico] = (totalPorMecanico[idMecanico] || 0) + montoServicio;
     }
 
+    // Horas ya anticipadas por técnico dentro de esta orden (para la columna "Horas Anticipadas")
+    const horasAnticipadasPorMecanico = {};
+    for (const a of o.anticiposManoObra || []) {
+      const idMecanico = String(a.mecanico || '');
+      if (!idMecanico) continue;
+      horasAnticipadasPorMecanico[idMecanico] = (horasAnticipadasPorMecanico[idMecanico] || 0) + Number(a.horas || 0);
+    }
+
     for (const m of manoObraValida) {
       const idMecanico = String(m.mecanico);
       const nombreMec = nombreEmpleado.get(idMecanico) || m.mecanico || 'Sin asignar';
@@ -1490,6 +1499,7 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
         total: totalPorMecanico[idMecanico] || 0,
         iva,
         horas: Number(m.horas || 0),
+        horasAnticipadas: horasAnticipadasPorMecanico[idMecanico] || 0,
       });
       grupos[nombreMec].totalServicio += montoServicio;
       grupos[nombreMec].totalIva += iva;
@@ -1533,6 +1543,69 @@ router.get('/horas-tecnico-pdf', async (req, res) => {
     await streamReporteHorasTecnicoPdf(res, resultado, desde, hasta, estado);
   } catch (err) {
     console.error('Error PDF reporte horas por técnico:', err);
+    if (!res.headersSent) res.status(500).json({ ok: false, msg: 'Error generando PDF' });
+  }
+});
+
+// ===== Reporte de Pendientes de Factura =====
+// Órdenes marcadas "Pendiente de Factura" desde Cajas (al cliente le
+// faltaron datos fiscales) que todavía no se facturan; se limpian solas en
+// cuanto se genera la factura real (ver generar_xml.js).
+async function buildReportePendientesFactura({ desde, hasta }) {
+  const d = new Date(desde);
+  const h = new Date(hasta);
+
+  const ordenes = await Vehiculo.find({
+    pendienteFactura: true,
+    pendienteFacturaEn: { $gte: d, $lte: h },
+  })
+    .sort({ pendienteFacturaEn: 1 })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
+
+  const data = ordenes.map((o) => ({
+    ordenServicio: o.ordenServicio || '',
+    cliente: nombreCliente(o.cliente),
+    marca: o.marca || '',
+    modelo: o.modelo || '',
+    serie: o.serie || '',
+    fechaCierre: o.fechaCierre || null,
+    pendienteFacturaEn: o.pendienteFacturaEn || null,
+    pendienteFacturaPor: o.pendienteFacturaPor || '',
+    total: calcularTotalesOrden(o).totalOrden,
+  }));
+
+  return { data, total: data.length };
+}
+
+// GET /api/reportes/pendientes-factura?desde=...&hasta=...
+router.get('/pendientes-factura', async (req, res) => {
+  try {
+    const { desde, hasta } = req.query;
+    if (!desde || !hasta) {
+      return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
+    }
+
+    const resultado = await buildReportePendientesFactura({ desde, hasta });
+    return res.json({ ok: true, ...resultado });
+  } catch (err) {
+    console.error('Error reporte pendientes de factura:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// GET /api/reportes/pendientes-factura-pdf?desde=...&hasta=...
+router.get('/pendientes-factura-pdf', async (req, res) => {
+  try {
+    const { desde, hasta } = req.query;
+    if (!desde || !hasta) {
+      return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
+    }
+
+    const resultado = await buildReportePendientesFactura({ desde, hasta });
+    await streamReportePendientesFacturaPdf(res, resultado, desde, hasta);
+  } catch (err) {
+    console.error('Error PDF reporte pendientes de factura:', err);
     if (!res.headersSent) res.status(500).json({ ok: false, msg: 'Error generando PDF' });
   }
 });

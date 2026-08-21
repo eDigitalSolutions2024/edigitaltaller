@@ -34,7 +34,7 @@ function nombreCliente(c) {
   // no se concatenan porque en registros migrados/viejos pueden quedar
   // huérfanos con datos que ya no aplican.
   if (c.tipoCliente === 'Empresa Privada' || c.tipoCliente === 'Empresa Arrendadora') {
-    return c.empresa?.razonSocial || c.empresa?.contacto?.nombre || c.nombre || '';
+    return c.empresa?.razonSocial || c.empresa?.contacto?.[0]?.nombre || c.nombre || '';
   }
   if (c.tipoCliente === 'Empresa Gobierno') return c.gobierno?.nombreGobierno || c.nombre || '';
   return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(' ');

@@ -28,6 +28,7 @@ const FILTROS_ESTADO = [
   { value: "pendientes", label: "Pendientes de Pago" },
   { value: "liquidadas", label: "Liquidadas" },
   { value: "garantias", label: "Garantías" },
+  { value: "pendientes_factura", label: "Pendientes de Factura" },
 ];
 
 const OPCIONES_ORDEN = [

@@ -438,7 +438,18 @@ async function cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc) {
         !p.cancelado &&
         ((p.comprobante === "NOTA_VENTA" && p.tipoPago === "ANTICIPO") || p.comprobante === "REMISION")
     );
-    if (!pagosPorCancelar.length) continue;
+
+    // Al facturar de verdad la orden deja de estar "pendiente de facturar"
+    // (ver botón en CajaOrdenDetalle.jsx / apartado de Cajas), sin importar
+    // si además tenía o no un anticipo/remisión que cancelar.
+    const debeLimpiarPendiente = !!vehiculo.pendienteFactura;
+    if (!pagosPorCancelar.length && !debeLimpiarPendiente) continue;
+
+    if (debeLimpiarPendiente) {
+      vehiculo.pendienteFactura = false;
+      vehiculo.pendienteFacturaEn = null;
+      vehiculo.pendienteFacturaPor = "";
+    }
 
     for (const pago of pagosPorCancelar) {
       const esRemision = pago.comprobante === "REMISION";

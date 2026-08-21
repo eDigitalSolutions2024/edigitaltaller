@@ -33,6 +33,11 @@ export const actualizarDescuento = (id, descuentoId, payload) =>
 export const eliminarDescuento = (id, descuentoId) =>
   http.delete(`/cajas/${id}/descuentos/${descuentoId}`);
 
+// Marca o desmarca la orden como "Pendiente de Factura" (al cliente le
+// faltan datos fiscales). Se limpia sola al generar la factura real.
+export const marcarPendienteFactura = (id, pendienteFactura) =>
+  http.patch(`/cajas/${id}/pendiente-factura`, { pendienteFactura });
+
 // Impresión — el último pago registrado con ese comprobante.
 export const getNotaVentaPdfUrl = (id, pagoId) => `${API}/cajas/${id}/nota-venta-pdf?pagoId=${pagoId}`;
 

@@ -209,7 +209,16 @@ export default function CajaModalPago({ show, orden, saldoPendiente, onClose, on
 
   const saldoValido =
     typeof saldoPendiente === "number" && !Number.isNaN(saldoPendiente) ? Math.max(saldoPendiente, 0) : undefined;
-  const cambio = saldoValido !== undefined && totalPago > saldoValido ? totalPago - saldoValido : 0;
+  // El "cambio" (efectivo recibido de más) solo tiene sentido en un Liquida
+  // (COMPLETO): ahí sí hay un total exacto que cubrir. Un Abono/Anticipo es
+  // dinero recibido por adelantado y se registra completo tal cual se
+  // captura, sin compararlo contra el saldo pendiente — que además puede
+  // estar en $0.00 simplemente porque la orden todavía no tiene nada en
+  // Venta al Cliente, no porque ya esté liquidada.
+  const cambio =
+    tipoPago === "COMPLETO" && saldoValido !== undefined && totalPago > saldoValido
+      ? totalPago - saldoValido
+      : 0;
   const totalAplicado = cambio > 0 ? saldoValido : totalPago;
 
   // Recibo Provisional (Abono/Anticipo) y Recibo de Dólares (montoDolares > 0)
