@@ -37,9 +37,10 @@ function buildHtml(resultado, desde, hasta, estado) {
   const grupos = resultado.data
     .map((grupo) => {
       const filas = grupo.items
-        .map(
-          (it) => `
-          <tr class="body-style">
+        .map((it) => {
+          const claseFila = it.cerrada && it.horasAnticipadas > 0 ? 'body-style anticipada' : 'body-style';
+          return `
+          <tr class="${claseFila}">
             <td>${esc(it.ordenServicio)}</td>
             <td>${fmtFecha(it.fechaOrden)}</td>
             <td>${esc(it.serie)}</td>
@@ -51,8 +52,9 @@ function buildHtml(resultado, desde, hasta, estado) {
             <td class="num">${fmtMoney(it.total)}</td>
             <td class="num">${fmtMoney(it.iva)}</td>
             <td class="num">${it.horas}</td>
-          </tr>`
-        )
+            <td class="num">${it.horasAnticipadas || 0}</td>
+          </tr>`;
+        })
         .join('');
 
       return `
@@ -71,6 +73,7 @@ function buildHtml(resultado, desde, hasta, estado) {
               <th class="num">Total</th>
               <th class="num">IVA</th>
               <th class="num">Horas</th>
+              <th class="num">Horas Anticipadas</th>
             </tr>
           </thead>
           <tbody>${filas}</tbody>
@@ -81,6 +84,7 @@ function buildHtml(resultado, desde, hasta, estado) {
               <td class="num" style="font-weight:bold;">${fmtMoney(grupo.totalServicio)}</td>
               <td class="num" style="font-weight:bold;">${fmtMoney(grupo.totalIva)}</td>
               <td class="num" style="font-weight:bold;">${grupo.totalHoras}</td>
+              <td class="num"></td>
             </tr>
           </tfoot>
         </table>`;
@@ -140,6 +144,7 @@ function buildHtml(resultado, desde, hasta, estado) {
     }
     .subtotal-row td { font-size: 8.5pt; border-top: 1px solid #555; }
     .body-style td { padding-top: 4px; }
+    tr.anticipada { background-color: #d1e7dd; }
 
     /* ── GRAN TOTAL ── */
     .gran-total {

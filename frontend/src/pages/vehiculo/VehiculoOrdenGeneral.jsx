@@ -159,7 +159,7 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor }) {
   const nombreContacto = esEmpresa
     ? (c.nombre || "")
     : esGobierno
-    ? (gob.contactoGobierno?.nombre || gob.dependencia?.contacto?.nombre || "")
+    ? (gob.contactoGobierno?.[0]?.nombre || gob.dependencia?.contacto?.nombre || "")
     : "";
   const labelNombreContacto = esParticular ? "Contacto" : esEmpresa ? "Nombre Comercial" : "Nombre Contacto";
 

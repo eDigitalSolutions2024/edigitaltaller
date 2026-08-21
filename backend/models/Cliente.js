@@ -41,7 +41,10 @@ const ContactoSchema = new Schema(
 const EmpresaSchema = new Schema(
   {
     razonSocial: { type: String, trim: true },
-    contacto: { type: ContactoSchema, default: undefined },
+    // Array: una empresa puede tener varios contactos (ver AltaCliente.jsx).
+    // Mongoose migra solo los documentos viejos con un objeto único al leerlos,
+    // envolviéndolo en un array de un elemento.
+    contacto: { type: [ContactoSchema], default: [] },
   },
   { _id: false }
 );
@@ -57,7 +60,8 @@ const DependenciaSchema = new Schema(
 const GobiernoSchema = new Schema(
   {
     nombreGobierno: { type: String, trim: true },
-    contactoGobierno: { type: ContactoSchema, default: undefined },
+    // Array: puede haber varios contactos de gobierno (ver AltaCliente.jsx).
+    contactoGobierno: { type: [ContactoSchema], default: [] },
     dependencia: { type: DependenciaSchema, default: undefined },
   },
   { _id: false }

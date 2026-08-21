@@ -65,6 +65,12 @@ export const getReporteHorasTecnicoPdfUrl = (desde, hasta, estado) => {
   return url;
 };
 
+export const getReportePendientesFactura = (desde, hasta) =>
+  http.get('/reportes/pendientes-factura', { params: { desde, hasta } });
+
+export const getReportePendientesFacturaPdfUrl = (desde, hasta) =>
+  `${BASE_URL}/reportes/pendientes-factura-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
+
 // ===== Cierre de Caja =====
 
 export const getCierreCaja = (fecha) =>

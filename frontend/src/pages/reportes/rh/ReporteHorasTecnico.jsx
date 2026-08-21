@@ -124,11 +124,12 @@ export default function ReporteHorasTecnico() {
                         <th className="text-end">Total</th>
                         <th className="text-end">IVA</th>
                         <th className="text-end">Horas</th>
+                        <th className="text-end">Horas Anticipadas</th>
                       </tr>
                     </thead>
                     <tbody>
                       {grupo.items.map((it, i) => (
-                        <tr key={i}>
+                        <tr key={i} className={it.cerrada && it.horasAnticipadas > 0 ? 'table-success' : ''}>
                           <td className="fw-semibold">{it.ordenServicio}</td>
                           <td>{formatFecha(it.fechaOrden, { timeZone: 'UTC' }) || '—'}</td>
                           <td>{it.serie || '—'}</td>
@@ -144,6 +145,7 @@ export default function ReporteHorasTecnico() {
                           <td className="text-end">{formatMoney(it.total)}</td>
                           <td className="text-end">{formatMoney(it.iva)}</td>
                           <td className="text-end">{it.horas}</td>
+                          <td className="text-end">{it.horasAnticipadas || 0}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -156,6 +158,7 @@ export default function ReporteHorasTecnico() {
                         <td className="text-end fw-bold">{formatMoney(grupo.totalServicio)}</td>
                         <td className="text-end fw-bold">{formatMoney(grupo.totalIva)}</td>
                         <td className="text-end fw-bold">{grupo.totalHoras}</td>
+                        <td />
                       </tr>
                     </tfoot>
                   </table>

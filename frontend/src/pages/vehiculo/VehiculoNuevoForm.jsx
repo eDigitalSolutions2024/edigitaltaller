@@ -73,11 +73,11 @@ function nombreClienteGarage(c) {
   // apellidoPaterno es de "Particular"; en empresas/gobierno no se concatena
   // porque en registros migrados/viejos puede quedar huérfano.
   if (c.tipoCliente && c.tipoCliente !== "Particular") {
-    return c.nombre || c.empresa?.contacto?.nombre || "";
+    return c.nombre || c.empresa?.contacto?.[0]?.nombre || "";
   }
   return (
     [c.nombre, c.apellidoPaterno].filter(Boolean).join(" ") ||
-    c.empresa?.contacto?.nombre ||
+    c.empresa?.contacto?.[0]?.nombre ||
     ""
   );
 }
@@ -280,7 +280,7 @@ export default function VehiculoNuevoForm({
       : cliente.direccion || {};
     const gob = cliente.gobierno || {};
     const dep = gob.dependencia || {};
-    const contactoGob = gob.contactoGobierno || {};
+    const contactoGob = gob.contactoGobierno?.[0] || {};
     const contactoDep = dep.contacto || {};
 
     setForm((prev) => ({
@@ -305,7 +305,7 @@ export default function VehiculoNuevoForm({
             nombreFiscal: cliente.empresa?.razonSocial || "",
             nombreContactoGobierno:
               cliente.apellidoPaterno ||
-              cliente.empresa?.contacto?.nombre ||
+              cliente.empresa?.contacto?.[0]?.nombre ||
               contactoGob.nombre ||
               contactoDep.nombre ||
               "",
@@ -351,7 +351,7 @@ export default function VehiculoNuevoForm({
     const esParticular = c.tipoCliente === "Particular";
     const gob = c.gobierno || {};
     const dep = gob.dependencia || {};
-    const contactoGob = gob.contactoGobierno || {};
+    const contactoGob = gob.contactoGobierno?.[0] || {};
     const contactoDep = dep.contacto || {};
     const tel = (c.telefonos || [])[0] || {};
     const cel = (c.celulares || [])[0] || {};
@@ -377,7 +377,7 @@ export default function VehiculoNuevoForm({
         : {
             nombreGobierno: gob.nombreGobierno || c.nombre || "",
             nombreFiscal: c.empresa?.razonSocial || "",
-            nombreContactoGobierno: c.apellidoPaterno || contactoGob.nombre || c.empresa?.contacto?.nombre || "",
+            nombreContactoGobierno: c.apellidoPaterno || contactoGob.nombre || c.empresa?.contacto?.[0]?.nombre || "",
             nombreDependencia: dep.nombre || "",
             nombreContactoDependencia: contactoDep.nombre || "",
             nombreCliente: "",
