@@ -6,6 +6,7 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const PDFDocument = require("pdfkit");
+const archiver = require("archiver");
 const path = require("path");
 const FiscalConfig = require("../models/FiscalConfig");
 const FacturaCfdi = require("../models/FacturaCfdi");
@@ -89,6 +90,49 @@ const FORMA_PAGO_LABELS = {
 function formaPagoLabel(code) {
   const c = safe(code);
   return c ? `${c} - ${FORMA_PAGO_LABELS[c] || ""}`.trim() : "—";
+}
+
+/* Nombre para mostrar de un cliente poblado (mismo criterio que
+   nombreFiscalCliente en el front y nombreCliente en routes/reportes.js). */
+function nombreClienteDisplay(c) {
+  if (!c) return "";
+  if (c.tipoCliente === "Empresa Gobierno") return c.gobierno?.nombreGobierno || c.nombre || "";
+  if (c.tipoCliente === "Empresa Privada" || c.tipoCliente === "Empresa Arrendadora") {
+    return c.empresa?.razonSocial || c.nombre || "";
+  }
+  return [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ");
+}
+
+/* Etiqueta larga de la factura global: "DIARIO 08/2026" a partir del nodo
+   InformacionGlobal (periodicidad SAT + mes + año). */
+function informacionGlobalLabel(ig) {
+  if (!ig || !safe(ig.periodicidad)) return "";
+  const PERIOD = { "01": "DIARIO", "02": "SEMANAL", "03": "QUINCENAL", "04": "MENSUAL", "05": "BIMESTRAL" };
+  const per = PERIOD[safe(ig.periodicidad)] || safe(ig.periodicidad);
+  const mesAnio = [safe(ig.meses), safe(ig.anio)].filter(Boolean).join("/");
+  return mesAnio ? `${per} ${mesAnio}` : per;
+}
+
+/* Reparte un descuento global (monto en pesos) entre los conceptos, en
+   proporción a su importe; el último absorbe el redondeo. Devuelve copias con
+   un campo `descuento` (la impresión de la tabla y el pie lo usan). */
+function repartirDescuentoEnConceptos(conceptos, descuentoTotal) {
+  const lista = Array.isArray(conceptos) ? conceptos : [];
+  const desc = Number(descuentoTotal || 0);
+  if (!(desc > 0) || !lista.length) {
+    return lista.map((c) => ({ ...c, descuento: Number(c.descuento || 0) }));
+  }
+  const importes = lista.map((c) => Number(c.cantidad || 0) * Number(c.valorUnitario || 0));
+  const suma = importes.reduce((s, n) => s + n, 0) || 1;
+  let acumulado = 0;
+  return lista.map((c, i) => {
+    const share =
+      i === lista.length - 1
+        ? Math.max(desc - acumulado, 0)
+        : Math.round(((desc * importes[i]) / suma) * 100) / 100;
+    acumulado += share;
+    return { ...c, descuento: share };
+  });
 }
 
 /* Textos variables del comprobante: por defecto los de la vista previa
@@ -299,7 +343,7 @@ function drawHeaderComprobante(doc, ui, { emisor, tipoLabel, meta }) {
 }
 
 /* Bloque receptor + vehículo + tipo de factura */
-function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, tipoLabel, relacionadas }) {
+function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, tipoLabel, relacionadas, informacionGlobal }) {
   // Una factura puede agrupar varias órdenes y una nota de crédito aplicar a
   // varias facturas; `orden` (singular) se sigue aceptando por compatibilidad.
   const listaOrdenes = (Array.isArray(ordenes) && ordenes.length ? ordenes : orden ? [orden] : [])
@@ -405,7 +449,16 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
   ui.kv(tx, ty, "Orden de Compra:", safe(cfdi?.oc), 88, W + M - tx - 6, 7);
   ty += 14;
   ui.kv(tx, ty, "Condiciones:", safe(cfdi?.metodoPago) === "PPD" ? "Crédito" : "Contado", 88, W + M - tx - 6, 7);
-  ty += 18;
+  ty += 14;
+
+  // Factura global: periodo del CFDI al público en general.
+  const igLabel = informacionGlobalLabel(informacionGlobal);
+  if (igLabel) {
+    ui.kv(tx, ty, "Info. Global:", igLabel, 88, W + M - tx - 6, 7);
+    ty += 14;
+  } else {
+    ty += 4;
+  }
 
   // Tipo de Factura resaltado (como el círculo de las fotos)
   doc.font("Helvetica-Bold").fontSize(8).text("Tipo de Factura:", tx, ty);
@@ -477,8 +530,10 @@ function drawTablaConceptos(doc, ui, y0, { conceptos, ivaRate }) {
     const qty = Number(c.cantidad || 0);
     const vu = Number(c.valorUnitario || 0);
     const imp = qty * vu;
-    const ivaImp = imp * Number(ivaRate || 0);
-    const impFinal = imp + ivaImp;
+    const desc = Number(c.descuento || 0);
+    const baseGravable = Math.max(imp - desc, 0);
+    const ivaImp = baseGravable * Number(ivaRate || 0);
+    const impFinal = baseGravable + ivaImp;
 
     doc.fontSize(7.5);
     const descH = doc.heightOfString(safe(c.descripcion) || "—", { width: cols[2].w - 8 });
@@ -498,7 +553,7 @@ function drawTablaConceptos(doc, ui, y0, { conceptos, ivaRate }) {
       safe(c.descripcion),
       money(vu),
       money(imp),
-      money(0),
+      money(desc),
       money(ivaImp),
       money(impFinal),
     ];
@@ -514,9 +569,12 @@ function drawTablaConceptos(doc, ui, y0, { conceptos, ivaRate }) {
     y += rowH;
 
     // Sub-renglón de impuesto (como en el formato: Base / Impuesto 002 IVA / Tasa)
+    // El código propio del cliente (NoIdentificacion) NO se imprime en la
+    // representación: solo viaja en el atributo NoIdentificacion del XML
+    // timbrado (ver backend/routes/generar_xml.js).
     doc.font("Helvetica").fontSize(6.5).fillColor("#333");
     doc.text(
-      `${safe(c.cProdServ) || "—"}    Base: ${money(imp)}    Impuesto: 002 IVA;  Tipo de Factor: Tasa;  Tasa o Cuota: ${pct}%;  Importe: ${money(ivaImp)}`,
+      `${safe(c.cProdServ) || "—"}    Base: ${money(baseGravable)}    Impuesto: 002 IVA;  Tipo de Factor: Tasa;  Tasa o Cuota: ${pct}%;  Importe: ${money(ivaImp)}`,
       M + 40,
       y + 2,
       { width: W - 60 }
@@ -537,12 +595,27 @@ function drawPieComprobante(doc, ui, y0, { totales, cfdi, leyendaTipo, meta }) {
   const m = meta || buildMeta();
   let y = y0;
 
-  // Observaciones
-  ui.box(M, y, W, 34);
-  doc.font("Helvetica-Bold").fontSize(8).text("Observaciones:", M + 6, y + 4);
-  doc.font("Helvetica").fontSize(7.5).text(safe(cfdi?.comentarios) || "", M + 90, y + 4, { width: W - 100 });
-  doc.font("Helvetica-Bold").fontSize(8).text("Comentarios:", M + 6, y + 18);
-  y += 40;
+  // Observaciones/Comentarios: el texto es libre y puede ser largo, así que
+  // va debajo de la etiqueta (no a un lado, para no chocar con ella) y la
+  // caja crece según el texto completo, sin truncar.
+  const comentTexto = safe(cfdi?.comentarios) || "";
+  const comentFontSize = 7;
+  const comentW = W - 12;
+  doc.font("Helvetica").fontSize(comentFontSize);
+  const comentH = doc.heightOfString(comentTexto, { width: comentW });
+  const obsBoxH = Math.max(30, comentH + 21);
+
+  if (y + obsBoxH > PAGE_H - 210) {
+    doc.addPage();
+    y = M;
+  }
+
+  ui.box(M, y, W, obsBoxH);
+  doc.font("Helvetica-Bold").fontSize(8).text("Observaciones/Comentarios:", M + 6, y + 4);
+  doc.font("Helvetica").fontSize(comentFontSize).text(comentTexto, M + 6, y + 15, {
+    width: comentW,
+  });
+  y += obsBoxH + 6;
 
   if (y > PAGE_H - 210) {
     doc.addPage();
@@ -554,18 +627,31 @@ function drawPieComprobante(doc, ui, y0, { totales, cfdi, leyendaTipo, meta }) {
   doc.text("ESTE SERVICIO INCLUYE MANO DE OBRA Y REFACCIONES", M, y, { width: W, align: "center" });
   y += 16;
 
-  // Izquierda: QR + garantía. Derecha: totales
+  // Izquierda: QR + garantía (+ pagaré, si la condición de pago es Crédito).
   const qrSize = 66;
   ui.qrPlaceholder(M, y + 4, qrSize);
 
+  const leftX = M + qrSize + 10;
+  const leftW = 250;
+  let leftY = y + 4;
+
   doc.font("Helvetica-Oblique").fontSize(6.5).fillColor("#333");
-  doc.text(
-    "Garantía: Nuestras reparaciones están garantizadas por noventa (90) días o mil quinientos kms., en condiciones de uso normal y que no hayan sido intervenidas por terceros. Excepto en partes eléctricas, usadas y/o surtidas por el cliente. Recibí vehículo, en conformidad con los servicios mencionados en la presente factura.",
-    M + qrSize + 10,
-    y + 4,
-    { width: 250 }
-  );
+  const garantiaTexto =
+    "Garantía: Nuestras reparaciones están garantizadas por noventa (90) días o mil quinientos kms., en condiciones de uso normal y que no hayan sido intervenidas por terceros. Excepto en partes eléctricas, usadas y/o surtidas por el cliente. Recibí vehículo, en conformidad con los servicios mencionados en la presente factura.";
+  doc.text(garantiaTexto, leftX, leftY, { width: leftW });
+  leftY += doc.heightOfString(garantiaTexto, { width: leftW });
   doc.fillColor("black");
+
+  // Pagaré: solo se imprime cuando la condición de pago es Crédito (PPD),
+  // igual que la etiqueta "Condiciones" de drawReceptorComprobante. Va justo
+  // debajo de la garantía, en la misma columna angosta.
+  if (safe(cfdi?.metodoPago) === "PPD") {
+    const pagareTexto =
+      "Por este pagaré me(nos) comprometo(emos) a pagar incondicionalmente a la orden de SERVICOMPACTOS DE JUAREZ SA DE CV. En su domicilio o en lugar donde elija el acreedor, la cantidad ______________ importe de mercancía y/o servicios recibidos a mi (nuestra) entera satisfacción. Si no es liquidada a su vencimiento causará intereses moratorios del ____ % mensual. Cd. Juárez, Chih., a ____ de ____________ de ______. Nombre: ________________ Dirección: ________________ Firma: ________________";
+    doc.font("Helvetica-Bold").fontSize(6).fillColor("black");
+    doc.text(pagareTexto, leftX, leftY + 4, { width: leftW });
+    leftY += 4 + doc.heightOfString(pagareTexto, { width: leftW });
+  }
 
   // Totales (derecha)
   const tX = M + 360;
@@ -583,13 +669,13 @@ function drawPieComprobante(doc, ui, y0, { totales, cfdi, leyendaTipo, meta }) {
   };
 
   fila("SubTotal:", money(totales.subtotal));
-  fila("Descuento:", money(0));
+  fila("Descuento:", money(totales.descuento || 0));
   fila(`${Math.round(Number(cfdi?.ivaRate || 0) * 100)} % I.V.A.:`, money(totales.iva));
   if (Number(totales.isr || 0) > 0) fila("Retención ISR:", `- ${money(totales.isr)}`);
   fila("IVA Retenido:", money(0));
   fila("Total:", money(totales.total), true);
 
-  y = Math.max(y + qrSize + 12, ty + 6);
+  y = Math.max(y + 4 + qrSize + 8, leftY + 8, ty + 6);
 
   // Cantidad con letra
   ui.box(M, y, W, 16);
@@ -636,7 +722,12 @@ function drawComprobanteIngresoEgreso(doc, data) {
     totales: data.totales,
     cfdi: data.cfdi,
     meta: data.meta,
-    leyendaTipo: tipoLabel === "Egreso" ? "EGRESO / NOTA DE CRÉDITO" : "INGRESO",
+    leyendaTipo:
+      tipoLabel === "Egreso"
+        ? "EGRESO / NOTA DE CRÉDITO"
+        : data.informacionGlobal && safe(data.informacionGlobal.periodicidad)
+        ? "INGRESO / FACTURA GLOBAL"
+        : "INGRESO",
   });
 }
 
@@ -811,11 +902,25 @@ function drawReciboElectronicoPago(doc, data) {
   doc.text(numeroALetras(monto), M + 6, y + 4.5, { width: W - 12, align: "center" });
   y += 24;
 
-  // Comentarios
+  // Comentarios: la caja crece según el texto completo, sin truncar, para
+  // no encimarse con el QR y los sellos que siguen.
   if (safe(cfdi?.comentarios)) {
+    const comentTexto = safe(cfdi.comentarios);
+    const comentFontSize = 6.5;
+    const comentW = W - 80;
+    doc.font("Helvetica").fontSize(comentFontSize);
+    const comentH = doc.heightOfString(comentTexto, { width: comentW });
+
+    if (y + comentH > PAGE_H - 210) {
+      doc.addPage();
+      y = M;
+    }
+
     doc.font("Helvetica-Bold").fontSize(7.5).text("Comentarios:", M, y);
-    doc.font("Helvetica").fontSize(7.5).text(safe(cfdi.comentarios), M + 70, y, { width: W - 80 });
-    y += 18;
+    doc.font("Helvetica").fontSize(comentFontSize).text(comentTexto, M + 70, y, {
+      width: comentW,
+    });
+    y += Math.max(18, comentH + 6);
   }
 
   // QR + sellos
@@ -842,6 +947,74 @@ function drawReciboElectronicoPago(doc, data) {
 
 /* =========================
    ENDPOINT
+   GET /api/facturacion/notas-venta-pendientes
+   Todas las notas de venta de Caja (pagos comprobante NOTA_VENTA, no canceladas)
+   que todavía NO están en ninguna factura global (pago.facturaGlobalId vacío).
+   Es la base de la factura global: siempre se factura "lo pendiente".
+========================= */
+router.get("/notas-venta-pendientes", async (req, res) => {
+  try {
+    const vehiculos = await Vehiculo.find({
+      pagos: {
+        $elemMatch: {
+          comprobante: "NOTA_VENTA",
+          cancelado: { $ne: true },
+          facturaGlobalId: null,
+        },
+      },
+    })
+      .populate("cliente", "nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno")
+      .lean();
+
+    const notas = [];
+    for (const v of vehiculos) {
+      const ivaPct = Number(v.ivaVenta || 8);
+      for (const p of v.pagos || []) {
+        if (p.comprobante !== "NOTA_VENTA" || p.cancelado) continue;
+        if (!p.notaVenta || typeof p.notaVenta.numero !== "number") continue;
+        if (p.facturaGlobalId) continue; // ya está en otra factura global
+
+        const monto = Number(p.monto || 0);
+        const montoSinIva = ivaPct > 0 ? monto / (1 + ivaPct / 100) : monto;
+
+        notas.push({
+          vehiculoId: String(v._id),
+          pagoId: String(p._id),
+          ordenServicio: v.ordenServicio || "",
+          numero: p.notaVenta.numero,
+          fecha: p.fecha,
+          monto,
+          ivaPct,
+          montoSinIva,
+          cliente: nombreClienteDisplay(v.cliente),
+        });
+      }
+    }
+
+    notas.sort((a, b) => a.numero - b.numero);
+
+    const sumaConIva = notas.reduce((s, n) => s + n.monto, 0);
+    const sumaSinIva = notas.reduce((s, n) => s + n.montoSinIva, 0);
+
+    return res.json({
+      ok: true,
+      notas,
+      agg: {
+        count: notas.length,
+        folioMin: notas[0]?.numero ?? null,
+        folioMax: notas.length ? notas[notas.length - 1].numero : null,
+        sumaConIva,
+        sumaSinIva,
+      },
+    });
+  } catch (err) {
+    console.error("GET /facturacion/notas-venta-pendientes ERROR:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/* =========================
+   ENDPOINT
    POST /api/facturacion/preview
 ========================= */
 router.post("/preview", async (req, res) => {
@@ -855,10 +1028,12 @@ router.post("/preview", async (req, res) => {
       pago = null,
       orden = null,
       ordenes = [],
+      informacionGlobal = null,
     } = req.body;
 
     const esComplementoPago = tipoFactura === "complementoPago";
     const esNotaCredito = tipoFactura === "notaCredito";
+    const esFacturaGlobal = tipoFactura === "facturaGlobal";
 
     if (!cliente) {
       return res.status(400).json({ ok: false, error: "Faltan datos del receptor." });
@@ -883,16 +1058,20 @@ router.post("/preview", async (req, res) => {
       noCertificado: cfg?.noCertificado || "",
     };
 
-    // Totales (factura / nota de crédito)
+    // Totales (factura / nota de crédito / factura global).
+    // El descuento (monto en pesos) se resta del subtotal antes de calcular
+    // IVA/ISR; hoy solo lo usa la factura global.
     const subtotal = conceptos.reduce(
       (sum, c) => sum + Number(c.cantidad || 0) * Number(c.valorUnitario || 0),
       0
     );
+    const descuento = Math.min(Math.max(Number(cfdi?.descuento || 0), 0), subtotal);
+    const baseGravable = subtotal - descuento;
     const ivaRate = Number(cfdi?.ivaRate || 0);
-    const iva = subtotal * ivaRate;
+    const iva = baseGravable * ivaRate;
     const isrRate = Number(cfdi?.isrRate || 0.0125);
-    const isr = cfdi?.aplicarRetencionIsr ? subtotal * isrRate : 0;
-    const total = subtotal + iva - isr;
+    const isr = cfdi?.aplicarRetencionIsr ? baseGravable * isrRate : 0;
+    const total = baseGravable + iva - isr;
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", "inline; filename=preview.pdf");
@@ -908,11 +1087,12 @@ router.post("/preview", async (req, res) => {
         cliente,
         orden,
         ordenes,
-        conceptos,
+        conceptos: repartirDescuentoEnConceptos(conceptos, descuento),
         cfdi,
         relacionadas,
+        informacionGlobal: esFacturaGlobal ? informacionGlobal : null,
         tipoLabel: esNotaCredito ? "Egreso" : "Ingreso",
-        totales: { subtotal, iva, isr, total },
+        totales: { subtotal, descuento, iva, isr, total },
       });
     }
 
@@ -924,138 +1104,233 @@ router.post("/preview", async (req, res) => {
 });
 
 /* =========================
+   Datos + render del PDF de una factura ya guardada.
+   Se comparten entre la descarga individual y la exportación en ZIP.
+========================= */
+async function cargarDatosFacturaPdf(id) {
+  if (!mongoose.isValidObjectId(id)) {
+    const err = new Error("ID inválido");
+    err.status = 400;
+    throw err;
+  }
+
+  const f = await FacturaCfdi.findById(id).lean();
+  if (!f) {
+    const err = new Error("Factura no encontrada");
+    err.status = 404;
+    throw err;
+  }
+
+  const esComplementoPago = f.tipoFactura === "complementoPago";
+  const esNotaCredito = f.tipoFactura === "notaCredito";
+
+  // Emisor: el guardado en la factura; si el snapshot viene vacío, la config actual
+  let emisor = f.emisor || {};
+  if (!safe(emisor.rfc)) {
+    const cfg = await FiscalConfig.findOne().sort({ updatedAt: -1 }).lean().catch(() => null);
+    emisor = {
+      nombre: cfg?.nombre || "",
+      rfc: cfg?.rfc || "",
+      regimenFiscal: cfg?.regimenFiscal || "",
+      lugarExpedicion: cfg?.lugarExpedicion || "",
+      telefono: cfg?.telefono || "",
+      noCertificado: cfg?.noCertificado || "",
+    };
+  }
+
+  // La factura solo guarda la referencia de cada orden: se completan los datos
+  // del vehículo. `ordenes` puede traer varias; las facturas viejas solo
+  // guardaron `orden` (singular), que aquí se trata como lista de una.
+  const refsOrdenes = (f.ordenes?.length ? f.ordenes : f.orden ? [f.orden] : []).filter(
+    (o) => safe(o?.ordenServicio) || o?.vehiculoId
+  );
+
+  const ordenes = await Promise.all(
+    refsOrdenes.map(async (ref) => {
+      const base = { ordenServicio: safe(ref?.ordenServicio) };
+      if (!ref?.vehiculoId) return base;
+
+      const v = await Vehiculo.findById(ref.vehiculoId)
+        .select("ordenServicio marca modelo anio serie placas kmsMillas sinVehiculo")
+        .lean()
+        .catch(() => null);
+      if (!v) return base;
+
+      return {
+        ordenServicio: base.ordenServicio || safe(v.ordenServicio),
+        marca: v.marca || "",
+        modelo: v.modelo || "",
+        anio: v.anio || "",
+        serie: v.serie || "",
+        placas: v.placas || "",
+        kmsMillas: v.kmsMillas || "",
+        sinVehiculo: !!v.sinVehiculo,
+      };
+    })
+  );
+
+  const folioTxt = [safe(f.serie), safe(f.folio)].filter(Boolean).join("-") || "—";
+  const cancelada = f.estatus === "cancelada";
+
+  const meta = buildMeta({
+    folio: folioTxt,
+    fechaEmision: fechaHora(new Date(f.fecha || f.createdAt || Date.now())),
+    sello: safe(f.sello) || "— sin sello —",
+    cadena: safe(f.cadenaOriginal) || "— sin cadena original —",
+    pieSufijo: cancelada ? " — CANCELADA" : " — SIN TIMBRAR",
+  });
+
+  // Totales guardados; si el snapshot no los trae, se recalculan de los conceptos.
+  // El descuento (monto en pesos) se resta antes de IVA/ISR; hoy solo lo trae la
+  // factura global.
+  const descuentoGuardado = Number(f.totales?.descuento ?? f.descuento ?? 0);
+  const conceptos = repartirDescuentoEnConceptos(f.conceptos || [], descuentoGuardado);
+  let totales = f.totales;
+  if (!totales || typeof totales.total !== "number") {
+    const subtotal = (f.conceptos || []).reduce(
+      (sum, c) => sum + Number(c.cantidad || 0) * Number(c.valorUnitario || 0),
+      0
+    );
+    const base = Math.max(subtotal - descuentoGuardado, 0);
+    const iva = base * Number(f.cfdi?.ivaRate || 0);
+    const isr = f.cfdi?.aplicarRetencionIsr ? base * Number(f.cfdi?.isrRate || 0.0125) : 0;
+    totales = { subtotal, descuento: descuentoGuardado, iva, isr, total: base + iva - isr };
+  } else if (typeof totales.descuento !== "number") {
+    totales = { ...totales, descuento: descuentoGuardado };
+  }
+
+  return {
+    f,
+    emisor,
+    ordenes,
+    conceptos,
+    totales,
+    meta,
+    folioTxt,
+    informacionGlobal: f.informacionGlobal || null,
+    esComplementoPago,
+    esNotaCredito,
+  };
+}
+
+function renderFacturaPdfDoc(data) {
+  const { f, emisor, ordenes, conceptos, totales, meta, informacionGlobal, esComplementoPago, esNotaCredito } = data;
+
+  const doc = new PDFDocument({ size: "LETTER", margin: M });
+
+  if (esComplementoPago) {
+    drawReciboElectronicoPago(doc, {
+      emisor,
+      cliente: f.cliente,
+      pago: {
+        ...f.pago,
+        // La fecha se guardó como YYYY-MM-DD (medianoche UTC): se formatea en UTC
+        // para que no se recorra un día según la zona horaria del servidor.
+        fechaPago: f.pago?.fechaPago
+          ? new Date(f.pago.fechaPago).toLocaleDateString("es-MX", {
+              timeZone: "UTC",
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+            })
+          : "",
+      },
+      relacionadas: f.relacionadas || [],
+      cfdi: f.cfdi,
+      meta,
+    });
+  } else {
+    drawComprobanteIngresoEgreso(doc, {
+      emisor,
+      cliente: f.cliente,
+      ordenes,
+      conceptos,
+      cfdi: f.cfdi,
+      relacionadas: f.relacionadas || [],
+      informacionGlobal,
+      tipoLabel: esNotaCredito ? "Egreso" : "Ingreso",
+      totales,
+      meta,
+    });
+  }
+
+  return doc;
+}
+
+/* =========================
    ENDPOINT
    GET /api/facturacion/factura/:id/pdf
    Representación impresa de una factura ya guardada en el historial.
 ========================= */
 router.get("/factura/:id/pdf", async (req, res) => {
   try {
-    if (!mongoose.isValidObjectId(req.params.id)) {
-      return res.status(400).json({ ok: false, error: "ID inválido" });
-    }
-
-    const f = await FacturaCfdi.findById(req.params.id).lean();
-    if (!f) return res.status(404).json({ ok: false, error: "Factura no encontrada" });
-
-    const esComplementoPago = f.tipoFactura === "complementoPago";
-    const esNotaCredito = f.tipoFactura === "notaCredito";
-
-    // Emisor: el guardado en la factura; si el snapshot viene vacío, la config actual
-    let emisor = f.emisor || {};
-    if (!safe(emisor.rfc)) {
-      const cfg = await FiscalConfig.findOne().sort({ updatedAt: -1 }).lean().catch(() => null);
-      emisor = {
-        nombre: cfg?.nombre || "",
-        rfc: cfg?.rfc || "",
-        regimenFiscal: cfg?.regimenFiscal || "",
-        lugarExpedicion: cfg?.lugarExpedicion || "",
-        telefono: cfg?.telefono || "",
-        noCertificado: cfg?.noCertificado || "",
-      };
-    }
-
-    // La factura solo guarda la referencia de cada orden: se completan los datos
-    // del vehículo. `ordenes` puede traer varias; las facturas viejas solo
-    // guardaron `orden` (singular), que aquí se trata como lista de una.
-    const refsOrdenes = (f.ordenes?.length ? f.ordenes : f.orden ? [f.orden] : []).filter(
-      (o) => safe(o?.ordenServicio) || o?.vehiculoId
-    );
-
-    const ordenes = await Promise.all(
-      refsOrdenes.map(async (ref) => {
-        const base = { ordenServicio: safe(ref?.ordenServicio) };
-        if (!ref?.vehiculoId) return base;
-
-        const v = await Vehiculo.findById(ref.vehiculoId)
-          .select("ordenServicio marca modelo anio serie placas kmsMillas sinVehiculo")
-          .lean()
-          .catch(() => null);
-        if (!v) return base;
-
-        return {
-          ordenServicio: base.ordenServicio || safe(v.ordenServicio),
-          marca: v.marca || "",
-          modelo: v.modelo || "",
-          anio: v.anio || "",
-          serie: v.serie || "",
-          placas: v.placas || "",
-          kmsMillas: v.kmsMillas || "",
-          sinVehiculo: !!v.sinVehiculo,
-        };
-      })
-    );
-
-    const folioTxt = [safe(f.serie), safe(f.folio)].filter(Boolean).join("-") || "—";
-    const cancelada = f.estatus === "cancelada";
-
-    const meta = buildMeta({
-      folio: folioTxt,
-      fechaEmision: fechaHora(new Date(f.fecha || f.createdAt || Date.now())),
-      sello: safe(f.sello) || "— sin sello —",
-      cadena: safe(f.cadenaOriginal) || "— sin cadena original —",
-      pieSufijo: cancelada ? " — CANCELADA" : " — SIN TIMBRAR",
-    });
-
-    // Totales guardados; si el snapshot no los trae, se recalculan de los conceptos
-    const conceptos = f.conceptos || [];
-    let totales = f.totales;
-    if (!totales || typeof totales.total !== "number") {
-      const subtotal = conceptos.reduce(
-        (sum, c) => sum + Number(c.cantidad || 0) * Number(c.valorUnitario || 0),
-        0
-      );
-      const iva = subtotal * Number(f.cfdi?.ivaRate || 0);
-      const isr = f.cfdi?.aplicarRetencionIsr ? subtotal * Number(f.cfdi?.isrRate || 0.0125) : 0;
-      totales = { subtotal, iva, isr, total: subtotal + iva - isr };
-    }
+    const data = await cargarDatosFacturaPdf(req.params.id);
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `inline; filename=factura_${folioTxt.replace(/[^\w-]/g, "") || "cfdi"}.pdf`
+      `inline; filename=factura_${data.folioTxt.replace(/[^\w-]/g, "") || "cfdi"}.pdf`
     );
 
-    const doc = new PDFDocument({ size: "LETTER", margin: M });
+    const doc = renderFacturaPdfDoc(data);
     doc.pipe(res);
-
-    if (esComplementoPago) {
-      drawReciboElectronicoPago(doc, {
-        emisor,
-        cliente: f.cliente,
-        pago: {
-          ...f.pago,
-          // La fecha se guardó como YYYY-MM-DD (medianoche UTC): se formatea en UTC
-          // para que no se recorra un día según la zona horaria del servidor.
-          fechaPago: f.pago?.fechaPago
-            ? new Date(f.pago.fechaPago).toLocaleDateString("es-MX", {
-                timeZone: "UTC",
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-              })
-            : "",
-        },
-        relacionadas: f.relacionadas || [],
-        cfdi: f.cfdi,
-        meta,
-      });
-    } else {
-      drawComprobanteIngresoEgreso(doc, {
-        emisor,
-        cliente: f.cliente,
-        ordenes,
-        conceptos,
-        cfdi: f.cfdi,
-        relacionadas: f.relacionadas || [],
-        tipoLabel: esNotaCredito ? "Egreso" : "Ingreso",
-        totales,
-        meta,
-      });
-    }
-
     doc.end();
   } catch (err) {
     console.error("GET /facturacion/factura/:id/pdf ERROR:", err);
+    if (res.headersSent) return res.end();
+    res.status(err.status || 500).json({ ok: false, error: err.message });
+  }
+});
+
+/* =========================
+   ENDPOINT
+   POST /api/facturacion/facturas/export-zip
+   Descarga un ZIP con el PDF y el XML de cada factura seleccionada,
+   nombrados como "A" + folio (sin carpetas).
+========================= */
+router.post("/facturas/export-zip", async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((id) => typeof id === "string") : [];
+  if (!ids.length) {
+    return res.status(400).json({ ok: false, error: "No se enviaron facturas para exportar." });
+  }
+
+  try {
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename=facturas_${Date.now()}.zip`);
+
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    archive.on("error", (err) => {
+      console.error("POST /facturacion/facturas/export-zip ARCHIVE ERROR:", err);
+      res.end();
+    });
+    archive.pipe(res);
+
+    const nombresUsados = new Set();
+    for (const id of ids) {
+      try {
+        const data = await cargarDatosFacturaPdf(id);
+        const doc = renderFacturaPdfDoc(data);
+        doc.end();
+
+        const base = data.folioTxt.replace(/[^\w-]/g, "") || id;
+        let nombre = `A${base}`;
+        let i = 2;
+        while (nombresUsados.has(nombre)) {
+          nombre = `A${base}_${i}`;
+          i++;
+        }
+        nombresUsados.add(nombre);
+
+        archive.append(doc, { name: `${nombre}.pdf` });
+        archive.append(data.f.xml || "", { name: `${nombre}.xml` });
+      } catch (e) {
+        console.error(`No se pudo generar el PDF/XML de la factura ${id} para el ZIP:`, e.message);
+      }
+    }
+
+    await archive.finalize();
+  } catch (err) {
+    console.error("POST /facturacion/facturas/export-zip ERROR:", err);
     if (res.headersSent) return res.end();
     res.status(500).json({ ok: false, error: err.message });
   }

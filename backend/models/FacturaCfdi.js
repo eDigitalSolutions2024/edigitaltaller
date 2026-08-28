@@ -11,6 +11,21 @@ const ConceptoSnapshotSchema = new Schema(
     cUnidad: String,
     descripcion: String,
     valorUnitario: Number,
+    // Código propio del cliente para este servicio; se emite en el atributo
+    // NoIdentificacion del cfdi:Concepto (ver Cliente.codigosServicio).
+    noIdentificacion: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+// Solo factura global: cada Nota de Venta de Caja que quedó agrupada en el CFDI
+// al público en general.
+const NotaVentaGlobalSchema = new Schema(
+  {
+    vehiculoId: { type: Schema.Types.ObjectId, ref: "Vehiculo", default: null },
+    ordenServicio: { type: String, default: "" },
+    numero: { type: Number, default: null },
+    monto: { type: Number, default: 0 },
   },
   { _id: false }
 );
@@ -33,13 +48,28 @@ const FacturaRelacionadaSchema = new Schema(
 
 const FacturaCfdiSchema = new Schema(
   {
-    // factura (I) | notaCredito (E) | complementoPago (P)
+    // factura (I) | notaCredito (E) | complementoPago (P) | facturaGlobal (I, al público en general)
     tipoFactura: {
       type: String,
-      enum: ["factura", "notaCredito", "complementoPago"],
+      enum: ["factura", "notaCredito", "complementoPago", "facturaGlobal"],
       default: "factura",
     },
     tipoComprobante: { type: String, enum: ["I", "E", "P"], default: "I" },
+
+    // Solo factura global: nodo cfdi:InformacionGlobal del CFDI 4.0.
+    // periodicidad "01" = diario; meses "01".."12"; anio "AAAA".
+    informacionGlobal: {
+      periodicidad: { type: String, default: "" },
+      meses: { type: String, default: "" },
+      anio: { type: String, default: "" },
+    },
+
+    // Descuento global del comprobante (monto en pesos). Hoy solo lo usa la
+    // factura global; en los demás tipos queda en 0.
+    descuento: { type: Number, default: 0 },
+
+    // Solo factura global: notas de venta de Caja agrupadas en este CFDI.
+    notasVenta: { type: [NotaVentaGlobalSchema], default: [] },
 
     serie: { type: String, default: "", trim: true },
     folio: { type: String, default: "", trim: true },
@@ -124,6 +154,7 @@ const FacturaCfdiSchema = new Schema(
 
     totales: {
       subtotal: Number,
+      descuento: { type: Number, default: 0 },
       iva: Number,
       isr: Number,
       total: Number,

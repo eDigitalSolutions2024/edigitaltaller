@@ -91,6 +91,8 @@ app.use('/api/vales', require('./routes/vales'));
 
 app.use('/api/cajas', require('./routes/cajas'));
 
+app.use('/api/anticipos', require('./routes/anticipos'));
+
 app.use('/api/tickets', require('./routes/tickets'));
 
 const PORT = process.env.PORT || 4000;

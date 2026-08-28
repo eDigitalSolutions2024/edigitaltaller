@@ -11,15 +11,16 @@
 .form-card{
   background:#fff; border:1px solid rgba(0,0,0,.06);
   border-radius:16px; box-shadow:0 10px 24px rgba(0,0,0,.07);
-  padding:18px;
+  padding:20px 22px 24px;
 }
-.form-card h2{ margin:0 0 6px; }
+.form-card h2{ margin:0 0 4px; }
 .form-card h3{ margin:12px 0 6px; }
 
-.form-grid{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:12px; }
+.form-grid{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:14px 16px; }
 .form-row{ display:flex; flex-direction:column; gap:6px; }
 .form-row.col-2{ grid-column: span 2; }
-.form-row label{ font-weight:700; color:#334155; }
+.form-row.col-12{ grid-column: 1 / -1; }
+.form-row label{ font-weight:700; color:#334155; font-size:13px; }
 .form-row input, .form-row select, .form-row textarea{
   border:1px solid rgba(0,0,0,.12); border-radius:10px; padding:10px 12px; outline:none;
   width:100%; box-sizing:border-box;
@@ -27,8 +28,78 @@
 .phone-inline{ display:grid; grid-template-columns:120px 1fr; gap:8px; }
 .form-row.check{ justify-content:flex-end; }
 
-.form-actions{ margin-top:12px; display:flex; gap:10px; }
+.form-actions{ margin-top:18px; display:flex; gap:10px; }
 .form-msg{ margin-top:8px; color:#155724; font-weight:700; }
+
+/* ===== Secciones del formulario ===== */
+.form-section{
+  border:1px solid rgba(15,23,42,.08);
+  border-radius:14px;
+  padding:16px 18px 18px;
+  margin-bottom:16px;
+  background:#f8fafc;
+}
+.form-section:last-child{ margin-bottom:0; }
+.form-section-title{
+  margin:0 0 14px;
+  padding-bottom:10px;
+  border-bottom:1px solid rgba(15,23,42,.08);
+  font-size:12.5px;
+  font-weight:800;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:#475569;
+}
+
+/* ===== Listas repetibles (correos / teléfonos) ===== */
+.repeat-list{ display:flex; flex-direction:column; gap:8px; margin-bottom:8px; }
+.repeat-list-item{ display:flex; gap:8px; align-items:center; }
+.repeat-list-item input{ flex:1; min-width:0; }
+.repeat-list-item .lada-input{ flex:none; width:90px; }
+
+.chip-principal{
+  font-size:11px; font-weight:700; color:#0f766e; background:#ccfbf1;
+  padding:4px 10px; border-radius:999px; white-space:nowrap;
+}
+.btn-remove{
+  background:none; border:none; cursor:pointer; color:#dc2626; font-size:14px;
+  padding:4px 8px; border-radius:6px; line-height:1; white-space:nowrap;
+}
+.btn-remove:hover{ background:#fee2e2; }
+.btn-add-dashed{
+  align-self:flex-start;
+  font-size:13px; font-weight:700; color:#334155; background:#fff;
+  border:1.5px dashed #94a3b8; border-radius:8px; padding:7px 14px;
+  cursor:pointer; margin-top:2px;
+}
+.btn-add-dashed:hover{ background:#f1f5f9; border-color:#64748b; }
+
+/* ===== Tarjetas de contacto (múltiples contactos) ===== */
+.contacto-card{
+  border:1px solid rgba(15,23,42,.1);
+  border-radius:12px;
+  padding:14px 16px 16px;
+  margin-bottom:12px;
+  background:#fff;
+}
+.contacto-card:last-of-type{ margin-bottom:12px; }
+.contacto-card-header{
+  display:flex; justify-content:space-between; align-items:center;
+  margin-bottom:12px;
+}
+.contacto-card-header .chip-principal{ background:#dbeafe; color:#1d4ed8; }
+.contacto-card-row{ display:flex; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
+.contacto-card-row > input{ flex:1; min-width:180px; }
+
+/* ===== Opciones (checkboxes) ===== */
+.opciones-row{ display:flex; flex-wrap:wrap; gap:10px; }
+.opcion-toggle{
+  display:flex; align-items:center; gap:8px;
+  border:1px solid rgba(15,23,42,.1); border-radius:10px;
+  padding:10px 14px; background:#fff; font-weight:700; color:#334155; font-size:13.5px;
+  cursor:pointer; flex:1; min-width:220px;
+}
+.opcion-toggle input{ width:16px; height:16px; cursor:pointer; }
 
 /* ===== Consulta ===== */
 .consulta-card{

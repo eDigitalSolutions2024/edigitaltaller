@@ -1,7 +1,29 @@
 // routes/clientes.js
 const express = require("express");
 const Cliente = require("../models/Cliente");
+const { proteger, requiereRol } = require("../middleware/auth");
 const router = express.Router();
+
+// Todas las rutas de clientes requieren sesión: antes no había ningún
+// middleware de autenticación aquí (cualquiera con acceso a la red podía
+// leer o modificar clientes sin login). Se vuelve crítico en cuanto el saldo
+// a favor (ver Cliente.saldoAFavor) vive en este mismo modelo.
+router.use(proteger);
+
+// Escapa metacaracteres de regex antes de meterlos en `new RegExp(...)`: el
+// texto de búsqueda/duplicados entraba crudo, lo que permite un patrón
+// costoso tipo ReDoS (p. ej. "(a+)+$") con solo mandar una búsqueda.
+function escapeRegex(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// El saldo a favor (anticipos) solo debe viajar en la respuesta para
+// admin/cajas: no es solo un tema de UI (ocultar la columna), el resto de
+// roles con acceso al módulo Clientes (p. ej. asesor_servicio) no debe poder
+// verlo ni abriendo el Network tab o llamando la API directo.
+function puedeVerSaldo(req) {
+  return ["admin", "cajas"].includes(req.user?.role);
+}
 
 // Campos que NO corresponden a cada tipoCliente. Se usan para limpiar datos
 // de un tipo/estructura anterior cuando el cliente cambia (p. ej. de
@@ -91,9 +113,9 @@ router.post("/", async (req, res) => {
 
     if (tipoCliente === "Particular" && nombre) {
       const query = {
-        nombre: { $regex: new RegExp(`^${nombre.trim()}$`, "i") },
-        apellidoPaterno: { $regex: new RegExp(`^${(apellidoPaterno || "").trim()}$`, "i") },
-        apellidoMaterno: { $regex: new RegExp(`^${(apellidoMaterno || "").trim()}$`, "i") },
+        nombre: { $regex: new RegExp(`^${escapeRegex(nombre.trim())}$`, "i") },
+        apellidoPaterno: { $regex: new RegExp(`^${escapeRegex((apellidoPaterno || "").trim())}$`, "i") },
+        apellidoMaterno: { $regex: new RegExp(`^${escapeRegex((apellidoMaterno || "").trim())}$`, "i") },
       };
 
       const existe = await Cliente.findOne(query);
@@ -110,7 +132,7 @@ router.post("/", async (req, res) => {
       if (body.nombre) {
         const existe = await Cliente.findOne({
           tipoCliente,
-          nombre: { $regex: new RegExp(`^${body.nombre.trim()}$`, "i") },
+          nombre: { $regex: new RegExp(`^${escapeRegex(body.nombre.trim())}$`, "i") },
         });
         if (existe) {
           return res.status(409).json({
@@ -125,7 +147,7 @@ router.post("/", async (req, res) => {
       const nombreGob = body.gobierno?.nombreGobierno;
       if (nombreGob) {
         const existe = await Cliente.findOne({
-          "gobierno.nombreGobierno": { $regex: new RegExp(`^${nombreGob.trim()}$`, "i") },
+          "gobierno.nombreGobierno": { $regex: new RegExp(`^${escapeRegex(nombreGob.trim())}$`, "i") },
         });
         if (existe) {
           return res.status(409).json({
@@ -140,6 +162,16 @@ router.post("/", async (req, res) => {
     // Descarta campos que no correspondan al tipo (defensa extra: el
     // frontend ya no los envía, pero así queda protegido cualquier caller).
     for (const campo of camposNoUsados(tipoCliente)) delete body[campo];
+
+    // saldoAFavor nunca se acepta por mass-assignment: el único camino válido
+    // para tocarlo es /api/anticipos, con sus guardas atómicas contra doble
+    // gasto (ver backend/utils/anticiposCliente.js).
+    delete body.saldoAFavor;
+
+    // codigosServicio solo se toca por su endpoint dedicado
+    // (PUT /api/clientes/:id/codigos-servicio), nunca por el body del cliente:
+    // así el "Guardar" del alta/edición no puede pisar el catálogo.
+    delete body.codigosServicio;
 
     sincronizaFiscalEnObjeto(body);
 
@@ -158,23 +190,32 @@ router.get("/", async (req, res) => {
     const skip = (Number(page) - 1) * Number(limit);
 
     // 👇 Reemplaza el $text por $regex — busca parcial, insensible a mayúsculas
+    const qEscapado = escapeRegex(q.trim());
     const find = q.trim()
       ? {
           $or: [
-            { nombre: { $regex: q.trim(), $options: "i" } },
-            { apellidoPaterno: { $regex: q.trim(), $options: "i" } },
-            { apellidoMaterno: { $regex: q.trim(), $options: "i" } },
-            { emails: { $regex: q.trim(), $options: "i" } },
-            { rfc: { $regex: q.trim(), $options: "i" } },
-            { "empresa.razonSocial": { $regex: q.trim(), $options: "i" } },
-            { "gobierno.nombreGobierno": { $regex: q.trim(), $options: "i" } },
-            { "gobierno.dependencia.nombre": { $regex: q.trim(), $options: "i" } },
+            { nombre: { $regex: qEscapado, $options: "i" } },
+            { apellidoPaterno: { $regex: qEscapado, $options: "i" } },
+            { apellidoMaterno: { $regex: qEscapado, $options: "i" } },
+            { emails: { $regex: qEscapado, $options: "i" } },
+            { rfc: { $regex: qEscapado, $options: "i" } },
+            { "empresa.razonSocial": { $regex: qEscapado, $options: "i" } },
+            { "gobierno.nombreGobierno": { $regex: qEscapado, $options: "i" } },
+            { "gobierno.dependencia.nombre": { $regex: qEscapado, $options: "i" } },
           ],
         }
       : {};
 
+    // La lista nunca necesita el catálogo de códigos por cliente
+    // (codigosServicio solo se usa al editar un cliente o al facturar); con un
+    // limit alto — p. ej. Entrada de Vehículo pide limit=9999 — infla la
+    // respuesta, así que se excluye siempre.
+    const camposExcluidos = puedeVerSaldo(req)
+      ? "-codigosServicio"
+      : "-saldoAFavor -codigosServicio";
+
     const [items, total] = await Promise.all([
-      Cliente.find(find).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+      Cliente.find(find).select(camposExcluidos).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
       Cliente.countDocuments(find),
     ]);
 
@@ -186,15 +227,76 @@ router.get("/", async (req, res) => {
 
 // GET /api/clientes/:id
 router.get("/:id", async (req, res) => {
-  const c = await Cliente.findById(req.params.id);
+  const camposExcluidos = puedeVerSaldo(req) ? undefined : "-saldoAFavor";
+  const c = await Cliente.findById(req.params.id).select(camposExcluidos);
   if (!c) return res.status(404).json({ ok: false, error: "No encontrado" });
   res.json({ ok: true, data: c });
+});
+
+/* ------------------------------------------------------------------ */
+/* Catálogo de códigos de servicio propios del cliente.               */
+/* Se edita desde "Editar Cliente" → ⚙ Configuración y se usa al       */
+/* timbrar para llenar NoIdentificacion (ver Cliente.codigosServicio  */
+/* y buildCfdiXmlUnsigned en routes/generar_xml.js).                  */
+/* Solo admin/cajas: es el mismo criterio de acceso al apartado       */
+/* Clientes (ver frontend/src/utils/roles.js).                        */
+/* ------------------------------------------------------------------ */
+
+// Normaliza el arreglo recibido: recorta cada campo, quita el separador `|`
+// que el patrón de NoIdentificacion del SAT no admite, corta a 100 y descarta
+// filas sin `codigoCliente` (lo único imprescindible).
+function sanitizaCodigosServicio(body) {
+  const filas = Array.isArray(body) ? body : Array.isArray(body?.codigosServicio) ? body.codigosServicio : [];
+  return filas
+    .map((f) => ({
+      codigoInterno: String(f?.codigoInterno ?? "").replace(/\|/g, "").trim().slice(0, 100),
+      codigoCliente: String(f?.codigoCliente ?? "").replace(/\|/g, "").trim().slice(0, 100),
+      descripcion: String(f?.descripcion ?? "").trim().slice(0, 300),
+    }))
+    .filter((f) => f.codigoCliente);
+}
+
+// GET /api/clientes/:id/codigos-servicio
+router.get("/:id/codigos-servicio", requiereRol("admin", "cajas"), async (req, res) => {
+  try {
+    const c = await Cliente.findById(req.params.id).select("codigosServicio nombre");
+    if (!c) return res.status(404).json({ ok: false, error: "No encontrado" });
+    res.json({ ok: true, data: c.codigosServicio || [] });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// PUT /api/clientes/:id/codigos-servicio  (reemplaza el catálogo completo)
+router.put("/:id/codigos-servicio", requiereRol("admin", "cajas"), async (req, res) => {
+  try {
+    const codigosServicio = sanitizaCodigosServicio(req.body);
+    const c = await Cliente.findByIdAndUpdate(
+      req.params.id,
+      { $set: { codigosServicio } },
+      { new: true }
+    ).select("codigosServicio");
+    if (!c) return res.status(404).json({ ok: false, error: "No encontrado" });
+    res.json({ ok: true, data: c.codigosServicio || [] });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
 });
 
 // PUT /api/clientes/:id
 router.put("/:id", async (req, res) => {
   try {
     const body = { ...req.body };
+
+    // saldoAFavor nunca se acepta por mass-assignment aquí, ni siquiera de un
+    // usuario autenticado con permiso de editar clientes: el único camino
+    // válido para tocarlo es /api/anticipos (ver POST /api/clientes arriba).
+    delete body.saldoAFavor;
+
+    // codigosServicio solo se edita por PUT /api/clientes/:id/codigos-servicio:
+    // el body de "Editar Cliente" puede traer una copia vieja (si se abrió el
+    // modal ⚙ y se guardó ahí sin recargar) que pisaría el catálogo.
+    delete body.codigosServicio;
 
     // 🔴 Tampoco actualizamos facturación por ahora
     //delete body.facturacion;

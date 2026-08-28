@@ -103,10 +103,10 @@ const provisionalStyles = `
 ${WATERMARK_CSS}
 `;
 
-// rp: pago.reciboProvisional. Genera la fila de checkboxes Efectivo/T.Crédito/T.Débito/Cheque No.
+// rp: pago.reciboProvisional. Genera la fila de checkboxes Efectivo/T.Crédito/T.Débito/Cheque No./Combinado.
 function checkboxesFormaPago(rp, idPrefix) {
   const marca = (v) => (rp.formaPago === v ? 'checked' : '');
-  const chequeTexto = rp.formaPago === 'CHEQUE' && rp.chequeNumero ? escapeHtml(rp.chequeNumero) : '';
+  const chequeTexto = (rp.formaPago === 'CHEQUE' || rp.formaPago === 'COMBINADO') && rp.chequeNumero ? escapeHtml(rp.chequeNumero) : '';
   return `
     <div class="opciones">
       <div class="agrup">
@@ -125,6 +125,69 @@ function checkboxesFormaPago(rp, idPrefix) {
         <input type="checkbox" id="${idPrefix}-che" ${marca('CHEQUE')} disabled />
         <label for="${idPrefix}-che">Cheque No. ${chequeTexto}</label>
       </div>
+      <div class="agrup">
+        <input type="checkbox" id="${idPrefix}-tra" ${marca('TRANSFERENCIA')} disabled />
+        <label for="${idPrefix}-tra">Transferencia</label>
+      </div>
+      <div class="agrup">
+        <input type="checkbox" id="${idPrefix}-com" ${marca('COMBINADO')} disabled />
+        <label for="${idPrefix}-com">Combinado</label>
+      </div>
+    </div>`;
+}
+
+// rp: pago.reciboProvisional. Debajo del método de pago se muestra la
+// cantidad: un solo monto si fue un método simple, o el desglose por método
+// cuando formaPago === 'COMBINADO'.
+function importeFormaPagoHtml(rp, pago) {
+  if (rp.formaPago === 'COMBINADO') {
+    const c = rp.combinado || {};
+    // El Efectivo desglosa Pesos y Dólares (con su conversión), igual que el
+    // "Bueno por" del resumen; los demás métodos del combinado son solo pesos.
+    const efectivoPartes = [];
+    if (Number(c.efectivo) > 0) efectivoPartes.push(`${money(c.efectivo)} M.N.`);
+    if (Number(c.efectivoDolares) > 0) efectivoPartes.push(`$${Number(c.efectivoDolares).toFixed(2)} USD`);
+
+    const partes = [
+      ['Efectivo', efectivoPartes.length ? efectivoPartes.join(' + ') : null],
+      ['T. Crédito', Number(c.credito) > 0 ? money(c.credito) : null],
+      ['T. Débito', Number(c.debito) > 0 ? money(c.debito) : null],
+      ['Cheque No.' + (rp.chequeNumero ? ` ${escapeHtml(rp.chequeNumero)}` : ''), Number(c.cheque) > 0 ? money(c.cheque) : null],
+      ['Transferencia', Number(c.transferencia) > 0 ? money(c.transferencia) : null],
+    ].filter(([, valor]) => valor !== null);
+    return `
+    <div class="opciones">
+      ${partes.map(([label, valor]) => `<div class="agrup"><span class="lbl">${label}:</span> ${valor}</div>`).join('')}
+    </div>`;
+  }
+  return `<div class="dato"><span class="lbl">Cantidad:</span> ${money(pago?.montoPesos)}</div>`;
+}
+
+const FORMA_PAGO_LABEL_SALDO = {
+  EFECTIVO: 'Efectivo',
+  CREDITO: 'T. Crédito',
+  DEBITO: 'T. Débito',
+  CHEQUE: 'Cheque',
+  TRANSFERENCIA: 'Transferencia',
+};
+
+// pago.saldoAplicado: presente solo si este pago usó saldo a favor del
+// cliente. `origenes` (ver calcularOrigenSaldo en utils/anticiposCliente.js)
+// dice con qué forma(s) de pago se depositó originalmente ese saldo; una
+// forma null es dinero reembolsado de un uso previo sin origen rastreable.
+function saldoAplicadoHtml(pago) {
+  const monto = Number(pago?.saldoAplicado?.monto || 0);
+  if (monto <= 0) return '';
+  const origenes = (pago?.saldoAplicado?.origenes || []).filter((o) => Number(o.monto) > 0);
+
+  if (origenes.length <= 1) {
+    const etiqueta = origenes[0] ? (FORMA_PAGO_LABEL_SALDO[origenes[0].formaPago] || 'Saldo a favor') : 'Saldo a favor';
+    return `<div class="dato"><span class="lbl">Saldo a favor aplicado (${etiqueta}):</span> ${money(monto)}</div>`;
+  }
+  return `
+    <div class="dato"><span class="lbl">Saldo a favor aplicado:</span> ${money(monto)}</div>
+    <div class="opciones">
+      ${origenes.map((o) => `<div class="agrup"><span class="lbl">${FORMA_PAGO_LABEL_SALDO[o.formaPago] || 'Saldo a favor'}:</span> ${money(o.monto)}</div>`).join('')}
     </div>`;
 }
 
@@ -176,9 +239,7 @@ exports.generarReciboProvisionalPDF = async (res, orden, pago) => {
     const clienteTexto = escapeHtml(nombreCliente(orden));
     const telefonoTexto = escapeHtml(telefono(orden));
     const conceptoTexto = escapeHtml(rp.concepto || '');
-    const razonTexto = escapeHtml(rp.razon || '');
     const recibioTexto = escapeHtml(rp.recibio || pago?.registradoPor || '');
-    const autorizoTexto = escapeHtml(rp.autorizo || '');
 
     // El No. de Recibo de Dólares ligado a este mismo abono/anticipo solo se
     // muestra en la copia de Caja (ver checkbox de la solicitud del usuario).
@@ -209,12 +270,12 @@ exports.generarReciboProvisionalPDF = async (res, orden, pago) => {
 
     ${tablaCaja}
     ${checkboxesFormaPago(rp, 'r1')}
+    ${importeFormaPagoHtml(rp, pago)}
+    ${saldoAplicadoHtml(pago)}
 
     <div class="dato"><span class="lbl">Recibimos de:</span> ${clienteTexto}</div>
     <div class="dato"><span class="lbl">Teléfono:</span> ${telefonoTexto}</div>
     <div class="dato"><span class="lbl">Por concepto de:</span> ${conceptoTexto}</div>
-    <div class="dato"><span class="lbl">Razón del recibo:</span> ${razonTexto}</div>
-    <div class="dato"><span class="lbl">Autorizó:</span> ${autorizoTexto}</div>
   </div>
 
   <div class="hoja">
@@ -227,6 +288,9 @@ exports.generarReciboProvisionalPDF = async (res, orden, pago) => {
     </div>
 
     ${tablaCliente}
+    ${checkboxesFormaPago(rp, 'r2')}
+    ${importeFormaPagoHtml(rp, pago)}
+    ${saldoAplicadoHtml(pago)}
 
     <div class="fila2">
       <div class="dato"><span class="lbl">Recibimos de:</span> ${clienteTexto}</div>
@@ -235,7 +299,6 @@ exports.generarReciboProvisionalPDF = async (res, orden, pago) => {
 
     <div class="firma-area">
       <div class="firma-linea">Recibió: ${recibioTexto}</div>
-      ${checkboxesFormaPago(rp, 'r2')}
     </div>
   </div>
 </body>

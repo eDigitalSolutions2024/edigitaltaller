@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Dropdown from "../../components/Dropdown";
 import usePdfModal from "../../hooks/usePdfModal";
-import { listFacturasCfdi, getFacturaCfdiById, getFacturaCfdiPdf } from "../../api/facturasCfdi";
+import {
+  listFacturasCfdi,
+  getFacturaCfdiById,
+  getFacturaCfdiPdf,
+  exportFacturasCfdiZip,
+} from "../../api/facturasCfdi";
 
 function money(n) {
   const x = Number(n || 0);
@@ -20,6 +25,22 @@ function ordenesDeFactura(f) {
     .map((o) => o?.ordenServicio)
     .filter(Boolean);
   return folios.length ? folios.join(", ") : "—";
+}
+
+function nombreZipExport() {
+  return `facturas_${Date.now()}.zip`;
+}
+
+function descargarZipBlob(data, nombre) {
+  const blob = new Blob([data], { type: "application/zip" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export default function ConsultarFacturas() {
@@ -119,6 +140,103 @@ export default function ConsultarFacturas() {
     }
   };
 
+  /* ==========
+     SELECCIÓN / EXPORTAR
+  ========== */
+  const [modoSeleccion, setModoSeleccion] = useState(false);
+  const [seleccionadas, setSeleccionadas] = useState({}); // { [id]: folioLabel }
+  const [exportMenuAbierto, setExportMenuAbierto] = useState(false);
+  const [exportando, setExportando] = useState(false);
+
+  const idsSeleccionados = Object.keys(seleccionadas);
+
+  const toggleModoSeleccion = () => {
+    setModoSeleccion((activo) => {
+      if (activo) {
+        setSeleccionadas({});
+        setExportMenuAbierto(false);
+      }
+      return !activo;
+    });
+  };
+
+  const toggleFactura = (f) => {
+    setSeleccionadas((prev) => {
+      const next = { ...prev };
+      if (next[f._id]) {
+        delete next[f._id];
+      } else {
+        next[f._id] = [f.serie, f.folio].filter(Boolean).join("-") || "—";
+      }
+      return next;
+    });
+  };
+
+  const exportarZip = async () => {
+    setExportMenuAbierto(false);
+    setExportando(true);
+    try {
+      const res = await exportFacturasCfdiZip(idsSeleccionados);
+      descargarZipBlob(res.data, nombreZipExport());
+      setSeleccionadas({});
+    } catch (e) {
+      console.error(e);
+      alert("No se pudo generar el ZIP de las facturas seleccionadas.");
+    } finally {
+      setExportando(false);
+    }
+  };
+
+  // Abre el cliente de correo predeterminado con los archivos ya cargados.
+  // Un enlace mailto: nunca puede llevar adjuntos reales (restricción del
+  // navegador), así que primero intentamos el panel de "compartir" nativo
+  // del sistema (adjunta el ZIP de verdad si el usuario elige su app de
+  // correo); si el navegador no lo soporta, descargamos el ZIP y abrimos
+  // el correo con destinatario y asunto vacíos, avisando que hay que
+  // adjuntarlo a mano.
+  const enviarPorCorreo = async () => {
+    setExportMenuAbierto(false);
+    setExportando(true);
+    try {
+      const res = await exportFacturasCfdiZip(idsSeleccionados);
+      const nombre = nombreZipExport();
+      const folios = Object.values(seleccionadas).join(", ");
+      let compartido = false;
+
+      if (navigator.share) {
+        try {
+          const archivo = new File([res.data], nombre, { type: "application/zip" });
+          if (navigator.canShare?.({ files: [archivo] })) {
+            await navigator.share({ files: [archivo] });
+            compartido = true;
+          }
+        } catch (shareErr) {
+          if (shareErr?.name === "AbortError") {
+            // El usuario canceló el diálogo de compartir; dejamos la
+            // selección intacta para que pueda intentarlo de nuevo.
+            return;
+          }
+          console.warn("No se pudo usar el panel de compartir, se usará el respaldo de correo:", shareErr);
+        }
+      }
+
+      if (!compartido) {
+        descargarZipBlob(res.data, nombre);
+        const cuerpo = encodeURIComponent(
+          `Se descargó el archivo "${nombre}" con las facturas seleccionadas (folios: ${folios}).\n\nAdjunta ese archivo antes de enviar este correo.`
+        );
+        window.location.href = `mailto:?subject=&body=${cuerpo}`;
+      }
+
+      setSeleccionadas({});
+    } catch (e) {
+      console.error(e);
+      alert("No se pudieron preparar las facturas para enviar por correo.");
+    } finally {
+      setExportando(false);
+    }
+  };
+
   return (
     <div className="container-fluid py-3" style={{ maxWidth: 1400 }}>
       <h2 className="mb-3">Historial de facturas</h2>
@@ -179,7 +297,71 @@ export default function ConsultarFacturas() {
           <span className="text-muted small">
             {cargando ? "Buscando…" : `${totalDocs} factura(s) encontrada(s)`}
           </span>
+          <button
+            className={`btn btn-sm ${modoSeleccion ? "btn-primary" : "btn-outline-secondary"}`}
+            onClick={toggleModoSeleccion}
+          >
+            Seleccionar
+          </button>
         </div>
+
+        {modoSeleccion && idsSeleccionados.length > 0 && (
+          <div className="d-flex justify-content-between align-items-start gap-3 p-2 mb-2 rounded border" style={{ background: "#eaf3ff" }}>
+            <div>
+              <div className="fw-semibold small">
+                {idsSeleccionados.length} factura(s) seleccionada(s)
+              </div>
+              <div className="d-flex flex-wrap gap-1 mt-1">
+                {Object.values(seleccionadas).map((folio, i) => (
+                  <span key={i} className="badge bg-primary-subtle text-primary border">
+                    {folio}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="position-relative">
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => setExportMenuAbierto((v) => !v)}
+                disabled={exportando}
+              >
+                {exportando ? "Procesando…" : "Exportar ▾"}
+              </button>
+
+              {exportMenuAbierto && (
+                <>
+                  <div
+                    className="position-fixed top-0 start-0 w-100 h-100"
+                    style={{ zIndex: 20 }}
+                    onClick={() => setExportMenuAbierto(false)}
+                  />
+                  <div
+                    className="position-absolute bg-white border rounded shadow-sm py-1"
+                    style={{ top: "100%", right: 0, marginTop: 4, minWidth: 260, zIndex: 21 }}
+                  >
+                    <button
+                      className="btn btn-sm btn-light w-100 text-start rounded-0"
+                      style={{ whiteSpace: "nowrap" }}
+                      onClick={exportarZip}
+                      disabled={exportando}
+                    >
+                      Descargar como ZIP
+                    </button>
+                    <button
+                      className="btn btn-sm btn-light w-100 text-start rounded-0"
+                      style={{ whiteSpace: "nowrap" }}
+                      onClick={enviarPorCorreo}
+                      disabled={exportando}
+                    >
+                      Enviar por correo
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="table-responsive">
           <table className="table table-sm table-bordered table-hover align-middle">
@@ -204,7 +386,12 @@ export default function ConsultarFacturas() {
                 </tr>
               ) : (
                 docs.map((f) => (
-                  <tr key={f._id}>
+                  <tr
+                    key={f._id}
+                    className={seleccionadas[f._id] ? "table-primary" : ""}
+                    style={modoSeleccion ? { cursor: "pointer" } : undefined}
+                    onClick={() => modoSeleccion && toggleFactura(f)}
+                  >
                     <td>{[f.serie, f.folio].filter(Boolean).join("-") || "—"}</td>
                     <td>{f.cliente?.nombre || "—"}</td>
                     <td>{f.cliente?.rfc || "—"}</td>
@@ -216,7 +403,7 @@ export default function ConsultarFacturas() {
                         {f.estatus === "cancelada" ? "Cancelada" : "Generada"}
                       </span>
                     </td>
-                    <td>
+                    <td onClick={(e) => e.stopPropagation()}>
                       <div className="d-flex gap-2">
                         <button
                           className="btn btn-sm btn-outline-primary"

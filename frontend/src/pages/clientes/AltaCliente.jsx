@@ -5,7 +5,9 @@ import Dropdown from "../../components/Dropdown";
 import { createCustomer, getCustomer, updateCustomer } from "../../api/customers";
 import { getAsesores } from "../../api/users";
 import { getUser } from "../../auth";
+import { puedeEditarCodigosCliente } from "../../utils/roles";
 import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
+import ModalCodigosCliente from "./components/ModalCodigosCliente";
 import "../../styles/clientes.css";
 
 const CLIENT_TYPES = [
@@ -17,6 +19,23 @@ const CLIENT_TYPES = [
 
 // deep clone simple
 const deepClone = (o) => JSON.parse(JSON.stringify(o));
+
+function formatMoneyMXN(n) {
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: "MXN",
+    minimumFractionDigits: 2,
+  }).format(Number(n) || 0);
+}
+
+const emptyContacto = () => ({
+  nombre: "",
+  correo: "",
+  telefonos: [{ lada: "", numero: "" }],
+  celulares: [{ lada: "", numero: "" }],
+  departamento: "",
+  puesto: "",
+});
 
 // setIn: actualiza rutas anidadas inmutablemente y crea ramas si faltan
 function setIn(obj, path, value) {
@@ -81,27 +100,13 @@ const initial = {
   // EMPRESA (Privada/Arrendadora)
   empresa: {
     razonSocial: "",
-    contacto: {
-      nombre: "",
-      correo: "",
-      telefonos: [{ lada: "", numero: "" }], // 👈 array
-      celulares: [{ lada: "", numero: "" }], // 👈 array
-      departamento: "",
-      puesto: "",
-    },
+    contacto: [emptyContacto()], // 👈 varios contactos
   },
 
   // GOBIERNO
   gobierno: {
     nombreGobierno: "",
-    contactoGobierno: {
-      nombre: "",
-      correo: "",
-      telefonos: [{ lada: "", numero: "" }], // 👈 array
-      celulares: [{ lada: "", numero: "" }], // 👈 array
-      departamento: "",
-      puesto: "",
-    },
+    contactoGobierno: [emptyContacto()], // 👈 varios contactos
     dependencia: {
       nombre: "",
       contacto: {
@@ -117,6 +122,50 @@ const initial = {
 };
 
 
+function EmailList({ emails, onChange }) {
+  const lista = emails?.length ? emails : [""];
+
+  const handleChange = (i, value) => {
+    const arr = [...lista];
+    arr[i] = value;
+    onChange(arr);
+  };
+
+  const handleAdd = () => onChange([...lista, ""]);
+
+  const handleRemove = (i) => onChange(lista.filter((_, idx) => idx !== i));
+
+  return (
+    <div className="form-row col-12">
+      <label>Correos Electrónicos</label>
+      <div className="repeat-list">
+        {lista.map((mail, i) => (
+          <div className="repeat-list-item" key={i}>
+            <input
+              type="email"
+              placeholder={i === 0 ? "Principal" : `Correo ${i + 1}`}
+              value={mail}
+              onChange={(e) => handleChange(i, e.target.value)}
+            />
+            {i === 0 ? (
+              <span className="chip-principal">Principal</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleRemove(i)}
+                className="btn-remove"
+              >✕</button>
+            )}
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={handleAdd} className="btn-add-dashed">
+        + Agregar correo
+      </button>
+    </div>
+  );
+}
+
 function TelefonoList({ label, valores, onChange }) {
   const handleChange = (i, field, value) => {
     const arr = [...valores];
@@ -131,40 +180,124 @@ function TelefonoList({ label, valores, onChange }) {
   return (
     <div className="form-row col-12">
       <label>{label}</label>
-      {valores.map((tel, i) => (
-        <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "6px", alignItems: "center" }}>
-          <input
-            placeholder="LADA"
-            value={tel.lada ?? ""}
-            onChange={(e) => handleChange(i, "lada", e.target.value)}
-            style={{ width: "80px" }}
-          />
-          <input
-            placeholder="Número"
-            value={tel.numero ?? ""}
-            onChange={(e) => handleChange(i, "numero", e.target.value)}
-            style={{ flex: 1 }}
-          />
-          {i === 0 ? (
-            <span style={{ fontSize: "12px", color: "var(--color-text-info)", whiteSpace: "nowrap" }}>
-              Principal
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={() => handleRemove(i)}
-              style={{ background: "none", border: "none", cursor: "pointer", color: "red" }}
-            >✕</button>
-          )}
-        </div>
-      ))}
-      <button
-        type="button"
-        onClick={handleAdd}
-        style={{ fontSize: "13px", background: "none", border: "1px dashed #aaa", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", marginTop: "2px" }}
-      >
+      <div className="repeat-list">
+        {valores.map((tel, i) => (
+          <div className="repeat-list-item" key={i}>
+            <input
+              className="lada-input"
+              placeholder="LADA"
+              value={tel.lada ?? ""}
+              onChange={(e) => handleChange(i, "lada", e.target.value)}
+            />
+            <input
+              placeholder="Número"
+              value={tel.numero ?? ""}
+              onChange={(e) => handleChange(i, "numero", e.target.value)}
+            />
+            {i === 0 ? (
+              <span className="chip-principal">Principal</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleRemove(i)}
+                className="btn-remove"
+              >✕</button>
+            )}
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={handleAdd} className="btn-add-dashed">
         + Agregar {label.toLowerCase()}
       </button>
+    </div>
+  );
+}
+
+function ContactoList({ label = "Contactos", contactos, onChange }) {
+  const lista = contactos?.length ? contactos : [emptyContacto()];
+
+  const handleField = (i, field, value) => {
+    const arr = [...lista];
+    arr[i] = { ...arr[i], [field]: value };
+    onChange(arr);
+  };
+
+  const handleAdd = () => onChange([...lista, emptyContacto()]);
+
+  const handleRemove = (i) => onChange(lista.filter((_, idx) => idx !== i));
+
+  return (
+    <div className="form-row col-12">
+      <label>{label}</label>
+      {lista.map((c, i) => (
+        <div className="contacto-card" key={i}>
+          <div className="contacto-card-header">
+            <span className="chip-principal">
+              {i === 0 ? "Contacto principal" : `Contacto ${i + 1}`}
+            </span>
+            {i > 0 && (
+              <button
+                type="button"
+                onClick={() => handleRemove(i)}
+                className="btn-remove"
+              >✕ Quitar</button>
+            )}
+          </div>
+
+          <div className="contacto-card-row">
+            <input
+              placeholder="Nombre"
+              value={c.nombre ?? ""}
+              onChange={(e) => handleField(i, "nombre", e.target.value)}
+            />
+            <input
+              type="email"
+              placeholder="Correo"
+              value={c.correo ?? ""}
+              onChange={(e) => handleField(i, "correo", e.target.value)}
+            />
+          </div>
+
+          <TelefonoList
+            label="Teléfono"
+            valores={c.telefonos ?? [{ lada: "", numero: "" }]}
+            onChange={(arr) => handleField(i, "telefonos", arr)}
+          />
+          <TelefonoList
+            label="Celular"
+            valores={c.celulares ?? [{ lada: "", numero: "" }]}
+            onChange={(arr) => handleField(i, "celulares", arr)}
+          />
+
+          <div className="contacto-card-row">
+            <input
+              placeholder="Departamento"
+              value={c.departamento ?? ""}
+              onChange={(e) => handleField(i, "departamento", e.target.value)}
+            />
+            <input
+              placeholder="Puesto"
+              value={c.puesto ?? ""}
+              onChange={(e) => handleField(i, "puesto", e.target.value)}
+            />
+          </div>
+        </div>
+      ))}
+      <button type="button" onClick={handleAdd} className="btn-add-dashed">
+        + Agregar contacto
+      </button>
+    </div>
+  );
+}
+
+function PaisSelect({ value, onChange }) {
+  return (
+    <div className="form-row">
+      <label>País</label>
+      <Dropdown value={value ?? "México"} onChange={onChange}>
+        <Dropdown.Option value="México">México</Dropdown.Option>
+        <Dropdown.Option value="Estados Unidos">Estados Unidos</Dropdown.Option>
+      </Dropdown>
     </div>
   );
 }
@@ -176,6 +309,13 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
   const navigate = useNavigate();
 
   const isAdmin = getUser()?.role === "admin";
+  // El saldo a favor (anticipos) solo lo puede ver admin/cajas: el backend ya
+  // ni siquiera manda el campo para otros roles (ver GET /api/clientes/:id),
+  // así que aquí solo se evita mostrar una sección con $0.00 engañoso.
+  const puedeVerSaldo = ["admin", "cajas"].includes(getUser()?.role);
+  // Los asesores pueden dar de alta/consultar clientes, pero el catálogo de
+  // códigos de servicio del cliente (⚙ Configuración) es solo admin/cajas.
+  const puedeCodigos = puedeEditarCodigosCliente(getUser()?.role);
 
   const [form, setForm] = useState(initial);
   useEffect(() => {
@@ -186,6 +326,8 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [loadingData, setLoadingData] = useState(false);
+  // Catálogo de códigos de servicio propios del cliente (solo en edición).
+  const [showCodigos, setShowCodigos] = useState(false);
 
   // 👉 lista de empleados para el combo de Asesor Responsable
   const [empleados, setEmpleados] = useState([]);
@@ -235,6 +377,23 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
         return [{ lada: "", numero: "" }];
       };
 
+      // Helper: migra un contacto (objeto legacy) al formato completo actual
+      const migarContacto = (obj) => ({
+        nombre: obj?.nombre || "",
+        correo: obj?.correo || "",
+        telefonos: migarTels(obj?.telefonos, obj?.telefono),
+        celulares: migarTels(obj?.celulares, obj?.celular),
+        departamento: obj?.departamento || "",
+        puesto: obj?.puesto || "",
+      });
+
+      // Helper: migra contacto/contactoGobierno de objeto único (formato viejo) a array
+      const migarContactos = (val) => {
+        if (Array.isArray(val) && val.length) return val.map(migarContacto);
+        if (val && typeof val === "object" && Object.keys(val).length) return [migarContacto(val)];
+        return [emptyContacto()];
+      };
+
       const merged = {
         ...initial,
         ...c,
@@ -265,24 +424,14 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
         empresa: {
           ...initial.empresa,
           ...(c.empresa || {}),
-          contacto: {
-            ...initial.empresa.contacto,
-            ...(c.empresa?.contacto || {}),
-            // Migrar contacto empresa
-            telefonos: migarTels(c.empresa?.contacto?.telefonos, c.empresa?.contacto?.telefono),
-            celulares: migarTels(c.empresa?.contacto?.celulares, c.empresa?.contacto?.celular),
-          },
+          // Migrar contacto(s) de empresa (formato viejo: objeto único)
+          contacto: migarContactos(c.empresa?.contacto),
         },
         gobierno: {
           ...initial.gobierno,
           ...(c.gobierno || {}),
-          contactoGobierno: {
-            ...initial.gobierno.contactoGobierno,
-            ...(c.gobierno?.contactoGobierno || {}),
-            // Migrar contacto gobierno
-            telefonos: migarTels(c.gobierno?.contactoGobierno?.telefonos, c.gobierno?.contactoGobierno?.telefono),
-            celulares: migarTels(c.gobierno?.contactoGobierno?.celulares, c.gobierno?.contactoGobierno?.celular),
-          },
+          // Migrar contacto(s) de gobierno (formato viejo: objeto único)
+          contactoGobierno: migarContactos(c.gobierno?.contactoGobierno),
           dependencia: {
             ...initial.gobierno.dependencia,
             ...(c.gobierno?.dependencia || {}),
@@ -398,7 +547,53 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
 
   return (
     <form className="form-card" onSubmit={onSubmit} autoComplete="off">
-      <h2>{isEdit ? "Editar Cliente" : "Alta de Clientes"}</h2>
+      <div className="d-flex justify-content-between align-items-start gap-2">
+        <h2>{isEdit ? "Editar Cliente" : "Alta de Clientes"}</h2>
+
+        {/* Configuración del cliente: por ahora, su catálogo de códigos de
+            servicio (se usan al facturar para llenar NoIdentificacion). Solo
+            en edición de un cliente ya guardado y solo para admin/cajas. */}
+        {isEdit && !modoModal && puedeCodigos && (
+          <button
+            type="button"
+            className="btn btn-outline-secondary btn-sm"
+            onClick={() => setShowCodigos(true)}
+            title="Configuración del cliente"
+          >
+            ⚙ Configuración
+          </button>
+        )}
+      </div>
+
+      {isEdit && !modoModal && puedeCodigos && showCodigos && (
+        <ModalCodigosCliente
+          clienteId={id}
+          clienteNombre={form.nombre}
+          onClose={() => setShowCodigos(false)}
+        />
+      )}
+
+      {/* Saldo a Favor (anticipos): solo lectura aquí — registrar un depósito
+          o ver el historial de movimientos vive en Cajas (ver
+          frontend/src/pages/cajas/CajasAnticipos.jsx), porque es ahí donde
+          se emite el recibo y el rol 'cajas' tiene acceso al módulo. */}
+      {isEdit && !modoModal && puedeVerSaldo && (
+        <div className="form-section">
+          <h3 className="form-section-title">Saldo a Favor</h3>
+          <div className="d-flex align-items-center gap-3 flex-wrap">
+            <span className="fs-5">
+              <strong className="text-success">{formatMoneyMXN(form.saldoAFavor)}</strong>
+            </span>
+            <button
+              type="button"
+              className="btn btn-outline-primary btn-sm"
+              onClick={() => navigate(`/cajas/anticipos?clienteId=${id}`)}
+            >
+              Ver movimientos / Registrar anticipo
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Tipo */}
       <div className="form-grid">
@@ -417,247 +612,175 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
       {/* ===== Campos comunes / por tipo ===== */}
       {/* Particular */}
       {form.tipoCliente === "Particular" && (
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Nombre *</label>
-            <input
-              required={form.tipoCliente === "Particular"}
-              value={form.nombre ?? ""}
-              onChange={(e) => upd("nombre", e.target.value)}
-            />
-          </div>
-          <div className="form-row">
-            <label>Apellido Paterno</label>
-            <input
-              value={form.apellidoPaterno ?? ""}
-              onChange={(e) => upd("apellidoPaterno", e.target.value)}
-            />
-          </div>
-          <div className="form-row">
-            <label>Apellido Materno</label>
-            <input
-              value={form.apellidoMaterno ?? ""}
-              onChange={(e) => upd("apellidoMaterno", e.target.value)}
-            />
-          </div>
-          <div className="form-row col-12">
-            <label>Correos Electrónicos</label>
-            {(form.emails ?? [""]).map((mail, i) => (
-              <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "6px", alignItems: "center" }}>
+        <>
+          <div className="form-section">
+            <h3 className="form-section-title">Datos personales</h3>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Nombre *</label>
                 <input
-                  type="email"
-                  placeholder={i === 0 ? "Principal" : `Correo ${i + 1}`}
-                  value={mail}
-                  onChange={(e) => {
-                    const arr = [...(form.emails ?? [""])];
-                    arr[i] = e.target.value;
-                    upd("emails", arr);
-                  }}
-                  style={{ flex: 1 }}
+                  required={form.tipoCliente === "Particular"}
+                  value={form.nombre ?? ""}
+                  onChange={(e) => upd("nombre", e.target.value)}
                 />
-                {i === 0 ? (
-                  <span style={{ fontSize: "12px", color: "var(--color-text-info)", whiteSpace: "nowrap" }}>
-                    Principal
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const arr = (form.emails ?? [""]).filter((_, idx) => idx !== i);
-                      upd("emails", arr);
-                    }}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "red" }}
-                  >✕</button>
-                )}
               </div>
-            ))}
-            <button
-              type="button"
-              onClick={() => upd("emails", [...(form.emails ?? [""]), ""])}
-              style={{ fontSize: "13px", background: "none", border: "1px dashed #aaa", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", marginTop: "2px" }}
-            >
-              + Agregar correo
-            </button>
+              <div className="form-row">
+                <label>Apellido Paterno</label>
+                <input
+                  value={form.apellidoPaterno ?? ""}
+                  onChange={(e) => upd("apellidoPaterno", e.target.value)}
+                />
+              </div>
+              <div className="form-row">
+                <label>Apellido Materno</label>
+                <input
+                  value={form.apellidoMaterno ?? ""}
+                  onChange={(e) => upd("apellidoMaterno", e.target.value)}
+                />
+              </div>
+            </div>
           </div>
 
-          <TelefonoList
-            label="Teléfono Fijo"
-            valores={form.telefonos ?? [{ lada: "", numero: "" }]}
-            onChange={(arr) => upd("telefonos", arr)}
-          />
+          <div className="form-section">
+            <h3 className="form-section-title">Contacto</h3>
+            <div className="form-grid">
+              <EmailList emails={form.emails} onChange={(arr) => upd("emails", arr)} />
 
-          <TelefonoList
-            label="Celular *"
-            valores={form.celulares ?? [{ lada: "", numero: "" }]}
-            onChange={(arr) => upd("celulares", arr)}
-          />
+              <TelefonoList
+                label="Teléfono Fijo"
+                valores={form.telefonos ?? [{ lada: "", numero: "" }]}
+                onChange={(arr) => upd("telefonos", arr)}
+              />
 
-          {/* Dirección del cliente particular */}
-          <div className="form-row">
-            <label>Dirección (Calle) *</label>
-            <input
-              required={form.tipoCliente === "Particular"}
-              value={form.direccion?.calle ?? ""}
-              onChange={(e) => upd("direccion.calle", e.target.value)}
-            />
+              <TelefonoList
+                label="Celular *"
+                valores={form.celulares ?? [{ lada: "", numero: "" }]}
+                onChange={(arr) => upd("celulares", arr)}
+              />
+            </div>
           </div>
 
-          <div className="form-row">
-            <label>Número Exterior *</label>
-            <input
-              required={form.tipoCliente === "Particular"}
-              value={form.direccion?.numeroExterior ?? ""}
-              onChange={(e) => upd("direccion.numeroExterior", e.target.value)}
-            />
-          </div>
+          <div className="form-section">
+            <h3 className="form-section-title">Dirección</h3>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Dirección (Calle) *</label>
+                <input
+                  required={form.tipoCliente === "Particular"}
+                  value={form.direccion?.calle ?? ""}
+                  onChange={(e) => upd("direccion.calle", e.target.value)}
+                />
+              </div>
 
-          <div className="form-row">
-            <label>Número Interior</label>
-            <input
-              value={form.direccion?.numeroInterior ?? ""}
-              onChange={(e) => upd("direccion.numeroInterior", e.target.value)}
-            />
-          </div>
+              <div className="form-row">
+                <label>Número Exterior *</label>
+                <input
+                  required={form.tipoCliente === "Particular"}
+                  value={form.direccion?.numeroExterior ?? ""}
+                  onChange={(e) => upd("direccion.numeroExterior", e.target.value)}
+                />
+              </div>
 
-          <div className="form-row">
-            <label>Colonia *</label>
-            <input
-              required={form.tipoCliente === "Particular"}
-              value={form.direccion?.colonia ?? ""}
-              onChange={(e) => upd("direccion.colonia", e.target.value)}
-            />
-          </div>
+              <div className="form-row">
+                <label>Número Interior</label>
+                <input
+                  value={form.direccion?.numeroInterior ?? ""}
+                  onChange={(e) => upd("direccion.numeroInterior", e.target.value)}
+                />
+              </div>
 
-          <div className="form-row">
-            <label>Código Postal</label>
-            <input
-              //required={form.tipoCliente === "Particular"}
-              value={form.direccion?.codigoPostal ?? ""}
-              onChange={(e) => upd("direccion.codigoPostal", e.target.value)}
-            />
-          </div>
+              <div className="form-row">
+                <label>Colonia *</label>
+                <input
+                  required={form.tipoCliente === "Particular"}
+                  value={form.direccion?.colonia ?? ""}
+                  onChange={(e) => upd("direccion.colonia", e.target.value)}
+                />
+              </div>
 
-          <div className="form-row">
-            <label>Ciudad *</label>
-            <input
-              required={form.tipoCliente === "Particular"}
-              value={form.direccion?.ciudad ?? ""}
-              onChange={(e) => upd("direccion.ciudad", e.target.value)}
-            />
-          </div>
+              <div className="form-row">
+                <label>Código Postal</label>
+                <input
+                  value={form.direccion?.codigoPostal ?? ""}
+                  onChange={(e) => upd("direccion.codigoPostal", e.target.value)}
+                />
+              </div>
 
-          <div className="form-row">
-            <label>Estado *</label>
-            <input
-              required={form.tipoCliente === "Particular"}
-              value={form.direccion?.estado ?? ""}
-              onChange={(e) => upd("direccion.estado", e.target.value)}
-            />
-          </div>
+              <div className="form-row">
+                <label>Ciudad *</label>
+                <input
+                  required={form.tipoCliente === "Particular"}
+                  value={form.direccion?.ciudad ?? ""}
+                  onChange={(e) => upd("direccion.ciudad", e.target.value)}
+                />
+              </div>
 
-          <div className="form-row">
-            <label>País</label>
-            <Dropdown
-              value={form.pais ?? "México"}
-              onChange={(e) => upd("pais", e.target.value)}
-            >
-              <Dropdown.Option value="México">México</Dropdown.Option>
-              <Dropdown.Option value="Estados Unidos">Estados Unidos</Dropdown.Option>
-            </Dropdown>
-          </div>
+              <div className="form-row">
+                <label>Estado *</label>
+                <input
+                  required={form.tipoCliente === "Particular"}
+                  value={form.direccion?.estado ?? ""}
+                  onChange={(e) => upd("direccion.estado", e.target.value)}
+                />
+              </div>
 
-        </div>
+              <PaisSelect value={form.pais} onChange={(e) => upd("pais", e.target.value)} />
+            </div>
+          </div>
+        </>
       )}
 
       {/* Empresa Privada */}
       {form.tipoCliente === "Empresa Privada" && (
         <>
-          <div className="form-grid">
-            <div className="form-row">
-              <label>Nombre Fiscal (Razón Social)</label>
-              <input
-                value={form.empresa?.razonSocial ?? ""}
-                onChange={(e) => upd("empresa.razonSocial", e.target.value)}
+          <div className="form-section">
+            <h3 className="form-section-title">Datos de la empresa</h3>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Nombre Fiscal (Razón Social)</label>
+                <input
+                  value={form.empresa?.razonSocial ?? ""}
+                  onChange={(e) => upd("empresa.razonSocial", e.target.value)}
+                />
+              </div>
+              <div className="form-row">
+                <label>Nombre Comercial</label>
+                <input
+                  value={form.nombre ?? ""}
+                  onChange={(e) => upd("nombre", e.target.value)}
+                />
+              </div>
+              <PaisSelect value={form.pais} onChange={(e) => upd("pais", e.target.value)} />
+            </div>
+          </div>
+
+          <div className="form-section">
+            <h3 className="form-section-title">Contacto de la empresa</h3>
+            <div className="form-grid">
+              <EmailList emails={form.emails} onChange={(arr) => upd("emails", arr)} />
+
+              <TelefonoList
+                label="Teléfono Fijo"
+                valores={form.telefonos ?? [{ lada: "", numero: "" }]}
+                onChange={(arr) => upd("telefonos", arr)}
+              />
+
+              <TelefonoList
+                label="Celular"
+                valores={form.celulares ?? [{ lada: "", numero: "" }]}
+                onChange={(arr) => upd("celulares", arr)}
               />
             </div>
-            <div className="form-row">
-              <label>Nombre Comercial</label>
-              <input
-                value={form.nombre ?? ""}
-                onChange={(e) => upd("nombre", e.target.value)}
+          </div>
+
+          <div className="form-section">
+            <h3 className="form-section-title">Contactos</h3>
+            <div className="form-grid">
+              <ContactoList
+                contactos={form.empresa?.contacto}
+                onChange={(arr) => upd("empresa.contacto", arr)}
               />
             </div>
-            <div className="form-row col-12">
-              <label>Correos Electrónicos</label>
-              {(form.emails ?? [""]).map((mail, i) => (
-                <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "6px", alignItems: "center" }}>
-                  <input
-                    type="email"
-                    placeholder={i === 0 ? "Principal" : `Correo ${i + 1}`}
-                    value={mail}
-                    onChange={(e) => {
-                      const arr = [...(form.emails ?? [""])];
-                      arr[i] = e.target.value;
-                      upd("emails", arr);
-                    }}
-                    style={{ flex: 1 }}
-                  />
-                  {i === 0 ? (
-                    <span style={{ fontSize: "12px", color: "var(--color-text-info)", whiteSpace: "nowrap" }}>
-                      Principal
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const arr = (form.emails ?? [""]).filter((_, idx) => idx !== i);
-                        upd("emails", arr);
-                      }}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "red" }}
-                    >✕</button>
-                  )}
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => upd("emails", [...(form.emails ?? [""]), ""])}
-                style={{ fontSize: "13px", background: "none", border: "1px dashed #aaa", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", marginTop: "2px" }}
-              >
-                + Agregar correo
-              </button>
-            </div>
-
-            <TelefonoList
-              label="Teléfono Fijo"
-              valores={form.telefonos ?? [{ lada: "", numero: "" }]}
-              onChange={(arr) => upd("telefonos", arr)}
-            />
-
-            <TelefonoList
-              label="Celular"
-              valores={form.celulares ?? [{ lada: "", numero: "" }]}
-              onChange={(arr) => upd("celulares", arr)}
-            />
-
-            <div className="form-row col-12">
-              <label>Contacto</label>
-              <input
-                value={form.empresa?.contacto?.nombre ?? ""}
-                onChange={(e) => upd("empresa.contacto.nombre", e.target.value)}
-              />
-            </div>
-
-            <div className="form-row">
-              <label>País</label>
-              <Dropdown
-                value={form.pais ?? "México"}
-                onChange={(e) => upd("pais", e.target.value)}
-              >
-                <Dropdown.Option value="México">México</Dropdown.Option>
-                <Dropdown.Option value="Estados Unidos">Estados Unidos</Dropdown.Option>
-              </Dropdown>
-            </div>
-
           </div>
         </>
       )}
@@ -665,113 +788,54 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
       {/* Empresa Arrendadora */}
       {form.tipoCliente === "Empresa Arrendadora" && (
         <>
-          <div className="form-grid">
-            <div className="form-row">
-              <label>Nombre Comercial</label>
-              <input
-                value={form.nombre ?? ""}
-                onChange={(e) => upd("nombre", e.target.value)}
+          <div className="form-section">
+            <h3 className="form-section-title">Datos de la empresa</h3>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Nombre Comercial</label>
+                <input
+                  value={form.nombre ?? ""}
+                  onChange={(e) => upd("nombre", e.target.value)}
+                />
+              </div>
+              <div className="form-row">
+                <label>Nombre Fiscal (Razón Social)</label>
+                <input
+                  value={form.empresa?.razonSocial ?? ""}
+                  onChange={(e) => upd("empresa.razonSocial", e.target.value)}
+                />
+              </div>
+              <PaisSelect value={form.pais} onChange={(e) => upd("pais", e.target.value)} />
+            </div>
+          </div>
+
+          <div className="form-section">
+            <h3 className="form-section-title">Contacto de la empresa</h3>
+            <div className="form-grid">
+              <EmailList emails={form.emails} onChange={(arr) => upd("emails", arr)} />
+
+              <TelefonoList
+                label="Teléfono Fijo"
+                valores={form.telefonos ?? [{ lada: "", numero: "" }]}
+                onChange={(arr) => upd("telefonos", arr)}
+              />
+
+              <TelefonoList
+                label="Celular"
+                valores={form.celulares ?? [{ lada: "", numero: "" }]}
+                onChange={(arr) => upd("celulares", arr)}
               />
             </div>
-            <div className="form-row">
-              <label>Nombre Fiscal (Razón Social)</label>
-              <input
-                value={form.empresa?.razonSocial ?? ""}
-                onChange={(e) => upd("empresa.razonSocial", e.target.value)}
+          </div>
+
+          <div className="form-section">
+            <h3 className="form-section-title">Contactos</h3>
+            <div className="form-grid">
+              <ContactoList
+                contactos={form.empresa?.contacto}
+                onChange={(arr) => upd("empresa.contacto", arr)}
               />
             </div>
-            <div className="form-row col-12">
-              <label>Correos Electrónicos</label>
-              {(form.emails ?? [""]).map((mail, i) => (
-                <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "6px", alignItems: "center" }}>
-                  <input
-                    type="email"
-                    placeholder={i === 0 ? "Principal" : `Correo ${i + 1}`}
-                    value={mail}
-                    onChange={(e) => {
-                      const arr = [...(form.emails ?? [""])];
-                      arr[i] = e.target.value;
-                      upd("emails", arr);
-                    }}
-                    style={{ flex: 1 }}
-                  />
-                  {i === 0 ? (
-                    <span style={{ fontSize: "12px", color: "var(--color-text-info)", whiteSpace: "nowrap" }}>
-                      Principal
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const arr = (form.emails ?? [""]).filter((_, idx) => idx !== i);
-                        upd("emails", arr);
-                      }}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "red" }}
-                    >✕</button>
-                  )}
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => upd("emails", [...(form.emails ?? [""]), ""])}
-                style={{ fontSize: "13px", background: "none", border: "1px dashed #aaa", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", marginTop: "2px" }}
-              >
-                + Agregar correo
-              </button>
-            </div>
-
-            <TelefonoList
-              label="Teléfono Fijo"
-              valores={form.telefonos ?? [{ lada: "", numero: "" }]}
-              onChange={(arr) => upd("telefonos", arr)}
-            />
-
-            <TelefonoList
-              label="Celular"
-              valores={form.celulares ?? [{ lada: "", numero: "" }]}
-              onChange={(arr) => upd("celulares", arr)}
-            />
-
-            <div className="form-row col-2">
-              <label>Contacto</label>
-              <input
-                value={form.empresa?.contacto?.nombre ?? ""}
-                onChange={(e) => upd("empresa.contacto.nombre", e.target.value)}
-              />
-            </div>
-
-            <div className="form-row">
-              <label>Departamento</label>
-              <input
-                value={form.empresa?.contacto?.departamento ?? ""}
-                onChange={(e) =>
-                  upd("empresa.contacto.departamento", e.target.value)
-                }
-              />
-            </div>
-
-            <div className="form-row">
-              <label>Puesto</label>
-              <input
-                value={form.empresa?.contacto?.puesto ?? ""}
-                onChange={(e) =>
-                  upd("empresa.contacto.puesto", e.target.value)
-                }
-              />
-            </div>
-
-            <div className="form-row">
-              <label>País</label>
-              <Dropdown
-                value={form.pais ?? "México"}
-                onChange={(e) => upd("pais", e.target.value)}
-              >
-                <Dropdown.Option value="México">México</Dropdown.Option>
-                <Dropdown.Option value="Estados Unidos">Estados Unidos</Dropdown.Option>
-              </Dropdown>
-            </div>
-
-            
           </div>
         </>
       )}
@@ -779,227 +843,156 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
       {/* Gobierno */}
       {form.tipoCliente === "Empresa Gobierno" && (
         <>
-          <h3>Gobierno</h3>
-          <div className="form-grid">
-            <div className="form-row">
-              <label>Nombre Fiscal</label>
-              <input
-                value={form.gobierno?.nombreGobierno ?? ""}
-                onChange={(e) =>
-                  upd("gobierno.nombreGobierno", e.target.value)
-                }
-              />
+          <div className="form-section">
+            <h3 className="form-section-title">Gobierno</h3>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Nombre Fiscal</label>
+                <input
+                  value={form.gobierno?.nombreGobierno ?? ""}
+                  onChange={(e) =>
+                    upd("gobierno.nombreGobierno", e.target.value)
+                  }
+                />
+              </div>
+              <PaisSelect value={form.pais} onChange={(e) => upd("pais", e.target.value)} />
             </div>
-
-            <div className="form-row col-12">
-              <label>Correos Electrónicos</label>
-              {(form.emails ?? [""]).map((mail, i) => (
-                <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "6px", alignItems: "center" }}>
-                  <input
-                    type="email"
-                    placeholder={i === 0 ? "Principal" : `Correo ${i + 1}`}
-                    value={mail}
-                    onChange={(e) => {
-                      const arr = [...(form.emails ?? [""])];
-                      arr[i] = e.target.value;
-                      upd("emails", arr);
-                    }}
-                    style={{ flex: 1 }}
-                  />
-                  {i === 0 ? (
-                    <span style={{ fontSize: "12px", color: "var(--color-text-info)", whiteSpace: "nowrap" }}>
-                      Principal
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const arr = (form.emails ?? [""]).filter((_, idx) => idx !== i);
-                        upd("emails", arr);
-                      }}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "red" }}
-                    >✕</button>
-                  )}
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => upd("emails", [...(form.emails ?? [""]), ""])}
-                style={{ fontSize: "13px", background: "none", border: "1px dashed #aaa", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", marginTop: "2px" }}
-              >
-                + Agregar correo
-              </button>
-            </div>
-
-            <TelefonoList
-              label="Celular"
-              valores={form.celulares ?? [{ lada: "", numero: "" }]}
-              onChange={(arr) => upd("celulares", arr)}
-            />
-
-            <TelefonoList
-              label="Teléfono Gobierno"
-              valores={form.gobierno?.contactoGobierno?.telefonos ?? [{ lada: "", numero: "" }]}
-              onChange={(arr) => upd("gobierno.contactoGobierno.telefonos", arr)}
-            />
-
-            <div className="form-row col-2">
-              <label>Contacto</label>
-              <input
-                value={form.gobierno?.contactoGobierno?.nombre ?? ""}
-                onChange={(e) =>
-                  upd("gobierno.contactoGobierno.nombre", e.target.value)
-                }
-              />
-            </div>
-
-            <div className="form-row">
-              <label>Departamento</label>
-              <input
-                value={
-                  form.gobierno?.contactoGobierno?.departamento ?? ""
-                }
-                onChange={(e) =>
-                  upd(
-                    "gobierno.contactoGobierno.departamento",
-                    e.target.value
-                  )
-                }
-              />
-            </div>
-            <div className="form-row">
-              <label>Puesto</label>
-              <input
-                value={form.gobierno?.contactoGobierno?.puesto ?? ""}
-                onChange={(e) =>
-                  upd("gobierno.contactoGobierno.puesto", e.target.value)
-                }
-              />
-            </div>
-
-            <div className="form-row">
-              <label>País</label>
-              <Dropdown
-                value={form.pais ?? "México"}
-                onChange={(e) => upd("pais", e.target.value)}
-              >
-                <Dropdown.Option value="México">México</Dropdown.Option>
-                <Dropdown.Option value="Estados Unidos">Estados Unidos</Dropdown.Option>
-              </Dropdown>
-            </div>
-
           </div>
 
-          <h3>Dependencia</h3>
-          <div className="form-grid">
-            <div className="form-row">
-              <label>Nombre Dependencia</label>
-              <input
-                value={form.gobierno?.dependencia?.nombre ?? ""}
-                onChange={(e) =>
-                  upd("gobierno.dependencia.nombre", e.target.value)
-                }
+          <div className="form-section">
+            <h3 className="form-section-title">Contacto general</h3>
+            <div className="form-grid">
+              <EmailList emails={form.emails} onChange={(arr) => upd("emails", arr)} />
+
+              <TelefonoList
+                label="Celular"
+                valores={form.celulares ?? [{ lada: "", numero: "" }]}
+                onChange={(arr) => upd("celulares", arr)}
               />
             </div>
-            <div className="form-row">
-              <label>Contacto Dependencia (Nombre)</label>
-              <input
-                value={form.gobierno?.dependencia?.contacto?.nombre ?? ""}
-                onChange={(e) =>
-                  upd(
-                    "gobierno.dependencia.contacto.nombre",
-                    e.target.value
-                  )
-                }
+          </div>
+
+          <div className="form-section">
+            <h3 className="form-section-title">Contacto de gobierno</h3>
+            <div className="form-grid">
+              <ContactoList
+                label="Contacto Gobierno"
+                contactos={form.gobierno?.contactoGobierno}
+                onChange={(arr) => upd("gobierno.contactoGobierno", arr)}
               />
             </div>
-            <div className="form-row">
-              <label>Correo Electronico(Correo)</label>
-              <input
-                value={form.gobierno?.dependencia?.contacto?.correo ?? ""}
-                onChange={(e) =>
-                  upd(
-                    "gobierno.dependencia.contacto.correo",
-                    e.target.value
-                  )
-                }
+          </div>
+
+          <div className="form-section">
+            <h3 className="form-section-title">Dependencia</h3>
+            <div className="form-grid">
+              <div className="form-row">
+                <label>Nombre Dependencia</label>
+                <input
+                  value={form.gobierno?.dependencia?.nombre ?? ""}
+                  onChange={(e) =>
+                    upd("gobierno.dependencia.nombre", e.target.value)
+                  }
+                />
+              </div>
+              <div className="form-row">
+                <label>Contacto Dependencia (Nombre)</label>
+                <input
+                  value={form.gobierno?.dependencia?.contacto?.nombre ?? ""}
+                  onChange={(e) =>
+                    upd(
+                      "gobierno.dependencia.contacto.nombre",
+                      e.target.value
+                    )
+                  }
+                />
+              </div>
+              <div className="form-row">
+                <label>Correo Electrónico</label>
+                <input
+                  value={form.gobierno?.dependencia?.contacto?.correo ?? ""}
+                  onChange={(e) =>
+                    upd(
+                      "gobierno.dependencia.contacto.correo",
+                      e.target.value
+                    )
+                  }
+                />
+              </div>
+
+              <TelefonoList
+                label="Teléfono Dependencia"
+                valores={form.gobierno?.dependencia?.contacto?.telefonos ?? [{ lada: "", numero: "" }]}
+                onChange={(arr) => upd("gobierno.dependencia.contacto.telefonos", arr)}
               />
-            </div>
 
-
-            <TelefonoList
-              label="Teléfono Dependencia"
-              valores={form.gobierno?.dependencia?.contacto?.telefonos ?? [{ lada: "", numero: "" }]}
-              onChange={(arr) => upd("gobierno.dependencia.contacto.telefonos", arr)}
-            />
-
-
-            <TelefonoList
-              label="Celular"
-              valores={form.gobierno?.dependencia?.contacto?.celulares ?? [{ lada: "", numero: "" }]}
-              onChange={(arr) => upd("gobierno.dependencia.contacto.celulares", arr)}
-            />
-
-            <div className="form-row">
-              <label>Departamento</label>
-              <input
-                value={
-                  form.gobierno?.dependencia?.contacto?.departamento ??
-                  ""
-                }
-                onChange={(e) =>
-                  upd(
-                    "gobierno.dependencia.contacto.departamento",
-                    e.target.value
-                  )
-                }
+              <TelefonoList
+                label="Celular"
+                valores={form.gobierno?.dependencia?.contacto?.celulares ?? [{ lada: "", numero: "" }]}
+                onChange={(arr) => upd("gobierno.dependencia.contacto.celulares", arr)}
               />
-            </div>
-            <div className="form-row">
-              <label>Puesto</label>
-              <input
-                value={
-                  form.gobierno?.dependencia?.contacto?.puesto ?? ""
-                }
-                onChange={(e) =>
-                  upd(
-                    "gobierno.dependencia.contacto.puesto",
-                    e.target.value
-                  )
-                }
-              />
+
+              <div className="form-row">
+                <label>Departamento</label>
+                <input
+                  value={
+                    form.gobierno?.dependencia?.contacto?.departamento ??
+                    ""
+                  }
+                  onChange={(e) =>
+                    upd(
+                      "gobierno.dependencia.contacto.departamento",
+                      e.target.value
+                    )
+                  }
+                />
+              </div>
+              <div className="form-row">
+                <label>Puesto</label>
+                <input
+                  value={
+                    form.gobierno?.dependencia?.contacto?.puesto ?? ""
+                  }
+                  onChange={(e) =>
+                    upd(
+                      "gobierno.dependencia.contacto.puesto",
+                      e.target.value
+                    )
+                  }
+                />
+              </div>
             </div>
           </div>
         </>
       )}
 
-      {/* ===== Empleado ===== */}
-      <div className="facturacion-toggle">
-        <label className="checkbox-inline">
-          <input
-            type="checkbox"
-            checked={form.esEmpleado || false}
-            onChange={(e) => upd("esEmpleado", e.target.checked)}
-          />
-          ¿Es empleado?
-        </label>
-      </div>
+      {/* ===== Opciones ===== */}
+      <div className="form-section">
+        <h3 className="form-section-title">Opciones</h3>
+        <div className="opciones-row">
+          <label className="opcion-toggle">
+            <input
+              type="checkbox"
+              checked={form.esEmpleado || false}
+              onChange={(e) => upd("esEmpleado", e.target.checked)}
+            />
+            ¿Es empleado?
+          </label>
 
-      {/* ===== Facturación ===== */}
-      <div className="facturacion-toggle">
-        <label className="checkbox-inline">
-          <input
-            type="checkbox"
-            checked={form.requiereFacturacion || false}
-            onChange={(e) => upd("requiereFacturacion", e.target.checked)}
-          />
-          ¿El cliente requiere facturación?
-        </label>
+          <label className="opcion-toggle">
+            <input
+              type="checkbox"
+              checked={form.requiereFacturacion || false}
+              onChange={(e) => upd("requiereFacturacion", e.target.checked)}
+            />
+            ¿El cliente requiere facturación?
+          </label>
+        </div>
       </div>
 
       {form.requiereFacturacion && (
-        <>
-          <h3>Datos de Facturación</h3>
+        <div className="form-section">
+          <h3 className="form-section-title">Datos de facturación</h3>
 
           <div className="form-grid">
             <div className="form-row">
@@ -1115,35 +1108,38 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
               </Dropdown>
             </div>
           </div>
-        </>
+        </div>
       )}
 
       {/* Asesor Responsable: solo visible para administradores */}
-      <div className="form-grid">
-        {isAdmin && (
-          <div className="form-row">
-            <label>Asesor Responsable</label>
-            <Dropdown
-              value={form.asesorResponsable ?? ""}
-              onChange={(e) => upd("asesorResponsable", e.target.value)}
-            >
-              <Dropdown.Option value="">-- Seleccionar --</Dropdown.Option>
-              {empleados.map((user) => (
-                <Dropdown.Option key={user._id} value={user.name}>
-                  {user.name}
-                </Dropdown.Option>
-              ))}
-            </Dropdown>
-          </div>
-        )}
+      <div className="form-section">
+        <h3 className="form-section-title">Información adicional</h3>
+        <div className="form-grid">
+          {isAdmin && (
+            <div className="form-row">
+              <label>Asesor Responsable</label>
+              <Dropdown
+                value={form.asesorResponsable ?? ""}
+                onChange={(e) => upd("asesorResponsable", e.target.value)}
+              >
+                <Dropdown.Option value="">-- Seleccionar --</Dropdown.Option>
+                {empleados.map((user) => (
+                  <Dropdown.Option key={user._id} value={user.name}>
+                    {user.name}
+                  </Dropdown.Option>
+                ))}
+              </Dropdown>
+            </div>
+          )}
 
-        <div className="form-row col-12">
-          <label>Observaciones</label>
-          <textarea
-            rows={3}
-            value={form.observaciones ?? ""}
-            onChange={(e) => upd("observaciones", e.target.value)}
-          />
+          <div className="form-row col-12">
+            <label>Observaciones</label>
+            <textarea
+              rows={3}
+              value={form.observaciones ?? ""}
+              onChange={(e) => upd("observaciones", e.target.value)}
+            />
+          </div>
         </div>
       </div>
 

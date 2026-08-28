@@ -19,6 +19,11 @@ const ESTADOS_ORDEN = [
 // ===== Cajas: catálogos =====
 const BANCOS_CAJA = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER', 'DOLARES', 'EFECTIVOS', 'CHEQUE', 'TRANSFERENCIA'];
 const TIPO_NOTA = ['Contado', 'Credito', 'Cancelada'];
+// Terminales físicas para cobros con tarjeta en Cajas (mismo catálogo que
+// TERMINALES_TARJETA en routes/cajas.js). El '' es el valor por defecto:
+// "sin terminal" (pago que no se cobró con tarjeta) y debe ser válido para el
+// enum, o un vehiculo.save() posterior sobre ese pago falla la validación.
+const TERMINALES_TARJETA_CAJA = ['', 'BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
 
 // ===== Solicitud de Garantía =====
 // Sub-documento embebido en la orden NUEVA que se abre por garantía.
@@ -547,6 +552,10 @@ const vehiculoSchema = new Schema(
         precioServicio: { type: Number, default: 0 },
         mecanico: { type: String, default: "" },
         horas: { type: Number, default: 0 },
+        // Horas de esta asignación ya anticipadas (pagadas por adelantado) al
+        // mecánico; nunca mayor a `horas`. El monto correspondiente se
+        // recalcula con TARIFA_HORA, no se guarda.
+        horasAnticipadas: { type: Number, default: 0 },
         fechaPago: { type: String, default: "" },
         observaciones: { type: String, default: "" },
 
@@ -554,19 +563,6 @@ const vehiculoSchema = new Schema(
         esCarroceria:     { type: Boolean, default: false },
         carrocero:        { type: String, default: "" },
         precioCarroceria: { type: Number, default: 0 },
-      },
-    ],
-
-    // ===== Anticipos de Horas (mano de obra) =====
-    // Adelantos de pago en horas hechos a un mecánico sobre las horas que
-    // tiene asignadas en manoObra para esta orden. El monto es un snapshot
-    // (horas * TARIFA_HORA vigente al momento del anticipo).
-    anticiposManoObra: [
-      {
-        mecanico: { type: String, default: "" },
-        horas: { type: Number, default: 0 },
-        monto: { type: Number, default: 0 },
-        fecha: { type: Date, default: Date.now },
       },
     ],
 
@@ -597,6 +593,23 @@ pendienteCierre: { type: Boolean, default: false },
         fecha: { type: Date, default: Date.now },
         tipoPago: { type: String, enum: ['COMPLETO', 'ABONO', 'ANTICIPO'], default: 'ABONO' },
         comprobante: { type: String, enum: ['NOTA_VENTA', 'REMISION', 'RECIBO_PROVISIONAL'], required: true },
+        // Solo cuando tipoPago === 'ANTICIPO': a qué reporte diario de Cajas
+        // se suma este anticipo (ver buildReporteFacturasDiario /
+        // buildReporteRemisionesDiario en routes/reportes.js). Reusa el mismo
+        // vocabulario que `comprobante` aunque el anticipo se documente con
+        // Recibo Provisional, no con Nota de Venta/Remisión real.
+        anticipoDestino: { type: String, enum: ['NOTA_VENTA', 'REMISION'], default: null },
+        // Solo cuando tipoPago === 'ANTICIPO': el dinero se guardó como saldo a
+        // favor del cliente (Cliente.saldoAFavor, vía un movimiento
+        // AnticipoCliente tipo DEPOSITO) en vez de abonarse a la orden — no
+        // tiene sentido "dar cambio" de un anticipo cuando la orden aún no
+        // tiene precio. El pago conserva monto/forma de pago para el Recibo
+        // Provisional y para la sección "Anticipos" del Reporte diario de
+        // Cajas, pero NO cuenta como abonado en calcularTotalesOrden.
+        // saldoAFavorMovimientoId liga al DEPOSITO para poder revertirlo si el
+        // pago se cancela (ver POST /:id/pagos/:pagoId/cancelar).
+        aSaldoAFavor: { type: Boolean, default: false },
+        saldoAFavorMovimientoId: { type: Schema.Types.ObjectId, ref: 'AnticipoCliente', default: null },
         montoPesos: { type: Number, default: 0 },
         montoDolares: { type: Number, default: 0 },
         tipoCambio: { type: Number, default: 0 },
@@ -623,6 +636,11 @@ pendienteCierre: { type: Boolean, default: false },
         // facturó la orden (ver generar_xml.js). Null cuando la cancelación
         // fue una corrección manual por error de captura (ver cajas.js).
         facturaId: { type: Schema.Types.ObjectId, ref: 'FacturaCfdi', default: null },
+        // Factura Global (CFDI al público en general) que agrupó esta Nota de
+        // Venta. Se marca al generar el CFDI global (ver generar_xml.js) para
+        // que la misma nota no entre en dos facturas globales; se limpiaría al
+        // cancelar ese CFDI. El pago NO se cancela: sigue contando como cobro.
+        facturaGlobalId: { type: Schema.Types.ObjectId, ref: 'FacturaCfdi', default: null },
 
         // Presente solo si comprobante === 'NOTA_VENTA'
         // numero sin default: si se le pone `default: null`, Mongoose lo agrega
@@ -647,18 +665,60 @@ pendienteCierre: { type: Boolean, default: false },
         // (ver nota arriba sobre no ponerle default a `numero`).
         reciboProvisional: {
           numero: { type: Number },
-          formaPago: { type: String, enum: ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFERENCIA'], default: 'EFECTIVO' },
+          formaPago: { type: String, enum: ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFERENCIA', 'COMBINADO'], default: 'EFECTIVO' },
           chequeNumero: { type: String, default: '' },
           concepto: { type: String, default: '' },
-          razon: { type: String, default: '' },
           recibio: { type: String, default: '' },
-          autorizo: { type: String, default: '' },
+          // Terminal por la que se cobró un Recibo Provisional SIMPLE con
+          // tarjeta (formaPago 'CREDITO' | 'DEBITO'); mismo catálogo que
+          // BANCO_A_TERMINAL en utils/cierreCajaTerminales.js, para sumarla al
+          // Cierre de Caja (ver POST /:id/pagos). El pago Combinado lleva su
+          // propia terminal en `combinado.banco`.
+          banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+          // Presente solo si formaPago === 'COMBINADO': desglose del monto en
+          // pesos por método (su suma es el montoPesos del pago).
+          combinado: {
+            credito: { type: Number, default: 0 },
+            efectivo: { type: Number, default: 0 },
+            // Dólares dentro del Efectivo combinado (con su propia conversión
+            // a pesos vía pago.tipoCambio); los demás métodos son solo pesos.
+            efectivoDolares: { type: Number, default: 0 },
+            debito: { type: Number, default: 0 },
+            cheque: { type: Number, default: 0 },
+            transferencia: { type: Number, default: 0 },
+            // Terminal por la que se cobró la parte de T. Crédito/T. Débito de
+            // este combinado; mismo catálogo que BANCO_A_TERMINAL en
+            // utils/cierreCajaTerminales.js, para poder sumarla al Cierre de
+            // Caja (ver POST /:id/pagos en routes/cajas.js).
+            banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+          },
         },
 
         // Recibo de Dólares: se genera automáticamente cuando el pago incluye
         // montoDolares > 0, sin importar el comprobante o tipoPago.
         reciboDolares: {
           numero: { type: Number },
+        },
+
+        // Presente solo si este pago usó saldo a favor del cliente (ver
+        // POST /:id/pagos en cajas.js): monto ya incluido en `monto` de
+        // arriba, deducido atómicamente de Cliente.saldoAFavor vía
+        // utils/anticiposCliente.js. `movimientoId` liga al AnticipoCliente
+        // tipo USO correspondiente, para poder revertirlo si este pago se
+        // cancela (ver POST /:id/pagos/:pagoId/cancelar).
+        saldoAplicado: {
+          monto: { type: Number, default: 0 },
+          movimientoId: { type: Schema.Types.ObjectId, ref: 'AnticipoCliente', default: null },
+          // Desglose FIFO de con qué forma(s) de pago se depositó originalmente
+          // el saldo que se está aplicando aquí (ver calcularOrigenSaldo en
+          // utils/anticiposCliente.js). formaPago null = dinero reembolsado de
+          // un uso previo, cuyo depósito original ya no se puede rastrear.
+          origenes: [
+            {
+              formaPago: { type: String, enum: ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFERENCIA'], default: null },
+              monto: { type: Number, default: 0 },
+            },
+          ],
         },
       },
     ],

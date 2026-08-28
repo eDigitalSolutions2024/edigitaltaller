@@ -113,6 +113,14 @@ export default function CajaHistorialPagos({
                 <td className="text-center">{tipoPagoLabel(p)}</td>
                 <td className="text-center">
                   {comprobanteLabel(p)}
+                  {p.aSaldoAFavor && (
+                    <span
+                      className="badge bg-info text-dark ms-1"
+                      title="El dinero de este anticipo se guardó como saldo a favor del cliente; no bajó el saldo de la orden."
+                    >
+                      → Saldo a favor
+                    </span>
+                  )}
                   {p.cancelado && (
                     <span className="badge bg-danger ms-1" title={p.motivoCancelacion || "Cancelado"}>
                       Cancelado
@@ -122,7 +130,14 @@ export default function CajaHistorialPagos({
                 <td className="text-end">{formatMoney(p.montoPesos)}</td>
                 <td className="text-end">{p.montoDolares ? formatMoney(p.montoDolares) : "-"}</td>
                 <td className="text-end">{p.tipoCambio || "-"}</td>
-                <td className="text-end fw-bold">{formatMoney(p.monto)}</td>
+                <td className="text-end fw-bold">
+                  {formatMoney(p.monto)}
+                  {p.saldoAplicado?.monto > 0 && (
+                    <div className="small text-muted fw-normal">
+                      (incluye {formatMoney(p.saldoAplicado.monto)} de saldo)
+                    </div>
+                  )}
+                </td>
                 <td>{p.referencia}</td>
                 <td>{p.observaciones}</td>
                 <td>{p.registradoPor}</td>

@@ -319,6 +319,12 @@ useEffect(() => {
               >
                 <span className="label">Gestión de Caja</span>
               </NavLink>
+              <NavLink
+                to="/cajas/anticipos"
+                className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+              >
+                <span className="label">Anticipos de Clientes</span>
+              </NavLink>
             </div>
           </div>
         )}

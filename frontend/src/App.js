@@ -99,6 +99,7 @@ import CajasLayout from "./pages/cajas/CajasLayout";
 import CajasBuscarOrden from "./pages/cajas/CajasBuscarOrden";
 import CajaOrdenDetalle from "./pages/cajas/CajaOrdenDetalle";
 import GestionCaja from "./pages/cajas/GestionCaja";
+import CajasAnticipos from "./pages/cajas/CajasAnticipos";
 
 // Facturación
 import FacturacionLayout from "./pages/facturacion/FacturacionLayout";
@@ -253,6 +254,7 @@ export default function App() {
             <Route path="buscar" element={<CajasBuscarOrden />} />
             <Route path="orden/:id" element={<CajaOrdenDetalle />} />
             <Route path="gestion" element={<GestionCaja />} />
+            <Route path="anticipos" element={<CajasAnticipos />} />
           </Route>
 
           {/* Refaccionaria */}

@@ -124,12 +124,33 @@ export default function PdfViewer({ src, fileName = "documento.pdf", height = 48
     };
   }, []);
 
-  function imprimir() {
+  async function imprimir() {
     if (!listoParaImprimir) return;
-    // Nada de window.open(): en el WebView de la tablet (FreeKiosk) abrir
-    // una ventana/pestaña nueva para imprimir no es fiable. Se llama
-    // print() sobre la propia página; el CSS de PdfViewer.css (@media
-    // print) oculta todo lo demás y deja visible solo este visor.
+    // En las tablets con FreeKiosk, window.print() sobre la propia página
+    // llega a mostrar la impresora de red (compartida por Windows) pero el
+    // trabajo nunca se autentica contra ella y queda "esperando enviar"
+    // hasta que la PC lo rechaza como bloqueado — descargar el PDF y
+    // abrirlo con una app externa sí funciona, porque ahí la impresión la
+    // maneja el sistema y no el puente interno (limitado) de FreeKiosk.
+    // Para lograr eso mismo sin dejar el PDF guardado en la tablet, se
+    // comparte el archivo (Web Share API) para que el usuario lo mande a
+    // imprimir desde la hoja nativa de Android. Donde no haya soporte para
+    // compartir archivos (ej. navegadores de escritorio), se usa el
+    // print() de siempre — el CSS de PdfViewer.css (@media print) oculta
+    // todo lo demás y deja visible solo este visor.
+    if (navigator.canShare) {
+      try {
+        const resp = await fetch(src);
+        const blob = await resp.blob();
+        const archivo = new File([blob], fileName, { type: "application/pdf" });
+        if (navigator.canShare({ files: [archivo] })) {
+          await navigator.share({ files: [archivo], title: fileName });
+          return;
+        }
+      } catch (err) {
+        if (err?.name === "AbortError") return; // el usuario canceló el share
+      }
+    }
     window.print();
   }
 

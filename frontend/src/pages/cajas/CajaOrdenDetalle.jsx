@@ -16,10 +16,8 @@ import {
 import { createTicket } from "../../api/tickets";
 import { getValePdfUrl } from "../../api/vales";
 import usePdfModal from "../../hooks/usePdfModal";
-import http from "../../api/http";
 import { getUser } from "../../auth";
 import { formatFecha } from "../../utils/fechas";
-import { TARIFA_HORA, calcImporteHoras } from "../../utils/manoObra";
 import { calcularTotalesOrden } from "../../utils/cajaTotales";
 import CajaCostoVentaTable from "./components/CajaCostoVentaTable";
 import CajaHistorialPagos from "./components/CajaHistorialPagos";
@@ -56,21 +54,6 @@ export default function CajaOrdenDetalle() {
   const [pagoACancelar, setPagoACancelar] = useState(null);
   const [showModalValeGarantia, setShowModalValeGarantia] = useState(false);
 
-  const [mecanicos, setMecanicos] = useState([]);
-  const [carroceros, setCarroceros] = useState([]);
-
-  useEffect(() => {
-    Promise.all([
-      http.get("/empleados?puesto=mecanico&activo=true"),
-      http.get("/empleados?puesto=carrocero&activo=true"),
-    ])
-      .then(([resMec, resCar]) => {
-        setMecanicos(resMec.data?.data || resMec.data || []);
-        setCarroceros(resCar.data?.data || resCar.data || []);
-      })
-      .catch((err) => console.error("Error cargando empleados:", err));
-  }, []);
-
   const cargar = async () => {
     try {
       setLoading(true);
@@ -90,19 +73,12 @@ export default function CajaOrdenDetalle() {
 
   const totales = useMemo(() => (orden ? calcularTotalesOrden(orden) : null), [orden]);
 
-  const getNombreMecanico = (idEmpleado) =>
-    mecanicos.find((m) => m._id === idEmpleado)?.nombre || idEmpleado || "—";
-
-  const getNombreCarrocero = (idEmpleado) =>
-    carroceros.find((c) => c._id === idEmpleado)?.nombre || idEmpleado || "—";
-
-  const nombreManoObra = (m) =>
-    m.esCarroceria ? getNombreCarrocero(m.carrocero) : getNombreMecanico(m.mecanico);
-
+  // No se cierra el modal aquí: tras registrar el pago, CajaModalPago se queda
+  // abierto mostrando su panel de impresión (Vale, Nota/Remisión, recibos) y se
+  // cierra solo cuando el cajero pulsa "Listo".
   const handleRegistrarPago = async (payload) => {
     const res = await registrarPago(orden._id, payload);
     setOrden(res.data.vehiculo);
-    setShowModalPago(false);
     const pagos = res.data.vehiculo.pagos || [];
     return pagos[pagos.length - 1];
   };
@@ -125,6 +101,15 @@ export default function CajaOrdenDetalle() {
   const handleTogglePendienteFactura = async () => {
     const res = await marcarPendienteFactura(orden._id, !orden.pendienteFactura);
     setOrden(res.data.vehiculo);
+  };
+
+  // Atajo a Facturación: abre "Nueva Factura" con esta orden ya cargada. Si la
+  // orden ya tiene factura(s), NuevaFactura ofrece Nota de crédito o Complemento
+  // de pago sobre ellas en vez de volver a facturar.
+  const irAFacturar = () => {
+    navigate("/facturacion/nueva", {
+      state: { ordenId: orden._id, ordenServicio: orden.ordenServicio },
+    });
   };
 
   // Restablecer un abono/anticipo/remisión/nota de venta: solo admin (botón
@@ -213,7 +198,6 @@ export default function CajaOrdenDetalle() {
       ? [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ")
       : c.gobierno?.nombreGobierno || c.nombre || "-";
 
-  const manoObra = orden.manoObra || [];
   const ventaRows = orden.ventaCliente || [];
   const esGarantia = !!orden.garantia;
 
@@ -284,6 +268,12 @@ export default function CajaOrdenDetalle() {
                         )}
                       </td>
                     </tr>
+                    {c.saldoAFavor > 0 && (
+                      <tr>
+                        <th className="ps-2">Saldo a Favor</th>
+                        <td className="text-success fw-bold">{formatMoney(c.saldoAFavor)}</td>
+                      </tr>
+                    )}
                     <tr>
                       <th className="ps-2">Marca / Modelo</th>
                       <td>{(orden.marca || "") + (orden.modelo ? " / " + orden.modelo : "") || "-"}</td>
@@ -344,54 +334,16 @@ export default function CajaOrdenDetalle() {
             </div>
           </div>
         </div>
-
-        {/* MANO DE OBRA: informativa, siempre visible */}
-        <div className="card mt-3">
-          <div className="card-header fw-semibold bg-light">Mano de Obra</div>
-          <div className="card-body p-0">
-            <div className="table-responsive">
-              <table className="table table-sm table-bordered align-middle mb-0">
-                <thead className="table-light text-center">
-                  <tr>
-                    <th>Reparación / Servicio</th>
-                    <th>Mecánico/Carrocero</th>
-                    <th>Horas</th>
-                    <th>Total x Horas ({formatMoney(TARIFA_HORA)} / hora)</th>
-                    <th>Fecha de Pago</th>
-                    <th>Observaciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {manoObra.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="text-center text-muted">
-                        No hay mano de obra registrada.
-                      </td>
-                    </tr>
-                  )}
-                  {manoObra.map((m, idx) => (
-                    <tr key={idx}>
-                      <td>{m.concepto}</td>
-                      <td>{nombreManoObra(m)}</td>
-                      <td className="text-center">{m.horas}</td>
-                      <td className="text-end fw-bold">{formatMoney(calcImporteHoras(m.horas))}</td>
-                      <td className="text-center">{formatFecha(m.fechaPago)}</td>
-                      <td>{m.observaciones}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* ══════════════ SECCIÓN 2: SALDO PENDIENTE, TABLA Y BOTONES ══════════════ */}
       <div className="border rounded p-3 mb-3">
         <div className="row">
           <div className="col-md-9">
-            {/* TOTALES: solo relevantes una vez que la orden está Cerrada (y nunca en garantías, que no se cobran) */}
-            {!esGarantia && orden.estadoOrden === "CERRADA" && (
+            {/* TOTALES: visibles en cualquier estado de la orden para poder
+                consultar el saldo pendiente aunque todavía no esté cerrada
+                (nunca en garantías, que no se cobran) */}
+            {!esGarantia && (
               <div className="row text-center mb-4">
                 <div className="col-md-4">
                   <div className="card card-body">
@@ -448,6 +400,11 @@ export default function CajaOrdenDetalle() {
               </>
             )}
             {!esGarantia && (
+              <button className="btn btn-primary" onClick={irAFacturar}>
+                Facturar
+              </button>
+            )}
+            {!esGarantia && (
               <button className="btn btn-warning" onClick={() => setShowModalDescuento(true)}>
                 Agregar Descuento
               </button>
@@ -483,10 +440,10 @@ export default function CajaOrdenDetalle() {
         show={showModalPago}
         orden={orden}
         saldoPendiente={totales.saldoPendiente}
+        saldoClienteDisponible={orden.cliente?.saldoAFavor || 0}
         onClose={() => setShowModalPago(false)}
         onSubmit={handleRegistrarPago}
         onValeGuardado={handleValeGuardado}
-        onImprimir={abrirPdf}
       />
       <CajaModalDescuento
         show={showModalDescuento}

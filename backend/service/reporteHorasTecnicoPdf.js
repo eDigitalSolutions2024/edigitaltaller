@@ -1,7 +1,8 @@
 // Reporte de Recursos Humanos: Horas trabajadas por técnico.
 // Agrupa por técnico las asignaciones de mano de obra de órdenes en el
-// período (filtrado por fecha de recepción), pudiendo incluir órdenes
-// cerradas, abiertas o todas. Mismo formato general que el reporte de C x C.
+// período (abiertas por fecha de recepción, cerradas por fecha de cierre),
+// pudiendo incluir órdenes cerradas, abiertas o todas. Mismo formato general
+// que el reporte de C x C.
 const puppeteer = require('puppeteer');
 const dayjs = require('dayjs');
 require('dayjs/locale/es');
@@ -52,7 +53,7 @@ function buildHtml(resultado, desde, hasta, estado) {
             <td class="num">${fmtMoney(it.total)}</td>
             <td class="num">${fmtMoney(it.iva)}</td>
             <td class="num">${it.horas}</td>
-            <td class="num">${it.horasAnticipadas || 0}</td>
+            <td class="num">${it.horasPendientes ?? Math.max(0, (it.horas || 0) - (it.horasAnticipadas || 0))}</td>
           </tr>`;
         })
         .join('');
@@ -72,8 +73,8 @@ function buildHtml(resultado, desde, hasta, estado) {
               <th class="num">Servicio</th>
               <th class="num">Total</th>
               <th class="num">IVA</th>
-              <th class="num">Horas</th>
-              <th class="num">Horas Anticipadas</th>
+              <th class="num">Horas T</th>
+              <th class="num">Horas a pagar</th>
             </tr>
           </thead>
           <tbody>${filas}</tbody>
@@ -84,7 +85,7 @@ function buildHtml(resultado, desde, hasta, estado) {
               <td class="num" style="font-weight:bold;">${fmtMoney(grupo.totalServicio)}</td>
               <td class="num" style="font-weight:bold;">${fmtMoney(grupo.totalIva)}</td>
               <td class="num" style="font-weight:bold;">${grupo.totalHoras}</td>
-              <td class="num"></td>
+              <td class="num" style="font-weight:bold;">${grupo.totalHorasPendientes}</td>
             </tr>
           </tfoot>
         </table>`;
@@ -194,7 +195,8 @@ function buildHtml(resultado, desde, hasta, estado) {
   <div class="gran-total">
     <span>Total Servicio: ${fmtMoney(resultado.totalGeneralServicio)}</span>
     <span>Total IVA: ${fmtMoney(resultado.totalGeneralIva)}</span>
-    <span>Total Horas: ${resultado.totalGeneralHoras}</span>
+    <span>Total Horas: ${resultado.totalGeneralHorasPendientes}</span>
+    <span>Total Horas ya anticipadas: ${resultado.totalGeneralHorasAnticipadas}</span>
   </div>
 
   <div class="pie">

@@ -20,8 +20,11 @@ export function calcularTotalesOrden(orden) {
   const totalOrden = Math.max(0, totalBruto - descuentoMonto);
   // Un pago cancelado (anticipo/remisión que se cancela para poder facturar la
   // orden) conserva su folio en el historial pero ya no cuenta como abonado.
+  // Un anticipo con `aSaldoAFavor` tampoco: su dinero se guardó como saldo a
+  // favor del cliente (Cliente.saldoAFavor), no se abonó a la orden; se cobra
+  // después vía "Usar saldo a favor", y ese pago posterior sí cuenta aquí.
   const totalAbonado = (orden.pagos || [])
-    .filter((p) => !p.cancelado)
+    .filter((p) => !p.cancelado && !p.aSaldoAFavor)
     .reduce((s, p) => s + Number(p.monto || 0), 0);
   const saldoPendiente = totalOrden - totalAbonado;
 

@@ -489,8 +489,8 @@ export default function VehiculoOrdenDetalle() {
         />
       )}
 
-      {/* Botón PDF Operativo — visible en tab de datos y servicio */}
-      {(tab === "datos" || tab === "servicio") && orden._id && (
+      {/* Botón PDF Operativo — visible solo en el tab de Servicio o Reparación */}
+      {tab === "servicio" && orden._id && (
         <div className="text-center my-4">
           <div className="btn-group">
             <button
