@@ -52,7 +52,8 @@ export default function ReporteHorasTecnico() {
     <div>
       <h5 className="mb-3 fw-bold">Reporte de Horas Trabajadas por Técnico</h5>
       <p className="text-muted small mb-3">
-        Órdenes en el período seleccionado (según fecha de recepción), agrupadas por técnico.
+        Órdenes en el período seleccionado, agrupadas por técnico: las abiertas según su fecha de
+        recepción, las cerradas según su fecha de cierre.
       </p>
 
       <PeriodoSelector onBuscar={handleBuscar} cargando={cargando} soloDia />
@@ -89,7 +90,10 @@ export default function ReporteHorasTecnico() {
                 IVA: {formatMoney(data.totalGeneralIva)}
               </span>
               <span className="badge bg-dark fs-6">
-                Horas: {data.totalGeneralHoras}
+                Total Horas: {data.totalGeneralHorasPendientes}
+              </span>
+              <span className="badge bg-success fs-6">
+                Ya anticipadas: {data.totalGeneralHorasAnticipadas}
               </span>
               <button
                 type="button"
@@ -123,8 +127,8 @@ export default function ReporteHorasTecnico() {
                         <th className="text-end">Servicio</th>
                         <th className="text-end">Total</th>
                         <th className="text-end">IVA</th>
-                        <th className="text-end">Horas</th>
-                        <th className="text-end">Horas Anticipadas</th>
+                        <th className="text-end">Horas T</th>
+                        <th className="text-end">Horas a pagar</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -145,7 +149,7 @@ export default function ReporteHorasTecnico() {
                           <td className="text-end">{formatMoney(it.total)}</td>
                           <td className="text-end">{formatMoney(it.iva)}</td>
                           <td className="text-end">{it.horas}</td>
-                          <td className="text-end">{it.horasAnticipadas || 0}</td>
+                          <td className="text-end">{it.horasPendientes ?? Math.max(0, (it.horas || 0) - (it.horasAnticipadas || 0))}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -158,7 +162,7 @@ export default function ReporteHorasTecnico() {
                         <td className="text-end fw-bold">{formatMoney(grupo.totalServicio)}</td>
                         <td className="text-end fw-bold">{formatMoney(grupo.totalIva)}</td>
                         <td className="text-end fw-bold">{grupo.totalHoras}</td>
-                        <td />
+                        <td className="text-end fw-bold">{grupo.totalHorasPendientes}</td>
                       </tr>
                     </tfoot>
                   </table>

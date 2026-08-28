@@ -20,3 +20,11 @@ export const updateCustomer = (id, payload) =>
 // 👇 NUEVA: buscar clientes para facturación (por nombre, RFC, email)
 export const buscarClientesFacturacion = (q) =>
   http.get("/clientes", { params: { search: q, limit: 20 } });
+
+// 👇 Catálogo de códigos de servicio propios del cliente (solo admin/cajas).
+// Se usan al timbrar para llenar NoIdentificacion en el CFDI.
+export const getCustomerCodigos = (id) =>
+  http.get(`/clientes/${id}/codigos-servicio`);
+
+export const updateCustomerCodigos = (id, rows) =>
+  http.put(`/clientes/${id}/codigos-servicio`, rows);

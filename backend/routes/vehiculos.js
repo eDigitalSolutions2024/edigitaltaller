@@ -49,7 +49,7 @@ function escribirManifest(dir, manifest) {
   fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest));
 }
 
-const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares emails rfc regimenFiscal codigoPostalFiscal facturacion direccion pais asesorResponsable esEmpleado';
+const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares emails rfc regimenFiscal codigoPostalFiscal facturacion direccion pais asesorResponsable esEmpleado codigosServicio';
 
 // Grupo timbrado en la orden: nombre + miembros (solo informativo, para
 // mostrar junto al asesor en listados/detalle/impresos).
@@ -924,7 +924,6 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
       presupuesto,
       ventaCliente,
       manoObra,
-      anticiposManoObra,
       observacionesExternas,
       observacionesInternas,
       estadoOrden,
@@ -973,24 +972,22 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
     }
 
     if (Array.isArray(manoObra)) {
-      vehiculo.manoObra = manoObra;
-    }
-
-    if (Array.isArray(anticiposManoObra)) {
       // Una vez que la orden tiene Remisión o Nota de Venta ya se considera
-      // vendida fiscalmente; no se pueden agregar más anticipos de horas
-      // (sí se permite quitar uno existente, para corregir un error de
+      // vendida fiscalmente; no se pueden anticipar más horas (sí se permite
+      // bajar/quitar un anticipo existente, para corregir un error de
       // captura). Mismo criterio que el guard de cajas.js:210-212.
+      const sumaAnticipadasNueva = manoObra.reduce((s, m) => s + (Number(m.horasAnticipadas) || 0), 0);
+      const sumaAnticipadasActual = (vehiculo.manoObra || []).reduce((s, m) => s + (Number(m.horasAnticipadas) || 0), 0);
       const yaTieneComprobanteFiscal = (vehiculo.pagos || []).some(
         (p) => !p.cancelado && (p.comprobante === 'REMISION' || p.comprobante === 'NOTA_VENTA')
       );
-      if (yaTieneComprobanteFiscal && anticiposManoObra.length > (vehiculo.anticiposManoObra || []).length) {
+      if (yaTieneComprobanteFiscal && sumaAnticipadasNueva > sumaAnticipadasActual) {
         return res.status(400).json({
           ok: false,
           msg: 'No se pueden anticipar horas: esta orden ya tiene una Remisión o Nota de Venta registrada.',
         });
       }
-      vehiculo.anticiposManoObra = anticiposManoObra;
+      vehiculo.manoObra = manoObra;
     }
 
     if (typeof observacionesExternas === 'string') {

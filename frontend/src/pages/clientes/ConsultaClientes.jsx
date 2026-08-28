@@ -1,9 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";          // 👈 NUEVO
 import { listCustomers } from "../../api/customers";
+import { getUser } from "../../auth";
 import "../../styles/clientes.css";
 
+function formatMoney(n) {
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: "MXN",
+    minimumFractionDigits: 2,
+  }).format(Number(n) || 0);
+}
+
 export default function ConsultaClientes() {
+  // El saldo a favor (anticipos) solo lo puede ver admin/cajas — el backend
+  // ya ni siquiera manda el campo para otros roles (ver GET /api/clientes),
+  // esto solo evita renderizar una columna vacía.
+  const puedeVerSaldo = ["admin", "cajas"].includes(getUser()?.role);
   const [q, setQ] = useState("");
   const [rows, setRows] = useState([]);
   const [page, setPage] = useState(1);
@@ -42,6 +55,15 @@ export default function ConsultaClientes() {
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
+  // El grid de .thead/.trow tiene un número fijo de columnas por CSS (6): si
+  // se agrega la columna de Saldo hay que ampliar el template a 7 o se
+  // desalinea (la 7ma columna caería en un track implícito sin ancho definido).
+  const colStyle = {
+    gridTemplateColumns: puedeVerSaldo
+      ? "2fr 2fr 1fr 1.2fr 1.2fr 1fr 0.8fr"
+      : "2fr 2fr 1fr 1.2fr 1.2fr 0.8fr",
+  };
+
   const handleEdit = (id) => {
     // Reutilizamos AltaCliente para editar
     navigate(`/clientes/alta/${id}`);
@@ -74,17 +96,18 @@ export default function ConsultaClientes() {
       )}
 
       <div className="tabla">
-        <div className="thead">
+        <div className="thead" style={colStyle}>
           <div>Nombre</div>
           <div>Correo</div>
           <div>RFC</div>
           <div>Teléfono</div>
           <div>Ciudad</div>
+          {puedeVerSaldo && <div>Saldo Disponible</div>}
           <div>Acciones</div> {/* 👈 NUEVO */}
         </div>
 
         {rows.map((c) => (
-          <div className="trow" key={c._id}>
+          <div className="trow" style={colStyle} key={c._id}>
             <div>
               {c.tipoCliente === "Empresa Gobierno" ? (
                 c.gobierno?.nombreGobierno || "—"
@@ -137,6 +160,11 @@ export default function ConsultaClientes() {
                 return ciudad || estado || "—";
               })()}
             </div>
+            {puedeVerSaldo && (
+              <div className={c.saldoAFavor > 0 ? "text-success fw-bold" : ""}>
+                {formatMoney(c.saldoAFavor)}
+              </div>
+            )}
             <div>
               <button
                 className="btn btn-sm btn-primary"

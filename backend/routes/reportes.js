@@ -5,6 +5,7 @@ const Vehiculo = require('../models/Vehiculo');
 const Empleado = require('../models/Empleado');
 const User = require('../models/User');
 const FacturaCfdi = require('../models/FacturaCfdi');
+const Cliente = require('../models/Cliente');
 const { streamReporteOriginalesPdf } = require('../service/reporteOriginalesPdf');
 const { streamReporteVentasAsesoresPdf } = require('../service/reporteVentasAsesoresPdf');
 const { streamReporteOrdenesAbiertasPdf } = require('../service/reporteOrdenesAbiertasPdf');
@@ -15,6 +16,7 @@ const { streamReporteFacturasDiarioPdf } = require('../service/reporteFacturasDi
 const { streamReporteRhCxCPdf } = require('../service/reporteRhCxCPdf');
 const { streamReporteHorasTecnicoPdf } = require('../service/reporteHorasTecnicoPdf');
 const { streamReportePendientesFacturaPdf } = require('../service/reportePendientesFacturaPdf');
+const { streamReporteClientesAnticiposPdf } = require('../service/reporteClientesAnticiposPdf');
 const { calcImporteHoras } = require('../utils/manoObra');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
 
@@ -609,6 +611,43 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
     }
   }
 
+  // Anticipos documentados con Recibo Provisional (no con Remisión real) que
+  // el cajero marcó para sumarse a este reporte (ver CajaModalPago /
+  // pago.anticipoDestino). No participan de la banda "Anticipos cancelados"
+  // ni del cruce con FacturaCfdi: al cancelarse (POST /:id/pagos/:pagoId/cancelar)
+  // simplemente dejan de sumar, igual que cualquier otro Abono/Anticipo.
+  const ordenesAnticipoProvisionalRemision = await Vehiculo.find({
+    pagos: {
+      $elemMatch: {
+        comprobante: 'RECIBO_PROVISIONAL',
+        tipoPago: 'ANTICIPO',
+        anticipoDestino: 'REMISION',
+        cancelado: { $ne: true },
+        fecha: { $gte: d, $lte: h },
+      },
+    },
+  })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
+
+  for (const o of ordenesAnticipoProvisionalRemision) {
+    for (const p of o.pagos || []) {
+      if (p.comprobante !== 'RECIBO_PROVISIONAL' || p.tipoPago !== 'ANTICIPO' || p.anticipoDestino !== 'REMISION' || p.cancelado) continue;
+      const f = new Date(p.fecha);
+      if (f < d || f > h) continue;
+
+      anticipos.push({
+        folio: 'ANT',
+        ordenServicio: o.ordenServicio || '',
+        cliente: nombreCliente(o.cliente),
+        fecha: p.fecha,
+        anticipo: p.monto,
+        notas: p.notas || '',
+      });
+      totalAnticipo += p.monto;
+    }
+  }
+
   // "SE CANCELA REMISIÓN Y PASA A FACTURA A64739": la leyenda incluye el folio
   // (serie+folio) del CFDI vigente de esa orden, igual que el reporte original.
   if (filasCancel.length) {
@@ -775,6 +814,41 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       });
       totalAnticipo += p.monto;
       sumarDeposito(bancoADeposito(p.notaVenta?.banco), p.monto);
+    }
+  }
+
+  // ---- 1b: Anticipos con Recibo Provisional marcados para este reporte ----
+  // (ver pago.anticipoDestino en CajaModalPago); no tienen folio de Nota de
+  // Venta real, solo el del Recibo Provisional.
+  const ordenesAnticipoProvisionalFactura = await Vehiculo.find({
+    pagos: {
+      $elemMatch: {
+        comprobante: 'RECIBO_PROVISIONAL',
+        tipoPago: 'ANTICIPO',
+        anticipoDestino: 'NOTA_VENTA',
+        cancelado: { $ne: true },
+        fecha: { $gte: d, $lte: h },
+      },
+    },
+  })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
+
+  for (const o of ordenesAnticipoProvisionalFactura) {
+    for (const p of o.pagos || []) {
+      if (p.comprobante !== 'RECIBO_PROVISIONAL' || p.tipoPago !== 'ANTICIPO' || p.anticipoDestino !== 'NOTA_VENTA' || p.cancelado) continue;
+      const f = new Date(p.fecha);
+      if (f < d || f > h) continue;
+
+      anticipos.push({
+        folio: 'ANT',
+        ordenServicio: o.ordenServicio || '',
+        cliente: nombreCliente(o.cliente),
+        fecha: p.fecha,
+        anticipo: p.monto,
+        notas: p.notas || '',
+      });
+      totalAnticipo += p.monto;
     }
   }
 
@@ -1419,20 +1493,30 @@ router.get('/rh-cxc-pdf', async (req, res) => {
 });
 
 // ===== Reporte de Horas Trabajadas por Técnico =====
-// Agrupa por técnico (mecánico) las órdenes en el período (filtrado por
-// fecha de recepción), pudiendo filtrarse por estado: cerradas, abiertas o
-// todas. Un renglón por asignación de mano de obra; "total" es la suma de
-// los montos de servicio de ESE técnico dentro de ESA misma orden (se repite
-// si la orden tiene más de una asignación para el mismo técnico).
+// Agrupa por técnico (mecánico) las órdenes en el período, pudiendo
+// filtrarse por estado: cerradas, abiertas o todas. Un renglón por
+// asignación de mano de obra; "total" es la suma de los montos de servicio
+// de ESE técnico dentro de ESA misma orden (se repite si la orden tiene más
+// de una asignación para el mismo técnico).
+//
+// El período se aplica sobre fecha de recepción para las abiertas (una orden
+// abierta no tiene fecha de cierre) y sobre fecha de cierre para las
+// cerradas: así "Hoy + Cerradas" muestra lo que se cerró hoy, aunque la
+// orden se haya recibido otro día. "Todas" combina ambos criterios.
 function tieneRemision(o) {
   return (o.pagos || []).some((p) => p.comprobante === 'REMISION' && !p.cancelado);
 }
 
 async function buildReporteHorasTecnico({ desde, hasta, estado }) {
-  const query = { ...buildDateFilterAbiertas(desde, hasta) };
-  if (estado === 'cerradas') query.estadoOrden = 'CERRADA';
-  else if (estado === 'abiertas') query.estadoOrden = { $nin: ESTADOS_CERRADOS };
-  // 'todas' (o sin valor): sin filtro de estado
+  const d = new Date(desde);
+  const h = new Date(hasta);
+  const filtroAbiertas = { estadoOrden: { $nin: ESTADOS_CERRADOS }, fechaRecepcion: { $gte: d, $lte: h } };
+  const filtroCerradas = { estadoOrden: 'CERRADA', fechaCierre: { $gte: d, $lte: h } };
+
+  let query;
+  if (estado === 'cerradas') query = filtroCerradas;
+  else if (estado === 'abiertas') query = filtroAbiertas;
+  else query = { $or: [filtroAbiertas, filtroCerradas] }; // 'todas' (o sin valor)
 
   const ordenes = await Vehiculo.find(query)
     .sort({ fechaRecepcion: 1 })
@@ -1470,22 +1554,25 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
       totalPorMecanico[idMecanico] = (totalPorMecanico[idMecanico] || 0) + montoServicio;
     }
 
-    // Horas ya anticipadas por técnico dentro de esta orden (para la columna "Horas Anticipadas")
-    const horasAnticipadasPorMecanico = {};
-    for (const a of o.anticiposManoObra || []) {
-      const idMecanico = String(a.mecanico || '');
-      if (!idMecanico) continue;
-      horasAnticipadasPorMecanico[idMecanico] = (horasAnticipadasPorMecanico[idMecanico] || 0) + Number(a.horas || 0);
-    }
-
     for (const m of manoObraValida) {
       const idMecanico = String(m.mecanico);
       const nombreMec = nombreEmpleado.get(idMecanico) || m.mecanico || 'Sin asignar';
       const montoServicio = montoServicioManoObra(m, presupuestoPorId);
       const iva = montoServicio * (ivaPct / 100);
+      const horas = Number(m.horas || 0);
+      const horasAnticipadas = Math.min(horas, Number(m.horasAnticipadas || 0));
+      const horasPendientes = Math.max(0, horas - horasAnticipadas);
 
       if (!grupos[nombreMec]) {
-        grupos[nombreMec] = { mecanico: nombreMec, items: [], totalServicio: 0, totalIva: 0, totalHoras: 0 };
+        grupos[nombreMec] = {
+          mecanico: nombreMec,
+          items: [],
+          totalServicio: 0,
+          totalIva: 0,
+          totalHoras: 0,
+          totalHorasAnticipadas: 0,
+          totalHorasPendientes: 0,
+        };
       }
       grupos[nombreMec].items.push({
         ordenServicio: o.ordenServicio || '',
@@ -1498,12 +1585,15 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
         montoServicio,
         total: totalPorMecanico[idMecanico] || 0,
         iva,
-        horas: Number(m.horas || 0),
-        horasAnticipadas: horasAnticipadasPorMecanico[idMecanico] || 0,
+        horas,
+        horasAnticipadas,
+        horasPendientes,
       });
       grupos[nombreMec].totalServicio += montoServicio;
       grupos[nombreMec].totalIva += iva;
-      grupos[nombreMec].totalHoras += Number(m.horas || 0);
+      grupos[nombreMec].totalHoras += horas;
+      grupos[nombreMec].totalHorasAnticipadas += horasAnticipadas;
+      grupos[nombreMec].totalHorasPendientes += horasPendientes;
     }
   }
 
@@ -1511,8 +1601,17 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
   const totalGeneralServicio = data.reduce((s, g) => s + g.totalServicio, 0);
   const totalGeneralIva = data.reduce((s, g) => s + g.totalIva, 0);
   const totalGeneralHoras = data.reduce((s, g) => s + g.totalHoras, 0);
+  const totalGeneralHorasAnticipadas = data.reduce((s, g) => s + g.totalHorasAnticipadas, 0);
+  const totalGeneralHorasPendientes = data.reduce((s, g) => s + g.totalHorasPendientes, 0);
 
-  return { data, totalGeneralServicio, totalGeneralIva, totalGeneralHoras };
+  return {
+    data,
+    totalGeneralServicio,
+    totalGeneralIva,
+    totalGeneralHoras,
+    totalGeneralHorasAnticipadas,
+    totalGeneralHorasPendientes,
+  };
 }
 
 // GET /api/reportes/horas-tecnico?desde=...&hasta=...&estado=cerradas|abiertas|todas
@@ -1606,6 +1705,53 @@ router.get('/pendientes-factura-pdf', async (req, res) => {
     await streamReportePendientesFacturaPdf(res, resultado, desde, hasta);
   } catch (err) {
     console.error('Error PDF reporte pendientes de factura:', err);
+    if (!res.headersSent) res.status(500).json({ ok: false, msg: 'Error generando PDF' });
+  }
+});
+
+// ===== Reporte de Clientes con Anticipos =====
+// A diferencia de los demás reportes de este archivo, no es un rango de
+// fechas: es una fotografía del saldo a favor ACTUAL de cada cliente (un
+// balance, no un movimiento), así que no filtra por período.
+async function buildReporteClientesAnticipos() {
+  const clientes = await Cliente.find({ saldoAFavor: { $gt: 0 } })
+    .sort({ saldoAFavor: -1 })
+    .select('nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares saldoAFavor updatedAt')
+    .lean();
+
+  const data = clientes.map((c) => ({
+    cliente: nombreCliente(c),
+    telefono: (c.celulares?.[0] || c.telefonos?.[0]) ? [
+      (c.celulares?.[0] || c.telefonos?.[0]).lada,
+      (c.celulares?.[0] || c.telefonos?.[0]).numero,
+    ].filter(Boolean).join(' ') : '',
+    saldoAFavor: c.saldoAFavor || 0,
+    ultimoMovimiento: c.updatedAt || null,
+  }));
+
+  const totalSaldo = data.reduce((s, it) => s + it.saldoAFavor, 0);
+
+  return { data, total: data.length, totalSaldo };
+}
+
+// GET /api/reportes/clientes-anticipos
+router.get('/clientes-anticipos', async (req, res) => {
+  try {
+    const resultado = await buildReporteClientesAnticipos();
+    return res.json({ ok: true, ...resultado });
+  } catch (err) {
+    console.error('Error reporte de clientes con anticipos:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// GET /api/reportes/clientes-anticipos-pdf
+router.get('/clientes-anticipos-pdf', async (req, res) => {
+  try {
+    const resultado = await buildReporteClientesAnticipos();
+    await streamReporteClientesAnticiposPdf(res, resultado);
+  } catch (err) {
+    console.error('Error PDF reporte de clientes con anticipos:', err);
     if (!res.headersSent) res.status(500).json({ ok: false, msg: 'Error generando PDF' });
   }
 });

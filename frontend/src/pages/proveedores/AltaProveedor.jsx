@@ -7,6 +7,7 @@ import {
   getProveedor,
   updateProveedor,
 } from "../../api/providers";
+import "../../styles/clientes.css";
 
 const EMPTY_FORM = {
   nombreProveedor: "",
@@ -171,358 +172,278 @@ export default function AltaProveedor() {
     }
   };
 
+  if (loadingData) {
+    return (
+      <div className="form-card">
+        <p>Cargando datos del proveedor...</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="container-fluid">
-      <h2 className="text-center fw-bold my-3" style={{ letterSpacing: "2px" }}>
-        {isEdit ? "EDITAR PROVEEDOR" : "ALTA PROVEEDORES"}
-      </h2>
+    <form
+      className="form-card"
+      onSubmit={onSubmit}
+      autoComplete="off"
+      onKeyDownCapture={handleFormKeyDownCapture}
+    >
+      <h2>{isEdit ? "Editar Proveedor" : "Alta de Proveedores"}</h2>
 
-      <div className="card shadow-sm">
-        <div className="card-body">
-          {loadingData ? (
-            <p>Cargando datos del proveedor...</p>
-          ) : (
-            <form
-              onSubmit={onSubmit}
-              autoComplete="off"
-              onKeyDownCapture={handleFormKeyDownCapture}
-            >
-              {error && (
-                <div className="alert alert-danger py-2">{error}</div>
-              )}
+      {error && <div className="alert alert-danger py-2">{error}</div>}
 
-              <div className="mb-2">
-                <label
-                  htmlFor="nombreProveedor"
-                  className="form-label fw-semibold"
-                >
-                  Nombre del Proveedor: *
-                </label>
-                <input
-                  id="nombreProveedor"
-                  name="nombreProveedor"
-                  type="text"
-                  className="form-control"
-                  value={form.nombreProveedor}
-                  onChange={onChange}
-                  required
-                />
-              </div>
+      <div className="form-section">
+        <h3 className="form-section-title">Datos generales</h3>
+        <div className="form-grid">
+          <div className="form-row">
+            <label htmlFor="nombreProveedor">Nombre del Proveedor *</label>
+            <input
+              id="nombreProveedor"
+              name="nombreProveedor"
+              type="text"
+              value={form.nombreProveedor}
+              onChange={onChange}
+              required
+            />
+          </div>
 
-              <div className="mb-2">
-                <label
-                  htmlFor="aliasProveedor"
-                  className="form-label fw-semibold"
-                >
-                  Alias Proveedor:
-                </label>
-                <input
-                  id="aliasProveedor"
-                  name="aliasProveedor"
-                  className="form-control"
-                  value={form.aliasProveedor}
-                  onChange={onChange}
-                />
-              </div>
+          <div className="form-row">
+            <label htmlFor="aliasProveedor">Alias Proveedor</label>
+            <input
+              id="aliasProveedor"
+              name="aliasProveedor"
+              value={form.aliasProveedor}
+              onChange={onChange}
+            />
+          </div>
 
-              <div className="mb-2">
-                <label htmlFor="correo" className="form-label fw-semibold">
-                  Correo Electrónico:
-                </label>
-                <input
-                  id="correo"
-                  name="correo"
-                  type="email"
-                  className="form-control"
-                  value={form.correo}
-                  onChange={onChange}
-                  autoComplete="email"
-                />
-              </div>
-
-              <div className="mb-2">
-                <label className="form-label fw-semibold">
-                  Teléfono Fijo: LADA
-                </label>
-                <div className="d-flex gap-2">
-                  <input
-                    id="telefonoLada"
-                    name="telefonoLada"
-                    className="form-control"
-                    style={{ maxWidth: 120 }}
-                    value={form.telefonoLada}
-                    onChange={onChange}
-                    placeholder="LADA"
-                    autoComplete="tel-area-code"
-                  />
-                  <input
-                    id="telefonoFijo"
-                    name="telefonoFijo"
-                    className="form-control"
-                    value={form.telefonoFijo}
-                    onChange={onChange}
-                    autoComplete="tel"
-                  />
-                </div>
-              </div>
-
-              <div className="mb-2">
-                <label htmlFor="calle" className="form-label fw-semibold">
-                  Dirección (Calle):
-                </label>
-                <input
-                  id="calle"
-                  name="calle"
-                  className="form-control"
-                  value={form.calle}
-                  onChange={onChange}
-                  autoComplete="address-line1"
-                />
-              </div>
-
-              <div className="mb-2">
-                <label
-                  htmlFor="numeroExterior"
-                  className="form-label fw-semibold"
-                >
-                  Número Exterior:
-                </label>
-                <input
-                  id="numeroExterior"
-                  name="numeroExterior"
-                  className="form-control"
-                  value={form.numeroExterior}
-                  onChange={onChange}
-                />
-              </div>
-
-              <div className="mb-2">
-                <label
-                  htmlFor="numeroInterior"
-                  className="form-label fw-semibold"
-                >
-                  Número Interior:
-                </label>
-                <input
-                  id="numeroInterior"
-                  name="numeroInterior"
-                  className="form-control"
-                  value={form.numeroInterior}
-                  onChange={onChange}
-                />
-              </div>
-
-              <div className="mb-2">
-                <label htmlFor="colonia" className="form-label fw-semibold">
-                  Colonia:
-                </label>
-                <input
-                  id="colonia"
-                  name="colonia"
-                  className="form-control"
-                  value={form.colonia}
-                  onChange={onChange}
-                />
-              </div>
-
-              <div className="mb-2">
-                <label htmlFor="rfc" className="form-label fw-semibold">
-                  RFC:
-                </label>
-                <input
-                  id="rfc"
-                  name="rfc"
-                  className="form-control"
-                  value={form.rfc}
-                  onChange={onChange}
-                />
-              </div>
-
-              <div className="mb-2">
-                <label
-                  htmlFor="codigoPostal"
-                  className="form-label fw-semibold"
-                >
-                  Código Postal:
-                </label>
-                <input
-                  id="codigoPostal"
-                  name="codigoPostal"
-                  className="form-control"
-                  value={form.codigoPostal}
-                  onChange={onChange}
-                  autoComplete="postal-code"
-                />
-              </div>
-
-              <div className="mb-2">
-                <label htmlFor="ciudad" className="form-label fw-semibold">
-                  Ciudad:
-                </label>
-                <input
-                  id="ciudad"
-                  name="ciudad"
-                  className="form-control"
-                  value={form.ciudad}
-                  onChange={onChange}
-                  autoComplete="address-level2"
-                />
-              </div>
-
-              <div className="mb-2">
-                <label htmlFor="estado" className="form-label fw-semibold">
-                  Estado:
-                </label>
-                <input
-                  id="estado"
-                  name="estado"
-                  className="form-control"
-                  value={form.estado}
-                  onChange={onChange}
-                  autoComplete="address-level1"
-                />
-              </div>
-
-              <div className="mb-2">
-                <label
-                  htmlFor="primerContacto"
-                  className="form-label fw-semibold"
-                >
-                  Primer Contacto:
-                </label>
-                <input
-                  id="primerContacto"
-                  name="primerContacto"
-                  className="form-control"
-                  value={form.primerContacto}
-                  onChange={onChange}
-                />
-              </div>
-
-              <div className="mb-2">
-                <label
-                  htmlFor="segundoContacto"
-                  className="form-label fw-semibold"
-                >
-                  Segundo Contacto:
-                </label>
-                <input
-                  id="segundoContacto"
-                  name="segundoContacto"
-                  className="form-control"
-                  value={form.segundoContacto}
-                  onChange={onChange}
-                />
-              </div>
-
-              <div className="mb-2">
-                <label
-                  htmlFor="tercerContacto"
-                  className="form-label fw-semibold"
-                >
-                  Tercer Contacto:
-                </label>
-                <input
-                  id="tercerContacto"
-                  name="tercerContacto"
-                  className="form-control"
-                  value={form.tercerContacto}
-                  onChange={onChange}
-                />
-              </div>
-
-              <div className="mb-2">
-                <label
-                  htmlFor="condicionesPago"
-                  className="form-label fw-semibold"
-                >
-                  Condiciones de Pago:
-                </label>
-                <Dropdown
-                  id="condicionesPago"
-                  name="condicionesPago"
-                  className="form-select"
-                  value={form.condicionesPago}
-                  onChange={onChange}
-                >
-                  <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-                  <Dropdown.Option value="contado">Contado</Dropdown.Option>
-                  <Dropdown.Option value="credito">Crédito</Dropdown.Option>
-                  <Dropdown.Option value="mixto">Mixto</Dropdown.Option>
-                </Dropdown>
-              </div>
-
-              <div className="mb-2">
-                <label
-                  htmlFor="diasCredito"
-                  className="form-label fw-semibold"
-                >
-                  Días de Crédito:
-                </label>
-                <input
-                  id="diasCredito"
-                  name="diasCredito"
-                  type="number"
-                  min="0"
-                  className="form-control"
-                  value={form.diasCredito}
-                  onChange={onChange}
-                />
-              </div>
-
-              <div className="mb-3">
-                <label
-                  htmlFor="observaciones"
-                  className="form-label fw-semibold"
-                >
-                  Observaciones (Días de Pago, Formas de Pago Especial, C/R,
-                  Etc.):
-                </label>
-                <textarea
-                  id="observaciones"
-                  name="observaciones"
-                  className="form-control"
-                  rows={3}
-                  value={form.observaciones}
-                  onChange={onChange}
-                />
-              </div>
-
-              <div className="d-flex gap-2 justify-content-center mt-3">
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={saving}
-                >
-                  {saving
-                    ? "Guardando..."
-                    : isEdit
-                    ? "Guardar cambios"
-                    : "Guardar"}
-                </button>
-                {!isEdit && (
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={onClear}
-                    disabled={saving}
-                  >
-                    Limpiar
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="btn btn-outline-secondary"
-                  onClick={() => navigate("/proveedores/consultar")}
-                  disabled={saving}
-                >
-                  Regresar
-                </button>
-              </div>
-            </form>
-          )}
+          <div className="form-row">
+            <label htmlFor="rfc">RFC</label>
+            <input
+              id="rfc"
+              name="rfc"
+              value={form.rfc}
+              onChange={onChange}
+            />
+          </div>
         </div>
       </div>
-    </div>
+
+      <div className="form-section">
+        <h3 className="form-section-title">Contacto</h3>
+        <div className="form-grid">
+          <div className="form-row">
+            <label htmlFor="correo">Correo Electrónico</label>
+            <input
+              id="correo"
+              name="correo"
+              type="email"
+              value={form.correo}
+              onChange={onChange}
+              autoComplete="email"
+            />
+          </div>
+
+          <div className="form-row">
+            <label>Teléfono Fijo</label>
+            <div className="phone-inline">
+              <input
+                id="telefonoLada"
+                name="telefonoLada"
+                value={form.telefonoLada}
+                onChange={onChange}
+                placeholder="LADA"
+                autoComplete="tel-area-code"
+              />
+              <input
+                id="telefonoFijo"
+                name="telefonoFijo"
+                value={form.telefonoFijo}
+                onChange={onChange}
+                placeholder="Número"
+                autoComplete="tel"
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <label htmlFor="primerContacto">Primer Contacto</label>
+            <input
+              id="primerContacto"
+              name="primerContacto"
+              value={form.primerContacto}
+              onChange={onChange}
+            />
+          </div>
+
+          <div className="form-row">
+            <label htmlFor="segundoContacto">Segundo Contacto</label>
+            <input
+              id="segundoContacto"
+              name="segundoContacto"
+              value={form.segundoContacto}
+              onChange={onChange}
+            />
+          </div>
+
+          <div className="form-row">
+            <label htmlFor="tercerContacto">Tercer Contacto</label>
+            <input
+              id="tercerContacto"
+              name="tercerContacto"
+              value={form.tercerContacto}
+              onChange={onChange}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="form-section">
+        <h3 className="form-section-title">Dirección</h3>
+        <div className="form-grid">
+          <div className="form-row">
+            <label htmlFor="calle">Dirección (Calle)</label>
+            <input
+              id="calle"
+              name="calle"
+              value={form.calle}
+              onChange={onChange}
+              autoComplete="address-line1"
+            />
+          </div>
+
+          <div className="form-row">
+            <label htmlFor="numeroExterior">Número Exterior</label>
+            <input
+              id="numeroExterior"
+              name="numeroExterior"
+              value={form.numeroExterior}
+              onChange={onChange}
+            />
+          </div>
+
+          <div className="form-row">
+            <label htmlFor="numeroInterior">Número Interior</label>
+            <input
+              id="numeroInterior"
+              name="numeroInterior"
+              value={form.numeroInterior}
+              onChange={onChange}
+            />
+          </div>
+
+          <div className="form-row">
+            <label htmlFor="colonia">Colonia</label>
+            <input
+              id="colonia"
+              name="colonia"
+              value={form.colonia}
+              onChange={onChange}
+            />
+          </div>
+
+          <div className="form-row">
+            <label htmlFor="codigoPostal">Código Postal</label>
+            <input
+              id="codigoPostal"
+              name="codigoPostal"
+              value={form.codigoPostal}
+              onChange={onChange}
+              autoComplete="postal-code"
+            />
+          </div>
+
+          <div className="form-row">
+            <label htmlFor="ciudad">Ciudad</label>
+            <input
+              id="ciudad"
+              name="ciudad"
+              value={form.ciudad}
+              onChange={onChange}
+              autoComplete="address-level2"
+            />
+          </div>
+
+          <div className="form-row">
+            <label htmlFor="estado">Estado</label>
+            <input
+              id="estado"
+              name="estado"
+              value={form.estado}
+              onChange={onChange}
+              autoComplete="address-level1"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="form-section">
+        <h3 className="form-section-title">Condiciones comerciales</h3>
+        <div className="form-grid">
+          <div className="form-row">
+            <label htmlFor="condicionesPago">Condiciones de Pago</label>
+            <Dropdown
+              id="condicionesPago"
+              name="condicionesPago"
+              value={form.condicionesPago}
+              onChange={onChange}
+            >
+              <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+              <Dropdown.Option value="contado">Contado</Dropdown.Option>
+              <Dropdown.Option value="credito">Crédito</Dropdown.Option>
+              <Dropdown.Option value="mixto">Mixto</Dropdown.Option>
+            </Dropdown>
+          </div>
+
+          <div className="form-row">
+            <label htmlFor="diasCredito">Días de Crédito</label>
+            <input
+              id="diasCredito"
+              name="diasCredito"
+              type="number"
+              min="0"
+              value={form.diasCredito}
+              onChange={onChange}
+            />
+          </div>
+
+          <div className="form-row col-12">
+            <label htmlFor="observaciones">
+              Observaciones (Días de Pago, Formas de Pago Especial, C/R, Etc.)
+            </label>
+            <textarea
+              id="observaciones"
+              name="observaciones"
+              rows={3}
+              value={form.observaciones}
+              onChange={onChange}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="form-actions">
+        <button type="submit" className="btn btn-primary" disabled={saving}>
+          {saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Guardar"}
+        </button>
+        {!isEdit && (
+          <button
+            type="button"
+            className="btn btn-light"
+            onClick={onClear}
+            disabled={saving}
+          >
+            Limpiar
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn btn-outline-secondary"
+          onClick={() => navigate("/proveedores/consultar")}
+          disabled={saving}
+        >
+          Regresar
+        </button>
+      </div>
+    </form>
   );
 }

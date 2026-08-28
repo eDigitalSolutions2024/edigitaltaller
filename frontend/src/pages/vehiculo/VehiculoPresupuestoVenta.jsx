@@ -17,7 +17,6 @@ import useTipoCambioActual from "../../hooks/useTipoCambioActual";
 import { getUser } from "../../auth";
 import { createTicket } from "../../api/tickets";
 import ModalCancelarOrden from "./ModalCancelarOrden";
-import ModalAnticipoHoras from "./ModalAnticipoHoras";
 
 // Una vez que la orden tiene Remisión o Nota de Venta vigente ya se considera
 // vendida fiscalmente; no se debe poder anticipar más dinero (en horas) fuera
@@ -98,10 +97,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   const [moHorasOverride, setMoHorasOverride] = useState("");
   const [moFechaPago, setMoFechaPago] = useState("");
   const [serviciosMoSeleccionados, setServiciosMoSeleccionados] = useState({});
-  const [anticiposMO, setAnticiposMO] = useState([]);
-  const [showAnticipoModal, setShowAnticipoModal] = useState(false);
   const [guardandoMo, setGuardandoMo] = useState(false);
-  const [guardandoAnticipo, setGuardandoAnticipo] = useState(false);
 
   // ===== OBSERVACIONES =====
   const [obsExternas, setObsExternas] = useState("");
@@ -120,7 +116,6 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     setObservCotizacion(orden.observCotizacion || "");
     setRequiereFactura(!!orden.requiereFactura);
     setMoRows(orden.manoObra || []);
-    setAnticiposMO(orden.anticiposManoObra || []);
     setObsExternas(orden.observacionesExternas || "");
     setObsInternas(orden.observacionesInternas || "");
     setIvaPresupuesto(orden.ivaPresupuesto ?? 8);
@@ -349,10 +344,11 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     setServiciosMoSeleccionados((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // Mano de obra y anticipos se persisten de inmediato (no hasta "Guardar
-  // Orden de Servicio"): cada alta/baja manda solo ese campo al backend, que
-  // solo pisa lo que venga en el body, así que el resto del formulario
-  // (presupuesto, venta al cliente, observaciones, etc.) no se ve afectado.
+  // Mano de obra (altas, bajas y horas anticipadas) se persiste de inmediato
+  // (no hasta "Guardar Orden de Servicio"): cada cambio manda solo el campo
+  // manoObra al backend, que solo pisa lo que venga en el body, así que el
+  // resto del formulario (presupuesto, venta al cliente, observaciones, etc.)
+  // no se ve afectado.
   const guardarMoRows = async (nuevoMoRows) => {
     setGuardandoMo(true);
     try {
@@ -365,21 +361,6 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       return false;
     } finally {
       setGuardandoMo(false);
-    }
-  };
-
-  const guardarAnticipos = async (nuevoAnticipos) => {
-    setGuardandoAnticipo(true);
-    try {
-      const res = await savePresupuestoVenta(orden._id, { anticiposManoObra: nuevoAnticipos });
-      setAnticiposMO(res.data.vehiculo.anticiposManoObra || nuevoAnticipos);
-      return true;
-    } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.msg || "Error al guardar el anticipo de horas.");
-      return false;
-    } finally {
-      setGuardandoAnticipo(false);
     }
   };
 
@@ -411,6 +392,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         carrocero: moTipo === "carrocero" ? moAsignado : "",
         esCarroceria: moTipo === "carrocero",
         horas,
+        horasAnticipadas: 0,
         fechaPago: moFechaPago,
         observaciones: "",
         precioCarroceria: 0,
@@ -437,10 +419,14 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     guardarMoRows(moRows.filter((_, i) => i !== idx));
   };
 
-  const agregarAnticipoHoras = (anticipo) => guardarAnticipos([...anticiposMO, anticipo]);
-
-  const removeAnticipoHoras = (idx) => {
-    guardarAnticipos(anticiposMO.filter((_, i) => i !== idx));
+  // Anticipar horas se guarda al salir del campo (no en cada tecleo, que
+  // dispararía un guardado por cada dígito y deshabilitaría el input a medio
+  // escribir): mientras se escribe solo se actualiza el estado local, igual
+  // que horas/fechaPago/observaciones.
+  const handleBlurHorasAnticipadas = (idx) => {
+    const fila = moRows[idx];
+    const horasAnticipadas = Math.max(0, Math.min(Number(fila.horasAnticipadas) || 0, Number(fila.horas) || 0));
+    guardarMoRows(moRows.map((m, i) => (i === idx ? { ...m, horasAnticipadas } : m)));
   };
 
   // ===== PRESUPUESTO — HANDLERS =====
@@ -648,7 +634,6 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     presupuesto: presRows,
     ventaCliente: ventaRows,
     manoObra: moRows,
-    anticiposManoObra: anticiposMO,
     observacionesExternas: obsExternas,
     observacionesInternas: obsInternas,
     dirigidoA,
@@ -1591,21 +1576,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
         {!readOnly && (
           <div className="card border-primary mb-3">
-            <div className="card-header bg-primary text-white fw-semibold d-flex justify-content-between align-items-center">
-              <span>Asignar servicio(s) a un mecánico / carrocero</span>
-              <button
-                type="button"
-                className="btn btn-sm btn-light"
-                onClick={() => setShowAnticipoModal(true)}
-                disabled={tieneComprobanteFiscal(orden.pagos)}
-                title={
-                  tieneComprobanteFiscal(orden.pagos)
-                    ? "No se puede anticipar: esta orden ya tiene una Remisión o Nota de Venta registrada."
-                    : ""
-                }
-              >
-                Anticipar horas
-              </button>
+            <div className="card-header bg-primary text-white fw-semibold">
+              Asignar servicio(s) a un mecánico / carrocero
             </div>
             <div className="card-body">
               {serviciosParaManoObra.length === 0 ? (
@@ -1718,6 +1690,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                 <th>Reparación y/o Servicio</th>
                 <th>Mecánico / Carrocero</th>
                 <th>Horas</th>
+                <th>Horas Anticipadas</th>
+                <th>Horas Pendientes</th>
                 <th>Total x Horas ({formatMoney(TARIFA_HORA)} / hora)</th>
                 <th>Fecha de Pago</th>
                 <th>Observaciones</th>
@@ -1727,12 +1701,17 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
             <tbody>
               {moRows.length === 0 ? (
                 <tr>
-                  <td colSpan={readOnly ? 6 : 7} className="text-center text-muted">
+                  <td colSpan={readOnly ? 8 : 9} className="text-center text-muted">
                     No hay registros de mano de obra.
                   </td>
                 </tr>
               ) : (
-                moRows.map((m, idx) => (
+                moRows.map((m, idx) => {
+                  const horas = Number(m.horas) || 0;
+                  const horasAnticipadas = Math.min(horas, Number(m.horasAnticipadas) || 0);
+                  const horasPendientes = Math.max(0, horas - horasAnticipadas);
+                  const bloqueadoPorFiscal = tieneComprobanteFiscal(orden.pagos);
+                  return (
                   <tr key={idx}>
                     <td>{m.concepto}</td>
                     <td className="text-center">{nombreManoObra(m)}</td>
@@ -1749,6 +1728,25 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                         />
                       )}
                     </td>
+                    <td className="text-center" style={{ maxWidth: "90px" }}>
+                      {readOnly ? (
+                        horasAnticipadas
+                      ) : (
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max={horas}
+                          className="form-control form-control-sm text-center"
+                          value={m.horasAnticipadas || 0}
+                          disabled={guardandoMo || bloqueadoPorFiscal}
+                          title={bloqueadoPorFiscal ? "No se puede anticipar: esta orden ya tiene una Remisión o Nota de Venta registrada." : ""}
+                          onChange={(e) => handleUpdateMo(idx, "horasAnticipadas", e.target.value)}
+                          onBlur={() => handleBlurHorasAnticipadas(idx)}
+                        />
+                      )}
+                    </td>
+                    <td className="text-center">{horasPendientes}</td>
                     <td className="text-center fw-bold">{formatMoney(calcImporteHoras(m.horas))}</td>
                     <td className="text-center" style={{ maxWidth: "140px" }}>
                       {readOnly ? (
@@ -1787,7 +1785,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                       </td>
                     )}
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -1845,16 +1844,6 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         onClose={() => setShowCancelarModal(false)}
         onCancelar={handleConfirmarCancelar}
         onNotificarAdmin={handleNotificarAdmin}
-      />
-      <ModalAnticipoHoras
-        show={showAnticipoModal}
-        mecanicos={mecanicos}
-        moRows={moRows}
-        anticipos={anticiposMO}
-        guardando={guardandoAnticipo}
-        onClose={() => setShowAnticipoModal(false)}
-        onAdd={agregarAnticipoHoras}
-        onRemove={removeAnticipoHoras}
       />
       {pdfModal}
     </div>

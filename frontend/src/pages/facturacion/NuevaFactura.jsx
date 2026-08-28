@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import Dropdown from "../../components/Dropdown";
 import { listOrdenesServicio, getVehiculoById } from "../../api/vehiculos";
 import { updateCustomer } from "../../api/customers";
 import { listConceptosPreset } from "../../api/conceptosPreset";
 import { listClavesUnidad } from "../../api/clavesUnidad";
 import { listFacturasCfdi } from "../../api/facturasCfdi";
-import { generarVistaPreviaPDF } from "../../api/facturacion";
+import { generarVistaPreviaPDF, getNotasVentaPendientes } from "../../api/facturacion";
 import api from "../../api/http";
 import usePdfModal from "../../hooks/usePdfModal";
 import useTipoCambioActual from "../../hooks/useTipoCambioActual";
@@ -39,6 +39,31 @@ const TIPOS_FACTURA = [
     label: "Complemento de pago",
     desc: "Recibo electrónico de pago de una o varias facturas.",
   },
+  {
+    value: "facturaGlobal",
+    tipoComprobante: "I",
+    icon: "🗓️",
+    label: "Factura Global",
+    desc: "CFDI de Ingreso al público en general que agrupa las notas de venta del día.",
+  },
+];
+
+/* Receptor genérico "público en general" de la factura global (el CP fiscal lo
+   completa el backend con el del emisor). */
+const PUBLICO_EN_GENERAL = {
+  _id: null,
+  nombre: "PUBLICO EN GENERAL",
+  rfc: "XAXX010101000",
+  regimenFiscal: "616",
+  codigoPostalFiscal: "",
+  direccion: {},
+  pais: "MX",
+  codigosServicio: [],
+};
+
+const MESES_ES = [
+  "ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO",
+  "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE",
 ];
 
 const USO_CFDI = [
@@ -117,7 +142,28 @@ const CONCEPTO_VACIO = {
   cUnidad: "E48",
   descripcion: "",
   valorUnitario: "",
+  // Código propio del cliente → atributo NoIdentificacion del CFDI 4.0.
+  noIdentificacion: "",
 };
+
+/* Busca en el catálogo de códigos del cliente el que corresponde a un concepto:
+   primero por código interno (nuestra clave de servicio, p. ej. "S1"), luego
+   por descripción (case-insensitive). Devuelve el código del cliente o "". */
+function noIdentDeCatalogo(codigosServicio, { codigoServicio = "", descripcion = "" } = {}) {
+  const lista = Array.isArray(codigosServicio) ? codigosServicio : [];
+  if (!lista.length) return "";
+
+  const ci = String(codigoServicio || "").trim().toLowerCase();
+  const desc = String(descripcion || "").trim().toLowerCase();
+
+  const porCodigo =
+    ci && lista.find((r) => String(r.codigoInterno || "").trim().toLowerCase() === ci);
+  if (porCodigo?.codigoCliente) return porCodigo.codigoCliente;
+
+  const porDescripcion =
+    desc && lista.find((r) => String(r.descripcion || "").trim().toLowerCase() === desc);
+  return porDescripcion?.codigoCliente || "";
+}
 
 // RFC/Régimen/CP alimentan el atributo DomicilioFiscalReceptor del CFDI; la
 // calle/colonia/ciudad/estado no las exige el SAT en el XML pero sí aparecen
@@ -208,6 +254,7 @@ function SelectCProdServ({ value, disabled, onChange, opciones, size = "", place
 
 export default function NuevaFactura() {
   const navigate = useNavigate();
+  const location = useLocation();
   // Identificador local (no persiste al backend) para poder seleccionar y
   // editar en lote cada renglón de conceptos, sin depender de su índice.
   const nextKeyRef = useRef(1);
@@ -217,10 +264,23 @@ export default function NuevaFactura() {
   ========== */
   const [tipoFactura, setTipoFactura] = useState("");
 
+  /* ==========
+     PRECARGA DESDE CAJAS
+     Se llega aquí con el botón "Facturar" del detalle de la orden en Cajas.
+     location.state = { ordenId, ordenServicio }. Si la orden aún no tiene
+     factura, se arranca una nueva con esa orden ya cargada; si ya tiene, se
+     ofrece Nota de crédito o Complemento de pago sobre esas facturas.
+  ========== */
+  const precargaOrden = location.state?.ordenId ? location.state : null;
+  const [facturasDeOrden, setFacturasDeOrden] = useState([]);
+  const [precargando, setPrecargando] = useState(!!precargaOrden);
+  const precargaHechaRef = useRef(false);
+
   const tipoInfo = TIPOS_FACTURA.find((t) => t.value === tipoFactura) || null;
   const esFactura = tipoFactura === "factura";
   const esNotaCredito = tipoFactura === "notaCredito";
   const esComplementoPago = tipoFactura === "complementoPago";
+  const esFacturaGlobal = tipoFactura === "facturaGlobal";
 
   /* ==========
      SECCIÓN 2A) ÓRDENES DE SERVICIO / CLIENTE (tipo: factura)
@@ -235,6 +295,55 @@ export default function NuevaFactura() {
 
   const [fiscalDraft, setFiscalDraft] = useState(FISCAL_DRAFT_VACIO);
   const [guardandoFiscal, setGuardandoFiscal] = useState(false);
+
+  /* ==========
+     SECCIÓN 2C) FACTURA GLOBAL (tipo: facturaGlobal)
+     Agrupa TODAS las notas de venta de Caja que aún no están en una factura
+     global, en un CFDI al público en general.
+  ========== */
+  const [notasPend, setNotasPend] = useState([]);
+  const [loadingNotas, setLoadingNotas] = useState(false);
+  // Set de pagoId seleccionados (todas por defecto al cargar).
+  const [notasSelKeys, setNotasSelKeys] = useState(() => new Set());
+  const [descuentoGlobal, setDescuentoGlobal] = useState("");
+
+  const notasSel = useMemo(
+    () => notasPend.filter((n) => notasSelKeys.has(n.pagoId)),
+    [notasPend, notasSelKeys]
+  );
+  const sumaSinIvaGlobal = useMemo(
+    () => notasSel.reduce((s, n) => s + Number(n.montoSinIva || 0), 0),
+    [notasSel]
+  );
+  const folioMinGlobal = useMemo(
+    () => (notasSel.length ? Math.min(...notasSel.map((n) => n.numero)) : null),
+    [notasSel]
+  );
+  const folioMaxGlobal = useMemo(
+    () => (notasSel.length ? Math.max(...notasSel.map((n) => n.numero)) : null),
+    [notasSel]
+  );
+  const descripcionGlobal = useMemo(() => {
+    if (!notasSel.length) return "";
+    const [y, m, d] = hoyISO().split("-").map(Number);
+    const fechaTxt = `${d} ${MESES_ES[m - 1]} ${y}`;
+    return folioMinGlobal === folioMaxGlobal
+      ? `VENTA DEL DIA ${fechaTxt} CON NOTA DE VENTA #${folioMinGlobal}`
+      : `VENTA DEL DIA ${fechaTxt} CON NOTA DE VENTA #${folioMinGlobal} A LA #${folioMaxGlobal}`;
+  }, [notasSel, folioMinGlobal, folioMaxGlobal]);
+
+  const toggleNotaGlobal = (pagoId) => {
+    setNotasSelKeys((prev) => {
+      const next = new Set(prev);
+      next.has(pagoId) ? next.delete(pagoId) : next.add(pagoId);
+      return next;
+    });
+  };
+  const toggleTodasNotasGlobal = () => {
+    setNotasSelKeys((prev) =>
+      prev.size === notasPend.length ? new Set() : new Set(notasPend.map((n) => n.pagoId))
+    );
+  };
 
   /* ==========
      SECCIÓN 2B) FACTURAS EMITIDAS (tipos: notaCredito / complementoPago)
@@ -282,6 +391,10 @@ export default function NuevaFactura() {
     setFacturasNC([]);
     setFacturasPago([]);
 
+    setNotasPend([]);
+    setNotasSelKeys(new Set());
+    setDescuentoGlobal("");
+
     setConceptos([]);
     setConceptosSeleccionados([]);
     setBulkCUnidad("");
@@ -306,6 +419,12 @@ export default function NuevaFactura() {
       setUsoCfdi("G02");
       setMetodoPago("PUE");
       setFormaPago("15");
+    } else if (t.value === "facturaGlobal") {
+      // Público en general: uso S01, IVA fijo 8%, contado en efectivo.
+      setUsoCfdi("S01");
+      setMetodoPago("PUE");
+      setFormaPago("01");
+      setIvaRate(0.08);
     } else {
       setUsoCfdi("CP01");
       setMetodoPago("PUE");
@@ -397,6 +516,34 @@ export default function NuevaFactura() {
     return () => clearTimeout(t);
   }, [qFactura, esNotaCredito, esComplementoPago, facturasNC, facturasPago]); // eslint-disable-line
 
+  /* Factura global: carga TODAS las notas de venta de Caja pendientes de
+     facturar globalmente y las deja todas seleccionadas. */
+  useEffect(() => {
+    if (!esFacturaGlobal) return;
+
+    let cancelado = false;
+    (async () => {
+      try {
+        setLoadingNotas(true);
+        const res = await getNotasVentaPendientes();
+        if (cancelado) return;
+        const lista = res.data?.notas || [];
+        setNotasPend(lista);
+        setNotasSelKeys(new Set(lista.map((n) => n.pagoId)));
+      } catch (e) {
+        if (cancelado) return;
+        setNotasPend([]);
+        setNotasSelKeys(new Set());
+      } finally {
+        if (!cancelado) setLoadingNotas(false);
+      }
+    })();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [esFacturaGlobal]);
+
   const direccionFiscalDeCliente = (c) => {
     const d = c?.facturacion?.direccion || c?.direccion || {};
     return {
@@ -422,6 +569,8 @@ export default function NuevaFactura() {
             c.codigoPostalFiscal || c.facturacion?.direccion?.codigoPostal || "",
           direccion: direccionFiscalDeCliente(c),
           pais: c.pais || "",
+          // Catálogo de códigos propios del cliente (para NoIdentificacion).
+          codigosServicio: Array.isArray(c.codigosServicio) ? c.codigosServicio : [],
         }
       : null;
 
@@ -459,12 +608,21 @@ export default function NuevaFactura() {
         .map((l) => ({
           _key: nextKeyRef.current++,
           _origenOrdenId: v._id,
+          // Clave de servicio interna de la partida (p. ej. "S1"), para poder
+          // volver a resolver el código del cliente si cambia el catálogo.
+          _codigoServicio: l.codigoServicio || "",
           cantidad: Number(l.cant) > 0 ? Number(l.cant) : 1,
           unidad: "",
           cProdServ: l.codigoSat || "",
           cUnidad: "",
           descripcion: l.concepto || l.descripcionSat || "",
           valorUnitario: Number(l.precioVenta || 0),
+          // Código propio del cliente para este servicio (NoIdentificacion).
+          // Pre-llenado desde el catálogo del cliente; editable en la tabla.
+          noIdentificacion: noIdentDeCatalogo(clienteOrden?.codigosServicio, {
+            codigoServicio: l.codigoServicio,
+            descripcion: l.concepto || l.descripcionServicio || l.descripcionSat,
+          }),
         }));
       if (conceptosOrden.length) {
         setConceptos((prev) => [...prev, ...conceptosOrden]);
@@ -527,6 +685,7 @@ export default function NuevaFactura() {
     cUnidad: "ACT",
     descripcion: `NOTA DE CREDITO APLICADA A FACTURA ${(doc.serie || "") + (doc.folio || "")}`,
     valorUnitario: Number(doc.totales?.subtotal || 0),
+    noIdentificacion: "",
     // Marca de origen: si se quita la factura, se retira también su concepto.
     _origenFacturaId: doc._id,
   });
@@ -590,10 +749,75 @@ export default function NuevaFactura() {
   };
 
   /* ==========
+     PRECARGA DESDE CAJAS (botón "Facturar" del detalle de la orden)
+  ========== */
+  // La orden ya tiene factura: se genera Nota de crédito o Complemento de pago
+  // sobre TODAS las facturas de esa orden (mismo cliente, así que no hay
+  // conflicto de RFC). onPickTipo ya hace resetTodo(); las facturas se agregan
+  // enseguida y los setState funcionales se encolan en el orden correcto.
+  const precargarSobreFacturas = (tipo) => {
+    onPickTipo(TIPOS_FACTURA.find((t) => t.value === tipo));
+    facturasDeOrden.forEach((doc) => {
+      if (tipo === "notaCredito") agregarFacturaNC(doc);
+      else agregarFacturaPago(doc);
+    });
+  };
+
+  // "Facturar otra vez esta orden": ignora las facturas previas y arranca una
+  // factura nueva con la orden cargada (mismo camino que sin factura previa).
+  const precargarFacturarDeNuevo = async () => {
+    onPickTipo(TIPOS_FACTURA.find((t) => t.value === "factura"));
+    setFacturasDeOrden([]);
+    if (precargaOrden) await agregarOrden({ _id: precargaOrden.ordenId });
+  };
+
+  useEffect(() => {
+    if (!precargaOrden || precargaHechaRef.current) return;
+    precargaHechaRef.current = true;
+
+    (async () => {
+      setPrecargando(true);
+      try {
+        const os = String(precargaOrden.ordenServicio || "").trim();
+        let facturas = [];
+        if (os) {
+          const res = await listFacturasCfdi({
+            q: os,
+            tipo: "factura",
+            estatus: "generada",
+            limit: 100,
+          });
+          // El backend busca por regex, así que "T-1" también trae "T-10"…: se
+          // filtra por coincidencia exacta de folio de orden (principal o de la
+          // lista de órdenes agrupadas).
+          facturas = (res.data?.docs || []).filter(
+            (d) =>
+              d.orden?.ordenServicio === os ||
+              (d.ordenes || []).some((x) => x.ordenServicio === os)
+          );
+        }
+        setFacturasDeOrden(facturas);
+
+        // Sin factura previa: se arranca directo una factura nueva con la orden.
+        if (facturas.length === 0) {
+          onPickTipo(TIPOS_FACTURA.find((t) => t.value === "factura"));
+          await agregarOrden({ _id: precargaOrden.ordenId });
+        }
+      } catch (e) {
+        setFacturasDeOrden([]);
+      } finally {
+        setPrecargando(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* ==========
      RECEPTOR (según el tipo)
   ========== */
   const receptor = useMemo(() => {
     if (esFactura) return cliente;
+    if (esFacturaGlobal) return PUBLICO_EN_GENERAL;
 
     const base = esNotaCredito ? facturasNC[0] : facturasPago[0]?.doc;
     if (!base) return null;
@@ -623,8 +847,9 @@ export default function NuevaFactura() {
     if (esFactura) return ordenes.length > 0 && !!cliente && !faltanFiscales;
     if (esNotaCredito) return facturasNC.length > 0;
     if (esComplementoPago) return facturasPago.length > 0;
+    if (esFacturaGlobal) return notasSel.length > 0;
     return false;
-  }, [esFactura, esNotaCredito, esComplementoPago, ordenes, cliente, faltanFiscales, facturasNC, facturasPago]);
+  }, [esFactura, esNotaCredito, esComplementoPago, esFacturaGlobal, ordenes, cliente, faltanFiscales, facturasNC, facturasPago, notasSel]);
 
   const guardarFiscalCliente = async () => {
     if (!cliente?._id) return;
@@ -681,7 +906,7 @@ export default function NuevaFactura() {
   // El valor unitario puede ser 0 (partidas de cortesía con motivo justificado),
   // igual que lo acepta el generador de XML; solo se rechazan los negativos.
   const conceptoInvalido = (c) => {
-    if (!String(c.descripcion || "").trim()) return "Pon una descripción.";
+    if (!String(c.descripcion || "").trim()) return "Pon un concepto.";
     if (!String(c.cProdServ || "").trim()) return "Falta la clave de producto/servicio (CProdServ).";
     if (!String(c.cUnidad || "").trim()) return "Falta la clave de unidad (CUnidad).";
     if (Number(c.cantidad) <= 0) return "Cantidad inválida.";
@@ -696,6 +921,8 @@ export default function NuevaFactura() {
     cUnidad: String(c.cUnidad || "").trim(),
     descripcion: String(c.descripcion || "").trim(),
     valorUnitario: Number(c.valorUnitario),
+    // Código propio del cliente → NoIdentificacion en el CFDI (sin `|`, máx 100).
+    noIdentificacion: String(c.noIdentificacion || "").replace(/\|/g, "").trim().slice(0, 100),
   });
 
   const delConcepto = (idx) => {
@@ -711,10 +938,34 @@ export default function NuevaFactura() {
 
   const importeConcepto = (c) => Number(c.cantidad || 0) * Number(c.valorUnitario || 0);
 
-  /* Selección de renglones, para rellenar CUnidad/CProdServ en lote */
+  // Mantiene `conceptos` con un único renglón (el que se timbra y se previsualiza).
+  useEffect(() => {
+    if (!esFacturaGlobal) return;
+    if (!notasSel.length) {
+      setConceptos([]);
+      return;
+    }
+    setConceptos([
+      {
+        _key: nextKeyRef.current++,
+        cantidad: 1,
+        unidad: "Actividad",
+        cUnidad: "ACT",
+        cProdServ: "01010101",
+        descripcion: descripcionGlobal,
+        valorUnitario: Math.round(sumaSinIvaGlobal * 100) / 100,
+        noIdentificacion: "",
+      },
+    ]);
+  }, [esFacturaGlobal, notasSel.length, descripcionGlobal, sumaSinIvaGlobal]); // eslint-disable-line
+
+  /* Selección de renglones, para rellenar CUnidad / CProdServ / Cód. cliente en lote */
   const [conceptosSeleccionados, setConceptosSeleccionados] = useState([]);
   const [bulkCUnidad, setBulkCUnidad] = useState("");
   const [bulkCProdServ, setBulkCProdServ] = useState("");
+  // Código propio del cliente (NoIdentificacion) a aplicar en lote. El valor es
+  // el `codigoCliente` de una fila del catálogo del cliente (ver receptor.codigosServicio).
+  const [bulkNoIdent, setBulkNoIdent] = useState("");
 
   const toggleConceptoSeleccionado = (key) => {
     setConceptosSeleccionados((prev) =>
@@ -728,25 +979,24 @@ export default function NuevaFactura() {
     );
   };
 
-  // El CUnidad/CProdServ elegidos arriba de la tabla no se aplican solos:
-  // se quedan en espera hasta que se confirmen con "Guardar".
+  // El CUnidad / CProdServ / Cód. cliente elegidos arriba de la tabla no se
+  // aplican solos: se quedan en espera hasta que se confirmen con "Guardar".
   const puedeGuardarSeleccion =
-    conceptosSeleccionados.length > 0 && (!!bulkCUnidad || !!bulkCProdServ);
+    conceptosSeleccionados.length > 0 &&
+    (!!bulkCUnidad || !!bulkCProdServ || !!bulkNoIdent);
 
   const guardarSeleccionEnLote = () => {
     if (!puedeGuardarSeleccion) return;
 
     const unidadTexto = bulkCUnidad ? unidadDeClave(clavesUnidad, bulkCUnidad) : null;
-    const preset = bulkCProdServ ? presets.find((p) => p.cProdServ === bulkCProdServ) : null;
 
     const aplicar = (c) => {
       if (!conceptosSeleccionados.includes(c._key)) return c;
       return {
         ...c,
         ...(bulkCUnidad ? { cUnidad: bulkCUnidad, unidad: unidadTexto || c.unidad } : {}),
-        ...(bulkCProdServ
-          ? { cProdServ: bulkCProdServ, descripcion: preset?.descripcion || c.descripcion }
-          : {}),
+        ...(bulkCProdServ ? { cProdServ: bulkCProdServ } : {}),
+        ...(bulkNoIdent ? { noIdentificacion: bulkNoIdent } : {}),
       };
     };
 
@@ -754,6 +1004,7 @@ export default function NuevaFactura() {
     setEditDraft((prev) => (prev ? aplicar(prev) : prev));
     setBulkCUnidad("");
     setBulkCProdServ("");
+    setBulkNoIdent("");
   };
 
   /* Edición en línea de la lista de conceptos */
@@ -842,12 +1093,19 @@ export default function NuevaFactura() {
     () => conceptos.reduce((sum, c) => sum + importeConcepto(c), 0),
     [conceptos]
   );
-  const iva = useMemo(() => subtotal * Number(ivaRate || 0), [subtotal, ivaRate]);
+  // Descuento (monto en pesos): hoy solo lo usa la factura global. Se acota a
+  // [0, subtotal] y se resta antes de calcular IVA/ISR.
+  const descuento = useMemo(() => {
+    if (!esFacturaGlobal) return 0;
+    return Math.min(Math.max(Number(descuentoGlobal || 0), 0), subtotal);
+  }, [esFacturaGlobal, descuentoGlobal, subtotal]);
+  const baseGravable = useMemo(() => subtotal - descuento, [subtotal, descuento]);
+  const iva = useMemo(() => baseGravable * Number(ivaRate || 0), [baseGravable, ivaRate]);
   const isr = useMemo(
-    () => (aplicarRetencionIsr ? subtotal * isrRate : 0),
-    [subtotal, aplicarRetencionIsr]
+    () => (aplicarRetencionIsr ? baseGravable * isrRate : 0),
+    [baseGravable, aplicarRetencionIsr]
   );
-  const total = useMemo(() => subtotal + iva - isr, [subtotal, iva, isr]);
+  const total = useMemo(() => baseGravable + iva - isr, [baseGravable, iva, isr]);
 
   const montoPago = useMemo(
     () => facturasPago.reduce((s, f) => s + Number(f.importePagado || 0), 0),
@@ -969,6 +1227,20 @@ export default function NuevaFactura() {
           }))
         : [];
 
+    // Factura global: notas de venta agrupadas + nodo InformacionGlobal (diario).
+    const notasVentaPayload = esFacturaGlobal
+      ? notasSel.map((n) => ({
+          vehiculoId: n.vehiculoId,
+          pagoId: n.pagoId,
+          ordenServicio: n.ordenServicio || "",
+          numero: n.numero,
+          monto: Number(n.monto || 0),
+        }))
+      : [];
+
+    // InformacionGlobal: periodicidad diaria con el mes/año de emisión (hoy).
+    const [gAnio, gMes] = esFacturaGlobal ? hoyISO().split("-") : ["", ""];
+
     return {
       tipoFactura,
       cliente: receptor,
@@ -978,6 +1250,10 @@ export default function NuevaFactura() {
       ordenes: ordenesPayload,
       conceptos: esComplementoPago ? [] : conceptos.map(limpiaConcepto),
       relacionadas,
+      notasVenta: notasVentaPayload,
+      informacionGlobal: esFacturaGlobal
+        ? { periodicidad: "01", meses: gMes, anio: gAnio }
+        : null,
       pago: esComplementoPago
         ? { fechaPago, formaPago, monto: montoPago }
         : null,
@@ -987,8 +1263,9 @@ export default function NuevaFactura() {
         ivaRate: Number(ivaRate),
         metodoPago,
         formaPago,
-        moneda: esComplementoPago ? "MXN" : moneda,
+        moneda: esComplementoPago || esFacturaGlobal ? "MXN" : moneda,
         tipoCambio: moneda === "USD" ? Number(tipoCambio || 0) : null,
+        descuento: esFacturaGlobal ? descuento : 0,
         oc,
         comentarios,
         aplicarRetencionIsr: esFactura ? aplicarRetencionIsr : false,
@@ -1144,6 +1421,53 @@ export default function NuevaFactura() {
         <h2 className="mb-0">Nueva Factura</h2>
       </div>
 
+      {/* Precarga desde Cajas ("Facturar" en el detalle de la orden) */}
+      {precargando && (
+        <div className="alert alert-info d-flex align-items-center gap-2">
+          <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+          Cargando la orden desde Cajas…
+        </div>
+      )}
+
+      {!precargando && precargaOrden && facturasDeOrden.length > 0 && !tipoFactura && (
+        <div className="alert alert-warning">
+          <div className="fw-semibold mb-1">
+            La orden {precargaOrden.ordenServicio} ya tiene {facturasDeOrden.length}{" "}
+            factura{facturasDeOrden.length > 1 ? "s" : ""} emitida
+            {facturasDeOrden.length > 1 ? "s" : ""}:{" "}
+            {facturasDeOrden
+              .map((f) => (f.serie || "") + (f.folio || "") || "(sin folio)")
+              .join(", ")}
+            .
+          </div>
+          <div className="small mb-2">
+            Para una orden ya facturada normalmente se genera una <b>Nota de crédito</b>{" "}
+            (devolución o descuento sobre la factura) o un <b>Complemento de pago</b>{" "}
+            (registro de un pago posterior).
+          </div>
+          <div className="d-flex flex-wrap gap-2">
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => precargarSobreFacturas("notaCredito")}
+            >
+              Crear Nota de crédito
+            </button>
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => precargarSobreFacturas("complementoPago")}
+            >
+              Crear Complemento de pago
+            </button>
+            <button
+              className="btn btn-sm btn-outline-secondary"
+              onClick={precargarFacturarDeNuevo}
+            >
+              Facturar otra vez esta orden
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Tipo de factura (se elige antes de los conceptos) */}
       <div className="card p-3 mb-3">
         <h5 className="mb-1">Tipo de factura</h5>
@@ -1155,7 +1479,7 @@ export default function NuevaFactura() {
           {TIPOS_FACTURA.map((t) => {
             const activo = tipoFactura === t.value;
             return (
-              <div className="col-12 col-md-4" key={t.value}>
+              <div className="col-12 col-md-6 col-lg-3" key={t.value}>
                 <button
                   type="button"
                   onClick={() => onPickTipo(t)}
@@ -1196,11 +1520,15 @@ export default function NuevaFactura() {
                 ? "Órdenes de servicio"
                 : esNotaCredito
                 ? "Facturas a acreditar"
-                : "Facturas a pagar"}
+                : esComplementoPago
+                ? "Facturas a pagar"
+                : "Notas de venta pendientes"}
             </h5>
             <div className="text-muted small text-center mb-3">
               {esFactura
                 ? "Solo se listan órdenes cerradas. Puedes agregar varias del mismo cliente."
+                : esFacturaGlobal
+                ? "Se agrupan todas las notas de venta de Caja que aún no están en una factura global, en un CFDI al público en general (RFC XAXX010101000)."
                 : "Puedes agregar varias facturas del mismo cliente."}
             </div>
 
@@ -1294,6 +1622,86 @@ export default function NuevaFactura() {
                           </div>
                         </button>
                       ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* FACTURA GLOBAL: fecha + notas de venta del día */}
+            {esFacturaGlobal && (
+              <div>
+                {loadingNotas ? (
+                  <div className="mt-1 text-center text-muted">Cargando notas de venta…</div>
+                ) : notasPend.length === 0 ? (
+                  <div className="alert alert-warning mt-1 mb-0 text-center">
+                    No hay notas de venta de Caja pendientes de facturar globalmente.
+                  </div>
+                ) : (
+                  <div>
+                    <div className="d-flex justify-content-between align-items-center mb-2">
+                      <h6 className="mb-0">
+                        {notasSel.length} de {notasPend.length} nota(s) seleccionada(s)
+                      </h6>
+                      <button className="btn btn-link btn-sm" onClick={toggleTodasNotasGlobal}>
+                        {notasSelKeys.size === notasPend.length ? "Quitar todas" : "Seleccionar todas"}
+                      </button>
+                    </div>
+
+                    <div className="table-responsive" style={{ maxHeight: 340, overflow: "auto" }}>
+                      <table className="table table-sm table-bordered align-middle mb-0">
+                        <thead className="table-light">
+                          <tr>
+                            <th style={{ width: 36 }} className="text-center">✓</th>
+                            <th>Nota</th>
+                            <th>Fecha</th>
+                            <th>Orden</th>
+                            <th>Cliente</th>
+                            <th className="text-end">Cobrado</th>
+                            <th className="text-end">Sin IVA</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {notasPend.map((n) => (
+                            <tr
+                              key={n.pagoId}
+                              className={notasSelKeys.has(n.pagoId) ? "" : "text-muted"}
+                            >
+                              <td className="text-center">
+                                <input
+                                  type="checkbox"
+                                  className="form-check-input"
+                                  checked={notasSelKeys.has(n.pagoId)}
+                                  onChange={() => toggleNotaGlobal(n.pagoId)}
+                                />
+                              </td>
+                              <td className="fw-bold">#{n.numero}</td>
+                              <td>{fechaCorta(n.fecha)}</td>
+                              <td>{n.ordenServicio || "—"}</td>
+                              <td>{n.cliente || "—"}</td>
+                              <td className="text-end">{money(n.monto)}</td>
+                              <td className="text-end">{money(n.montoSinIva)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr>
+                            <td colSpan={5} className="text-end fw-bold">
+                              Seleccionado (sin IVA):
+                            </td>
+                            <td className="text-end fw-bold">
+                              {money(notasSel.reduce((s, n) => s + Number(n.monto || 0), 0))}
+                            </td>
+                            <td className="text-end fw-bold">{money(sumaSinIvaGlobal)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+
+                    {notasSel.length > 0 && (
+                      <div className="text-muted small mt-2">
+                        Descripción del CFDI: <b>{descripcionGlobal}</b>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1728,9 +2136,72 @@ export default function NuevaFactura() {
       )}
 
       {/* ======================
+          SECCIÓN 3) CONCEPTO ÚNICO + DESCUENTO (factura global)
+      ====================== */}
+      {esFacturaGlobal && (
+        <div className={`card p-3 mb-3 ${disabledSteps ? "opacity-50" : ""}`}>
+          <h5>Concepto de la factura global</h5>
+
+          {!pasoBaseOk ? (
+            <div className="alert alert-warning mt-2 mb-0">
+              Elige un día con al menos una nota de venta para continuar.
+            </div>
+          ) : (
+            <>
+              <div className="table-responsive mt-2">
+                <table className="table table-bordered align-middle mb-0">
+                  <thead className="table-light">
+                    <tr>
+                      <th style={{ width: 70 }}>Cant.</th>
+                      <th style={{ width: 110 }}>CUnidad</th>
+                      <th style={{ width: 130 }}>CProdServ</th>
+                      <th>Descripción del servicio</th>
+                      <th className="text-end" style={{ width: 150 }}>Precio Unit</th>
+                      <th className="text-end" style={{ width: 150 }}>Importe</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>1</td>
+                      <td>ACT</td>
+                      <td>01010101</td>
+                      <td>{descripcionGlobal}</td>
+                      <td className="text-end">{money(sumaSinIvaGlobal)}</td>
+                      <td className="text-end">{money(sumaSinIvaGlobal)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="row g-2 mt-1" style={{ maxWidth: 320 }}>
+                <div className="col-12">
+                  <label className="form-label small mb-1">Descuento (MXN)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={sumaSinIvaGlobal}
+                    step="0.01"
+                    className="form-control"
+                    value={descuentoGlobal}
+                    onChange={(e) => setDescuentoGlobal(e.target.value)}
+                    placeholder="0.00"
+                  />
+                  {Number(descuentoGlobal || 0) > sumaSinIvaGlobal && (
+                    <small className="text-danger">
+                      El descuento no puede superar el importe; se aplicará el máximo.
+                    </small>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ======================
           SECCIÓN 3) CONCEPTOS (factura / nota de crédito)
       ====================== */}
-      {tipoFactura && !esComplementoPago && (
+      {tipoFactura && (esFactura || esNotaCredito) && (
         <div className={`card p-3 mb-3 ${disabledSteps ? "opacity-50" : ""}`}>
           <h5>Conceptos</h5>
 
@@ -1747,8 +2218,8 @@ export default function NuevaFactura() {
             <div>
               <h6 className="mb-0">Conceptos agregados</h6>
               <div className="text-muted small">
-                Selecciona uno o varios con la casilla, elige su CUnidad y/o CProdServ y
-                presiona Guardar para aplicárselos en lote.
+                Selecciona uno o varios con la casilla, elige su CUnidad, CProdServ y/o
+                Cód. cliente y presiona Guardar para aplicárselos en lote.
               </div>
             </div>
 
@@ -1777,6 +2248,29 @@ export default function NuevaFactura() {
                 />
               </div>
 
+              {/* Códigos propios del cliente (NoIdentificacion): solo si el
+                  cliente tiene alguno registrado con su código. */}
+              {(receptor?.codigosServicio || []).some((r) => r.codigoCliente) && (
+                <div>
+                  <label className="form-label small mb-1">Cód. cliente (selección)</label>
+                  <Dropdown
+                    className="form-select form-select-sm"
+                    value={bulkNoIdent}
+                    disabled={disabledSteps || conceptosSeleccionados.length === 0}
+                    onChange={(e) => setBulkNoIdent(e.target.value)}
+                  >
+                    <Dropdown.Option value="">-- Elegir --</Dropdown.Option>
+                    {(receptor?.codigosServicio || [])
+                      .filter((r) => r.codigoCliente)
+                      .map((r, i) => (
+                        <Dropdown.Option key={i} value={r.codigoCliente}>
+                          {(r.descripcion || r.codigoCliente) + " → " + r.codigoCliente}
+                        </Dropdown.Option>
+                      ))}
+                  </Dropdown>
+                </div>
+              )}
+
               <button
                 type="button"
                 className="btn btn-sm btn-success"
@@ -1798,6 +2292,16 @@ export default function NuevaFactura() {
             ))}
           </datalist>
 
+          {/* Códigos propios del cliente (se envían como NoIdentificacion).
+              Se asocian por descripción del servicio. */}
+          <datalist id="noident-catalogo">
+            {(receptor?.codigosServicio || []).map((r, i) => (
+              <option key={i} value={r.codigoCliente}>
+                {r.descripcion || r.codigoCliente}
+              </option>
+            ))}
+          </datalist>
+
           <div className="table-responsive">
             <table className="table table-bordered align-middle">
               <thead>
@@ -1815,7 +2319,8 @@ export default function NuevaFactura() {
                   <th style={{ width: 160 }}>CUnidad</th>
                   <th style={{ width: 130 }}>Unidad</th>
                   <th style={{ width: 140 }}>CProdServ</th>
-                  <th>Descripción</th>
+                  <th>Concepto</th>
+                  <th style={{ width: 150 }}>Cód. cliente</th>
                   <th style={{ width: 150 }}>V. Unit</th>
                   <th style={{ width: 150 }}>Importe</th>
                   <th style={{ width: 220 }}>Acción</th>
@@ -1825,7 +2330,7 @@ export default function NuevaFactura() {
               <tbody>
                 {conceptos.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="text-center text-muted">
+                    <td colSpan={10} className="text-center text-muted">
                       Agrega al menos 1 concepto
                     </td>
                   </tr>
@@ -1927,6 +2432,24 @@ export default function NuevaFactura() {
                             />
                           ) : (
                             c.descripcion
+                          )}
+                        </td>
+
+                        {/* Código propio del cliente → NoIdentificacion del CFDI.
+                            Pre-llenado desde el catálogo del cliente; editable. */}
+                        <td>
+                          {editing ? (
+                            <input
+                              className="form-control"
+                              list="noident-catalogo"
+                              value={row.noIdentificacion || ""}
+                              placeholder="—"
+                              onChange={(e) =>
+                                setEditDraft((p) => ({ ...p, noIdentificacion: e.target.value }))
+                              }
+                            />
+                          ) : (
+                            c.noIdentificacion || <span className="text-muted">—</span>
                           )}
                         </td>
 
@@ -2145,7 +2668,7 @@ export default function NuevaFactura() {
                   <Dropdown
                     className="form-select"
                     value={usoCfdi}
-                    disabled={disabledSteps}
+                    disabled={disabledSteps || esFacturaGlobal}
                     onChange={(e) => setUsoCfdi(e.target.value)}
                   >
                     {USO_CFDI.map((x) => (
@@ -2154,6 +2677,9 @@ export default function NuevaFactura() {
                       </Dropdown.Option>
                     ))}
                   </Dropdown>
+                  {esFacturaGlobal && (
+                    <small className="text-muted">Factura global: siempre S01.</small>
+                  )}
                 </div>
 
                 <div className="col-12 col-md-2">
@@ -2161,7 +2687,7 @@ export default function NuevaFactura() {
                   <Dropdown
                     className="form-select"
                     value={ivaRate}
-                    disabled={disabledSteps}
+                    disabled={disabledSteps || esFacturaGlobal}
                     onChange={(e) => setIvaRate(Number(e.target.value))}
                   >
                     {IVA_OPTS.map((x) => (
@@ -2176,8 +2702,8 @@ export default function NuevaFactura() {
                   <label className="form-label">Moneda</label>
                   <Dropdown
                     className="form-select"
-                    value={moneda}
-                    disabled={disabledSteps}
+                    value={esFacturaGlobal ? "MXN" : moneda}
+                    disabled={disabledSteps || esFacturaGlobal}
                     onChange={(e) => setMoneda(e.target.value)}
                   >
                     <Dropdown.Option value="MXN">MXN</Dropdown.Option>
@@ -2323,8 +2849,16 @@ export default function NuevaFactura() {
                     <b>SUBTOTAL</b>
                     <span>{money(subtotal)}</span>
                   </div>
+
+                  {esFacturaGlobal && (
+                    <div className="d-flex justify-content-between">
+                      <b>DESCUENTO</b>
+                      <span>- {money(descuento)}</span>
+                    </div>
+                  )}
+
                   <div className="d-flex justify-content-between">
-                    <b>IVA</b>
+                    <b>IVA {esFacturaGlobal ? "8%" : ""}</b>
                     <span>{money(iva)}</span>
                   </div>
 

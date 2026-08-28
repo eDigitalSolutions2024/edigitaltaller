@@ -71,6 +71,14 @@ export const getReportePendientesFactura = (desde, hasta) =>
 export const getReportePendientesFacturaPdfUrl = (desde, hasta) =>
   `${BASE_URL}/reportes/pendientes-factura-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
 
+// ===== Clientes con Anticipos (saldo a favor) =====
+// Es una fotografía del saldo actual, no un rango de fechas.
+export const getReporteClientesAnticipos = () =>
+  http.get('/reportes/clientes-anticipos');
+
+export const getReporteClientesAnticiposPdfUrl = () =>
+  `${BASE_URL}/reportes/clientes-anticipos-pdf`;
+
 // ===== Cierre de Caja =====
 
 export const getCierreCaja = (fecha) =>

@@ -15,11 +15,7 @@ export default function ProveedoresLayout() {
         <NavLink to={`${base}/consultar`} className={tab}>Consultar</NavLink>
       </div>
 
-      <div className="card shadow-sm">
-        <div className="card-body">
-          <Outlet />
-        </div>
-      </div>
+      <Outlet />
     </div>
   );
 }

@@ -66,22 +66,56 @@ function tasaIsr6(isrRate) {
   return fmt6(Number(isrRate || 0));
 }
 
-function calcularTotales({ conceptos, ivaRate = 0.16, aplicarRetencionIsr = false, isrRate = 0.0125 }) {
+function calcularTotales({
+  conceptos,
+  ivaRate = 0.16,
+  aplicarRetencionIsr = false,
+  isrRate = 0.0125,
+  descuento = 0,
+}) {
   const subtotalNum = conceptos.reduce((sum, c) => {
     return sum + Number(c.cantidad || 0) * Number(c.valorUnitario || 0);
   }, 0);
 
-  const ivaNum = subtotalNum * Number(ivaRate || 0);
-  const isrNum = aplicarRetencionIsr ? subtotalNum * Number(isrRate || 0) : 0;
+  // El descuento (monto en pesos) se resta del subtotal antes de calcular
+  // IVA/ISR. Se acota a [0, subtotal] para no dejar base negativa.
+  const descuentoNum = Math.min(Math.max(Number(descuento || 0), 0), subtotalNum);
+  const baseNum = subtotalNum - descuentoNum;
 
-  const totalNum = subtotalNum + ivaNum - isrNum;
+  const ivaNum = baseNum * Number(ivaRate || 0);
+  const isrNum = aplicarRetencionIsr ? baseNum * Number(isrRate || 0) : 0;
+
+  const totalNum = baseNum + ivaNum - isrNum;
 
   return {
     subtotal: fmt2(subtotalNum),
+    descuento: fmt2(descuentoNum),
     iva: fmt2(ivaNum),
     isr: fmt2(isrNum),
     total: fmt2(totalNum),
   };
+}
+
+/* Reparte un descuento global (monto en pesos) entre los conceptos, en
+   proporción a su importe; el último absorbe el redondeo. Devuelve copias con
+   el campo `descuento` que el generador de XML necesita por concepto. */
+function repartirDescuentoEnConceptos(conceptos, descuentoTotal) {
+  const lista = Array.isArray(conceptos) ? conceptos : [];
+  const desc = Number(descuentoTotal || 0);
+  if (!(desc > 0) || !lista.length) {
+    return lista.map((c) => ({ ...c, descuento: Number(c.descuento || 0) }));
+  }
+  const importes = lista.map((c) => Number(c.cantidad || 0) * Number(c.valorUnitario || 0));
+  const suma = importes.reduce((s, n) => s + n, 0) || 1;
+  let acumulado = 0;
+  return lista.map((c, i) => {
+    const share =
+      i === lista.length - 1
+        ? Math.max(desc - acumulado, 0)
+        : Math.round(((desc * importes[i]) / suma) * 100) / 100;
+    acumulado += share;
+    return { ...c, descuento: share };
+  });
 }
 
 /* =========================
@@ -133,10 +167,24 @@ function buildCfdiXmlUnsigned({ emisor, receptor, cfdi, conceptos, totales }) {
     // retención
     aplicarRetencionIsr = false,
     isrRate = 0.0125,
+    // factura global (CFDI al público en general)
+    informacionGlobal = null,
   } = cfdi;
 
   const fechaOk = fecha || cfdiFechaNow();
   const ivaRate = Number(cfdi.ivaRate ?? 0.16);
+
+  // Nodo cfdi:InformacionGlobal (va antes de CfdiRelacionados / Emisor).
+  const informacionGlobalXml =
+    informacionGlobal && informacionGlobal.periodicidad
+      ? `<cfdi:InformacionGlobal Periodicidad="${escapeXml(informacionGlobal.periodicidad)}" Meses="${escapeXml(
+          informacionGlobal.meses
+        )}" Año="${escapeXml(String(informacionGlobal.anio))}"/>`
+      : "";
+
+  // Descuento global del comprobante (suma de descuentos por concepto).
+  const descuentoTotal = Number(totales.descuento || 0);
+  const descuentoAttr = descuentoTotal > 0 ? `\n  Descuento="${fmt2(descuentoTotal)}"` : "";
 
   const tipoCambioAttr =
     moneda === "USD" && tipoCambio ? ` TipoCambio="${escapeXml(String(tipoCambio))}"` : "";
@@ -155,6 +203,8 @@ function buildCfdiXmlUnsigned({ emisor, receptor, cfdi, conceptos, totales }) {
 
   let baseTotal = 0;
 
+  let descuentoBaseTotal = 0;
+
   const conceptosXml = conceptos
     .map((c) => {
       const cantidad = Number(c.cantidad || 0);
@@ -162,8 +212,21 @@ function buildCfdiXmlUnsigned({ emisor, receptor, cfdi, conceptos, totales }) {
       const importe = cantidad * valorUnitario;
       baseTotal += importe;
 
-      const ivaImporte = importe * ivaRate;
-      const isrImporte = aplicarRetencionIsr ? importe * Number(isrRate || 0) : 0;
+      // Descuento por concepto (monto en pesos). La base gravable del concepto
+      // es Importe - Descuento.
+      const descuento = Math.min(Math.max(Number(c.descuento || 0), 0), importe);
+      descuentoBaseTotal += descuento;
+      const baseGravable = importe - descuento;
+      const descuentoConceptoAttr = descuento > 0 ? `\n  Descuento="${fmt2(descuento)}"` : "";
+
+      // Código propio del cliente para este servicio (ver Cliente.codigosServicio).
+      // Atributo opcional del CFDI 4.0; se omite si no viene.
+      const noIdentAttr = c.noIdentificacion
+        ? `\n  NoIdentificacion="${escapeXml(String(c.noIdentificacion))}"`
+        : "";
+
+      const ivaImporte = baseGravable * ivaRate;
+      const isrImporte = aplicarRetencionIsr ? baseGravable * Number(isrRate || 0) : 0;
 
       // Si NO hay impuestos (IVA 0 y sin retenciones), ObjetoImp="01" y sin nodo Impuestos
       const noImpuestos = ivaRate === 0 && !aplicarRetencionIsr;
@@ -171,13 +234,13 @@ function buildCfdiXmlUnsigned({ emisor, receptor, cfdi, conceptos, totales }) {
       if (noImpuestos) {
         return `
 <cfdi:Concepto
-  ClaveProdServ="${escapeXml(c.cProdServ)}"
+  ClaveProdServ="${escapeXml(c.cProdServ)}"${noIdentAttr}
   Cantidad="${escapeXml(String(cantidad))}"
   ClaveUnidad="${escapeXml(c.cUnidad)}"
   Unidad="${escapeXml(c.unidad)}"
   Descripcion="${escapeXml(c.descripcion)}"
   ValorUnitario="${fmt2(valorUnitario)}"
-  Importe="${fmt2(importe)}"
+  Importe="${fmt2(importe)}"${descuentoConceptoAttr}
   ObjetoImp="01">
 </cfdi:Concepto>`;
       }
@@ -187,7 +250,7 @@ function buildCfdiXmlUnsigned({ emisor, receptor, cfdi, conceptos, totales }) {
         ivaRate > 0
           ? `
     <cfdi:Traslados>
-      <cfdi:Traslado Base="${fmt2(importe)}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="${tasaIva}" Importe="${fmt2(ivaImporte)}"/>
+      <cfdi:Traslado Base="${fmt2(baseGravable)}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="${tasaIva}" Importe="${fmt2(ivaImporte)}"/>
     </cfdi:Traslados>`
           : "";
 
@@ -195,19 +258,19 @@ function buildCfdiXmlUnsigned({ emisor, receptor, cfdi, conceptos, totales }) {
         aplicarRetencionIsr
           ? `
     <cfdi:Retenciones>
-      <cfdi:Retencion Base="${fmt2(importe)}" Impuesto="001" TipoFactor="Tasa" TasaOCuota="${tasaIsr}" Importe="${fmt2(isrImporte)}"/>
+      <cfdi:Retencion Base="${fmt2(baseGravable)}" Impuesto="001" TipoFactor="Tasa" TasaOCuota="${tasaIsr}" Importe="${fmt2(isrImporte)}"/>
     </cfdi:Retenciones>`
           : "";
 
       return `
 <cfdi:Concepto
-  ClaveProdServ="${escapeXml(c.cProdServ)}"
+  ClaveProdServ="${escapeXml(c.cProdServ)}"${noIdentAttr}
   Cantidad="${escapeXml(String(cantidad))}"
   ClaveUnidad="${escapeXml(c.cUnidad)}"
   Unidad="${escapeXml(c.unidad)}"
   Descripcion="${escapeXml(c.descripcion)}"
   ValorUnitario="${fmt2(valorUnitario)}"
-  Importe="${fmt2(importe)}"
+  Importe="${fmt2(importe)}"${descuentoConceptoAttr}
   ObjetoImp="02">
   <cfdi:Impuestos>${retencionesXml}${trasladosXml}
   </cfdi:Impuestos>
@@ -230,11 +293,12 @@ function buildCfdiXmlUnsigned({ emisor, receptor, cfdi, conceptos, totales }) {
   </cfdi:Retenciones>`);
     }
 
-    // Traslados IVA (Impuesto 002)
+    // Traslados IVA (Impuesto 002). La base global es la suma de importes menos
+    // el descuento repartido en los conceptos.
     if (Number(totales.iva || 0) > 0) {
       parts.push(`
   <cfdi:Traslados>
-    <cfdi:Traslado Base="${fmt2(baseTotal)}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="${tasaIva}" Importe="${totales.iva}"/>
+    <cfdi:Traslado Base="${fmt2(baseTotal - descuentoBaseTotal)}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="${tasaIva}" Importe="${totales.iva}"/>
   </cfdi:Traslados>`);
     }
 
@@ -257,7 +321,7 @@ function buildCfdiXmlUnsigned({ emisor, receptor, cfdi, conceptos, totales }) {
   Version="4.0"${serieAttr}${folioAttr}${noCertAttr}${certAttr}
   Fecha="${fechaOk}"
   FormaPago="${escapeXml(formaPago)}"
-  SubTotal="${totales.subtotal}"
+  SubTotal="${totales.subtotal}"${descuentoAttr}
   Moneda="${escapeXml(moneda)}"${tipoCambioAttr}
   Total="${totales.total}"
   TipoDeComprobante="${escapeXml(tipoComprobante)}"
@@ -265,6 +329,8 @@ function buildCfdiXmlUnsigned({ emisor, receptor, cfdi, conceptos, totales }) {
   MetodoPago="${escapeXml(metodoPago)}"
   LugarExpedicion="${escapeXml(lugarExpedicion)}"
   Sello="">
+
+  ${informacionGlobalXml}
 
   ${relacionadosXml}
 
@@ -484,6 +550,34 @@ async function cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc) {
   }
 }
 
+// Al generar la factura global, cada Nota de Venta que quedó agrupada se marca
+// con `pago.facturaGlobalId` para que no pueda entrar en otra factura global.
+// El pago NO se cancela: sigue contando como cobro de la orden. Se limpiaría al
+// cancelar ese CFDI (cuando exista esa función).
+async function marcarNotasVentaFacturadas(notasVenta, facturaId) {
+  const porVehiculo = new Map();
+  for (const n of Array.isArray(notasVenta) ? notasVenta : []) {
+    if (!n?.vehiculoId || !n?.pagoId) continue;
+    if (!porVehiculo.has(String(n.vehiculoId))) porVehiculo.set(String(n.vehiculoId), new Set());
+    porVehiculo.get(String(n.vehiculoId)).add(String(n.pagoId));
+  }
+
+  for (const [vehiculoId, pagoIds] of porVehiculo) {
+    const vehiculo = await Vehiculo.findById(vehiculoId);
+    if (!vehiculo) continue;
+
+    let cambio = false;
+    for (const pago of vehiculo.pagos || []) {
+      if (!pagoIds.has(String(pago._id))) continue;
+      if (pago.comprobante !== "NOTA_VENTA" || pago.cancelado) continue;
+      if (pago.facturaGlobalId) continue;
+      pago.facturaGlobalId = facturaId;
+      cambio = true;
+    }
+    if (cambio) await vehiculo.save();
+  }
+}
+
 /* =========================
    ENDPOINT
    POST /api/generar-xml/xml
@@ -499,10 +593,13 @@ router.post("/xml", async (req, res) => {
       tipoFactura = "factura",
       relacionadas = [],
       pago = null,
+      notasVenta = [],
+      informacionGlobal = null,
     } = req.body;
 
     const esNotaCredito = tipoFactura === "notaCredito";
     const esComplementoPago = tipoFactura === "complementoPago";
+    const esFacturaGlobal = tipoFactura === "facturaGlobal";
 
     // Una factura puede agrupar varias órdenes de servicio del mismo cliente.
     // `orden` (singular) se sigue aceptando por compatibilidad con cualquier
@@ -530,6 +627,14 @@ router.post("/xml", async (req, res) => {
       return res.status(400).json({ ok: false, error: "Falta la orden de servicio." });
     }
 
+    // La factura global agrupa notas de venta de Caja, no órdenes.
+    if (esFacturaGlobal && (!Array.isArray(notasVenta) || notasVenta.length === 0)) {
+      return res.status(400).json({
+        ok: false,
+        error: "La factura global requiere al menos una nota de venta.",
+      });
+    }
+
     if ((esNotaCredito || esComplementoPago) && (!Array.isArray(relacionadas) || relacionadas.length === 0)) {
       return res.status(400).json({
         ok: false,
@@ -551,8 +656,12 @@ router.post("/xml", async (req, res) => {
       }
     }
 
-    // valida cliente mínimo
-    if (!cliente.rfc || !cliente.regimenFiscal || !cliente.codigoPostalFiscal || !cliente.nombre) {
+    // valida cliente mínimo (la factura global usa el receptor genérico
+    // XAXX010101000, que se arma más abajo con el CP del emisor).
+    if (
+      !esFacturaGlobal &&
+      (!cliente.rfc || !cliente.regimenFiscal || !cliente.codigoPostalFiscal || !cliente.nombre)
+    ) {
       return res.status(400).json({
         ok: false,
         error: "Cliente incompleto: requiere RFC, Régimen Fiscal, CP fiscal y Nombre.",
@@ -620,12 +729,22 @@ router.post("/xml", async (req, res) => {
       lugarExpedicion: cfg.lugarExpedicion,
     };
 
-    const receptor = {
-      rfc: cliente.rfc,
-      nombre: cliente.nombre,
-      cp: cliente.codigoPostalFiscal,
-      regimenFiscal: cliente.regimenFiscal,
-    };
+    // Factura global: receptor genérico "público en general". El SAT exige
+    // Nombre exacto "PUBLICO EN GENERAL", RFC XAXX010101000, régimen 616 y el
+    // domicilio fiscal = CP de expedición del emisor.
+    const receptor = esFacturaGlobal
+      ? {
+          rfc: "XAXX010101000",
+          nombre: "PUBLICO EN GENERAL",
+          cp: cfg.lugarExpedicion,
+          regimenFiscal: "616",
+        }
+      : {
+          rfc: cliente.rfc,
+          nombre: cliente.nombre,
+          cp: cliente.codigoPostalFiscal,
+          regimenFiscal: cliente.regimenFiscal,
+        };
 
     // Folio: se asigna automáticamente a partir del folio interno de la configuración fiscal
     const folioActualNum = parseInt(cfg.folioInterno, 10) || 0;
@@ -643,10 +762,25 @@ router.post("/xml", async (req, res) => {
 
       formaPago: cfdi.formaPago || "99",
       metodoPago: cfdi.metodoPago || "PUE",
-      usoCfdi: esComplementoPago ? "CP01" : cfdi.usoCfdi || "G03",
+      usoCfdi: esComplementoPago ? "CP01" : esFacturaGlobal ? "S01" : cfdi.usoCfdi || "G03",
 
-      tipoComprobante: esComplementoPago ? "P" : esNotaCredito ? "E" : cfdi.tipoComprobante || "I",
+      tipoComprobante: esComplementoPago
+        ? "P"
+        : esNotaCredito
+        ? "E"
+        : esFacturaGlobal
+        ? "I"
+        : cfdi.tipoComprobante || "I",
       exportacion: cfdi.exportacion || "01",
+
+      // Factura global: nodo cfdi:InformacionGlobal (01 = diario por defecto).
+      informacionGlobal: esFacturaGlobal
+        ? {
+            periodicidad: informacionGlobal?.periodicidad || "01",
+            meses: String(informacionGlobal?.meses || ""),
+            anio: String(informacionGlobal?.anio || ""),
+          }
+        : null,
 
       // Nota de crédito: CFDI relacionado con TipoRelacion 01 (nota de crédito de los documentos relacionados)
       relacion: esNotaCredito
@@ -688,13 +822,18 @@ router.post("/xml", async (req, res) => {
         ivaRate: Number(cfdiFinal.ivaRate ?? 0.16),
         aplicarRetencionIsr: !!cfdiFinal.aplicarRetencionIsr,
         isrRate: Number(cfdiFinal.isrRate ?? 0.0125),
+        descuento: Number(cfdi?.descuento || 0),
       });
+
+      // El descuento global se reparte entre los conceptos para el XML (atributo
+      // Descuento por concepto y base gravable = Importe - Descuento).
+      const conceptosXml = repartirDescuentoEnConceptos(conceptos, Number(totales.descuento || 0));
 
       xmlUnsigned = buildCfdiXmlUnsigned({
         emisor,
         receptor,
         cfdi: cfdiFinal,
-        conceptos,
+        conceptos: conceptosXml,
         totales,
       });
     }
@@ -719,6 +858,16 @@ router.post("/xml", async (req, res) => {
         folio: cfdiFinal.folio,
         fecha: new Date(),
         relacionadas,
+        informacionGlobal: esFacturaGlobal ? cfdiFinal.informacionGlobal : undefined,
+        descuento: Number(totales.descuento || 0),
+        notasVenta: esFacturaGlobal
+          ? (Array.isArray(notasVenta) ? notasVenta : []).map((n) => ({
+              vehiculoId: n.vehiculoId || null,
+              ordenServicio: n.ordenServicio || "",
+              numero: typeof n.numero === "number" ? n.numero : null,
+              monto: Number(n.monto || 0),
+            }))
+          : [],
         pago: esComplementoPago
           ? {
               fechaPago: new Date(pago.fechaPago),
@@ -775,6 +924,7 @@ router.post("/xml", async (req, res) => {
         },
         totales: {
           subtotal: Number(totales.subtotal),
+          descuento: Number(totales.descuento || 0),
           iva: Number(totales.iva),
           isr: Number(totales.isr),
           total: Number(totales.total),
@@ -789,6 +939,10 @@ router.post("/xml", async (req, res) => {
 
       if (tipoFactura === "factura" && ordenes.length) {
         await cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc);
+      }
+
+      if (esFacturaGlobal) {
+        await marcarNotasVentaFacturadas(notasVenta, facturaDoc._id);
       }
     } catch (persistErr) {
       console.error("No se pudo guardar FacturaCfdi:", persistErr);

@@ -77,6 +77,20 @@ const FacturacionSchema = new Schema(
   { _id: false }
 );
 
+// Catálogo de códigos de servicio propios del cliente. Al generar el CFDI, si
+// un concepto coincide con una de estas filas (por `codigoInterno` = nuestra
+// clave de servicio, p. ej. "S1", o por descripción), su `codigoCliente` se
+// envía en el atributo NoIdentificacion del cfdi:Concepto. La ClaveProdServ
+// (catálogo SAT) y la descripción del concepto no se tocan.
+const CodigoServicioClienteSchema = new Schema(
+  {
+    codigoInterno: { type: String, trim: true, default: "" },
+    codigoCliente: { type: String, trim: true, default: "" },
+    descripcion: { type: String, trim: true, default: "" },
+  },
+  { _id: false }
+);
+
 /* ---------- Esquema principal ---------- */
 
 const TIPOS = [
@@ -124,6 +138,18 @@ const ClienteSchema = new Schema(
     observaciones: { type: String, trim: true },
     pais: { type: String, trim: true, default: "México" },
 
+    // Saldo a favor (anticipos). Fuente de verdad para auditoría es el
+    // ledger AnticipoCliente; este campo es un contador denormalizado que
+    // solo se toca vía backend/utils/anticiposCliente.js con operaciones
+    // atómicas ($inc + guarda $gte). Nunca se debe exponer a mass-assignment
+    // (ver PUT /api/clientes/:id, que lo excluye explícitamente del body).
+    saldoAFavor: { type: Number, default: 0, min: 0 },
+
+    // Códigos de servicio propios del cliente (ver CodigoServicioClienteSchema).
+    // Se editan desde "Editar Cliente" → ⚙ Configuración y se usan al timbrar
+    // para llenar NoIdentificacion. Solo admin/cajas pueden verlos/editarlos
+    // (ver GET/PUT /api/clientes/:id/codigos-servicio).
+    codigosServicio: { type: [CodigoServicioClienteSchema], default: [] },
 
     // Ramas por tipo
     empresa: { type: EmpresaSchema, default: undefined },   // Privada / Arrendadora
