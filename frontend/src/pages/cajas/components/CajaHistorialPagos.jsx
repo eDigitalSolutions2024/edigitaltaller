@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import Dropdown from "../../../components/Dropdown";
-import { FaPrint, FaBan, FaFlag } from "react-icons/fa";
+import { FaPrint, FaBan, FaFlag, FaUndo } from "react-icons/fa";
 import { formatFecha } from "../../../utils/fechas";
 
 function formatMoney(n) {
@@ -28,6 +28,14 @@ function comprobanteLabel(p) {
   return "-";
 }
 
+// Etiqueta y color del badge de una cancelación según su tipo.
+function badgeCancelacion(p) {
+  if (p.motivoCancelacionTipo === "PASA_A_FACTURA" || p.facturaId) {
+    return { texto: "Pasó a factura", clase: "bg-secondary" };
+  }
+  return { texto: "Cancelado", clase: "bg-danger" };
+}
+
 export default function CajaHistorialPagos({
   pagos = [],
   onImprimir,
@@ -37,6 +45,8 @@ export default function CajaHistorialPagos({
   onCancelar,
   puedeSolicitarCancelacion = false,
   onSolicitarCancelacion,
+  esAdmin = false,
+  onDeshacerCancelacion,
 }) {
   const [filtro, setFiltro] = useState("TODOS");
 
@@ -92,7 +102,6 @@ export default function CajaHistorialPagos({
               <th>Monto Dólares</th>
               <th>T.C.</th>
               <th>Monto Total (MN)</th>
-              <th>Referencia</th>
               <th>Observaciones</th>
               <th>Registrado por</th>
               <th>Acciones</th>
@@ -102,7 +111,7 @@ export default function CajaHistorialPagos({
           <tbody>
             {visibles.length === 0 && (
               <tr>
-                <td colSpan={puedeSolicitarCancelacion ? 12 : 11} className="text-center text-muted">
+                <td colSpan={puedeSolicitarCancelacion ? 11 : 10} className="text-center text-muted">
                   No hay pagos registrados.
                 </td>
               </tr>
@@ -121,11 +130,14 @@ export default function CajaHistorialPagos({
                       → Saldo a favor
                     </span>
                   )}
-                  {p.cancelado && (
-                    <span className="badge bg-danger ms-1" title={p.motivoCancelacion || "Cancelado"}>
-                      Cancelado
-                    </span>
-                  )}
+                  {p.cancelado && (() => {
+                    const b = badgeCancelacion(p);
+                    return (
+                      <span className={`badge ms-1 ${b.clase}`} title={p.motivoCancelacion || "Cancelado"}>
+                        {b.texto}
+                      </span>
+                    );
+                  })()}
                 </td>
                 <td className="text-end">{formatMoney(p.montoPesos)}</td>
                 <td className="text-end">{p.montoDolares ? formatMoney(p.montoDolares) : "-"}</td>
@@ -138,7 +150,6 @@ export default function CajaHistorialPagos({
                     </div>
                   )}
                 </td>
-                <td>{p.referencia}</td>
                 <td>{p.observaciones}</td>
                 <td>{p.registradoPor}</td>
                 <td className="text-center">
@@ -173,12 +184,24 @@ export default function CajaHistorialPagos({
                     {puedeCancelar && !p.cancelado && (
                       <button
                         className="btn btn-outline-dark btn-sm"
-                        title="Cancelar/Restablecer este pago"
+                        title="Cancelar este comprobante"
                         onClick={() => onCancelar?.(p)}
                       >
                         <FaBan />
                       </button>
                     )}
+                    {p.cancelado &&
+                      !p.facturaId &&
+                      (p.motivoCancelacionTipo !== "ERROR" || esAdmin) &&
+                      onDeshacerCancelacion && (
+                        <button
+                          className="btn btn-outline-success btn-sm text-nowrap"
+                          title="Deshacer esta cancelación (mientras la factura real no exista)"
+                          onClick={() => onDeshacerCancelacion(p)}
+                        >
+                          <FaUndo /> Deshacer
+                        </button>
+                      )}
                   </div>
                 </td>
                 {puedeSolicitarCancelacion && (

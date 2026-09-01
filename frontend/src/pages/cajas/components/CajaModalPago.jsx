@@ -19,8 +19,14 @@ import {
   getValePdfUrl,
 } from "../../../api/vales";
 
-const BANCOS = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER", "DOLARES", "EFECTIVOS", "CHEQUE", "TRANSFERENCIA"];
-const TIPOS_NOTA = ["Contado", "Credito", "Cancelada"];
+// Terminales físicas para cobros con tarjeta (mismo catálogo que
+// TERMINALES_TARJETA en backend/routes/cajas.js).
+const TERMINALES = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER"];
+// Tipo de Nota de Venta / Remisión al registrar el cobro. "Cancelada" NO se
+// ofrece aquí: no es una opción de alta, es un ESTADO que fija el flujo de
+// cancelación (cancelar el comprobante desde Cajas o al facturar). Elegirlo al
+// registrar no cancelaba nada — solo dejaba una etiqueta engañosa.
+const TIPOS_NOTA = ["Contado", "Credito"];
 // `nota` es lo que se sugiere en el campo Notas (el descriptor corto que sale
 // en el Reporte Diario de Remisiones), independiente de cómo se llame la opción
 // en pantalla.
@@ -29,7 +35,9 @@ const TIPOS_PAGO = [
   { value: "ABONO", label: "Abono", nota: "Abono" },
   { value: "ANTICIPO", label: "Anticipo", nota: "Anticipo" },
 ];
-const FORMAS_PAGO_PROVISIONAL = [
+// Formas de pago: las usa tanto el Recibo Provisional (Abono/Anticipo) como la
+// Nota de Venta (Liquida). En caso de tarjeta se pide además la terminal.
+const FORMAS_PAGO = [
   { value: "EFECTIVO", label: "Efectivo" },
   { value: "CREDITO", label: "T. Crédito" },
   { value: "DEBITO", label: "T. Débito" },
@@ -42,11 +50,9 @@ const FORMAS_PAGO_PROVISIONAL = [
 // del formulario); los demás métodos del combinado son solo en pesos.
 const MONTOS_COMBINADO_INICIAL = { EFECTIVO: "", EFECTIVO_USD: "", CREDITO: "", DEBITO: "", CHEQUE: "", TRANSFERENCIA: "" };
 const MONTOS_COMBINADO_PESOS = ["EFECTIVO", "CREDITO", "DEBITO", "CHEQUE", "TRANSFERENCIA"];
-// Bancos que corresponden a una terminal física (mismo catálogo que
-// BANCO_A_TERMINAL en backend/utils/cierreCajaTerminales.js): con cuál se
-// cobró la parte de T. Crédito/T. Débito de un pago Combinado, para que
-// sume al Cierre de Caja del día.
-const TERMINALES = BANCOS.filter((b) => !["DOLARES", "EFECTIVOS", "CHEQUE", "TRANSFERENCIA"].includes(b));
+
+const TOTAL_PASOS = 3;
+const TITULOS_PASO = ["", "Tipo de pago", "Forma de pago y montos", "Vale de salida (opcional)"];
 
 function formatMoney(n) {
   return new Intl.NumberFormat("es-MX", {
@@ -72,6 +78,10 @@ function telefonoCelularOrden(orden) {
 export default function CajaModalPago({ show, orden, saldoPendiente, saldoClienteDisponible = 0, onClose, onSubmit, onValeGuardado }) {
   const user = getUser();
 
+  // Paso actual del asistente (1: tipo de pago · 2: forma de pago y montos ·
+  // 3: vale de salida opcional).
+  const [paso, setPaso] = useState(1);
+
   // Sin valor inicial: el cajero debe elegir explícitamente el tipo de pago.
   const [tipoPago, setTipoPago] = useState("");
   const [tipoPagoInvalido, setTipoPagoInvalido] = useState(false);
@@ -79,7 +89,6 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   const [comprobanteInvalido, setComprobanteInvalido] = useState(false);
 
   // Datos de Nota de Venta (solo si comprobante === NOTA_VENTA)
-  const [banco, setBanco] = useState("");
   const [tipoNota, setTipoNota] = useState("Contado");
 
   // Datos de Remisión (solo si comprobante === REMISION). La Fecha de Pagada
@@ -87,8 +96,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   // pendiente (ver POST /api/cajas/:id/pagos).
   const [tipoRemision, setTipoRemision] = useState("Contado");
 
-  // Datos de Recibo Provisional (solo si comprobante === RECIBO_PROVISIONAL,
-  // es decir, tipoPago Abono o Anticipo)
+  // Forma de pago del comprobante que mueve dinero (Recibo Provisional y Nota
+  // de Venta comparten catálogo).
   const [formaPago, setFormaPago] = useState("EFECTIVO");
   const [chequeNumero, setChequeNumero] = useState("");
   const [reciboConcepto, setReciboConcepto] = useState("");
@@ -98,8 +107,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   const [montosCombinado, setMontosCombinado] = useState(MONTOS_COMBINADO_INICIAL);
   // Terminal con la que se cobró el T. Crédito/T. Débito del combinado.
   const [terminalCombinado, setTerminalCombinado] = useState("");
-  // Terminal de un Recibo Provisional SIMPLE con tarjeta (formaPago
-  // CREDITO/DEBITO). Obligatoria para que el Cierre de Caja cuadre por terminal.
+  // Terminal de un pago SIMPLE con tarjeta (formaPago CREDITO/DEBITO).
+  // Obligatoria para que el Cierre de Caja cuadre por terminal.
   const [terminalSimple, setTerminalSimple] = useState("");
 
   // Solo para tipoPago === "ANTICIPO": a qué reporte diario de Cajas se suma
@@ -114,7 +123,6 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   // total con saldo). El máximo que ve el cajero es solo UX: el backend
   // siempre revalida el saldo real al guardar (ver POST /:id/pagos).
   const [montoSaldoAplicado, setMontoSaldoAplicado] = useState("");
-  const [referencia, setReferencia] = useState("");
   const [observaciones, setObservaciones] = useState("");
   const [notas, setNotas] = useState("");
   const [notasEditadas, setNotasEditadas] = useState(false);
@@ -202,7 +210,6 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setMontoPesos("");
     setMontoDolares("");
     setMontoSaldoAplicado("");
-    setReferencia("");
   }, [esRemisionCredito]);
 
   // El Estatus del vale se sugiere solo cuando el comprobante (Nota/Remisión)
@@ -219,6 +226,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   // Reinicia el formulario cada vez que se abre el modal.
   useEffect(() => {
     if (!show) return;
+    setPaso(1);
     setTipoPago("");
     // Corresponde al tipoPago vacío de arriba: se fija aquí (no solo en el
     // efecto de [tipoPago]) porque si el modal ya estaba sin tipo de pago la
@@ -226,7 +234,6 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setComprobante("");
     setTipoPagoInvalido(false);
     setComprobanteInvalido(false);
-    setBanco("");
     setTipoNota("Contado");
     setTipoRemision("Contado");
     setFormaPago("EFECTIVO");
@@ -241,7 +248,6 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setMontoPesos("");
     setMontoDolares("");
     setMontoSaldoAplicado("");
-    setReferencia("");
     setObservaciones("");
     setNotas("");
     setNotasEditadas(false);
@@ -460,6 +466,13 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   const generaProvisional = tipoPago === "ABONO" || tipoPago === "ANTICIPO";
   const generaDolares = Number(montoDolares) > 0;
 
+  // La forma de pago se captura para el comprobante que mueve dinero: Recibo
+  // Provisional (Abono/Anticipo) y Nota de Venta (Liquida). Una Remisión no
+  // lleva forma de pago aquí.
+  const usaFormaPago =
+    !esRemisionCredito && (comprobante === "RECIBO_PROVISIONAL" || comprobante === "NOTA_VENTA");
+  const esProvisional = comprobante === "RECIBO_PROVISIONAL";
+
   // Recorta lo capturado a lo que en realidad resta de la orden: el excedente
   // (cambio) no se registra como parte del pago.
   const montosAplicados = () => {
@@ -551,64 +564,85 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     return res.data.data;
   };
 
+  // Valida el paso actual antes de avanzar. `handleSubmit` vuelve a revalidar
+  // todo al final, así que esto es solo para no dejar avanzar con datos a medias.
+  const validarPaso = (n) => {
+    if (n === 1) {
+      if (!tipoPago) {
+        setError("Selecciona el tipo de pago.");
+        setTipoPagoInvalido(true);
+        return false;
+      }
+      if (tipoPago === "ANTICIPO" && !anticipoDestino) {
+        setError("Selecciona a qué reporte (Factura o Remisión) aplica este anticipo.");
+        setAnticipoDestinoInvalido(true);
+        return false;
+      }
+      if (tipoPago === "COMPLETO" && bloqueaFacturacion) {
+        setError("Esta orden ya tiene una Remisión registrada; no se puede registrar otra Remisión o Factura.");
+        return false;
+      }
+      if (tipoPago === "COMPLETO" && !comprobante) {
+        setError("Selecciona un comprobante (Nota de Venta o Remisión).");
+        setComprobanteInvalido(true);
+        return false;
+      }
+      return true;
+    }
+    if (n === 2) {
+      if (!esRemisionCredito && totalConSaldo <= 0) {
+        setError("Captura una cantidad en pesos, en dólares, o de saldo a favor, mayor a 0.");
+        return false;
+      }
+      if (
+        usaFormaPago &&
+        (formaPago === "CHEQUE" || (formaPago === "COMBINADO" && Number(montosCombinado.CHEQUE) > 0)) &&
+        !chequeNumero.trim()
+      ) {
+        setError("Captura el número de cheque.");
+        return false;
+      }
+      if (usaFormaPago && (formaPago === "CREDITO" || formaPago === "DEBITO") && !terminalSimple) {
+        setError("Selecciona la terminal donde se cobró la tarjeta.");
+        return false;
+      }
+      if (
+        usaFormaPago &&
+        formaPago === "COMBINADO" &&
+        (Number(montosCombinado.CREDITO) > 0 || Number(montosCombinado.DEBITO) > 0) &&
+        !terminalCombinado
+      ) {
+        setError("Selecciona la terminal donde se cobró la parte con tarjeta del pago combinado.");
+        return false;
+      }
+      if (Number(montoDolares) > 0 && !Number(tipoCambio)) {
+        setError("No hay un tipo de cambio configurado. Regístralo en Configuración.");
+        return false;
+      }
+      return true;
+    }
+    return true;
+  };
+
+  const handleAtras = () => {
+    setError("");
+    setPaso((p) => Math.max(1, p - 1));
+  };
+
+  const handleSiguiente = () => {
+    if (!validarPaso(paso)) return;
+    setError("");
+    setPaso((p) => Math.min(TOTAL_PASOS, p + 1));
+  };
+
   const handleSubmit = async () => {
-    if (!tipoPago) {
-      setError("Selecciona el tipo de pago.");
-      setTipoPagoInvalido(true);
+    // Revalidación completa (independiente de por qué paso se llegó aquí).
+    if (!validarPaso(1)) {
+      setPaso(1);
       return;
     }
-    if (tipoPago === "ANTICIPO" && !anticipoDestino) {
-      setError("Selecciona a qué reporte (Factura o Remisión) aplica este anticipo.");
-      setAnticipoDestinoInvalido(true);
-      return;
-    }
-    // Una Remisión a Crédito se registra sin importe: es la venta a crédito.
-    // El total puede cubrirse solo con saldo (efectivo/dólares en 0).
-    if (!esRemisionCredito && totalConSaldo <= 0) {
-      setError("Captura una cantidad en pesos, en dólares, o de saldo a favor, mayor a 0.");
-      return;
-    }
-    if (tipoPago === "COMPLETO" && bloqueaFacturacion) {
-      setError("Esta orden ya tiene una Remisión registrada; no se puede registrar otra Remisión o Factura.");
-      return;
-    }
-    if (tipoPago === "COMPLETO" && !comprobante) {
-      setError("Selecciona un comprobante (Nota de Venta o Remisión).");
-      setComprobanteInvalido(true);
-      return;
-    }
-    if (
-      comprobante === "RECIBO_PROVISIONAL" &&
-      (formaPago === "CHEQUE" || (formaPago === "COMBINADO" && Number(montosCombinado.CHEQUE) > 0)) &&
-      !chequeNumero.trim()
-    ) {
-      setError("Captura el número de cheque.");
-      return;
-    }
-    // Cualquier cobro con tarjeta debe registrar la terminal (Cierre de Caja).
-    if (tipoPago === "COMPLETO" && comprobante === "NOTA_VENTA" && !banco) {
-      setError("Selecciona el banco / terminal de la Nota de Venta.");
-      return;
-    }
-    if (
-      comprobante === "RECIBO_PROVISIONAL" &&
-      (formaPago === "CREDITO" || formaPago === "DEBITO") &&
-      !terminalSimple
-    ) {
-      setError("Selecciona la terminal donde se cobró la tarjeta.");
-      return;
-    }
-    if (
-      comprobante === "RECIBO_PROVISIONAL" &&
-      formaPago === "COMBINADO" &&
-      (Number(montosCombinado.CREDITO) > 0 || Number(montosCombinado.DEBITO) > 0) &&
-      !terminalCombinado
-    ) {
-      setError("Selecciona la terminal donde se cobró la parte con tarjeta del pago combinado.");
-      return;
-    }
-    if (Number(montoDolares) > 0 && !Number(tipoCambio)) {
-      setError("No hay un tipo de cambio configurado. Regístralo en Configuración.");
+    if (!validarPaso(2)) {
+      setPaso(2);
       return;
     }
     if (generarVale && !noVale) {
@@ -634,11 +668,16 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
         montoDolares: dolares,
         tipoCambio: Number(tipoCambio) || 0,
         montoSaldoAplicado: montoSaldo,
-        referencia,
         observaciones,
         notas,
         ...(comprobante === "NOTA_VENTA"
-          ? { banco, tipoNota }
+          ? {
+              formaPago,
+              chequeNumero,
+              terminal: terminalSimple,
+              tipoNota,
+              ...(formaPago === "COMBINADO" ? { combinado: combinadoAplicado() } : {}),
+            }
           : comprobante === "REMISION"
           ? { tipoRemision }
           : {
@@ -653,7 +692,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
       });
 
       // El pago ya quedó registrado. En vez de cerrar el modal, se pasa al
-      // panel de impresión (ver el bloque `if (pagoRegistrado)` más abajo) con
+      // panel de impresión (ver el bloque `if (pagoRegistrado)` más arriba) con
       // el pago y el vale recién creados, para imprimir ahí mismo el Vale, la
       // Nota/Remisión y los recibos antes de cerrar.
       if (pagoCreado) {
@@ -670,13 +709,455 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     }
   };
 
+  // ===== Bloques reutilizables del paso 2 =====
+
+  const bloqueFormaPago = (
+    <div className="border rounded p-3 mb-3">
+      <label className="form-label fw-semibold">Forma de pago</label>
+      <div className="row g-2">
+        {esProvisional && (
+          <div className="col-sm-4">
+            <label className="form-label mb-0 small text-muted">Día</label>
+            <input type="text" className="form-control" value={formatFechaCorta(new Date())} readOnly data-no-uppercase />
+          </div>
+        )}
+        <div className={esProvisional ? "col-sm-8" : "col-12"}>
+          <label className="form-label mb-0 small text-muted">Método</label>
+          <Dropdown className="form-select" value={formaPago} onChange={(e) => setFormaPago(e.target.value)}>
+            {FORMAS_PAGO.map((f) => (
+              <Dropdown.Option key={f.value} value={f.value}>{f.label}</Dropdown.Option>
+            ))}
+          </Dropdown>
+        </div>
+      </div>
+
+      {formaPago === "CHEQUE" && (
+        <div className="mt-2">
+          <label className="form-label mb-0">No. de Cheque</label>
+          <input
+            type="text"
+            className="form-control"
+            value={chequeNumero}
+            onChange={(e) => setChequeNumero(e.target.value)}
+          />
+        </div>
+      )}
+
+      {(formaPago === "CREDITO" || formaPago === "DEBITO") && (
+        <div className="mt-2">
+          <label className="form-label mb-0">Terminal</label>
+          <Dropdown className="form-select" value={terminalSimple} onChange={(e) => setTerminalSimple(e.target.value)}>
+            <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+            {TERMINALES.map((t) => (
+              <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+            ))}
+          </Dropdown>
+          <small className="text-muted">
+            Obligatoria: en qué terminal se cobró la tarjeta (para el Cierre de Caja).
+          </small>
+        </div>
+      )}
+    </div>
+  );
+
+  const bloqueCombinado = formaPago === "COMBINADO" && (
+    <div className="border rounded p-3 mb-3">
+      <label className="form-label fw-semibold d-block">Desglose del pago combinado</label>
+      <div className="row g-2">
+        <div className="col-6 col-md-4">
+          <label className="form-label mb-0 small">Efectivo (Pesos)</label>
+          <input
+            type="number"
+            step="0.01"
+            className="form-control form-control-sm"
+            value={montosCombinado.EFECTIVO}
+            onChange={(e) => setMontosCombinado((prev) => ({ ...prev, EFECTIVO: e.target.value }))}
+          />
+        </div>
+        <div className="col-6 col-md-4">
+          <label className="form-label mb-0 small">Efectivo (Dólares)</label>
+          <input
+            type="number"
+            step="0.01"
+            className="form-control form-control-sm"
+            value={montosCombinado.EFECTIVO_USD}
+            onChange={(e) => setMontosCombinado((prev) => ({ ...prev, EFECTIVO_USD: e.target.value }))}
+          />
+          {Number(montosCombinado.EFECTIVO_USD) > 0 && Number(tipoCambio) > 0 && (
+            <small className="text-muted">
+              ≈ {formatMoney(Number(montosCombinado.EFECTIVO_USD) * Number(tipoCambio))} MXN
+            </small>
+          )}
+        </div>
+        <div className="col-6 col-md-4">
+          <label className="form-label mb-0 small">T. Crédito</label>
+          <input
+            type="number"
+            step="0.01"
+            className="form-control form-control-sm"
+            value={montosCombinado.CREDITO}
+            onChange={(e) => setMontosCombinado((prev) => ({ ...prev, CREDITO: e.target.value }))}
+          />
+        </div>
+        <div className="col-6 col-md-4">
+          <label className="form-label mb-0 small">T. Débito</label>
+          <input
+            type="number"
+            step="0.01"
+            className="form-control form-control-sm"
+            value={montosCombinado.DEBITO}
+            onChange={(e) => setMontosCombinado((prev) => ({ ...prev, DEBITO: e.target.value }))}
+          />
+        </div>
+        {(Number(montosCombinado.CREDITO) > 0 || Number(montosCombinado.DEBITO) > 0) && (
+          <div className="col-12 col-md-4">
+            <label className="form-label mb-0 small">Terminal</label>
+            <Dropdown
+              className="form-select form-select-sm"
+              value={terminalCombinado}
+              onChange={(e) => setTerminalCombinado(e.target.value)}
+            >
+              <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+              {TERMINALES.map((t) => (
+                <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+              ))}
+            </Dropdown>
+            <small className="text-muted">Obligatoria: con qué terminal se cobró el T. Crédito/T. Débito.</small>
+          </div>
+        )}
+        <div className="col-6 col-md-4">
+          <label className="form-label mb-0 small">No. de Cheque</label>
+          <input
+            type="text"
+            className="form-control form-control-sm"
+            value={chequeNumero}
+            onChange={(e) => setChequeNumero(e.target.value)}
+          />
+        </div>
+        <div className="col-6 col-md-4">
+          <label className="form-label mb-0 small">Cantidad (Cheque)</label>
+          <input
+            type="number"
+            step="0.01"
+            className="form-control form-control-sm"
+            value={montosCombinado.CHEQUE}
+            onChange={(e) => setMontosCombinado((prev) => ({ ...prev, CHEQUE: e.target.value }))}
+          />
+        </div>
+        <div className="col-12 col-md-4">
+          <label className="form-label mb-0 small">Transferencia</label>
+          <input
+            type="number"
+            step="0.01"
+            className="form-control form-control-sm"
+            value={montosCombinado.TRANSFERENCIA}
+            onChange={(e) => setMontosCombinado((prev) => ({ ...prev, TRANSFERENCIA: e.target.value }))}
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  const bloqueAlertaCredito = esRemisionCredito && (
+    <div className="alert alert-info py-2 small">
+      <strong>Remisión a Crédito:</strong> no se captura importe ni referencia. La venta queda registrada como
+      cuenta por cobrar y el saldo se cubre con abonos posteriores; al quedar en ceros el sistema marca la
+      Fecha de Pagada.
+    </div>
+  );
+
+  const bloqueMontosInput = !esRemisionCredito && (
+    <>
+      <div className="border rounded p-3 mb-3">
+        <label className="form-label fw-semibold">Montos</label>
+        <div className="row g-2">
+          <div className="col-6">
+            <label className="form-label mb-0 small text-muted">Cantidad en Pesos</label>
+            <input
+              type="number"
+              step="0.01"
+              className="form-control"
+              value={montoPesos}
+              onChange={(e) => setMontoPesos(e.target.value)}
+              readOnly={formaPago === "COMBINADO"}
+              title={formaPago === "COMBINADO" ? "Se calcula sola con la suma del desglose combinado" : undefined}
+            />
+          </div>
+          <div className="col-6">
+            <label className="form-label mb-0 small text-muted">Cantidad en Dólares</label>
+            <input
+              type="number"
+              step="0.01"
+              className="form-control"
+              value={montoDolares}
+              onChange={(e) => setMontoDolares(e.target.value)}
+              readOnly={formaPago === "COMBINADO"}
+              title={formaPago === "COMBINADO" ? "Se calcula solo con el Efectivo en dólares del desglose combinado" : undefined}
+            />
+            {Number(montoDolares) > 0 && Number(tipoCambio) > 0 && (
+              <small className="text-muted">≈ {formatMoney(dolaresConvertidos)} MXN</small>
+            )}
+          </div>
+          <div className="col-12">
+            <label className="form-label mb-0 small text-muted">Tipo de Cambio</label>
+            <input
+              type="number"
+              step="0.0001"
+              className="form-control"
+              value={tipoCambio}
+              disabled
+              readOnly
+              title="Se toma del tipo de cambio definido en Configuración"
+            />
+            {!cargandoTipoCambio && !tipoCambioConfig && Number(montoDolares) > 0 && (
+              <small className="text-danger">
+                No hay un tipo de cambio configurado. Regístralo en Configuración.
+              </small>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  const bloqueSaldoFavor = !esRemisionCredito && saldoClienteDisponible > 0 && !esAnticipoSaldo && (
+    <div className="border rounded p-3 mb-3 bg-light">
+      <label className="form-label mb-0 fw-semibold">Usar saldo a favor del cliente</label>
+      <div className="text-muted small mb-1">
+        Disponible: <strong>{formatMoney(saldoClienteDisponible)}</strong>
+      </div>
+      <input
+        type="number"
+        step="0.01"
+        min="0"
+        max={maxSaldoAplicable}
+        className="form-control"
+        value={montoSaldoAplicado}
+        onChange={(e) => {
+          const v = e.target.value;
+          // No solo se topa el total (ver montoSaldo): el campo mismo no
+          // debe poder quedarse mostrando más de lo que se puede aplicar.
+          if (v === "" || Number.isNaN(Number(v))) {
+            setMontoSaldoAplicado(v);
+            return;
+          }
+          setMontoSaldoAplicado(Number(v) > maxSaldoAplicable ? String(maxSaldoAplicable) : v);
+        }}
+        placeholder="0.00"
+      />
+      <small className="text-muted">
+        Se puede combinar con efectivo/tarjeta, o cubrir todo el pago con saldo.
+      </small>
+    </div>
+  );
+
+  const bloqueTotales = !esRemisionCredito && (
+    <>
+      <div className="border rounded p-3 mb-3">
+        {formaPago === "COMBINADO" ? (
+          <>
+            {Number(montosCombinado.EFECTIVO) > 0 && (
+              <p className="d-flex justify-content-between mb-1">
+                <span className="text-muted">Efectivo (Pesos)</span>
+                <span>{formatMoney(montosCombinado.EFECTIVO)}</span>
+              </p>
+            )}
+            {Number(montosCombinado.EFECTIVO_USD) > 0 && (
+              <p className="d-flex justify-content-between mb-1">
+                <span className="text-muted">Efectivo (Dólares)</span>
+                <span>
+                  {formatMoney(dolaresConvertidos)}{" "}
+                  <small className="text-muted">(${Number(montosCombinado.EFECTIVO_USD).toFixed(2)} USD)</small>
+                </span>
+              </p>
+            )}
+            {Number(montosCombinado.CREDITO) > 0 && (
+              <p className="d-flex justify-content-between mb-1">
+                <span className="text-muted">T. Crédito</span>
+                <span>{formatMoney(montosCombinado.CREDITO)}</span>
+              </p>
+            )}
+            {Number(montosCombinado.DEBITO) > 0 && (
+              <p className="d-flex justify-content-between mb-1">
+                <span className="text-muted">T. Débito</span>
+                <span>{formatMoney(montosCombinado.DEBITO)}</span>
+              </p>
+            )}
+            {Number(montosCombinado.CHEQUE) > 0 && (
+              <p className="d-flex justify-content-between mb-1">
+                <span className="text-muted">Cheque{chequeNumero ? ` No. ${chequeNumero}` : ""}</span>
+                <span>{formatMoney(montosCombinado.CHEQUE)}</span>
+              </p>
+            )}
+            {Number(montosCombinado.TRANSFERENCIA) > 0 && (
+              <p className="d-flex justify-content-between mb-1">
+                <span className="text-muted">Transferencia</span>
+                <span>{formatMoney(montosCombinado.TRANSFERENCIA)}</span>
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="d-flex justify-content-between mb-1">
+              <span className="text-muted">Pesos</span>
+              <span>{formatMoney(montoPesos)}</span>
+            </p>
+            <p className="d-flex justify-content-between mb-1">
+              <span className="text-muted">Dólares convertidos</span>
+              <span>{formatMoney(dolaresConvertidos)}</span>
+            </p>
+          </>
+        )}
+        {montoSaldo > 0 && (
+          <p className="d-flex justify-content-between mb-1">
+            <span className="text-muted">Saldo aplicado</span>
+            <span>{formatMoney(montoSaldo)}</span>
+          </p>
+        )}
+        <hr className="my-1" />
+        <p className="d-flex justify-content-between fw-bold mb-0">
+          <span>Total {montoSaldo > 0 ? "(con saldo)" : "Recibido"}</span>
+          <span>{formatMoney(totalConSaldo)}</span>
+        </p>
+        {cambio > 0 && (
+          <>
+            <p className="d-flex justify-content-between mb-1 mt-2">
+              <span className="text-muted">Aplicado a la Orden</span>
+              <span>{formatMoney(totalAplicado)}</span>
+            </p>
+            <p className="d-flex justify-content-between fw-bold text-danger mb-0">
+              <span>Cambio a Dar</span>
+              <span>{formatMoney(cambio)}</span>
+            </p>
+          </>
+        )}
+        {esAnticipoSaldo && totalConSaldo > 0 && (
+          <div className="alert alert-info py-2 px-2 small mb-0 mt-2">
+            No se da cambio: se registra como <strong>saldo a favor del cliente</strong> para esta orden. Saldo
+            del cliente: <strong>{formatMoney(saldoClienteDisponible)}</strong> →{" "}
+            <strong>{formatMoney((Number(saldoClienteDisponible) || 0) + totalConSaldo)}</strong>
+          </div>
+        )}
+      </div>
+    </>
+  );
+
+  const bloqueInfoRecibos = !esRemisionCredito && (generaProvisional || generaDolares) && (
+    <div className="border rounded p-2 mb-3">
+      <small className="text-muted">
+        Al registrar el pago se generará{generaProvisional ? " un Recibo Provisional" : ""}
+        {generaProvisional && generaDolares ? " y" : ""}
+        {generaDolares ? " un Recibo de Dólares" : ""}; podrás imprimirlo enseguida, sin cerrar esta ventana.
+      </small>
+    </div>
+  );
+
+  const bloqueDatosRecibo = esProvisional && (
+    <div className="border rounded p-3 mb-3">
+      <label className="form-label fw-semibold">Datos del recibo</label>
+      <div className="mb-2">
+        <label className="form-label mb-0 small text-muted">Recibimos de</label>
+        <input type="text" className="form-control" value={nombreClienteOrden(orden)} readOnly />
+      </div>
+      <div className="mb-2">
+        <label className="form-label mb-0 small text-muted">Teléfono del Cliente (Celular)</label>
+        <input type="text" className="form-control" value={telefonoCelularOrden(orden)} readOnly data-no-uppercase />
+      </div>
+      <div className="mb-2">
+        <label className="form-label mb-0 small text-muted">Por concepto de</label>
+        <input
+          type="text"
+          className="form-control"
+          value={reciboConcepto}
+          onChange={(e) => setReciboConcepto(e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="form-label mb-0 small text-muted">Recibió</label>
+        <input
+          type="text"
+          className="form-control"
+          value={reciboRecibio}
+          onChange={(e) => setReciboRecibio(e.target.value)}
+        />
+      </div>
+    </div>
+  );
+
+  const bloqueObservaciones = comprobante === "NOTA_VENTA" || comprobante === "REMISION" ? (
+    <div className="border rounded p-3 mb-3">
+      <div className="mb-2">
+        <label className="form-label mb-0 small text-muted">Observaciones</label>
+        <textarea
+          className="form-control"
+          rows={2}
+          value={observaciones}
+          onChange={(e) => setObservaciones(e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="form-label mb-0 small text-muted">Notas</label>
+        <input
+          type="text"
+          className="form-control"
+          value={notas}
+          onChange={(e) => { setNotas(e.target.value); setNotasEditadas(true); }}
+          placeholder="Abono, Liquida, Anticipo…"
+        />
+        <small className="text-muted">Se sugiere sola según el tipo de pago; puedes cambiarla.</small>
+      </div>
+    </div>
+  ) : null;
+
+  // Resumen de solo lectura de lo ya elegido en pasos anteriores, para no
+  // tener que retroceder a revisarlo. Crece con cada paso completado.
+  const resumenPrevio = [];
+  if (paso > 1 && tipoPago) {
+    resumenPrevio.push({ k: "Tipo de pago", v: TIPOS_PAGO.find((t) => t.value === tipoPago)?.label || tipoPago });
+    resumenPrevio.push({
+      k: "Comprobante",
+      v:
+        tipoPago === "COMPLETO" && comprobante === "NOTA_VENTA"
+          ? `Nota de Venta · ${tipoNota}`
+          : tipoPago === "COMPLETO" && comprobante === "REMISION"
+          ? `Remisión · ${tipoRemision}`
+          : "Recibo Provisional",
+    });
+    if (tipoPago === "ANTICIPO") {
+      resumenPrevio.push({
+        k: "Aplica a",
+        v:
+          anticipoDestino === "NOTA_VENTA"
+            ? "Reporte de Facturas"
+            : anticipoDestino === "REMISION"
+            ? "Reporte de Remisiones"
+            : "—",
+      });
+    }
+  }
+  if (paso > 2) {
+    if (usaFormaPago) {
+      const term =
+        (formaPago === "CREDITO" || formaPago === "DEBITO") && terminalSimple
+          ? ` · ${terminalSimple}`
+          : formaPago === "COMBINADO" && terminalCombinado
+          ? ` · ${terminalCombinado}`
+          : "";
+      resumenPrevio.push({ k: "Forma de pago", v: (FORMAS_PAGO.find((f) => f.value === formaPago)?.label || formaPago) + term });
+    }
+    resumenPrevio.push({
+      k: "Total recibido",
+      v: esRemisionCredito
+        ? "Sin importe (crédito)"
+        : formatMoney(totalConSaldo) + (montoSaldo > 0 ? " (con saldo)" : ""),
+    });
+    if (cambio > 0) resumenPrevio.push({ k: "Cambio a dar", v: formatMoney(cambio) });
+    if (esProvisional && reciboConcepto) resumenPrevio.push({ k: "Concepto", v: reciboConcepto });
+  }
+
   return (
-    <div
-      className="modal d-block"
-      tabIndex="-1"
-      style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-    >
-      <div className="modal-dialog modal-dialog-centered modal-xl">
+    <div className="modal d-block" tabIndex="-1" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+      <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
         <div className="modal-content">
           <div className="modal-header">
             <h5 className="modal-title fw-bold">Registrar Pago / Abono</h5>
@@ -685,9 +1166,53 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
 
           <div className="modal-body">
             {saldoValido !== undefined && (
-              <p className="text-muted">
+              <p className="text-muted mb-2">
                 Saldo Pendiente: <strong>{formatMoney(saldoValido)}</strong>
               </p>
+            )}
+
+            {/* ===== Indicador de pasos ===== */}
+            <div className="d-flex align-items-center mb-2">
+              {[1, 2, 3].map((n) => (
+                <React.Fragment key={n}>
+                  <div
+                    className={`rounded-circle d-flex align-items-center justify-content-center fw-bold flex-shrink-0 ${
+                      paso >= n ? "bg-success text-white" : "bg-light text-muted border"
+                    }`}
+                    style={{ width: 30, height: 30, fontSize: 14 }}
+                  >
+                    {n}
+                  </div>
+                  {n < 3 && (
+                    <div
+                      className="flex-grow-1 mx-1"
+                      style={{ height: 2, background: paso > n ? "#198754" : "#dee2e6" }}
+                    />
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
+            <p className="fw-semibold text-secondary mb-2">
+              Paso {paso} de {TOTAL_PASOS}: {TITULOS_PASO[paso]}
+            </p>
+
+            {/* Resumen informativo (solo lectura) de lo capturado en pasos previos */}
+            {resumenPrevio.length > 0 && (
+              <div className="border rounded bg-light px-3 py-2 mb-3">
+                <div
+                  className="text-muted text-uppercase fw-semibold mb-1"
+                  style={{ fontSize: 11, letterSpacing: ".3px" }}
+                >
+                  Ya capturado
+                </div>
+                <div className="d-flex flex-wrap gap-3 small">
+                  {resumenPrevio.map((it) => (
+                    <span key={it.k}>
+                      <span className="text-muted">{it.k}:</span> <strong>{it.v}</strong>
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
 
             {bloqueaFacturacion && (
@@ -697,10 +1222,11 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
               </div>
             )}
 
-            <div className="row g-3">
-              <div className={formaPago === "COMBINADO" ? "col-md-4" : "col-md-6"}>
-                <div className="mb-2">
-                  <label className="form-label mb-0 fw-semibold">Tipo de Pago</label>
+            {/* ===== PASO 1: tipo de pago ===== */}
+            {paso === 1 && (
+              <>
+                <div className="mb-3">
+                  <label className="form-label fw-semibold">Tipo de Pago</label>
                   <Dropdown
                     className={`form-select${tipoPagoInvalido ? " is-invalid border-danger" : ""}`}
                     value={tipoPago}
@@ -721,10 +1247,10 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                   {tipoPagoInvalido && <small className="text-danger">Debes elegir un tipo de pago.</small>}
                 </div>
 
-                {tipoPago === "COMPLETO" ? (
+                {tipoPago === "COMPLETO" && (
                   <>
-                    <div className="mb-2">
-                      <label className="form-label mb-0 fw-semibold">Comprobante</label>
+                    <div className="mb-3">
+                      <label className="form-label fw-semibold">Comprobante</label>
                       <Dropdown
                         className={`form-select${comprobanteInvalido ? " is-invalid border-danger" : ""}`}
                         value={comprobante}
@@ -734,575 +1260,195 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                         <Dropdown.Option value="NOTA_VENTA">Nota de Venta</Dropdown.Option>
                         <Dropdown.Option value="REMISION">Remisión</Dropdown.Option>
                       </Dropdown>
-                      {comprobanteInvalido && (
-                        <small className="text-danger">Debes elegir un comprobante.</small>
-                      )}
+                      {comprobanteInvalido && <small className="text-danger">Debes elegir un comprobante.</small>}
                     </div>
 
                     {comprobante === "NOTA_VENTA" && (
-                      <div className="row g-2 mb-2">
-                        <div className="col-6">
-                          <label className="form-label mb-0">Banco / Forma de pago</label>
-                          <Dropdown className="form-select" value={banco} onChange={(e) => setBanco(e.target.value)}>
-                            <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-                            {BANCOS.map((b) => (
-                              <Dropdown.Option key={b} value={b}>{b}</Dropdown.Option>
-                            ))}
-                          </Dropdown>
-                        </div>
-                        <div className="col-6">
-                          <label className="form-label mb-0">Tipo</label>
-                          <Dropdown className="form-select" value={tipoNota} onChange={(e) => setTipoNota(e.target.value)}>
-                            {TIPOS_NOTA.map((t) => (
-                              <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
-                            ))}
-                          </Dropdown>
-                        </div>
+                      <div className="mb-3">
+                        <label className="form-label mb-0">Tipo de Nota</label>
+                        <Dropdown className="form-select" value={tipoNota} onChange={(e) => setTipoNota(e.target.value)}>
+                          {TIPOS_NOTA.map((t) => (
+                            <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+                          ))}
+                        </Dropdown>
                       </div>
                     )}
 
                     {comprobante === "REMISION" && (
-                      <div className="row g-2 mb-2">
-                        <div className="col-6">
-                          <label className="form-label mb-0">Tipo</label>
-                          <Dropdown className="form-select" value={tipoRemision} onChange={(e) => setTipoRemision(e.target.value)}>
-                            {TIPOS_NOTA.map((t) => (
-                              <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
-                            ))}
-                          </Dropdown>
-                          <small className="text-muted">
-                            La Fecha de Pagada se registra sola cuando la orden queda sin saldo pendiente.
-                          </small>
-                        </div>
-                      </div>
-                    )}
-
-                    {!comprobante && (
-                      <p className="text-muted small mb-2">Selecciona un comprobante para continuar.</p>
-                    )}
-
-                    {!esRemisionCredito && (
-                      <div className="mb-2">
-                        <label className="form-label mb-0">Referencia</label>
-                        <input
-                          type="text"
-                          className="form-control"
-                          value={referencia}
-                          onChange={(e) => setReferencia(e.target.value)}
-                        />
-                      </div>
-                    )}
-
-                    <div className="mb-2">
-                      <label className="form-label mb-0">Observaciones</label>
-                      <textarea
-                        className="form-control"
-                        rows={2}
-                        value={observaciones}
-                        onChange={(e) => setObservaciones(e.target.value)}
-                      />
-                    </div>
-
-                    <div className="mb-2">
-                      <label className="form-label mb-0">Notas</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={notas}
-                        onChange={(e) => { setNotas(e.target.value); setNotasEditadas(true); }}
-                        placeholder="Abono, Liquida, Anticipo…"
-                      />
-                      <small className="text-muted">Se sugiere sola según el tipo de pago; puedes cambiarla.</small>
-                    </div>
-                  </>
-                ) : !tipoPago ? (
-                  <p className="text-muted small mb-2">Selecciona un tipo de pago para continuar.</p>
-                ) : (
-                  <>
-                    <div className="mb-2">
-                      <label className="form-label mb-0 fw-semibold d-block">Comprobante</label>
-                      <span className="badge bg-secondary">Recibo Provisional</span>
-                    </div>
-
-                    {tipoPago === "ANTICIPO" && (
-                      <div className="mb-2">
-                        <label className="form-label mb-0 fw-semibold">Aplicar a Reporte de</label>
-                        <Dropdown
-                          className={`form-select${anticipoDestinoInvalido ? " is-invalid border-danger" : ""}`}
-                          value={anticipoDestino}
-                          onChange={(e) => { setAnticipoDestino(e.target.value); setAnticipoDestinoInvalido(false); }}
-                        >
-                          <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-                          <Dropdown.Option value="NOTA_VENTA">Factura</Dropdown.Option>
-                          <Dropdown.Option value="REMISION">Remisión</Dropdown.Option>
-                        </Dropdown>
-                        {anticipoDestinoInvalido && (
-                          <small className="text-danger">Debes elegir a qué reporte aplica este anticipo.</small>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="row g-2 mb-2">
-                      <div className="col-6">
-                        <label className="form-label mb-0">Día</label>
-                        <input type="text" className="form-control" value={formatFechaCorta(new Date())} readOnly data-no-uppercase />
-                      </div>
-                      <div className="col-6">
-                        <label className="form-label mb-0">Tipo de Pago</label>
-                        <Dropdown className="form-select" value={formaPago} onChange={(e) => setFormaPago(e.target.value)}>
-                          {FORMAS_PAGO_PROVISIONAL.map((f) => (
-                            <Dropdown.Option key={f.value} value={f.value}>{f.label}</Dropdown.Option>
-                          ))}
-                        </Dropdown>
-                      </div>
-                    </div>
-
-                    {formaPago === "CHEQUE" && (
-                      <div className="mb-2">
-                        <label className="form-label mb-0">No. de Cheque</label>
-                        <input
-                          type="text"
-                          className="form-control"
-                          value={chequeNumero}
-                          onChange={(e) => setChequeNumero(e.target.value)}
-                        />
-                      </div>
-                    )}
-
-                    {(formaPago === "CREDITO" || formaPago === "DEBITO") && (
-                      <div className="mb-2">
-                        <label className="form-label mb-0">Terminal</label>
-                        <Dropdown
-                          className="form-select"
-                          value={terminalSimple}
-                          onChange={(e) => setTerminalSimple(e.target.value)}
-                        >
-                          <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-                          {TERMINALES.map((t) => (
+                      <div className="mb-3">
+                        <label className="form-label mb-0">Tipo de Remisión</label>
+                        <Dropdown className="form-select" value={tipoRemision} onChange={(e) => setTipoRemision(e.target.value)}>
+                          {TIPOS_NOTA.map((t) => (
                             <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
                           ))}
                         </Dropdown>
                         <small className="text-muted">
-                          Obligatoria: en qué terminal se cobró la tarjeta (para el Cierre de Caja).
-                        </small>
-                      </div>
-                    )}
-
-                    <div className="mb-2">
-                      <label className="form-label mb-0">Recibimos de</label>
-                      <input type="text" className="form-control" value={nombreClienteOrden(orden)} readOnly />
-                    </div>
-
-                    <div className="mb-2">
-                      <label className="form-label mb-0">Teléfono del Cliente (Celular)</label>
-                      <input type="text" className="form-control" value={telefonoCelularOrden(orden)} readOnly data-no-uppercase />
-                    </div>
-
-                    <div className="mb-2">
-                      <label className="form-label mb-0">Por concepto de</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={reciboConcepto}
-                        onChange={(e) => setReciboConcepto(e.target.value)}
-                      />
-                    </div>
-
-                    <div className="mb-2">
-                      <label className="form-label mb-0">Recibió</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={reciboRecibio}
-                        onChange={(e) => setReciboRecibio(e.target.value)}
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className={formaPago === "COMBINADO" ? "col-md-4" : "col-md-6"}>
-                {esRemisionCredito ? (
-                  <div className="alert alert-info py-2 small mb-0">
-                    <strong>Remisión a Crédito:</strong> no se captura importe ni referencia. La venta queda
-                    registrada como cuenta por cobrar y el saldo se cubre con abonos posteriores; al quedar
-                    en ceros el sistema marca la Fecha de Pagada.
-                  </div>
-                ) : (
-                  <>
-                    <div className="row g-2 mb-2">
-                      <div className="col-6">
-                        <label className="form-label mb-0">Cantidad en Pesos</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          className="form-control"
-                          value={montoPesos}
-                          onChange={(e) => setMontoPesos(e.target.value)}
-                          readOnly={formaPago === "COMBINADO"}
-                          title={formaPago === "COMBINADO" ? "Se calcula sola con la suma del desglose combinado" : undefined}
-                        />
-                      </div>
-                      <div className="col-6">
-                        <label className="form-label mb-0">Cantidad en Dólares</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          className="form-control"
-                          value={montoDolares}
-                          onChange={(e) => setMontoDolares(e.target.value)}
-                          readOnly={formaPago === "COMBINADO"}
-                          title={formaPago === "COMBINADO" ? "Se calcula solo con el Efectivo en dólares del desglose combinado" : undefined}
-                        />
-                        {Number(montoDolares) > 0 && Number(tipoCambio) > 0 && (
-                          <small className="text-muted">
-                            ≈ {formatMoney(dolaresConvertidos)} MXN
-                          </small>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="mb-2">
-                      <label className="form-label mb-0">Tipo de Cambio</label>
-                      <input
-                        type="number"
-                        step="0.0001"
-                        className="form-control"
-                        value={tipoCambio}
-                        disabled
-                        readOnly
-                        title="Se toma del tipo de cambio definido en Configuración"
-                      />
-                      {!cargandoTipoCambio && !tipoCambioConfig && Number(montoDolares) > 0 && (
-                        <small className="text-danger">
-                          No hay un tipo de cambio configurado. Regístralo en Configuración.
-                        </small>
-                      )}
-                    </div>
-
-                    {saldoClienteDisponible > 0 && !esAnticipoSaldo && (
-                      <div className="border rounded p-2 mb-2 bg-light">
-                        <label className="form-label mb-0 fw-semibold">
-                          Usar saldo a favor del cliente
-                        </label>
-                        <div className="text-muted small mb-1">
-                          Disponible: <strong>{formatMoney(saldoClienteDisponible)}</strong>
-                        </div>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          max={maxSaldoAplicable}
-                          className="form-control"
-                          value={montoSaldoAplicado}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            // No solo se topa el total (ver montoSaldo): el
-                            // campo mismo no debe poder quedarse mostrando
-                            // más de lo que realmente se puede aplicar.
-                            if (v === "" || Number.isNaN(Number(v))) {
-                              setMontoSaldoAplicado(v);
-                              return;
-                            }
-                            setMontoSaldoAplicado(
-                              Number(v) > maxSaldoAplicable ? String(maxSaldoAplicable) : v
-                            );
-                          }}
-                          placeholder="0.00"
-                        />
-                        <small className="text-muted">
-                          Se puede combinar con efectivo/tarjeta, o cubrir todo el pago con saldo.
-                        </small>
-                      </div>
-                    )}
-
-                    <div className="border rounded p-2 mt-3">
-                      {formaPago === "COMBINADO" ? (
-                        <>
-                          {Number(montosCombinado.EFECTIVO) > 0 && (
-                            <p className="d-flex justify-content-between mb-1">
-                              <span className="text-muted">Efectivo (Pesos)</span>
-                              <span>{formatMoney(montosCombinado.EFECTIVO)}</span>
-                            </p>
-                          )}
-                          {Number(montosCombinado.EFECTIVO_USD) > 0 && (
-                            <p className="d-flex justify-content-between mb-1">
-                              <span className="text-muted">Efectivo (Dólares)</span>
-                              <span>
-                                {formatMoney(dolaresConvertidos)}{" "}
-                                <small className="text-muted">(${Number(montosCombinado.EFECTIVO_USD).toFixed(2)} USD)</small>
-                              </span>
-                            </p>
-                          )}
-                          {Number(montosCombinado.CREDITO) > 0 && (
-                            <p className="d-flex justify-content-between mb-1">
-                              <span className="text-muted">T. Crédito</span>
-                              <span>{formatMoney(montosCombinado.CREDITO)}</span>
-                            </p>
-                          )}
-                          {Number(montosCombinado.DEBITO) > 0 && (
-                            <p className="d-flex justify-content-between mb-1">
-                              <span className="text-muted">T. Débito</span>
-                              <span>{formatMoney(montosCombinado.DEBITO)}</span>
-                            </p>
-                          )}
-                          {Number(montosCombinado.CHEQUE) > 0 && (
-                            <p className="d-flex justify-content-between mb-1">
-                              <span className="text-muted">Cheque{chequeNumero ? ` No. ${chequeNumero}` : ""}</span>
-                              <span>{formatMoney(montosCombinado.CHEQUE)}</span>
-                            </p>
-                          )}
-                          {Number(montosCombinado.TRANSFERENCIA) > 0 && (
-                            <p className="d-flex justify-content-between mb-1">
-                              <span className="text-muted">Transferencia</span>
-                              <span>{formatMoney(montosCombinado.TRANSFERENCIA)}</span>
-                            </p>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <p className="d-flex justify-content-between mb-1">
-                            <span className="text-muted">Pesos</span>
-                            <span>{formatMoney(montoPesos)}</span>
-                          </p>
-                          <p className="d-flex justify-content-between mb-1">
-                            <span className="text-muted">Dólares convertidos</span>
-                            <span>{formatMoney(dolaresConvertidos)}</span>
-                          </p>
-                        </>
-                      )}
-                      {montoSaldo > 0 && (
-                        <p className="d-flex justify-content-between mb-1">
-                          <span className="text-muted">Saldo aplicado</span>
-                          <span>{formatMoney(montoSaldo)}</span>
-                        </p>
-                      )}
-                      <hr className="my-1" />
-                      <p className="d-flex justify-content-between fw-bold mb-0">
-                        <span>Total {montoSaldo > 0 ? "(con saldo)" : "Recibido"}</span>
-                        <span>{formatMoney(totalConSaldo)}</span>
-                      </p>
-                      {cambio > 0 && (
-                        <>
-                          <p className="d-flex justify-content-between mb-1 mt-2">
-                            <span className="text-muted">Aplicado a la Orden</span>
-                            <span>{formatMoney(totalAplicado)}</span>
-                          </p>
-                          <p className="d-flex justify-content-between fw-bold text-danger mb-0">
-                            <span>Cambio a Dar</span>
-                            <span>{formatMoney(cambio)}</span>
-                          </p>
-                        </>
-                      )}
-                      {esAnticipoSaldo && totalConSaldo > 0 && (
-                        <div className="alert alert-info py-2 px-2 small mb-0 mt-2">
-                          No se da cambio: se registra como <strong>saldo a favor del cliente</strong> para
-                          esta orden. Saldo del cliente:{" "}
-                          <strong>{formatMoney(saldoClienteDisponible)}</strong> →{" "}
-                          <strong>{formatMoney((Number(saldoClienteDisponible) || 0) + totalConSaldo)}</strong>
-                        </div>
-                      )}
-                    </div>
-
-                    {(generaProvisional || generaDolares) && (
-                      <div className="border rounded p-2 mt-3">
-                        <small className="text-muted">
-                          Al registrar el pago se generará{generaProvisional ? " un Recibo Provisional" : ""}
-                          {generaProvisional && generaDolares ? " y" : ""}
-                          {generaDolares ? " un Recibo de Dólares" : ""}; podrás imprimirlo enseguida, sin cerrar
-                          esta ventana.
+                          La Fecha de Pagada se registra sola cuando la orden queda sin saldo pendiente.
                         </small>
                       </div>
                     )}
                   </>
                 )}
-              </div>
 
-              {formaPago === "COMBINADO" && (
-                <div className="col-md-4">
-                  <div className="border rounded p-2 mb-2">
-                    <label className="form-label mb-1 fw-semibold d-block">Desglose del pago combinado</label>
-                    <div className="row g-2">
-                      <div className="col-6">
-                        <label className="form-label mb-0 small">Efectivo (Pesos)</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          className="form-control form-control-sm"
-                          value={montosCombinado.EFECTIVO}
-                          onChange={(e) => setMontosCombinado((prev) => ({ ...prev, EFECTIVO: e.target.value }))}
-                        />
-                      </div>
-                      <div className="col-6">
-                        <label className="form-label mb-0 small">Efectivo (Dólares)</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          className="form-control form-control-sm"
-                          value={montosCombinado.EFECTIVO_USD}
-                          onChange={(e) => setMontosCombinado((prev) => ({ ...prev, EFECTIVO_USD: e.target.value }))}
-                        />
-                        {Number(montosCombinado.EFECTIVO_USD) > 0 && Number(tipoCambio) > 0 && (
-                          <small className="text-muted">
-                            ≈ {formatMoney(Number(montosCombinado.EFECTIVO_USD) * Number(tipoCambio))} MXN
-                          </small>
-                        )}
-                      </div>
-                      <div className="col-6">
-                        <label className="form-label mb-0 small">T. Crédito</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          className="form-control form-control-sm"
-                          value={montosCombinado.CREDITO}
-                          onChange={(e) => setMontosCombinado((prev) => ({ ...prev, CREDITO: e.target.value }))}
-                        />
-                      </div>
-                      <div className="col-6">
-                        <label className="form-label mb-0 small">T. Débito</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          className="form-control form-control-sm"
-                          value={montosCombinado.DEBITO}
-                          onChange={(e) => setMontosCombinado((prev) => ({ ...prev, DEBITO: e.target.value }))}
-                        />
-                      </div>
-                      {(Number(montosCombinado.CREDITO) > 0 || Number(montosCombinado.DEBITO) > 0) && (
-                        <div className="col-12">
-                          <label className="form-label mb-0 small">Terminal</label>
-                          <Dropdown
-                            className="form-select form-select-sm"
-                            value={terminalCombinado}
-                            onChange={(e) => setTerminalCombinado(e.target.value)}
-                          >
-                            <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-                            {TERMINALES.map((t) => (
-                              <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
-                            ))}
-                          </Dropdown>
-                          <small className="text-muted">Obligatoria: con qué terminal se cobró el T. Crédito/T. Débito.</small>
-                        </div>
-                      )}
-                      <div className="col-6">
-                        <label className="form-label mb-0 small">No. de Cheque</label>
-                        <input
-                          type="text"
-                          className="form-control form-control-sm"
-                          value={chequeNumero}
-                          onChange={(e) => setChequeNumero(e.target.value)}
-                        />
-                      </div>
-                      <div className="col-6">
-                        <label className="form-label mb-0 small">Cantidad (Cheque)</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          className="form-control form-control-sm"
-                          value={montosCombinado.CHEQUE}
-                          onChange={(e) => setMontosCombinado((prev) => ({ ...prev, CHEQUE: e.target.value }))}
-                        />
-                      </div>
-                      <div className="col-12">
-                        <label className="form-label mb-0 small">Transferencia</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          className="form-control form-control-sm"
-                          value={montosCombinado.TRANSFERENCIA}
-                          onChange={(e) => setMontosCombinado((prev) => ({ ...prev, TRANSFERENCIA: e.target.value }))}
-                        />
-                      </div>
-                    </div>
+                {(tipoPago === "ABONO" || tipoPago === "ANTICIPO") && (
+                  <div className="mb-2">
+                    <label className="form-label fw-semibold d-block">Comprobante</label>
+                    <span className="badge bg-secondary">Recibo Provisional</span>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
 
-            <hr className="my-3" />
-
-            <div className="form-check">
-              <input
-                className="form-check-input"
-                type="checkbox"
-                id="checkGenerarVale"
-                checked={generarVale}
-                onChange={(e) => setGenerarVale(e.target.checked)}
-              />
-              <label className="form-check-label fw-semibold" htmlFor="checkGenerarVale">
-                Generar Vale de Salida con este pago
-              </label>
-            </div>
-
-            {generarVale && (
-              <div className="border rounded p-3 mt-2">
-                <div className="row g-2">
-                  <div className="col-md-3">
-                    <label className="form-label small fw-semibold">No. Vale</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={noVale}
-                      onChange={handleNoValeChange}
-                      onBlur={handleNoValeBlur}
-                      onDoubleClick={handleDobleClickNoVale}
-                      title="Doble click para generar el siguiente número automáticamente"
-                      data-no-uppercase
-                    />
-                  </div>
-                  <div className="col-md-2">
-                    <label className="form-label small fw-semibold">Dig</label>
-                    <input type="text" className="form-control" value={dig} readOnly data-no-uppercase />
-                  </div>
-                  <div className="col-md-3">
-                    <label className="form-label small fw-semibold">Quien Entrega</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={quienEntrega}
-                      onChange={(e) => setQuienEntrega(e.target.value)}
-                    />
-                  </div>
-                  <div className="col-md-4">
-                    <label className="form-label small fw-semibold">Estatus</label>
+                {tipoPago === "ANTICIPO" && (
+                  <div className="mb-2">
+                    <label className="form-label fw-semibold">Aplicar a Reporte de</label>
                     <Dropdown
-                      className="form-select"
-                      value={estatusVale}
-                      onChange={(e) => { setEstatusVale(e.target.value); setEstatusValeEditado(true); }}
+                      className={`form-select${anticipoDestinoInvalido ? " is-invalid border-danger" : ""}`}
+                      value={anticipoDestino}
+                      onChange={(e) => { setAnticipoDestino(e.target.value); setAnticipoDestinoInvalido(false); }}
                     >
-                      {ESTATUS_VALE_OPCIONES.map((op) => (
-                        <Dropdown.Option key={op} value={op}>{op}</Dropdown.Option>
-                      ))}
+                      <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                      <Dropdown.Option value="NOTA_VENTA">Factura</Dropdown.Option>
+                      <Dropdown.Option value="REMISION">Remisión</Dropdown.Option>
                     </Dropdown>
-                    <small className="text-muted">Se sugiere solo según el Tipo del comprobante; puedes cambiarla.</small>
+                    {anticipoDestinoInvalido && (
+                      <small className="text-danger">Debes elegir a qué reporte aplica este anticipo.</small>
+                    )}
                   </div>
-                  <div className="col-12">
-                    <label className="form-label small fw-semibold">Observaciones del Vale</label>
-                    <textarea
-                      className="form-control"
-                      rows={2}
-                      value={observacionesVale}
-                      onChange={(e) => setObservacionesVale(e.target.value)}
-                    />
-                  </div>
-                </div>
+                )}
 
-                <small className="text-muted d-block mt-2">
-                  El Vale de Salida se creará con este pago; podrás imprimirlo enseguida, sin cerrar esta ventana.
-                </small>
+                {!tipoPago && (
+                  <p className="text-muted small mb-0">Selecciona un tipo de pago para continuar.</p>
+                )}
+              </>
+            )}
+
+            {/* ===== PASO 2: forma de pago y montos =====
+                Dos columnas para que el modal crezca a lo ancho (modal-xl) en
+                vez de a lo largo: a la izquierda la captura (forma de pago y
+                montos), a la derecha el resultado (saldo, totales, recibo). */}
+            {paso === 2 && (
+              <div className="row g-3">
+                <div className="col-md-6">
+                  {bloqueAlertaCredito}
+                  {usaFormaPago && bloqueFormaPago}
+                  {usaFormaPago && bloqueCombinado}
+                  {bloqueMontosInput}
+                </div>
+                <div className="col-md-6">
+                  {bloqueSaldoFavor}
+                  {bloqueTotales}
+                  {bloqueInfoRecibos}
+                  {bloqueDatosRecibo}
+                  {bloqueObservaciones}
+                </div>
               </div>
             )}
 
-            {error && <p className="text-danger mt-2 mb-0">{error}</p>}
+            {/* ===== PASO 3: vale de salida opcional ===== */}
+            {paso === 3 && (
+              <>
+                <div className="form-check mb-2">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    id="checkGenerarVale"
+                    checked={generarVale}
+                    onChange={(e) => setGenerarVale(e.target.checked)}
+                  />
+                  <label className="form-check-label fw-semibold" htmlFor="checkGenerarVale">
+                    Generar Vale de Salida con este pago
+                  </label>
+                </div>
+
+                {generarVale ? (
+                  <div className="border rounded p-3">
+                    <div className="row g-2">
+                      <div className="col-md-3">
+                        <label className="form-label small fw-semibold">No. Vale</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={noVale}
+                          onChange={handleNoValeChange}
+                          onBlur={handleNoValeBlur}
+                          onDoubleClick={handleDobleClickNoVale}
+                          title="Doble click para generar el siguiente número automáticamente"
+                          data-no-uppercase
+                        />
+                      </div>
+                      <div className="col-md-2">
+                        <label className="form-label small fw-semibold">Dig</label>
+                        <input type="text" className="form-control" value={dig} readOnly data-no-uppercase />
+                      </div>
+                      <div className="col-md-3">
+                        <label className="form-label small fw-semibold">Quien Entrega</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={quienEntrega}
+                          onChange={(e) => setQuienEntrega(e.target.value)}
+                        />
+                      </div>
+                      <div className="col-md-4">
+                        <label className="form-label small fw-semibold">Estatus</label>
+                        <Dropdown
+                          className="form-select"
+                          value={estatusVale}
+                          onChange={(e) => { setEstatusVale(e.target.value); setEstatusValeEditado(true); }}
+                        >
+                          {ESTATUS_VALE_OPCIONES.map((op) => (
+                            <Dropdown.Option key={op} value={op}>{op}</Dropdown.Option>
+                          ))}
+                        </Dropdown>
+                        <small className="text-muted">Se sugiere solo según el Tipo del comprobante; puedes cambiarla.</small>
+                      </div>
+                      <div className="col-12">
+                        <label className="form-label small fw-semibold">Observaciones del Vale</label>
+                        <textarea
+                          className="form-control"
+                          rows={2}
+                          value={observacionesVale}
+                          onChange={(e) => setObservacionesVale(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <small className="text-muted d-block mt-2">
+                      El Vale de Salida se creará con este pago; podrás imprimirlo enseguida, sin cerrar esta ventana.
+                    </small>
+                  </div>
+                ) : (
+                  <p className="text-muted small mb-0">
+                    Si no necesitas Vale de Salida, pulsa <strong>Registrar Pago</strong>.
+                  </p>
+                )}
+              </>
+            )}
+
+            {error && <p className="text-danger mt-3 mb-0">{error}</p>}
           </div>
 
-          <div className="modal-footer">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>
-              Cancelar
-            </button>
-            <button type="button" className="btn btn-success fw-semibold" onClick={handleSubmit} disabled={guardando}>
-              {guardando ? "Guardando..." : "Registrar Pago"}
-            </button>
+          <div className="modal-footer justify-content-between">
+            <div>
+              {paso > 1 && (
+                <button type="button" className="btn btn-outline-secondary" onClick={handleAtras} disabled={guardando}>
+                  ← Atrás
+                </button>
+              )}
+            </div>
+            <div className="d-flex gap-2">
+              <button type="button" className="btn btn-secondary" onClick={onClose} disabled={guardando}>
+                Cancelar
+              </button>
+              {paso < TOTAL_PASOS ? (
+                <button type="button" className="btn btn-primary fw-semibold" onClick={handleSiguiente}>
+                  Siguiente →
+                </button>
+              ) : (
+                <button type="button" className="btn btn-success fw-semibold" onClick={handleSubmit} disabled={guardando}>
+                  {guardando ? "Guardando..." : "Registrar Pago"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

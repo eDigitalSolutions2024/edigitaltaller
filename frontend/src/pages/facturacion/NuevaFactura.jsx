@@ -9,6 +9,7 @@ import { listFacturasCfdi } from "../../api/facturasCfdi";
 import { generarVistaPreviaPDF, getNotasVentaPendientes } from "../../api/facturacion";
 import api from "../../api/http";
 import usePdfModal from "../../hooks/usePdfModal";
+import CajaModalCancelarPago from "../cajas/components/CajaModalCancelarPago";
 import useTipoCambioActual from "../../hooks/useTipoCambioActual";
 import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 import { calcularTotalesOrden } from "../../utils/cajaTotales";
@@ -327,9 +328,28 @@ export default function NuevaFactura() {
     if (!notasSel.length) return "";
     const [y, m, d] = hoyISO().split("-").map(Number);
     const fechaTxt = `${d} ${MESES_ES[m - 1]} ${y}`;
-    return folioMinGlobal === folioMaxGlobal
-      ? `VENTA DEL DIA ${fechaTxt} CON NOTA DE VENTA #${folioMinGlobal}`
-      : `VENTA DEL DIA ${fechaTxt} CON NOTA DE VENTA #${folioMinGlobal} A LA #${folioMaxGlobal}`;
+    // Folios seleccionados, ordenados y sin repetir.
+    const folios = [...new Set(notasSel.map((n) => Number(n.numero)))].sort(
+      (a, b) => a - b
+    );
+    // ¿Son consecutivos (sin huecos)? Si lo son, basta con inicial y final.
+    const consecutivos = folios.every(
+      (v, i) => i === 0 || v === folios[i - 1] + 1
+    );
+    if (consecutivos) {
+      return folioMinGlobal === folioMaxGlobal
+        ? `VENTA DEL DIA ${fechaTxt} CON NOTA DE VENTA #${folioMinGlobal}`
+        : `VENTA DEL DIA ${fechaTxt} CON NOTA DE VENTA #${folioMinGlobal} A LA #${folioMaxGlobal}`;
+    }
+    // Hay huecos: se enumeran todas las notas a facturar.
+    const listaFolios =
+      folios.length === 1
+        ? `#${folios[0]}`
+        : `${folios
+            .slice(0, -1)
+            .map((v) => `#${v}`)
+            .join(", ")} Y #${folios[folios.length - 1]}`;
+    return `VENTA DEL DIA ${fechaTxt} CON NOTA DE VENTA ${listaFolios}`;
   }, [notasSel, folioMinGlobal, folioMaxGlobal]);
 
   const toggleNotaGlobal = (pagoId) => {
@@ -1160,17 +1180,58 @@ export default function NuevaFactura() {
 
   const [ordenDesglosada, setOrdenDesglosada] = useState("");
 
-  /* Anticipos y remisiones vigentes de las órdenes seleccionadas: hay que
-     poder cancelarlos para que la orden pase a factura. */
-  const comprobantesPorCancelar = useMemo(
+  /* Anticipos (Nota de Venta) y remisiones de las órdenes seleccionadas que
+     hay que resolver para facturar: vigentes (elección por comprobante) o ya
+     cancelados hacia una factura (pendientes de esta, o movidos a otra). Los
+     cancelados POR ERROR ya no aparecen. */
+  const comprobantesCajas = useMemo(
     () =>
       ordenes.flatMap((o) =>
         (o.pagos || [])
-          .filter((p) => !p.cancelado && (p.tipoPago === "ANTICIPO" || p.comprobante === "REMISION"))
+          .filter(
+            (p) =>
+              ((p.comprobante === "NOTA_VENTA" && p.tipoPago === "ANTICIPO") ||
+                p.comprobante === "REMISION") &&
+              (!p.cancelado || p.motivoCancelacionTipo === "PASA_A_FACTURA")
+          )
           .map((p) => ({ ordenId: o._id, ordenServicio: o.ordenServicio, pago: p }))
       ),
     [ordenes]
   );
+
+  // Acción elegida por comprobante VIGENTE: 'INCLUIR' (default, se cancela y
+  // pasa a esta factura al generarla) | 'OTRA_FACTURA' (se cancela aparte hacia
+  // otra factura ya existente) | 'VIGENTE' (no cancelar).
+  const [accionesComprobantes, setAccionesComprobantes] = useState({});
+  // Comprobante para el que se abrió el modal de "pasar a otra factura".
+  const [pagoOtraFactura, setPagoOtraFactura] = useState(null);
+
+  const accionDe = (pagoId) => accionesComprobantes[pagoId] || "INCLUIR";
+
+  // Reemplaza los pagos de una orden con los que devuelve el backend tras
+  // cancelar hacia otra factura, para que la tabla se vea al día sin recargar.
+  const reemplazarPagosOrden = (vehiculo) =>
+    setOrdenes((prev) =>
+      prev.map((o) => (o._id === vehiculo._id ? { ...o, pagos: vehiculo.pagos } : o))
+    );
+
+  const handleAccionComprobante = (row, valor) => {
+    setAccionesComprobantes((prev) => ({ ...prev, [row.pago._id]: valor }));
+    if (valor === "OTRA_FACTURA") setPagoOtraFactura(row);
+  };
+
+  const handleOtraFacturaConfirmada = (vehiculo) => {
+    reemplazarPagosOrden(vehiculo);
+    setPagoOtraFactura(null);
+  };
+
+  const handleOtraFacturaCancelada = () => {
+    // No se confirmó: se regresa la acción a INCLUIR.
+    if (pagoOtraFactura) {
+      setAccionesComprobantes((prev) => ({ ...prev, [pagoOtraFactura.pago._id]: "INCLUIR" }));
+    }
+    setPagoOtraFactura(null);
+  };
 
   const puedePreview = useMemo(() => {
     if (!pasoBaseOk) return false;
@@ -1241,9 +1302,23 @@ export default function NuevaFactura() {
     // InformacionGlobal: periodicidad diaria con el mes/año de emisión (hoy).
     const [gAnio, gMes] = esFacturaGlobal ? hoyISO().split("-") : ["", ""];
 
+    // Decisión por comprobante de Cajas VIGENTE (los ya cancelados-pendientes
+    // los liga el backend solo). Sin entrada = 'INCLUIR' (histórico), aquí se
+    // manda explícito solo cuando NO es INCLUIR.
+    const comprobantesCajasPayload = esFactura
+      ? comprobantesCajas
+          .filter((row) => !row.pago.cancelado && accionDe(row.pago._id) !== "INCLUIR")
+          .map((row) => ({
+            vehiculoId: row.ordenId,
+            pagoId: row.pago._id,
+            accion: accionDe(row.pago._id) === "VIGENTE" ? "VIGENTE" : "OTRA_FACTURA",
+          }))
+      : [];
+
     return {
       tipoFactura,
       cliente: receptor,
+      comprobantesCajas: comprobantesCajasPayload,
       // `orden` (singular) se conserva para el historial y los reportes que ya
       // lo leían; `ordenes` lleva la lista completa.
       orden: ordenesPayload[0] || null,
@@ -1872,15 +1947,15 @@ export default function NuevaFactura() {
                     </div>
                   ))}
 
-              {/* Anticipos / remisiones vigentes: se cancelan solos al generar la factura */}
-              {comprobantesPorCancelar.length > 0 && (
+              {/* Anticipos / remisiones de Cajas: elección por comprobante */}
+              {comprobantesCajas.length > 0 && (
                 <div className="alert alert-info mt-3 mb-0">
                   <div className="fw-semibold mb-2">
-                    ℹ️ Estas órdenes tienen un anticipo o una remisión vigente en Cajas
+                    ℹ️ Estas órdenes tienen un anticipo o una remisión en Cajas
                   </div>
                   <div className="small mb-2">
-                    Se cancelarán automáticamente al generar la factura (el comprobante conserva su
-                    folio, pero deja de contar como pago de la orden).
+                    Elige qué hacer con cada uno. Por defecto se <strong>cancela y pasa a esta
+                    factura</strong> (conserva su folio, pero deja de contar como pago de la orden).
                   </div>
 
                   <div className="table-responsive">
@@ -1891,23 +1966,56 @@ export default function NuevaFactura() {
                           <th>Comprobante</th>
                           <th>Fecha</th>
                           <th className="text-end">Monto</th>
+                          <th style={{ minWidth: 240 }}>Acción</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {comprobantesPorCancelar.map(({ ordenServicio, pago }) => (
-                          <tr key={pago._id}>
-                            <td>{ordenServicio}</td>
-                            <td>
-                              {pago.comprobante === "REMISION"
-                                ? `Remisión N°${pago.remision?.numero ?? "—"}`
-                                : `Anticipo · Recibo Provisional N°${
-                                    pago.reciboProvisional?.numero ?? "—"
-                                  }`}
-                            </td>
-                            <td>{fechaCorta(pago.fecha)}</td>
-                            <td className="text-end">{money(pago.monto)}</td>
-                          </tr>
-                        ))}
+                        {comprobantesCajas.map((row) => {
+                          const { ordenServicio, pago } = row;
+                          const comp =
+                            pago.comprobante === "REMISION"
+                              ? `Remisión N°${pago.remision?.numero ?? "—"}`
+                              : `Anticipo · Nota de Venta N°${pago.notaVenta?.numero ?? "—"}`;
+                          const accion = accionDe(pago._id);
+                          return (
+                            <tr key={pago._id}>
+                              <td>{ordenServicio}</td>
+                              <td>{comp}</td>
+                              <td>{fechaCorta(pago.fecha)}</td>
+                              <td className="text-end">{money(pago.monto)}</td>
+                              <td>
+                                {pago.cancelado ? (
+                                  <span className="badge bg-secondary">
+                                    Cancelado · movido a otra factura
+                                  </span>
+                                ) : (
+                                  <>
+                                    <select
+                                      className="form-select form-select-sm"
+                                      value={accion}
+                                      onChange={(e) => handleAccionComprobante(row, e.target.value)}
+                                    >
+                                      <option value="INCLUIR">Incluir en esta factura</option>
+                                      <option value="OTRA_FACTURA">Pasar a otra factura existente…</option>
+                                      <option value="VIGENTE">Dejar vigente (no cancelar)</option>
+                                    </select>
+                                    {accion === "VIGENTE" && (
+                                      <div className="small text-danger mt-1">
+                                        La orden quedará sobre-pagada (anticipo/remisión + factura).
+                                      </div>
+                                    )}
+                                    {accion === "OTRA_FACTURA" && (
+                                      <div className="small text-muted mt-1">
+                                        Elige la factura en la ventana; hasta confirmarla el comprobante
+                                        sigue vigente.
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -2933,6 +3041,19 @@ export default function NuevaFactura() {
       )}
 
       {pdfModal}
+
+      <CajaModalCancelarPago
+        show={!!pagoOtraFactura}
+        pago={pagoOtraFactura?.pago}
+        orden={
+          pagoOtraFactura
+            ? { _id: pagoOtraFactura.ordenId, ordenServicio: pagoOtraFactura.ordenServicio }
+            : null
+        }
+        modoForzado="PASA_A_FACTURA_EXISTENTE"
+        onClose={handleOtraFacturaCancelada}
+        onConfirmado={handleOtraFacturaConfirmada}
+      />
     </div>
   );
 }

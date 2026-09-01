@@ -44,7 +44,7 @@ function descargarZipBlob(data, nombre) {
 }
 
 export default function ConsultarFacturas() {
-  const [filtros, setFiltros] = useState({ q: "", desde: "", hasta: "", estatus: "todos" });
+  const [filtros, setFiltros] = useState({ q: "", desde: "", hasta: "", estatus: "todos", condicion: "todos" });
   const [docs, setDocs] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -87,7 +87,7 @@ export default function ConsultarFacturas() {
   };
 
   const limpiar = () => {
-    const vacio = { q: "", desde: "", hasta: "", estatus: "todos" };
+    const vacio = { q: "", desde: "", hasta: "", estatus: "todos", condicion: "todos" };
     setFiltros(vacio);
     buscar(vacio, 1);
   };
@@ -281,6 +281,18 @@ export default function ConsultarFacturas() {
               <Dropdown.Option value="todos">Todos</Dropdown.Option>
               <Dropdown.Option value="generada">Generada</Dropdown.Option>
               <Dropdown.Option value="cancelada">Cancelada</Dropdown.Option>
+            </Dropdown>
+          </div>
+          <div className="col-6 col-md-2">
+            <label className="form-label">Tipo</label>
+            <Dropdown
+              className="form-select"
+              value={filtros.condicion}
+              onChange={(e) => onFiltro("condicion", e.target.value)}
+            >
+              <Dropdown.Option value="todos">Todos</Dropdown.Option>
+              <Dropdown.Option value="contado">Contado</Dropdown.Option>
+              <Dropdown.Option value="credito">Crédito</Dropdown.Option>
             </Dropdown>
           </div>
           <div className="col-6 col-md-2 d-flex align-items-end">

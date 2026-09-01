@@ -37,6 +37,27 @@ const escapeHtml = (value = '') =>
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
 
+const TERMINALES_TARJETA_PDF = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
+
+// Texto legible de la forma de pago de una Nota de Venta. Vale tanto para las
+// nuevas (notaVenta.formaPago + combinado/terminal) como para las viejas, que
+// solo traían notaVenta.banco con el método o la terminal. En un pago
+// combinado se imprime solo "Combinado" (el desglose por método va en el
+// Recibo Provisional / Cierre de Caja, no en la Nota de Venta).
+function formaPagoNotaVentaTexto(nv = {}) {
+  if (nv.formaPago === 'COMBINADO') return 'Combinado';
+  const banco = nv.banco || '';
+  if (TERMINALES_TARJETA_PDF.includes(banco)) {
+    const t = nv.formaPago === 'DEBITO' ? 'T. Débito' : nv.formaPago === 'CREDITO' ? 'T. Crédito' : 'Tarjeta';
+    return `${t} — ${banco}`;
+  }
+  if (banco === 'CHEQUE' || nv.formaPago === 'CHEQUE') return `Cheque${nv.chequeNumero ? ` No. ${nv.chequeNumero}` : ''}`;
+  if (banco === 'TRANSFERENCIA' || nv.formaPago === 'TRANSFERENCIA') return 'Transferencia';
+  if (banco === 'DOLARES') return 'Dólares';
+  if (banco === 'EFECTIVOS' || banco === '') return 'Efectivo';
+  return banco;
+}
+
 const nombreCliente = (orden) => {
   const c = orden.cliente || {};
   if (c.tipoCliente === 'Particular') {
@@ -92,7 +113,7 @@ exports.generarComprobanteCajaPDF = async (res, orden, pago, tipo) => {
     const page = await browser.newPage();
 
     const folio = esNota ? pago?.notaVenta?.numero : pago?.remision?.numero;
-    const banco = esNota ? pago?.notaVenta?.banco || '' : '';
+    const formaPagoTexto = esNota ? formaPagoNotaVentaTexto(pago?.notaVenta || {}) : '';
     const fecha = dayjsFecha(pago?.fecha || new Date()).locale('es').format('DD-MMM-YY');
 
     // IVA aplicado dentro del precio de cada partida, sin mostrarse desglosado.
@@ -243,7 +264,7 @@ ${WATERMARK_CSS}
       <span class="label">Marca:</span> <span class="valor">${escapeHtml([orden.marca, orden.modelo].filter(Boolean).join(' , '))}</span><br>
       <span class="label">Serie:</span> <span class="valor">${escapeHtml(orden.serie || '')}</span><br>
       <span class="label">Placas:</span> <span class="valor">${escapeHtml(orden.placas || '')}</span><br>
-      ${esNota ? `<span class="label">Banco:</span> <span class="valor">${escapeHtml(banco)}</span>` : ''}
+      ${esNota ? `<span class="label">Forma de pago:</span> <span class="valor">${escapeHtml(formaPagoTexto)}</span>` : ''}
     </div>
     <div>
       <span class="label">Modelo:</span> <span class="valor">${escapeHtml(orden.anio || '')}</span><br>
