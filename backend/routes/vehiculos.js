@@ -12,6 +12,7 @@ const ContratoOrdenServicio = require('../models/ContratoOrdenServicio');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { normalizarOrdenServicio, regexBusquedaOS } = require('../utils/ordenServicio');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
+const { sincronizarAnticiposAplicados } = require('../utils/anticiposCliente');
 const { backfillCreadoPorId } = require('../utils/backfillCreadoPorId');
 const { reasignarAsesorOrden } = require('../utils/reasignarAsesor');
 const EntradaInventario = require('../models/EntradaInventario');
@@ -1436,6 +1437,17 @@ router.get('/:id', async (req, res) => {
     if (!vehiculo) {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     }
+
+    // Si la orden ya tomó precio y tiene anticipos propios sin aplicar, se
+    // convierten aquí solos en abonado (ver sincronizarAnticiposAplicados en
+    // utils/anticiposCliente.js), para que Total Abonado ya salga correcto
+    // aunque se esté viendo la orden desde Órdenes y no desde Cajas.
+    try {
+      await sincronizarAnticiposAplicados(vehiculo);
+    } catch (errAnticipo) {
+      console.error('Error sincronizando anticipos aplicados:', errAnticipo);
+    }
+
     return res.json({ ok: true, vehiculo });
   } catch (err) {
     console.error('Error obteniendo vehiculo:', err);
@@ -1454,6 +1466,16 @@ router.get('/:id/operativo-pdf', async (req, res) => {
         .status(404)
         .json({ success: false, message: 'Orden no encontrada' });
     }
+
+    // Mismo criterio que GET /:id: un anticipo propio sin aplicar se
+    // convierte en abonado antes de imprimir, para que el PDF no muestre
+    // Total Abonado en $0 teniendo un anticipo ya cobrado para esta orden.
+    try {
+      await sincronizarAnticiposAplicados(vehiculo);
+    } catch (errAnticipo) {
+      console.error('Error sincronizando anticipos aplicados (PDF operativo):', errAnticipo);
+    }
+
     const papel = ['carta', 'oficio', 'a4'].includes(req.query.papel) ? req.query.papel : 'a4';
     // formato: 'operativo' (recepción/servicio + contrato) | 'cliente' (solo resumen)
     const formato = req.query.formato === 'cliente' ? 'cliente' : 'operativo';

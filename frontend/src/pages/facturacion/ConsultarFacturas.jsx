@@ -301,9 +301,17 @@ export default function ConsultarFacturas() {
             className={`btn btn-sm ${modoSeleccion ? "btn-primary" : "btn-outline-secondary"}`}
             onClick={toggleModoSeleccion}
           >
-            Seleccionar
+            Seleccionar Facturas
           </button>
         </div>
+
+        {modoSeleccion && idsSeleccionados.length === 0 && (
+          <div className="alert alert-info d-flex align-items-center gap-2 py-2 mb-2" role="status">
+            <span className="small">
+              Modo selección activo: haz clic sobre una factura de la tabla para seleccionarla.
+            </span>
+          </div>
+        )}
 
         {modoSeleccion && idsSeleccionados.length > 0 && (
           <div className="d-flex justify-content-between align-items-start gap-3 p-2 mb-2 rounded border" style={{ background: "#eaf3ff" }}>

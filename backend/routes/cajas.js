@@ -11,7 +11,7 @@ const { calcularTotalesOrden, sincronizarFechaPagadaRemisiones } = require('../u
 const { registrarMovimientoTerminal } = require('../utils/cierreCajaTerminales');
 const { generarComprobanteCajaPDF } = require('../service/cajaComprobantePdf');
 const { generarReciboProvisionalPDF, generarReciboDolaresPDF } = require('../service/cajaRecibosPdf');
-const { aplicarUso, aplicarDeposito, cancelarDeposito, revertirUso, calcularOrigenSaldo, SaldoInsuficienteError } = require('../utils/anticiposCliente');
+const { aplicarUso, aplicarDeposito, cancelarDeposito, revertirUso, calcularOrigenSaldo, SaldoInsuficienteError, sincronizarAnticiposAplicados } = require('../utils/anticiposCliente');
 
 // saldoAFavor: necesario para que Cajas muestre "Saldo disponible del
 // cliente" y pueda aplicarlo a un pago (ver POST /:id/pagos abajo).
@@ -156,6 +156,16 @@ router.get('/:id', proteger, async (req, res) => {
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO);
     if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+
+    // Si la orden ya tomó precio y tiene anticipos propios sin aplicar
+    // (dejados cuando aún no había servicios), se convierten aquí solos en
+    // abonado, antes de calcular los totales que ve la pantalla.
+    try {
+      await sincronizarAnticiposAplicados(vehiculo);
+    } catch (errAnticipo) {
+      console.error('Error sincronizando anticipos aplicados:', errAnticipo);
+    }
+
     return res.json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo) });
   } catch (err) {
     console.error('Error obteniendo orden (cajas):', err);
