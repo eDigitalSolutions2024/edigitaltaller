@@ -154,7 +154,7 @@ export default function CajasAnticipos() {
 
   return (
     <div>
-      <h5 className="fw-semibold mb-3">Anticipos de Clientes</h5>
+      <h5 className="fw-semibold mb-3">Anticipos de ddf Clientes</h5>
 
       <div className="position-relative mb-3" style={{ maxWidth: 480 }}>
         <input

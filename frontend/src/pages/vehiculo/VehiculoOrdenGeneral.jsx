@@ -37,6 +37,24 @@ function comprobantePago(p) {
   return "";
 }
 
+// Texto legible de la forma de pago de una Nota de Venta. Sirve para las
+// nuevas (notaVenta.formaPago + terminal/combinado) y para las viejas, que
+// solo traían notaVenta.banco con el método o la terminal.
+const TERMINALES_NOTA = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER"];
+function formaPagoNotaVenta(nv = {}) {
+  if (nv.formaPago === "COMBINADO") return "Combinado";
+  const banco = nv.banco || "";
+  if (TERMINALES_NOTA.includes(banco)) {
+    const t = nv.formaPago === "DEBITO" ? "T. Débito" : nv.formaPago === "CREDITO" ? "T. Crédito" : "Tarjeta";
+    return `${t} — ${banco}`;
+  }
+  if (banco === "CHEQUE" || nv.formaPago === "CHEQUE") return nv.chequeNumero ? `Cheque #${nv.chequeNumero}` : "Cheque";
+  if (banco === "TRANSFERENCIA" || nv.formaPago === "TRANSFERENCIA") return "Transferencia";
+  if (banco === "DOLARES") return "Dólares";
+  if (banco === "EFECTIVOS" || banco === "") return "Efectivo";
+  return banco;
+}
+
 function formaPagoDePago(p) {
   if (p.reciboProvisional?.numero) {
     const fp = p.reciboProvisional.formaPago || "";
@@ -45,7 +63,7 @@ function formaPagoDePago(p) {
       : fp;
   }
   if (p.comprobante === "NOTA_VENTA") {
-    return [p.notaVenta?.tipo, p.notaVenta?.banco].filter(Boolean).join(" - ");
+    return [p.notaVenta?.tipo, formaPagoNotaVenta(p.notaVenta)].filter(Boolean).join(" - ");
   }
   if (p.comprobante === "REMISION") {
     return p.remision?.tipo || "";

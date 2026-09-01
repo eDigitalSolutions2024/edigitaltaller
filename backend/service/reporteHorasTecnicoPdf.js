@@ -39,9 +39,8 @@ function buildHtml(resultado, desde, hasta, estado) {
     .map((grupo) => {
       const filas = grupo.items
         .map((it) => {
-          const claseFila = it.cerrada && it.horasAnticipadas > 0 ? 'body-style anticipada' : 'body-style';
           return `
-          <tr class="${claseFila}">
+          <tr class="body-style">
             <td>${esc(it.ordenServicio)}</td>
             <td>${fmtFecha(it.fechaOrden)}</td>
             <td>${esc(it.serie)}</td>
@@ -53,7 +52,7 @@ function buildHtml(resultado, desde, hasta, estado) {
             <td class="num">${fmtMoney(it.total)}</td>
             <td class="num">${fmtMoney(it.iva)}</td>
             <td class="num">${it.horas}</td>
-            <td class="num">${it.horasPendientes ?? Math.max(0, (it.horas || 0) - (it.horasAnticipadas || 0))}</td>
+            <td class="num">${it.horasAPagar ?? (it.cerrada ? Math.max(0, (it.horas || 0) - (it.horasAnticipadas || 0)) : (it.horasAnticipadas || 0))}</td>
           </tr>`;
         })
         .join('');
@@ -85,7 +84,7 @@ function buildHtml(resultado, desde, hasta, estado) {
               <td class="num" style="font-weight:bold;">${fmtMoney(grupo.totalServicio)}</td>
               <td class="num" style="font-weight:bold;">${fmtMoney(grupo.totalIva)}</td>
               <td class="num" style="font-weight:bold;">${grupo.totalHoras}</td>
-              <td class="num" style="font-weight:bold;">${grupo.totalHorasPendientes}</td>
+              <td class="num" style="font-weight:bold;">${grupo.totalHorasAPagar ?? grupo.totalHorasPendientes}</td>
             </tr>
           </tfoot>
         </table>`;
@@ -145,7 +144,6 @@ function buildHtml(resultado, desde, hasta, estado) {
     }
     .subtotal-row td { font-size: 8.5pt; border-top: 1px solid #555; }
     .body-style td { padding-top: 4px; }
-    tr.anticipada { background-color: #d1e7dd; }
 
     /* ── GRAN TOTAL ── */
     .gran-total {
@@ -195,8 +193,8 @@ function buildHtml(resultado, desde, hasta, estado) {
   <div class="gran-total">
     <span>Total Servicio: ${fmtMoney(resultado.totalGeneralServicio)}</span>
     <span>Total IVA: ${fmtMoney(resultado.totalGeneralIva)}</span>
-    <span>Total Horas: ${resultado.totalGeneralHorasPendientes}</span>
-    <span>Total Horas ya anticipadas: ${resultado.totalGeneralHorasAnticipadas}</span>
+    <span>Total Horas: ${resultado.totalGeneralHoras}</span>
+    <span>Total Horas a pagar: ${resultado.totalGeneralHorasAPagar ?? resultado.totalGeneralHorasPendientes}</span>
   </div>
 
   <div class="pie">

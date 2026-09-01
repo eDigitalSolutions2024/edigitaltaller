@@ -760,6 +760,25 @@ function bancoADeposito(banco) {
   return null;
 }
 
+// Reparte el monto de un pago NOTA_VENTA entre los buckets de Depósito.
+// Un pago COMBINADO se desglosa por método; cualquier otra forma cae en
+// bancoADeposito(notaVenta.banco), que sigue sirviendo para Notas viejas y
+// para las nuevas simples (banco guarda EFECTIVOS/CHEQUE/TRANSFERENCIA o la
+// terminal). `sumarDeposito` es el helper local de cada reporte.
+function sumarDepositoNotaVenta(sumarDeposito, pago) {
+  const nv = pago.notaVenta || {};
+  if (nv.formaPago === 'COMBINADO' && nv.combinado) {
+    const c = nv.combinado;
+    const tc = Number(pago.tipoCambio) || 0;
+    sumarDeposito('efectivo', (Number(c.efectivo) || 0) + (Number(c.efectivoDolares) || 0) * tc);
+    sumarDeposito('tarjetasCD', (Number(c.credito) || 0) + (Number(c.debito) || 0));
+    sumarDeposito('cheques', Number(c.cheque) || 0);
+    sumarDeposito('transferencias', Number(c.transferencia) || 0);
+    return;
+  }
+  sumarDeposito(bancoADeposito(nv.banco), pago.monto);
+}
+
 function formaPagoProvisionalADeposito(formaPago) {
   if (formaPago === 'EFECTIVO') return 'efectivo';
   if (formaPago === 'CHEQUE') return 'cheques';
@@ -813,7 +832,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         notas: p.notas || '',
       });
       totalAnticipo += p.monto;
-      sumarDeposito(bancoADeposito(p.notaVenta?.banco), p.monto);
+      sumarDepositoNotaVenta(sumarDeposito, p);
     }
   }
 
@@ -875,6 +894,9 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
   for (const o of ordenesConCancelados) {
     for (const p of o.pagos || []) {
       if (!p.cancelado) continue;
+      // Cancelación por error de captura (solo admin): no es "pasa a factura",
+      // no pertenece a esta banda.
+      if (p.motivoCancelacionTipo === 'ERROR') continue;
       const esAnticipo = p.comprobante === 'NOTA_VENTA' && p.tipoPago === 'ANTICIPO';
       const esRemision = p.comprobante === 'REMISION';
       if (!esAnticipo && !esRemision) continue;
@@ -1107,20 +1129,24 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
 
         for (const p of pagos) {
           if (p.comprobante !== 'NOTA_VENTA' || p.tipoPago !== 'COMPLETO' || p.cancelado) continue;
-          sumarDeposito(bancoADeposito(p.notaVenta?.banco), p.monto);
+          sumarDepositoNotaVenta(sumarDeposito, p);
           if (ordenes.length <= 1) continue;
 
           const folioNota = p.notaVenta?.numero != null ? `P${p.notaVenta.numero}` : 'S/N';
           const montoNotaVenta = p.monto || 0;
+          // Texto para el desglose "PUBLICO GENERAL": la terminal/método, o
+          // 'COMBINADO' cuando el pago se repartió entre varios métodos.
+          const formaNotaTexto =
+            p.notaVenta?.formaPago === 'COMBINADO' ? 'COMBINADO' : p.notaVenta?.banco || 'S/D';
           if (cruce) {
             const totalOrden = montoNotaVenta + cruce.monto;
             const textoCruce =
               cruce.tipo === 'ANTICIPO' ? 'CON ANTICIPO CANCELADO ANTES MENCIONADO' : 'CON REMISIÓN CANCELADA';
             partes.push(
-              `(${folioNota} $${totalOrden.toFixed(2)}, $${cruce.monto.toFixed(2)} ${textoCruce} Y $${montoNotaVenta.toFixed(2)} CON ${p.notaVenta?.banco || 'S/D'})`
+              `(${folioNota} $${totalOrden.toFixed(2)}, $${cruce.monto.toFixed(2)} ${textoCruce} Y $${montoNotaVenta.toFixed(2)} CON ${formaNotaTexto})`
             );
           } else {
-            partes.push(`(${folioNota} $${montoNotaVenta.toFixed(2)} CON ${p.notaVenta?.banco || 'S/D'})`);
+            partes.push(`(${folioNota} $${montoNotaVenta.toFixed(2)} CON ${formaNotaTexto})`);
           }
         }
       }
@@ -1499,6 +1525,12 @@ router.get('/rh-cxc-pdf', async (req, res) => {
 // de ESE técnico dentro de ESA misma orden (se repite si la orden tiene más
 // de una asignación para el mismo técnico).
 //
+// "Horas a pagar" (horasAPagar) depende del estado de la orden: en las
+// ABIERTAS son solo las horas asignadas al técnico que además se le
+// anticiparon; en las CERRADAS son las horas − anticipadas (esas anticipadas
+// ya se pagaron mientras la orden estaba abierta). "Horas T" es siempre el
+// total de horas de la asignación.
+//
 // El período se aplica sobre fecha de recepción para las abiertas (una orden
 // abierta no tiene fecha de cierre) y sobre fecha de cierre para las
 // cerradas: así "Hoy + Cerradas" muestra lo que se cerró hoy, aunque la
@@ -1562,6 +1594,11 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
       const horas = Number(m.horas || 0);
       const horasAnticipadas = Math.min(horas, Number(m.horasAnticipadas || 0));
       const horasPendientes = Math.max(0, horas - horasAnticipadas);
+      // "Horas a pagar" según el estado de la orden: en una orden ABIERTA al
+      // técnico se le paga justo lo que se le anticipó (horas asignadas y
+      // anticipadas); en una CERRADA esas horas anticipadas ya se pagaron, así
+      // que solo quedan por pagar las pendientes (horas − anticipadas).
+      const horasAPagar = cerrada ? horasPendientes : horasAnticipadas;
 
       if (!grupos[nombreMec]) {
         grupos[nombreMec] = {
@@ -1572,6 +1609,7 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
           totalHoras: 0,
           totalHorasAnticipadas: 0,
           totalHorasPendientes: 0,
+          totalHorasAPagar: 0,
         };
       }
       grupos[nombreMec].items.push({
@@ -1588,12 +1626,14 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
         horas,
         horasAnticipadas,
         horasPendientes,
+        horasAPagar,
       });
       grupos[nombreMec].totalServicio += montoServicio;
       grupos[nombreMec].totalIva += iva;
       grupos[nombreMec].totalHoras += horas;
       grupos[nombreMec].totalHorasAnticipadas += horasAnticipadas;
       grupos[nombreMec].totalHorasPendientes += horasPendientes;
+      grupos[nombreMec].totalHorasAPagar += horasAPagar;
     }
   }
 
@@ -1603,6 +1643,7 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
   const totalGeneralHoras = data.reduce((s, g) => s + g.totalHoras, 0);
   const totalGeneralHorasAnticipadas = data.reduce((s, g) => s + g.totalHorasAnticipadas, 0);
   const totalGeneralHorasPendientes = data.reduce((s, g) => s + g.totalHorasPendientes, 0);
+  const totalGeneralHorasAPagar = data.reduce((s, g) => s + g.totalHorasAPagar, 0);
 
   return {
     data,
@@ -1611,6 +1652,7 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
     totalGeneralHoras,
     totalGeneralHorasAnticipadas,
     totalGeneralHorasPendientes,
+    totalGeneralHorasAPagar,
   };
 }
 

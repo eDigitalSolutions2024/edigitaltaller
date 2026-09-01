@@ -5,13 +5,16 @@ const router = express.Router();
 const Vehiculo = require('../models/Vehiculo');
 const Cliente = require('../models/Cliente');
 const Contador = require('../models/Contador');
+const FacturaCfdi = require('../models/FacturaCfdi');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { regexBusquedaOS } = require('../utils/ordenServicio');
 const { calcularTotalesOrden, sincronizarFechaPagadaRemisiones } = require('../utils/cajaTotales');
 const { registrarMovimientoTerminal } = require('../utils/cierreCajaTerminales');
 const { generarComprobanteCajaPDF } = require('../service/cajaComprobantePdf');
 const { generarReciboProvisionalPDF, generarReciboDolaresPDF } = require('../service/cajaRecibosPdf');
-const { aplicarUso, aplicarDeposito, cancelarDeposito, revertirUso, calcularOrigenSaldo, SaldoInsuficienteError } = require('../utils/anticiposCliente');
+const { streamReporteFacturasDiarioPdf } = require('../service/reporteFacturasDiarioPdf');
+const { streamReporteRemisionesDiarioPdf } = require('../service/reporteRemisionesDiarioPdf');
+const { aplicarUso, aplicarDeposito, cancelarDeposito, revertirUso, calcularOrigenSaldo, SaldoInsuficienteError, sincronizarAnticiposAplicados } = require('../utils/anticiposCliente');
 
 // saldoAFavor: necesario para que Cajas muestre "Saldo disponible del
 // cliente" y pueda aplicarlo a un pago (ver POST /:id/pagos abajo).
@@ -21,6 +24,80 @@ const CONTADOR_NOTA_VENTA = 'notaVenta';
 const CONTADOR_REMISION = 'remision';
 const CONTADOR_RECIBO_PROVISIONAL = 'reciboProvisional';
 const CONTADOR_RECIBO_DOLARES = 'reciboDolares';
+
+const FORMAS_PAGO_CAJA = ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFERENCIA', 'COMBINADO'];
+
+// notaVenta.banco es la "clave de depósito" que leen reportes.js
+// (bancoADeposito) y cierreCajaTerminales.js: la terminal cuando se cobró con
+// tarjeta, o el método (EFECTIVOS/CHEQUE/TRANSFERENCIA) en otro caso. En un
+// pago COMBINADO va '' — el desglose real vive en notaVenta.combinado.
+function bancoNotaVenta(formaPago, terminal) {
+  if (['CREDITO', 'DEBITO'].includes(formaPago)) return terminal || '';
+  if (formaPago === 'EFECTIVO') return 'EFECTIVOS';
+  if (formaPago === 'CHEQUE') return 'CHEQUE';
+  if (formaPago === 'TRANSFERENCIA') return 'TRANSFERENCIA';
+  return '';
+}
+
+// Solo estos pagos pueden pasar a una factura (los que el Reporte de Facturas
+// cruza con FacturaCfdi). Un anticipo documentado con Recibo Provisional no:
+// al cancelarse simplemente deja de sumar (ver reportes.js).
+function puedePasarAFactura(pago) {
+  return (
+    (pago.comprobante === 'NOTA_VENTA' && pago.tipoPago === 'ANTICIPO') ||
+    pago.comprobante === 'REMISION'
+  );
+}
+
+// Lee del pago (ANTES de escribir) lo necesario para revertir —o volver a
+// aplicar— sus movimientos de terminal del Cierre de Caja. `signo` = -1 al
+// cancelar, +1 al deshacer la cancelación.
+function datosMovimientosTerminal(pago) {
+  const combinado =
+    pago.comprobante === 'NOTA_VENTA' ? pago.notaVenta?.combinado : pago.reciboProvisional?.combinado;
+  const montoTarjetaCombinado = combinado
+    ? (Number(combinado.credito) || 0) + (Number(combinado.debito) || 0)
+    : 0;
+  return {
+    comprobante: pago.comprobante,
+    bancoNota: pago.notaVenta?.banco,
+    monto: pago.monto,
+    fecha: pago.fecha,
+    saldoAplicado: pago.saldoAplicado?.monto > 0 ? Number(pago.saldoAplicado.monto) : 0,
+    montoTarjetaCombinado,
+    bancoCombinado: combinado?.banco,
+    reciboBanco: pago.reciboProvisional?.banco || '',
+    montoPesos: Number(pago.montoPesos) || 0,
+  };
+}
+
+// Aplica los movimientos de terminal de un pago con el signo dado (-1 revierte
+// al cancelar, +1 los vuelve a poner al deshacer). Best-effort: nunca debe
+// tumbar el flujo, cada llamada va en su try/catch como en el resto del archivo.
+async function moverTerminalesDePago(d, signo) {
+  const s = signo < 0 ? -1 : 1;
+  if (d.comprobante === 'NOTA_VENTA' && d.montoTarjetaCombinado <= 0) {
+    try {
+      await registrarMovimientoTerminal(d.bancoNota, s * (d.monto - d.saldoAplicado), d.fecha);
+    } catch (e) {
+      console.error('Error moviendo terminal (nota de venta):', e);
+    }
+  }
+  if (['RECIBO_PROVISIONAL', 'NOTA_VENTA'].includes(d.comprobante) && d.montoTarjetaCombinado > 0 && d.bancoCombinado) {
+    try {
+      await registrarMovimientoTerminal(d.bancoCombinado, s * d.montoTarjetaCombinado, d.fecha);
+    } catch (e) {
+      console.error('Error moviendo terminal (combinado):', e);
+    }
+  }
+  if (d.comprobante === 'RECIBO_PROVISIONAL' && d.reciboBanco && d.montoPesos > 0) {
+    try {
+      await registrarMovimientoTerminal(d.reciboBanco, s * d.montoPesos, d.fecha);
+    } catch (e) {
+      console.error('Error moviendo terminal (recibo provisional tarjeta):', e);
+    }
+  }
+}
 
 // GET /api/cajas -> lista de órdenes para el módulo de Cajas. A diferencia de
 // /vehiculos/ordenes (que Cajas usaba antes), aquí se listan las órdenes sin
@@ -156,6 +233,16 @@ router.get('/:id', proteger, async (req, res) => {
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO);
     if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+
+    // Si la orden ya tomó precio y tiene anticipos propios sin aplicar
+    // (dejados cuando aún no había servicios), se convierten aquí solos en
+    // abonado, antes de calcular los totales que ve la pantalla.
+    try {
+      await sincronizarAnticiposAplicados(vehiculo);
+    } catch (errAnticipo) {
+      console.error('Error sincronizando anticipos aplicados:', errAnticipo);
+    }
+
     return res.json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo) });
   } catch (err) {
     console.error('Error obteniendo orden (cajas):', err);
@@ -185,8 +272,8 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       observaciones = '',
       notas = '',
       banco = '',
-      tipoNota = 'Contado',
-      tipoRemision = 'Contado',
+      tipoNota: tipoNotaRaw = 'Contado',
+      tipoRemision: tipoRemisionRaw = 'Contado',
       formaPago = 'EFECTIVO',
       chequeNumero = '',
       reciboConcepto = '',
@@ -198,6 +285,12 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       // la Nota de Venta, en `banco`.
       terminal = '',
     } = req.body || {};
+
+    // 'Cancelada' NO es un tipo de alta válido: es un ESTADO que solo fija el
+    // flujo de cancelación (POST /:id/pagos/:pagoId/cancelar / generar_xml.js).
+    // Si llega desde un cliente viejo se trata como 'Contado'.
+    const tipoNota = tipoNotaRaw === 'Cancelada' ? 'Contado' : tipoNotaRaw;
+    const tipoRemision = tipoRemisionRaw === 'Cancelada' ? 'Contado' : tipoRemisionRaw;
 
     const TERMINALES_TARJETA = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
 
@@ -222,21 +315,33 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Un pago de Remisión o Factura requiere Nota de Venta o Remisión.' });
     }
 
-    // Cualquier cobro con tarjeta en Cajas debe registrar en qué terminal se
-    // cobró, para que el Cierre de Caja del día cuadre por terminal.
-    if (comprobante === 'NOTA_VENTA' && !banco) {
-      return res.status(400).json({ ok: false, msg: 'Selecciona el banco / terminal de la Nota de Venta.' });
+    // La Nota de Venta usa el mismo catálogo de forma de pago que el Recibo
+    // Provisional (antes era un único combo que mezclaba método y terminal).
+    if (comprobante === 'NOTA_VENTA' && !FORMAS_PAGO_CAJA.includes(formaPago)) {
+      return res.status(400).json({ ok: false, msg: 'Selecciona la forma de pago de la Nota de Venta.' });
     }
-    if (comprobante === 'RECIBO_PROVISIONAL' && ['CREDITO', 'DEBITO'].includes(formaPago) && !TERMINALES_TARJETA.includes(terminal)) {
+    // Cualquier cobro con tarjeta en Cajas (Nota de Venta o Recibo Provisional)
+    // debe registrar en qué terminal se cobró, para que el Cierre de Caja del
+    // día cuadre por terminal.
+    if (['NOTA_VENTA', 'RECIBO_PROVISIONAL'].includes(comprobante) && ['CREDITO', 'DEBITO'].includes(formaPago) && !TERMINALES_TARJETA.includes(terminal)) {
       return res.status(400).json({ ok: false, msg: 'Selecciona la terminal donde se cobró la tarjeta.' });
     }
     if (
-      comprobante === 'RECIBO_PROVISIONAL' &&
+      ['NOTA_VENTA', 'RECIBO_PROVISIONAL'].includes(comprobante) &&
       formaPago === 'COMBINADO' &&
       ((Number(combinado?.credito) || 0) > 0 || (Number(combinado?.debito) || 0) > 0) &&
       !TERMINALES_TARJETA.includes(combinado?.banco)
     ) {
       return res.status(400).json({ ok: false, msg: 'Selecciona la terminal donde se cobró la parte con tarjeta del pago combinado.' });
+    }
+    // Cheque en una Nota de Venta (simple o dentro de un combinado) necesita
+    // su número. El Recibo Provisional ya lo valida en el front.
+    if (
+      comprobante === 'NOTA_VENTA' &&
+      (formaPago === 'CHEQUE' || (formaPago === 'COMBINADO' && (Number(combinado?.cheque) || 0) > 0)) &&
+      !String(chequeNumero || '').trim()
+    ) {
+      return res.status(400).json({ ok: false, msg: 'Captura el número de cheque.' });
     }
 
     const ordenExistente = await Vehiculo.findById(req.params.id).select('cliente garantia pagos.comprobante pagos.cancelado');
@@ -371,7 +476,26 @@ router.post('/:id/pagos', proteger, async (req, res) => {
         { $inc: { valor: 1 } },
         { new: true, upsert: true }
       );
-      pago.notaVenta = { numero: contador.valor, banco, tipo: tipoNota };
+      const combinadoNota = formaPago === 'COMBINADO'
+        ? {
+            credito: Number(combinado?.credito) || 0,
+            efectivo: Number(combinado?.efectivo) || 0,
+            efectivoDolares: Number(combinado?.efectivoDolares) || 0,
+            debito: Number(combinado?.debito) || 0,
+            cheque: Number(combinado?.cheque) || 0,
+            transferencia: Number(combinado?.transferencia) || 0,
+            banco: combinado?.banco || '',
+          }
+        : null;
+      pago.notaVenta = {
+        numero: contador.valor,
+        formaPago,
+        // Ver bancoNotaVenta(): terminal si fue tarjeta, método si no, '' si combinado.
+        banco: bancoNotaVenta(formaPago, terminal),
+        chequeNumero: (formaPago === 'CHEQUE' || combinadoNota?.cheque > 0) ? chequeNumero : '',
+        tipo: tipoNota,
+        ...(combinadoNota ? { combinado: combinadoNota } : {}),
+      };
     } else if (comprobante === 'REMISION') {
       const contador = await Contador.findOneAndUpdate(
         { nombre: CONTADOR_REMISION },
@@ -431,23 +555,29 @@ router.post('/:id/pagos', proteger, async (req, res) => {
 
     await sincronizarFechaPagadaRemisiones(vehiculo, pago.fecha);
 
-    if (comprobante === 'NOTA_VENTA') {
+    // Nota de Venta con forma de pago SIMPLE: solo la parte realmente cobrada
+    // hoy en esta terminal cuenta para el Cierre de Caja (el saldo aplicado no
+    // es dinero que entró hoy; efectivo/cheque/transferencia se concilian a
+    // mano y bancoNotaVenta() devuelve un valor que registrarMovimientoTerminal
+    // ignora). El COMBINADO se cubre en el bloque de abajo.
+    if (comprobante === 'NOTA_VENTA' && formaPago !== 'COMBINADO') {
       try {
-        // El saldo aplicado no es un movimiento bancario/de efectivo del día
-        // (ese dinero ya se recibió antes, al depositar el anticipo): solo la
-        // parte realmente cobrada hoy en este banco/terminal se registra en
-        // el cierre de caja.
-        await registrarMovimientoTerminal(banco, pago.monto - montoSaldo, pago.fecha);
+        await registrarMovimientoTerminal(bancoNotaVenta(formaPago, terminal), pago.monto - montoSaldo, pago.fecha);
       } catch (errTerminal) {
         console.error('Error actualizando terminal del cierre de caja:', errTerminal);
       }
     }
 
-    // La parte de T. Crédito/T. Débito de un Recibo Provisional Combinado
-    // también pasa por una terminal física y debe sumarse al Cierre de Caja,
-    // igual que una Nota de Venta.
+    // La parte de T. Crédito/T. Débito de un pago Combinado (Nota de Venta o
+    // Recibo Provisional) también pasa por una terminal física y debe sumarse
+    // al Cierre de Caja.
     const montoTarjetaCombinado = (Number(combinado?.credito) || 0) + (Number(combinado?.debito) || 0);
-    if (comprobante === 'RECIBO_PROVISIONAL' && formaPago === 'COMBINADO' && montoTarjetaCombinado > 0 && combinado?.banco) {
+    if (
+      ['NOTA_VENTA', 'RECIBO_PROVISIONAL'].includes(comprobante) &&
+      formaPago === 'COMBINADO' &&
+      montoTarjetaCombinado > 0 &&
+      combinado?.banco
+    ) {
       try {
         await registrarMovimientoTerminal(combinado.banco, montoTarjetaCombinado, pago.fecha);
       } catch (errTerminal) {
@@ -498,22 +628,32 @@ router.post('/:id/pagos', proteger, async (req, res) => {
   }
 });
 
-// POST /api/cajas/:id/pagos/:pagoId/cancelar -> cancela un pago ya registrado
-// (solo admin), EXCLUSIVAMENTE para corregir errores de captura (ver ticket
-// RESTABLECER_COBRO en Soporte). Cancelar un anticipo/remisión porque la
-// orden se facturó ya NO pasa por aquí: eso lo hace automáticamente
-// generar_xml.js al generar la factura, enlazando el pago con
-// pago.facturaId. Un pago cancelado por este endpoint deja facturaId en
-// null a propósito, para que el Reporte de Facturas no lo confunda con una
-// cancelación real por facturación. El pago no se borra (su folio ya se
-// consumió y los reportes lo necesitan): queda marcado como cancelado y deja
-// de contar como abonado. En las remisiones además se marca remision.tipo =
-// 'Cancelada'.
-router.post('/:id/pagos/:pagoId/cancelar', proteger, requiereRol('admin'), async (req, res) => {
+// POST /api/cajas/:id/pagos/:pagoId/cancelar -> cancela un pago ya registrado.
+// `modo`:
+//  - 'ERROR' (default, SOLO admin): corrección de captura. facturaId queda
+//    null, se pisa `notas` con el motivo. Comportamiento histórico.
+//  - 'PASA_A_FACTURA_EXISTENTE' (admin o cajas): solo anticipo (Nota de Venta) o
+//    remisión. Se liga a una FacturaCfdi YA generada (pago.facturaId); NO pisa
+//    `notas` (el Reporte de Facturas conserva la referencia original).
+// Desde Cajas NO se puede cancelar hacia una factura que aún no existe: para
+// eso se usa la pantalla de Facturar (elección por comprobante), que cancela
+// y liga al generar la factura.
+// Ambos modos comparten la mecánica de reversa (terminal, saldo a favor,
+// remisión sin Fecha de Pagada) y el mismo $set puntual (sin vehiculo.save():
+// un save() revalida TODO el documento y puede tronar por datos viejos ajenos).
+router.post('/:id/pagos/:pagoId/cancelar', proteger, requiereRol('admin', 'cajas'), async (req, res) => {
   try {
-    const { motivo = '' } = req.body || {};
+    const { modo = 'ERROR', motivo = '', facturaId = '' } = req.body || {};
+    if (!['ERROR', 'PASA_A_FACTURA_EXISTENTE'].includes(modo)) {
+      return res.status(400).json({ ok: false, msg: 'Modo de cancelación inválido.' });
+    }
+    const esModoError = modo === 'ERROR';
+    const esAdmin = req.user?.role === 'admin';
+    if (esModoError && !esAdmin) {
+      return res.status(403).json({ ok: false, msg: 'Solo un administrador puede cancelar por error.' });
+    }
     const motivoFinal = String(motivo).trim();
-    if (!motivoFinal) {
+    if (esModoError && !motivoFinal) {
       return res.status(400).json({ ok: false, msg: 'Captura el motivo de la cancelación.' });
     }
 
@@ -526,14 +666,38 @@ router.post('/:id/pagos/:pagoId/cancelar', proteger, requiereRol('admin'), async
       return res.status(400).json({ ok: false, msg: 'Este pago ya está cancelado.' });
     }
 
-    // Si este "Anticipo" se había guardado como saldo a favor del cliente, se
-    // revierte ese depósito ANTES de tocar el pago: cancelarDeposito solo
-    // procede (guarda atómica) si el cliente todavía tiene ese saldo
-    // disponible — no se puede recuperar dinero que ya gastó en otra orden. Si
-    // ya lo usó, se aborta sin cancelar el pago.
+    // Los modos "pasa a factura" solo aplican a lo que el Reporte de Facturas
+    // cruza con FacturaCfdi (anticipo Nota de Venta o remisión). Un anticipo con
+    // Recibo Provisional solo se puede cancelar por error.
+    if (!esModoError && !puedePasarAFactura(pago)) {
+      return res.status(400).json({
+        ok: false,
+        msg: 'Solo un anticipo (Nota de Venta) o una remisión pueden pasar a una factura.',
+      });
+    }
+
+    // Modo EXISTENTE: resolver y validar la factura destino.
+    let facturaDestino = null;
+    if (modo === 'PASA_A_FACTURA_EXISTENTE') {
+      if (!mongoose.isValidObjectId(facturaId)) {
+        return res.status(400).json({ ok: false, msg: 'Selecciona la factura a la que pasa este comprobante.' });
+      }
+      facturaDestino = await FacturaCfdi.findById(facturaId).select('serie folio estatus tipoFactura cliente');
+      if (!facturaDestino || facturaDestino.estatus !== 'generada' || ['notaCredito', 'complementoPago'].includes(facturaDestino.tipoFactura)) {
+        return res.status(400).json({ ok: false, msg: 'La factura seleccionada no es válida o no está generada.' });
+      }
+      const clienteOrden = String(vehiculo.cliente || '');
+      const clienteFactura = String(facturaDestino.cliente?.clienteId || '');
+      if (clienteOrden && clienteFactura && clienteOrden !== clienteFactura) {
+        return res.status(400).json({ ok: false, msg: 'La factura seleccionada es de otro cliente.' });
+      }
+    }
+
+    // aSaldoAFavor: revertir el depósito ANTES de tocar el pago (guarda atómica:
+    // si el cliente ya gastó ese saldo en otra orden, se aborta sin cancelar).
     if (pago.aSaldoAFavor && pago.saldoAFavorMovimientoId) {
       try {
-        await cancelarDeposito(pago.saldoAFavorMovimientoId, motivoFinal, req.user);
+        await cancelarDeposito(pago.saldoAFavorMovimientoId, motivoFinal || 'Cancelación', req.user);
       } catch (errDep) {
         if (errDep instanceof SaldoInsuficienteError) {
           return res.status(400).json({
@@ -546,62 +710,46 @@ router.post('/:id/pagos/:pagoId/cancelar', proteger, requiereRol('admin'), async
     }
 
     const esRemision = pago.comprobante === 'REMISION';
+    const datosTerm = datosMovimientosTerminal(pago);
+    const folioFactura = facturaDestino ? `${facturaDestino.serie || ''}${facturaDestino.folio || ''}` : '';
+    const motivoGuardado = esModoError
+      ? motivoFinal
+      : `Se cancela ${esRemision ? 'remisión' : 'anticipo'} y pasa a factura ${folioFactura}`;
 
-    // Datos del pago que se necesitan DESPUÉS para revertir movimientos de
-    // terminal / saldo a favor: se leen del pago en memoria ANTES de escribir.
-    const pagoComprobante = pago.comprobante;
-    const pagoBanco = pago.notaVenta?.banco;
-    const pagoMonto = pago.monto;
-    const pagoFecha = pago.fecha;
-    const pagoSaldoAplicado = pago.saldoAplicado?.monto > 0 ? Number(pago.saldoAplicado.monto) : 0;
-    const pagoCombinado = pago.reciboProvisional?.combinado;
-    const pagoMontoTarjetaCombinado = pagoCombinado
-      ? (Number(pagoCombinado.credito) || 0) + (Number(pagoCombinado.debito) || 0)
-      : 0;
-    const pagoBancoCombinado = pagoCombinado?.banco;
-    // Recibo Provisional SIMPLE con tarjeta: terminal a nivel reciboProvisional.
-    const pagoReciboBanco = pago.reciboProvisional?.banco || '';
-    const pagoMontoPesos = Number(pago.montoPesos) || 0;
-
-    // Se marca cancelado con un $set puntual a esos campos, NO con
-    // vehiculo.save(): un save() re-valida TODO el documento de la orden contra
-    // el esquema actual, y en órdenes antiguas eso puede fallar por datos que
-    // ya no cumplen validaciones nuevas (enums de banco/terminal, etc.) y que
-    // nada tienen que ver con este pago. El alta de pagos ya usa este mismo
-    // enfoque atómico ($push sin validators).
-    const setCancelacion = {
+    const set = {
       'pagos.$.cancelado': true,
       'pagos.$.canceladoEn': new Date(),
       'pagos.$.canceladoPor': req.user?.name || req.user?.username || '',
-      'pagos.$.motivoCancelacion': motivoFinal,
-      'pagos.$.notas': motivoFinal,
+      'pagos.$.motivoCancelacion': motivoGuardado,
+      'pagos.$.motivoCancelacionTipo': esModoError ? 'ERROR' : 'PASA_A_FACTURA',
+      'pagos.$.notasAntesCancelar': pago.notas || '',
+      'pagos.$.facturaId': esModoError ? null : facturaDestino._id,
     };
-    if (esRemision) setCancelacion['pagos.$.remision.tipo'] = 'Cancelada';
+    // El modo ERROR pisa `notas` con el motivo (como hoy); los de factura NO,
+    // para conservar la referencia original del cobro en el Reporte de Facturas.
+    if (esModoError) set['pagos.$.notas'] = motivoFinal;
+    if (esRemision) {
+      set['pagos.$.remisionTipoAntesCancelar'] = pago.remision?.tipo || 'Contado';
+      set['pagos.$.remision.tipo'] = 'Cancelada';
+    }
 
-    const upd = await Vehiculo.updateOne(
-      { _id: vehiculo._id, 'pagos._id': pago._id },
-      { $set: setCancelacion }
-    );
+    const upd = await Vehiculo.updateOne({ _id: vehiculo._id, 'pagos._id': pago._id }, { $set: set });
     if (!upd.matchedCount) return res.status(404).json({ ok: false, msg: 'Pago no encontrado' });
 
-    // Documento ya actualizado, para sincronizar remisiones y para responder.
     const vehiculoActualizado = await Vehiculo.findById(vehiculo._id).populate('cliente', POPULATE_CLIENTE);
 
     // Al dejar de contar como abonado puede reaparecer saldo: las remisiones
-    // vigentes de la orden vuelven a quedar sin Fecha de Pagada. Best-effort:
-    // la cancelación ya quedó registrada aunque este ajuste falle.
+    // vigentes de la orden vuelven a quedar sin Fecha de Pagada.
     try {
       await sincronizarFechaPagadaRemisiones(vehiculoActualizado);
     } catch (errSync) {
-      console.error('Error sincronizando Fecha de Pagada de remisiones al cancelar pago:', errSync);
+      console.error('Error sincronizando Fecha de Pagada al cancelar pago:', errSync);
     }
 
-    // Si este pago había usado saldo a favor del cliente, se le regresa
-    // ahora que el pago quedó cancelado (el dinero ya no cuenta como
-    // aplicado a esta orden).
-    if (pagoSaldoAplicado > 0) {
+    // Si el pago usó saldo a favor del cliente, se le regresa.
+    if (datosTerm.saldoAplicado > 0) {
       try {
-        await revertirUso(vehiculoActualizado.cliente?._id || vehiculoActualizado.cliente, pagoSaldoAplicado, {
+        await revertirUso(vehiculoActualizado.cliente?._id || vehiculoActualizado.cliente, datosTerm.saldoAplicado, {
           ordenAplicada: vehiculoActualizado._id,
           pagoId: pago._id,
           registradoPor: req.user?.name || req.user?.username || '',
@@ -612,37 +760,172 @@ router.post('/:id/pagos/:pagoId/cancelar', proteger, requiereRol('admin'), async
       }
     }
 
-    if (pagoComprobante === 'NOTA_VENTA') {
-      try {
-        // Simétrico al registro original: solo se revierte la parte que en
-        // su momento sí se contó como movimiento bancario/de efectivo (el
-        // saldo aplicado nunca se registró ahí, ver arriba).
-        await registrarMovimientoTerminal(pagoBanco, -(pagoMonto - pagoSaldoAplicado), pagoFecha);
-      } catch (errTerminal) {
-        console.error('Error revirtiendo terminal del cierre de caja:', errTerminal);
-      }
-    }
-
-    if (pagoComprobante === 'RECIBO_PROVISIONAL' && pagoMontoTarjetaCombinado > 0 && pagoBancoCombinado) {
-      try {
-        await registrarMovimientoTerminal(pagoBancoCombinado, -pagoMontoTarjetaCombinado, pagoFecha);
-      } catch (errTerminal) {
-        console.error('Error revirtiendo terminal del cierre de caja (combinado):', errTerminal);
-      }
-    }
-
-    if (pagoComprobante === 'RECIBO_PROVISIONAL' && pagoReciboBanco && pagoMontoPesos > 0) {
-      try {
-        await registrarMovimientoTerminal(pagoReciboBanco, -pagoMontoPesos, pagoFecha);
-      } catch (errTerminal) {
-        console.error('Error revirtiendo terminal del cierre de caja (recibo provisional tarjeta):', errTerminal);
-      }
-    }
+    await moverTerminalesDePago(datosTerm, -1);
 
     return res.json({ ok: true, vehiculo: vehiculoActualizado, totales: calcularTotalesOrden(vehiculoActualizado) });
   } catch (err) {
     console.error('Error cancelando pago:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// POST /api/cajas/:id/pagos/:pagoId/deshacer-cancelacion -> revierte una
+// cancelación siempre que el pago NO esté ligado a una FacturaCfdi generada
+// (eso se deshace cancelando la factura). En la práctica aplica a las
+// cancelaciones por error (facturaId null). admin o cajas; el modo ERROR solo
+// lo deshace un admin.
+router.post('/:id/pagos/:pagoId/deshacer-cancelacion', proteger, requiereRol('admin', 'cajas'), async (req, res) => {
+  try {
+    const vehiculo = await Vehiculo.findById(req.params.id);
+    if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    const pago = (vehiculo.pagos || []).id(req.params.pagoId);
+    if (!pago) return res.status(404).json({ ok: false, msg: 'Pago no encontrado' });
+    if (!pago.cancelado) return res.status(400).json({ ok: false, msg: 'Este pago no está cancelado.' });
+
+    if (pago.motivoCancelacionTipo === 'ERROR' && req.user?.role !== 'admin') {
+      return res.status(403).json({ ok: false, msg: 'Solo un administrador puede deshacer una cancelación por error.' });
+    }
+
+    if (pago.facturaId) {
+      const f = await FacturaCfdi.findById(pago.facturaId).select('serie folio estatus');
+      if (f && f.estatus === 'generada') {
+        return res.status(400).json({
+          ok: false,
+          msg: `Esta cancelación ya está ligada a la factura ${f.serie || ''}${f.folio || ''}. Para deshacerla hay que cancelar la factura.`,
+        });
+      }
+    }
+
+    if (pago.aSaldoAFavor && pago.saldoAFavorMovimientoId) {
+      return res.status(400).json({
+        ok: false,
+        msg: 'No se puede deshacer en automático la cancelación de un anticipo guardado como saldo a favor. Regístralo de nuevo.',
+      });
+    }
+
+    const datosTerm = datosMovimientosTerminal(pago);
+    const esRemision = pago.comprobante === 'REMISION';
+
+    // Si la cancelación devolvió saldo a favor (revertirUso), hay que volver a
+    // consumirlo. Puede fallar si el cliente ya lo gastó.
+    if (datosTerm.saldoAplicado > 0) {
+      try {
+        await aplicarUso(vehiculo.cliente, datosTerm.saldoAplicado, {
+          ordenAplicada: vehiculo._id,
+          pagoId: pago._id,
+          registradoPor: req.user?.name || req.user?.username || '',
+          registradoPorId: req.user?._id || null,
+        });
+      } catch (errSaldo) {
+        if (errSaldo instanceof SaldoInsuficienteError) {
+          return res.status(400).json({
+            ok: false,
+            msg: `El cliente ya no tiene saldo suficiente para restaurar este pago (disponible: ${errSaldo.saldoDisponible}).`,
+          });
+        }
+        throw errSaldo;
+      }
+    }
+
+    const set = {
+      'pagos.$.cancelado': false,
+      'pagos.$.canceladoEn': null,
+      'pagos.$.canceladoPor': '',
+      'pagos.$.motivoCancelacion': '',
+      'pagos.$.motivoCancelacionTipo': null,
+      'pagos.$.facturaId': null,
+      'pagos.$.notas': pago.notasAntesCancelar || pago.notas || '',
+      'pagos.$.notasAntesCancelar': '',
+    };
+    if (esRemision) {
+      set['pagos.$.remision.tipo'] = pago.remisionTipoAntesCancelar || 'Contado';
+      set['pagos.$.remisionTipoAntesCancelar'] = '';
+    }
+
+    const upd = await Vehiculo.updateOne({ _id: vehiculo._id, 'pagos._id': pago._id }, { $set: set });
+    if (!upd.matchedCount) return res.status(404).json({ ok: false, msg: 'Pago no encontrado' });
+
+    const vehiculoActualizado = await Vehiculo.findById(vehiculo._id).populate('cliente', POPULATE_CLIENTE);
+    try {
+      await sincronizarFechaPagadaRemisiones(vehiculoActualizado);
+    } catch (errSync) {
+      console.error('Error sincronizando Fecha de Pagada al deshacer cancelación:', errSync);
+    }
+
+    // Re-aplica (en positivo) los movimientos de terminal que la cancelación revirtió.
+    await moverTerminalesDePago(datosTerm, 1);
+
+    return res.json({ ok: true, vehiculo: vehiculoActualizado, totales: calcularTotalesOrden(vehiculoActualizado) });
+  } catch (err) {
+    console.error('Error deshaciendo cancelación:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// GET /api/cajas/:id/pagos/:pagoId/preview-cancelacion?modo=&facturaId=
+// Mini-PDF (solo para ver): cómo quedaría la fila de esta cancelación en el
+// Reporte de Cajas (Facturas para un anticipo Nota de Venta, Remisiones para
+// una remisión). SIN proteger, igual que los demás PDF de Cajas.
+router.get('/:id/pagos/:pagoId/preview-cancelacion', async (req, res) => {
+  try {
+    const { facturaId = '' } = req.query || {};
+    const vehiculo = await Vehiculo.findById(req.params.id).lean();
+    if (!vehiculo) return res.status(404).send('Orden no encontrada');
+    const pago = (vehiculo.pagos || []).find((p) => String(p._id) === String(req.params.pagoId));
+    if (!pago) return res.status(404).send('Pago no encontrado');
+    if (!puedePasarAFactura(pago)) return res.status(400).send('Este comprobante no pasa a una factura.');
+
+    let folioDestino = '(FACTURA)';
+    if (mongoose.isValidObjectId(facturaId)) {
+      const f = await FacturaCfdi.findById(facturaId).select('serie folio').lean();
+      if (f) folioDestino = `${f.serie || ''}${f.folio || ''}`;
+    }
+
+    const hoy = new Date();
+    const monto = Number(pago.monto) || 0;
+    const os = vehiculo.ordenServicio || '';
+
+    if (pago.comprobante === 'REMISION') {
+      const data = {
+        anticipos: [],
+        canceladas: [{
+          folio: pago.remision?.numero ?? null,
+          ordenServicio: os,
+          cliente: `SE CANCELA REMISIÓN Y PASA A FACTURA ${folioDestino}`,
+          fecha: pago.fecha,
+          notas: pago.notas || '',
+          ventaDia: -monto,
+          cuentasPorCobrar: -monto,
+        }],
+        abonos: [],
+        nuevaVenta: [],
+        ordenesCanceladas: [],
+        totales: { totalVentaDia: -monto, totalContado: 0, totalCredito: 0, totalAnticipo: 0, totalPorCobrar: -monto, totalIngreso: 0 },
+      };
+      return streamReporteRemisionesDiarioPdf(res, data, hoy, hoy);
+    }
+
+    const data = {
+      anticipos: [],
+      anticiposCancelados: [{
+        folio: 'ANT',
+        ordenServicio: os,
+        cliente: `SE CANCELÓ ANTICIPO Y PASA A FACTURA ${folioDestino}`,
+        fecha: hoy,
+        anticipo: -monto,
+        notas: pago.notas || '',
+      }],
+      complementosPago: [],
+      notasCredito: [],
+      facturas: [],
+      facturaGeneral: [],
+      totales: { totalVentaDia: 0, totalContado: 0, totalCredito: 0, totalAnticipo: -monto, totalPorCobrar: 0, totalIngreso: -monto },
+      deposito: { efectivo: 0, cheques: 0, transferencias: 0, tarjetasCD: 0, total: 0 },
+    };
+    return streamReporteFacturasDiarioPdf(res, data, hoy, hoy);
+  } catch (err) {
+    console.error('Error generando preview de cancelación:', err);
+    if (!res.headersSent) res.status(500).send('Error al generar la vista previa');
   }
 });
 

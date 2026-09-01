@@ -18,12 +18,37 @@ const ESTADOS_ORDEN = [
 
 // ===== Cajas: catálogos =====
 const BANCOS_CAJA = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER', 'DOLARES', 'EFECTIVOS', 'CHEQUE', 'TRANSFERENCIA'];
+// notaVenta.banco guarda la terminal cuando la forma de pago es tarjeta, y ''
+// en cualquier otro caso; se admiten además los valores históricos de
+// BANCOS_CAJA para no invalidar Notas de Venta viejas en un save() posterior.
+const BANCOS_NOTA_VENTA = ['', ...BANCOS_CAJA];
 const TIPO_NOTA = ['Contado', 'Credito', 'Cancelada'];
+// Formas de pago de Cajas (Recibo Provisional y Nota de Venta comparten
+// catálogo). 'COMBINADO' desglosa el monto por método en el sub-objeto
+// `combinado`.
+const FORMAS_PAGO_CAJA = ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFERENCIA', 'COMBINADO'];
 // Terminales físicas para cobros con tarjeta en Cajas (mismo catálogo que
 // TERMINALES_TARJETA en routes/cajas.js). El '' es el valor por defecto:
 // "sin terminal" (pago que no se cobró con tarjeta) y debe ser válido para el
 // enum, o un vehiculo.save() posterior sobre ese pago falla la validación.
 const TERMINALES_TARJETA_CAJA = ['', 'BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
+
+// Desglose del monto en pesos por método, usado tal cual en
+// pagos[].reciboProvisional.combinado y en pagos[].notaVenta.combinado.
+const combinadoCajaSchema = () => ({
+  credito: { type: Number, default: 0 },
+  efectivo: { type: Number, default: 0 },
+  // Dólares dentro del Efectivo combinado (con su propia conversión a pesos
+  // vía pago.tipoCambio); los demás métodos son solo pesos.
+  efectivoDolares: { type: Number, default: 0 },
+  debito: { type: Number, default: 0 },
+  cheque: { type: Number, default: 0 },
+  transferencia: { type: Number, default: 0 },
+  // Terminal por la que se cobró la parte de T. Crédito/T. Débito de este
+  // combinado; mismo catálogo que BANCO_A_TERMINAL en
+  // utils/cierreCajaTerminales.js, para poder sumarla al Cierre de Caja.
+  banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+});
 
 // ===== Solicitud de Garantía =====
 // Sub-documento embebido en la orden NUEVA que se abre por garantía.
@@ -632,6 +657,16 @@ pendienteCierre: { type: Boolean, default: false },
         canceladoEn: { type: Date, default: null },
         canceladoPor: { type: String, default: '' },
         motivoCancelacion: { type: String, default: '' },
+        // Clasifica POR QUÉ se canceló (ver POST /:id/pagos/:pagoId/cancelar):
+        // 'ERROR' = corrección de captura (solo admin, facturaId queda null);
+        // 'PASA_A_FACTURA' = el anticipo/remisión pasa a una factura (existente
+        // o la que se está haciendo). null = pagos viejos o sin cancelar.
+        motivoCancelacionTipo: { type: String, enum: ['ERROR', 'PASA_A_FACTURA'], default: null },
+        // Valores previos a la cancelación, para poder restaurarlos al deshacer
+        // (la cancelación pisa remision.tipo con 'Cancelada' y, en modo ERROR,
+        // también pisa `notas` con el motivo).
+        remisionTipoAntesCancelar: { type: String, default: '' },
+        notasAntesCancelar: { type: String, default: '' },
         // Factura a la que pasó este pago cuando se cancela porque se
         // facturó la orden (ver generar_xml.js). Null cuando la cancelación
         // fue una corrección manual por error de captura (ver cajas.js).
@@ -649,8 +684,20 @@ pendienteCierre: { type: Boolean, default: false },
         // de abajo porque sparse solo excluye campos ausentes, no en null.
         notaVenta: {
           numero: { type: Number },
-          banco: { type: String, enum: BANCOS_CAJA },
+          // Forma de pago (mismo catálogo que el Recibo Provisional). Notas de
+          // Venta viejas no lo traen: se asume EFECTIVO salvo que `banco`
+          // apunte a una terminal (dato histórico) — ver cajaComprobantePdf.js
+          // / reportes.js.
+          formaPago: { type: String, enum: FORMAS_PAGO_CAJA, default: 'EFECTIVO' },
+          // Terminal cuando formaPago es 'CREDITO' | 'DEBITO'; '' en cualquier
+          // otro caso. En Notas viejas guardaba también EFECTIVOS/CHEQUE/etc.
+          // (por eso el enum admite los valores de BANCOS_CAJA).
+          banco: { type: String, enum: BANCOS_NOTA_VENTA, default: '' },
+          chequeNumero: { type: String, default: '' },
           tipo: { type: String, enum: TIPO_NOTA, default: 'Contado' },
+          // Presente solo si formaPago === 'COMBINADO': desglose del monto en
+          // pesos por método (su suma es el montoPesos del pago).
+          combinado: combinadoCajaSchema(),
         },
 
         // Presente solo si comprobante === 'REMISION' (ver nota arriba)
@@ -665,7 +712,7 @@ pendienteCierre: { type: Boolean, default: false },
         // (ver nota arriba sobre no ponerle default a `numero`).
         reciboProvisional: {
           numero: { type: Number },
-          formaPago: { type: String, enum: ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFERENCIA', 'COMBINADO'], default: 'EFECTIVO' },
+          formaPago: { type: String, enum: FORMAS_PAGO_CAJA, default: 'EFECTIVO' },
           chequeNumero: { type: String, default: '' },
           concepto: { type: String, default: '' },
           recibio: { type: String, default: '' },
@@ -677,21 +724,7 @@ pendienteCierre: { type: Boolean, default: false },
           banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
           // Presente solo si formaPago === 'COMBINADO': desglose del monto en
           // pesos por método (su suma es el montoPesos del pago).
-          combinado: {
-            credito: { type: Number, default: 0 },
-            efectivo: { type: Number, default: 0 },
-            // Dólares dentro del Efectivo combinado (con su propia conversión
-            // a pesos vía pago.tipoCambio); los demás métodos son solo pesos.
-            efectivoDolares: { type: Number, default: 0 },
-            debito: { type: Number, default: 0 },
-            cheque: { type: Number, default: 0 },
-            transferencia: { type: Number, default: 0 },
-            // Terminal por la que se cobró la parte de T. Crédito/T. Débito de
-            // este combinado; mismo catálogo que BANCO_A_TERMINAL en
-            // utils/cierreCajaTerminales.js, para poder sumarla al Cierre de
-            // Caja (ver POST /:id/pagos en routes/cajas.js).
-            banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
-          },
+          combinado: combinadoCajaSchema(),
         },
 
         // Recibo de Dólares: se genera automáticamente cuando el pago incluye
@@ -783,3 +816,5 @@ vehiculoSchema.pre('save', function (next) {
 module.exports = mongoose.model('Vehiculo', vehiculoSchema);
 module.exports.BANCOS_CAJA = BANCOS_CAJA;
 module.exports.TIPO_NOTA = TIPO_NOTA;
+module.exports.FORMAS_PAGO_CAJA = FORMAS_PAGO_CAJA;
+module.exports.TERMINALES_TARJETA_CAJA = TERMINALES_TARJETA_CAJA;

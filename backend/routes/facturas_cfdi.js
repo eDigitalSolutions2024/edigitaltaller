@@ -12,13 +12,21 @@ const rx = (s) =>
 // GET /api/facturas-cfdi?q=&desde=&hasta=&estatus=&page=&limit=
 router.get("/", async (req, res) => {
   try {
-    let { q = "", desde = "", hasta = "", estatus = "", tipo = "", page = 1, limit = 10 } = req.query;
+    let { q = "", desde = "", hasta = "", estatus = "", tipo = "", condicion = "", page = 1, limit = 10 } = req.query;
     page = Math.max(parseInt(page) || 1, 1);
     limit = Math.min(Math.max(parseInt(limit) || 10, 1), 200);
 
     const match = {};
 
     if (estatus && estatus !== "todos") match.estatus = estatus;
+
+    // condicion=contado | credito => filtra por método de pago del CFDI
+    // (PPD = crédito; PUE o documentos viejos sin método = contado)
+    if (condicion === "credito") {
+      match["cfdi.metodoPago"] = "PPD";
+    } else if (condicion === "contado") {
+      match["cfdi.metodoPago"] = { $ne: "PPD" };
+    }
 
     // tipo=factura => solo CFDI de ingreso (excluye notas de crédito y complementos;
     // documentos viejos sin tipoFactura cuentan como factura)

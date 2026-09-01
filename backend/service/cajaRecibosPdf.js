@@ -104,8 +104,23 @@ ${WATERMARK_CSS}
 `;
 
 // rp: pago.reciboProvisional. Genera la fila de checkboxes Efectivo/T.Crédito/T.Débito/Cheque No./Combinado.
+// En un pago combinado se marca "Combinado" y además cada método que
+// realmente entró en el desglose (efectivo, crédito, etc.), no solo el de
+// "Combinado" suelto.
 function checkboxesFormaPago(rp, idPrefix) {
-  const marca = (v) => (rp.formaPago === v ? 'checked' : '');
+  const c = rp.combinado || {};
+  const usadoEnCombinado = {
+    EFECTIVO: Number(c.efectivo) > 0 || Number(c.efectivoDolares) > 0,
+    CREDITO: Number(c.credito) > 0,
+    DEBITO: Number(c.debito) > 0,
+    CHEQUE: Number(c.cheque) > 0,
+    TRANSFERENCIA: Number(c.transferencia) > 0,
+  };
+  const marca = (v) => {
+    if (rp.formaPago === v) return 'checked';
+    if (rp.formaPago === 'COMBINADO' && usadoEnCombinado[v]) return 'checked';
+    return '';
+  };
   const chequeTexto = (rp.formaPago === 'CHEQUE' || rp.formaPago === 'COMBINADO') && rp.chequeNumero ? escapeHtml(rp.chequeNumero) : '';
   return `
     <div class="opciones">

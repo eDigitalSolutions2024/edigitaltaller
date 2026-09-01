@@ -44,7 +44,7 @@ function descargarZipBlob(data, nombre) {
 }
 
 export default function ConsultarFacturas() {
-  const [filtros, setFiltros] = useState({ q: "", desde: "", hasta: "", estatus: "todos" });
+  const [filtros, setFiltros] = useState({ q: "", desde: "", hasta: "", estatus: "todos", condicion: "todos" });
   const [docs, setDocs] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -87,7 +87,7 @@ export default function ConsultarFacturas() {
   };
 
   const limpiar = () => {
-    const vacio = { q: "", desde: "", hasta: "", estatus: "todos" };
+    const vacio = { q: "", desde: "", hasta: "", estatus: "todos", condicion: "todos" };
     setFiltros(vacio);
     buscar(vacio, 1);
   };
@@ -283,6 +283,18 @@ export default function ConsultarFacturas() {
               <Dropdown.Option value="cancelada">Cancelada</Dropdown.Option>
             </Dropdown>
           </div>
+          <div className="col-6 col-md-2">
+            <label className="form-label">Tipo</label>
+            <Dropdown
+              className="form-select"
+              value={filtros.condicion}
+              onChange={(e) => onFiltro("condicion", e.target.value)}
+            >
+              <Dropdown.Option value="todos">Todos</Dropdown.Option>
+              <Dropdown.Option value="contado">Contado</Dropdown.Option>
+              <Dropdown.Option value="credito">Crédito</Dropdown.Option>
+            </Dropdown>
+          </div>
           <div className="col-6 col-md-2 d-flex align-items-end">
             <button className="btn btn-outline-secondary w-100" onClick={limpiar}>
               Limpiar
@@ -301,9 +313,17 @@ export default function ConsultarFacturas() {
             className={`btn btn-sm ${modoSeleccion ? "btn-primary" : "btn-outline-secondary"}`}
             onClick={toggleModoSeleccion}
           >
-            Seleccionar
+            Seleccionar Facturas
           </button>
         </div>
+
+        {modoSeleccion && idsSeleccionados.length === 0 && (
+          <div className="alert alert-info d-flex align-items-center gap-2 py-2 mb-2" role="status">
+            <span className="small">
+              Modo selección activo: haz clic sobre una factura de la tabla para seleccionarla.
+            </span>
+          </div>
+        )}
 
         {modoSeleccion && idsSeleccionados.length > 0 && (
           <div className="d-flex justify-content-between align-items-start gap-3 p-2 mb-2 rounded border" style={{ background: "#eaf3ff" }}>

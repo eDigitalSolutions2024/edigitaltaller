@@ -8,6 +8,10 @@
 // transacciones multi-documento (que requerirían un replica set).
 const Cliente = require('../models/Cliente');
 const AnticipoCliente = require('../models/AnticipoCliente');
+// Requerido solo por sincronizarAnticiposAplicados (abajo). Vehiculo.js no
+// importa nada de este archivo, así que no hay ciclo.
+const Vehiculo = require('../models/Vehiculo');
+const { calcularTotalesOrden } = require('./cajaTotales');
 
 class SaldoInsuficienteError extends Error {
   constructor(saldoDisponible) {
@@ -34,18 +38,17 @@ async function aplicarDeposito(clienteId, monto, meta = {}) {
   const clienteAntes = await Cliente.findById(clienteId).select('saldoAFavor');
   if (!clienteAntes) throw new Error('Cliente no encontrado.');
 
-  const cliente = await Cliente.findByIdAndUpdate(
-    clienteId,
-    { $inc: { saldoAFavor: montoDeposito } },
-    { new: true }
-  );
-
-  const movimiento = await AnticipoCliente.create({
+  // El movimiento se arma y se valida ANTES de tocar Cliente.saldoAFavor: si
+  // el payload es inválido (enum, folio duplicado, etc.), esto lanza aquí sin
+  // haber incrementado el saldo. De lo contrario un $inc + create fallido deja
+  // saldo a favor "fantasma" sin respaldo en el ledger, y el llamador no puede
+  // revertirlo porque nunca recibió el movimiento.
+  const movimiento = new AnticipoCliente({
     cliente: clienteId,
     tipo: 'DEPOSITO',
     monto: montoDeposito,
     saldoAnterior: clienteAntes.saldoAFavor || 0,
-    saldoNuevo: cliente.saldoAFavor,
+    saldoNuevo: (clienteAntes.saldoAFavor || 0) + montoDeposito,
     fecha: new Date(),
     montoPesos: meta.montoPesos || 0,
     montoDolares: meta.montoDolares || 0,
@@ -64,6 +67,27 @@ async function aplicarDeposito(clienteId, monto, meta = {}) {
     ordenAplicada: meta.ordenAplicada || null,
     pagoId: meta.pagoId || null,
   });
+  await movimiento.validate();
+
+  const cliente = await Cliente.findByIdAndUpdate(
+    clienteId,
+    { $inc: { saldoAFavor: montoDeposito } },
+    { new: true }
+  );
+
+  // El saldo real (con movimientos concurrentes) es el que devolvió el $inc
+  // atómico, no la estimación de arriba.
+  movimiento.saldoAnterior = cliente.saldoAFavor - montoDeposito;
+  movimiento.saldoNuevo = cliente.saldoAFavor;
+
+  try {
+    await movimiento.save();
+  } catch (err) {
+    // El $inc ya se aplicó pero el movimiento no quedó guardado: se revierte
+    // el saldo para no dejarlo inflado sin respaldo en el ledger.
+    await Cliente.findByIdAndUpdate(clienteId, { $inc: { saldoAFavor: -montoDeposito } });
+    throw err;
+  }
 
   return { cliente, movimiento };
 }
@@ -233,6 +257,95 @@ async function cancelarDeposito(movimientoId, motivo, user) {
   return { cliente, movimiento };
 }
 
+// Convierte en "abonado" el saldo a favor que generó un Anticipo de ESTA
+// MISMA orden, en cuanto la orden ya tiene precio (Total de la Orden > 0):
+// el cajero no tiene que acordarse de aplicar "saldo a favor" a mano en
+// Registrar Pago para que el anticipo cuente en Total Abonado (ver POST
+// /api/cajas/:id/pagos en cajas.js, sección "Un Anticipo no se abona a la
+// orden..."). Se llama desde GET /api/cajas/:id, justo antes de calcular los
+// totales que ve la pantalla de la orden.
+//
+// Por cada pago tipoPago=ANTICIPO sin cancelar que sigue con aSaldoAFavor
+// (o sea: todavía no se aplicó), se intenta un aplicarUso por el monto
+// completo de ese anticipo — el mismo helper atómico que usa un cajero al
+// marcar "Usar saldo a favor del cliente" a mano. Si el cliente ya gastó ese
+// saldo en otra orden mientras tanto (SaldoInsuficienteError), se deja tal
+// cual: sigue disponible para aplicarse manualmente o la próxima vez que
+// alcance saldo. Si se aplica, el pago pasa a contar como abonado
+// (aSaldoAFavor=false) y guarda saldoAplicado igual que un pago manual con
+// saldo, para que cancelarlo después (POST /:id/pagos/:pagoId/cancelar) lo
+// revierta con el mismo camino (revertirUso) que cualquier otro pago.
+//
+// Esta función se llama desde un GET (varias pestañas pueden abrir la misma
+// orden casi al mismo tiempo), así que por cada pago primero se hace un
+// "reclamo" atómico (aSaldoAFavor: true -> false condicionado a que siga en
+// true) antes de tocar el saldo del cliente: solo la petición que gana ese
+// $set sigue adelante y llama aplicarUso; las demás simplemente lo saltan.
+// Si aplicarUso falla después de ganar el reclamo, se revierte el flag para
+// no dejar el pago marcado como aplicado sin haber consumido saldo real.
+async function sincronizarAnticiposAplicados(vehiculo) {
+  const { totalOrden } = calcularTotalesOrden(vehiculo);
+  if (!(totalOrden > 0)) return vehiculo;
+
+  const clienteId = vehiculo.cliente?._id || vehiculo.cliente;
+  if (!clienteId) return vehiculo;
+
+  const pendientes = (vehiculo.pagos || []).filter(
+    (p) => p.tipoPago === 'ANTICIPO' && p.aSaldoAFavor && !p.cancelado
+  );
+  if (!pendientes.length) return vehiculo;
+
+  for (const pago of pendientes) {
+    const reclamo = await Vehiculo.updateOne(
+      {
+        _id: vehiculo._id,
+        pagos: { $elemMatch: { _id: pago._id, aSaldoAFavor: true, cancelado: { $ne: true } } },
+      },
+      { $set: { 'pagos.$.aSaldoAFavor': false } }
+    );
+    if (!reclamo.modifiedCount) continue; // otra petición ya lo está procesando (o ya se procesó)
+
+    try {
+      // Desglose FIFO ANTES de aplicarUso (mismo orden que POST /:id/pagos).
+      const origenes = await calcularOrigenSaldo(clienteId, pago.monto);
+      const { movimiento } = await aplicarUso(clienteId, pago.monto, {
+        ordenAplicada: vehiculo._id,
+        pagoId: pago._id,
+        registradoPor: 'Sistema (anticipo aplicado al tener precio la orden)',
+        registradoPorId: null,
+      });
+
+      // $set puntual sobre el subdocumento, sin vehiculo.save(): igual que en
+      // POST /:id/pagos/:pagoId/cancelar, un save() revalida TODO el
+      // documento contra el esquema actual y en órdenes antiguas puede
+      // tronar por datos que no tienen nada que ver con este ajuste.
+      const saldoAplicado = { monto: pago.monto, movimientoId: movimiento._id, origenes };
+      await Vehiculo.updateOne(
+        { _id: vehiculo._id, 'pagos._id': pago._id },
+        { $set: { 'pagos.$.saldoAplicado': saldoAplicado } }
+      );
+
+      // Refleja el cambio también en el documento en memoria, para que el
+      // llamador (GET /:id) calcule los totales ya actualizados sin tener
+      // que releer de la base de datos.
+      pago.aSaldoAFavor = false;
+      pago.saldoAplicado = saldoAplicado;
+    } catch (err) {
+      // No se pudo consumir el saldo real (p. ej. el cliente ya lo gastó en
+      // otra orden): se libera el reclamo para poder reintentar después.
+      await Vehiculo.updateOne(
+        { _id: vehiculo._id, 'pagos._id': pago._id },
+        { $set: { 'pagos.$.aSaldoAFavor': true } }
+      );
+      if (!(err instanceof SaldoInsuficienteError)) {
+        console.error('Error auto-aplicando anticipo a la orden:', err);
+      }
+    }
+  }
+
+  return vehiculo;
+}
+
 module.exports = {
   SaldoInsuficienteError,
   montoValido,
@@ -241,4 +354,5 @@ module.exports = {
   revertirUso,
   cancelarDeposito,
   calcularOrigenSaldo,
+  sincronizarAnticiposAplicados,
 };

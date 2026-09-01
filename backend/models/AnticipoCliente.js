@@ -30,8 +30,11 @@ const anticipoClienteSchema = new Schema(
     chequeNumero: { type: String, default: '' },
     // Terminal por la que se cobró un depósito con tarjeta (formaPago
     // 'CREDITO' | 'DEBITO'); mismo catálogo que BANCO_A_TERMINAL en
-    // utils/cierreCajaTerminales.js, para sumarlo al Cierre de Caja.
-    banco: { type: String, enum: ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'], default: '' },
+    // utils/cierreCajaTerminales.js, para sumarlo al Cierre de Caja. El ''
+    // (sin terminal) es válido: es lo que se guarda en un depósito en
+    // efectivo/cheque/transferencia (mismo criterio que TERMINALES_TARJETA_CAJA
+    // en models/Vehiculo.js).
+    banco: { type: String, enum: ['', 'BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'], default: '' },
     folioRecibo: { type: Number },
     referencia: { type: String, default: '' },
     observaciones: { type: String, default: '' },

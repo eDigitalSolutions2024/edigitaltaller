@@ -491,23 +491,25 @@ function injectSello(xmlUnsigned, selloB64) {
 // (pago.facturaId), en vez de dejar que un admin lo cancele a mano sin dejar
 // registrado a qué factura pasó (eso queda solo para corregir errores de
 // captura, ver POST /api/cajas/:id/pagos/:pagoId/cancelar).
-async function cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc) {
+async function cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc, decisiones = {}) {
   const folioFactura = `${facturaDoc.serie || ""}${facturaDoc.folio || ""}`;
+  // Sin decisión para un pago = 'INCLUIR' (comportamiento histórico).
+  const decision = (pagoId) => decisiones[String(pagoId)] || "INCLUIR";
+  const esAnticipoORemision = (p) =>
+    (p.comprobante === "NOTA_VENTA" && p.tipoPago === "ANTICIPO") || p.comprobante === "REMISION";
 
   for (const o of ordenes) {
     if (!o?._id) continue;
     const vehiculo = await Vehiculo.findById(o._id);
     if (!vehiculo) continue;
 
+    // Vigentes que el usuario dejó (o dejó por defecto) para ESTA factura.
+    // 'OTRA_FACTURA' (ya se canceló aparte, hacia otra factura) y 'VIGENTE' se saltan.
     const pagosPorCancelar = (vehiculo.pagos || []).filter(
-      (p) =>
-        !p.cancelado &&
-        ((p.comprobante === "NOTA_VENTA" && p.tipoPago === "ANTICIPO") || p.comprobante === "REMISION")
+      (p) => !p.cancelado && esAnticipoORemision(p) && decision(p._id) === "INCLUIR"
     );
 
-    // Al facturar de verdad la orden deja de estar "pendiente de facturar"
-    // (ver botón en CajaOrdenDetalle.jsx / apartado de Cajas), sin importar
-    // si además tenía o no un anticipo/remisión que cancelar.
+    // Al facturar de verdad la orden deja de estar "pendiente de facturar".
     const debeLimpiarPendiente = !!vehiculo.pendienteFactura;
     if (!pagosPorCancelar.length && !debeLimpiarPendiente) continue;
 
@@ -519,19 +521,19 @@ async function cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc) {
 
     for (const pago of pagosPorCancelar) {
       const esRemision = pago.comprobante === "REMISION";
-      const motivo = `Se cancela ${esRemision ? "remisión" : "anticipo"} y pasa a factura ${folioFactura}`;
-
       pago.cancelado = true;
       pago.canceladoEn = new Date();
       pago.canceladoPor = "Sistema (factura)";
-      pago.motivoCancelacion = motivo;
-      // A diferencia de la cancelación manual por error (cajas.js), aquí NO
-      // se pisa pago.notas: conserva la referencia original del cobro (banco,
-      // fecha, quién lo recibió), que el Reporte de Facturas sigue mostrando
-      // en la columna Notas junto con la frase "SE CANCELÓ ... Y PASA A
-      // FACTURA" en la columna de cliente.
+      pago.motivoCancelacion = `Se cancela ${esRemision ? "remisión" : "anticipo"} y pasa a factura ${folioFactura}`;
+      pago.motivoCancelacionTipo = "PASA_A_FACTURA";
+      if (!pago.notasAntesCancelar) pago.notasAntesCancelar = pago.notas || "";
+      // NO se pisa pago.notas: conserva la referencia original del cobro, que el
+      // Reporte de Facturas muestra junto a "SE CANCELÓ ... Y PASA A FACTURA".
       pago.facturaId = facturaDoc._id;
-      if (esRemision) pago.remision.tipo = "Cancelada";
+      if (esRemision) {
+        if (!pago.remisionTipoAntesCancelar) pago.remisionTipoAntesCancelar = pago.remision?.tipo || "Contado";
+        pago.remision.tipo = "Cancelada";
+      }
     }
 
     await vehiculo.save();
@@ -595,6 +597,10 @@ router.post("/xml", async (req, res) => {
       pago = null,
       notasVenta = [],
       informacionGlobal = null,
+      // Decisión por comprobante de Cajas vigente de las órdenes:
+      // [{ vehiculoId, pagoId, accion: 'INCLUIR' | 'OTRA_FACTURA' | 'VIGENTE' }].
+      // Sin entrada para un pago = 'INCLUIR' (se cancela y pasa a esta factura).
+      comprobantesCajas = [],
     } = req.body;
 
     const esNotaCredito = tipoFactura === "notaCredito";
@@ -938,7 +944,11 @@ router.post("/xml", async (req, res) => {
       facturaId = facturaDoc._id;
 
       if (tipoFactura === "factura" && ordenes.length) {
-        await cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc);
+        const decisiones = {};
+        for (const c of Array.isArray(comprobantesCajas) ? comprobantesCajas : []) {
+          if (c?.pagoId) decisiones[String(c.pagoId)] = c.accion;
+        }
+        await cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc, decisiones);
       }
 
       if (esFacturaGlobal) {

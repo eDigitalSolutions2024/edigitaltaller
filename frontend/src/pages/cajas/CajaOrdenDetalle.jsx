@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   getOrdenCaja,
   registrarPago,
-  cancelarPagoCaja,
+  deshacerCancelacionPago,
   agregarDescuento,
   actualizarDescuento,
   eliminarDescuento,
@@ -44,7 +44,9 @@ function ultimoPago(pagos, comprobante) {
 export default function CajaOrdenDetalle() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const esAdmin = getUser()?.role === "admin";
+  const rol = getUser()?.role;
+  const esAdmin = rol === "admin";
+  const esCajas = rol === "cajas";
   const { pdfModal, abrirPdf } = usePdfModal();
 
   const [orden, setOrden] = useState(null);
@@ -112,19 +114,27 @@ export default function CajaOrdenDetalle() {
     });
   };
 
-  // Restablecer un abono/anticipo/remisión/nota de venta: solo admin (botón
-  // en el historial, resuelto en el modal CajaModalCancelarPago). El pago
-  // conserva su folio, queda marcado "cancelado" y el PDF del comprobante
-  // muestra la marca de agua "CANCELADO".
-  const handleConfirmarCancelarPago = async (motivo) => {
-    const res = await cancelarPagoCaja(orden._id, pagoACancelar._id, { motivo });
-    setOrden(res.data.vehiculo);
+  // El modal CajaModalCancelarPago llama a la API por sí mismo (3 modos:
+  // pasa a factura existente / a la factura en curso / por error) y devuelve
+  // la orden ya actualizada; aquí solo se refleja y se cierra el modal.
+  const handlePagoActualizado = (vehiculo) => {
+    setOrden(vehiculo);
     setPagoACancelar(null);
   };
 
-  // Caja no puede cancelar directamente: abre un ticket RESTABLECER_COBRO en
-  // Soporte con la orden ya ligada, para que un admin lo revise y lo cancele
-  // desde este mismo historial (ver handleConfirmarCancelarPago arriba).
+  // Deshacer una cancelación mientras la factura real todavía no exista.
+  const handleDeshacerCancelacion = async (pago) => {
+    try {
+      const res = await deshacerCancelacionPago(orden._id, pago._id);
+      setOrden(res.data.vehiculo);
+    } catch (err) {
+      alert(err.response?.data?.msg || "No se pudo deshacer la cancelación.");
+    }
+  };
+
+  // Para una cancelación POR ERROR (solo admin), un usuario no-admin abre un
+  // ticket RESTABLECER_COBRO en Soporte con la orden ya ligada. Las
+  // cancelaciones "pasa a factura" sí las hace Caja directo (ver el modal).
   const handleSolicitarCancelacion = async (pago, detalle) => {
     try {
       const res = await createTicket({
@@ -429,8 +439,10 @@ export default function CajaOrdenDetalle() {
           onImprimir={handleImprimirPago}
           onImprimirReciboProvisional={handleImprimirReciboProvisional}
           onImprimirReciboDolares={handleImprimirReciboDolares}
-          puedeCancelar={esAdmin}
+          puedeCancelar={esAdmin || esCajas}
           onCancelar={setPagoACancelar}
+          esAdmin={esAdmin}
+          onDeshacerCancelacion={handleDeshacerCancelacion}
           puedeSolicitarCancelacion={!esAdmin}
           onSolicitarCancelacion={handleSolicitarCancelacion}
         />
@@ -457,8 +469,10 @@ export default function CajaOrdenDetalle() {
       <CajaModalCancelarPago
         show={!!pagoACancelar}
         pago={pagoACancelar}
+        orden={orden}
+        esAdmin={esAdmin}
         onClose={() => setPagoACancelar(null)}
-        onConfirm={handleConfirmarCancelarPago}
+        onConfirmado={handlePagoActualizado}
       />
       <CajaModalValeGarantia
         show={showModalValeGarantia}

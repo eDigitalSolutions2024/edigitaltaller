@@ -26,7 +26,9 @@ function distancia(t1, t2) {
   return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
 }
 
-export default function PdfViewer({ src, fileName = "documento.pdf", height = 480, onFirmar }) {
+// soloVista: oculta los botones Descargar e Imprimir (p. ej. vistas previas
+// que son solo para consulta, no un documento entregable).
+export default function PdfViewer({ src, fileName = "documento.pdf", height = 480, onFirmar, soloVista = false }) {
   const [numPaginas, setNumPaginas] = useState(0);
   const [paginasListas, setPaginasListas] = useState(0);
   const [escala, setEscala] = useState(1);
@@ -198,17 +200,21 @@ export default function PdfViewer({ src, fileName = "documento.pdf", height = 48
               <FaSignature className="me-1" /> Firmar
             </button>
           )}
-          <a className="btn btn-sm btn-outline-primary" href={src} download={fileName}>
-            <FaDownload className="me-1" /> Descargar
-          </a>
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-primary"
-            onClick={imprimir}
-            disabled={!listoParaImprimir}
-          >
-            <FaPrint className="me-1" /> Imprimir
-          </button>
+          {!soloVista && (
+            <>
+              <a className="btn btn-sm btn-outline-primary" href={src} download={fileName}>
+                <FaDownload className="me-1" /> Descargar
+              </a>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-primary"
+                onClick={imprimir}
+                disabled={!listoParaImprimir}
+              >
+                <FaPrint className="me-1" /> Imprimir
+              </button>
+            </>
+          )}
         </div>
       </div>
 

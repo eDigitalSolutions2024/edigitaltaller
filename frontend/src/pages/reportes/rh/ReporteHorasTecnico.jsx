@@ -90,10 +90,10 @@ export default function ReporteHorasTecnico() {
                 IVA: {formatMoney(data.totalGeneralIva)}
               </span>
               <span className="badge bg-dark fs-6">
-                Total Horas: {data.totalGeneralHorasPendientes}
+                Horas T: {data.totalGeneralHoras}
               </span>
-              <span className="badge bg-success fs-6">
-                Ya anticipadas: {data.totalGeneralHorasAnticipadas}
+              <span className="badge bg-warning text-dark fs-6">
+                Horas a pagar: {data.totalGeneralHorasAPagar}
               </span>
               <button
                 type="button"
@@ -133,7 +133,7 @@ export default function ReporteHorasTecnico() {
                     </thead>
                     <tbody>
                       {grupo.items.map((it, i) => (
-                        <tr key={i} className={it.cerrada && it.horasAnticipadas > 0 ? 'table-success' : ''}>
+                        <tr key={i}>
                           <td className="fw-semibold">{it.ordenServicio}</td>
                           <td>{formatFecha(it.fechaOrden, { timeZone: 'UTC' }) || '—'}</td>
                           <td>{it.serie || '—'}</td>
@@ -149,7 +149,12 @@ export default function ReporteHorasTecnico() {
                           <td className="text-end">{formatMoney(it.total)}</td>
                           <td className="text-end">{formatMoney(it.iva)}</td>
                           <td className="text-end">{it.horas}</td>
-                          <td className="text-end">{it.horasPendientes ?? Math.max(0, (it.horas || 0) - (it.horasAnticipadas || 0))}</td>
+                          <td className="text-end">
+                            {it.horasAPagar ??
+                              (it.cerrada
+                                ? Math.max(0, (it.horas || 0) - (it.horasAnticipadas || 0))
+                                : it.horasAnticipadas || 0)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -162,7 +167,7 @@ export default function ReporteHorasTecnico() {
                         <td className="text-end fw-bold">{formatMoney(grupo.totalServicio)}</td>
                         <td className="text-end fw-bold">{formatMoney(grupo.totalIva)}</td>
                         <td className="text-end fw-bold">{grupo.totalHoras}</td>
-                        <td className="text-end fw-bold">{grupo.totalHorasPendientes}</td>
+                        <td className="text-end fw-bold">{grupo.totalHorasAPagar ?? grupo.totalHorasPendientes}</td>
                       </tr>
                     </tfoot>
                   </table>
