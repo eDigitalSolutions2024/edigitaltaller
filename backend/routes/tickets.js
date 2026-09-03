@@ -10,6 +10,7 @@ const { proteger, requiereRol } = require('../middleware/auth');
 const { reasignarAsesorOrden } = require('../utils/reasignarAsesor');
 const { restablecerCierreCajaDia } = require('../utils/restablecerCierreCajaDia');
 const { aplicarGarantia, noAplicaGarantia } = require('../utils/resolverGarantiaTicket');
+const { puedeGestionarOrden } = require('../utils/ordenPermisos');
 
 const { TIPOS_PROBLEMA, ESTADOS_TICKET } = Ticket;
 const CONTADOR_TICKET = 'ticket';
@@ -55,6 +56,21 @@ router.post('/', proteger, async (req, res) => {
     // puntual ya dentro de Cajas (ver POST /cajas/:id/pagos/:pagoId/cancelar).
     if (tipoProblema === 'RESTABLECER_COBRO' && !ordenServicio) {
       return res.status(400).json({ ok: false, msg: 'Selecciona la orden de servicio con el cobro a restablecer.' });
+    }
+
+    // Restablecer una OS cerrada/cancelada: solo lo pide el asesor dueño de la
+    // orden (o un compañero de su grupo, o un admin); no las órdenes de otro.
+    if (tipoProblema === 'RESTABLECER_OS') {
+      if (!ordenServicio) {
+        return res.status(400).json({ ok: false, msg: 'Selecciona la orden de servicio a restablecer.' });
+      }
+      const ordenRestablecer = await Vehiculo.findById(ordenServicio).select('creadoPor creadoPorId grupoId');
+      if (!ordenRestablecer) {
+        return res.status(404).json({ ok: false, msg: 'Orden no encontrada.' });
+      }
+      if (!(await puedeGestionarOrden(req.user, ordenRestablecer))) {
+        return res.status(403).json({ ok: false, msg: 'No puedes solicitar el restablecimiento de una orden de otro asesor.' });
+      }
     }
 
     // Restablecer una caja ya cerrada: el rol cajas no puede reabrirla directo

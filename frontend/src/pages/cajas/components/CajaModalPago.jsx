@@ -31,7 +31,7 @@ const TIPOS_NOTA = ["Contado", "Credito"];
 // en el Reporte Diario de Remisiones), independiente de cómo se llame la opción
 // en pantalla.
 const TIPOS_PAGO = [
-  { value: "COMPLETO", label: "Remisión o Factura", nota: "Liquida" },
+  { value: "COMPLETO", label: "Generar Comprobante", nota: "Liquida" },
   { value: "ABONO", label: "Abono", nota: "Abono" },
   { value: "ANTICIPO", label: "Anticipo", nota: "Anticipo" },
 ];

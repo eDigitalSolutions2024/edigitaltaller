@@ -477,6 +477,7 @@ export default function VehiculoOrdenDetalle() {
         <VehiculoOrdenGeneral
           orden={orden}
           esAsesor={esAsesor}
+          soloConsulta={soloConsulta}
           onClosed={(vActualizado) => setOrden(vActualizado)}
         />
       )}
