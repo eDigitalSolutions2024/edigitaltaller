@@ -371,11 +371,14 @@ export default function App() {
           </Route>
 
           {/* Facturación */}
-          <Route path="facturacion/*" element={<FacturacionLayout />}>
+          <Route path="facturacion/*" element={<RoleRoute module="facturacion"><FacturacionLayout /></RoleRoute>}>
             <Route index element={<FacturacionPanel />} />
             <Route path="nueva" element={<NuevaFactura />} />
             <Route path="consultar" element={<ConsultarFacturas />} />
-            <Route path="configuracion-fiscal" element={<ConfiguracionFiscal />} />
+            <Route
+              path="configuracion-fiscal"
+              element={<RolesRoute roles={['admin']}><ConfiguracionFiscal /></RolesRoute>}
+            />
           </Route>
 
 

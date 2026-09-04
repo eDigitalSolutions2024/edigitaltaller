@@ -1,9 +1,11 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { getUser } from "../../auth";
 import "../../styles/facturacion.css";
 
 export default function FacturacionPanel() {
   const navigate = useNavigate();
+  const esAdmin = getUser()?.role === "admin";
 
   return (
     <div className="fact-panel">
@@ -42,6 +44,7 @@ export default function FacturacionPanel() {
           </div>
         </div>
 
+            {esAdmin && (
             <div
             className="fact-card"
             onClick={() => navigate("/facturacion/configuracion-fiscal")}
@@ -60,6 +63,7 @@ export default function FacturacionPanel() {
                 <div className="fact-card-link">Abrir →</div>
             </div>
             </div>
+            )}
 
       </div>
     </div>

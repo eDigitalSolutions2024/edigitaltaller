@@ -157,21 +157,20 @@ export default function CajaOrdenDetalle() {
     }
   };
 
-  // Para una cancelación POR ERROR (solo admin), un usuario no-admin abre un
-  // ticket RESTABLECER_COBRO en Soporte con la orden ya ligada. Las
-  // cancelaciones "pasa a factura" sí las hace Caja directo (ver el modal).
+  // Cuando CajaModalCancelarPago no ofrece ningún modo directo (no es admin y
+  // el comprobante no es anticipo/remisión), abre un ticket RESTABLECER_COBRO
+  // en Soporte con la orden ya ligada. Las cancelaciones "pasa a factura" sí
+  // las hace Caja directo, sin pasar por aquí (ver el modal). Devuelve el
+  // folio del ticket (o deja que el error se propague) para que el modal
+  // muestre el resultado en su propio cuerpo.
   const handleSolicitarCancelacion = async (pago, detalle) => {
-    try {
-      const res = await createTicket({
-        tipoProblema: "RESTABLECER_COBRO",
-        detalle,
-        ordenServicio: orden._id,
-        folioOrdenServicio: orden.ordenServicio,
-      });
-      alert(`Solicitud ${res.data.data.folio} enviada. Un administrador la revisará.`);
-    } catch (err) {
-      alert(err.response?.data?.msg || "Error al enviar la solicitud.");
-    }
+    const res = await createTicket({
+      tipoProblema: "RESTABLECER_COBRO",
+      detalle,
+      ordenServicio: orden._id,
+      folioOrdenServicio: orden.ordenServicio,
+    });
+    return res.data.data.folio;
   };
 
   // Actualiza el "Último Vale" en memoria (sin volver a pedir toda la orden:
@@ -468,8 +467,6 @@ export default function CajaOrdenDetalle() {
           onCancelar={setPagoACancelar}
           esAdmin={esAdmin}
           onDeshacerCancelacion={handleDeshacerCancelacion}
-          puedeSolicitarCancelacion={!esAdmin}
-          onSolicitarCancelacion={handleSolicitarCancelacion}
         />
       </div>
 
@@ -499,6 +496,7 @@ export default function CajaOrdenDetalle() {
         esAdmin={esAdmin}
         onClose={() => setPagoACancelar(null)}
         onConfirmado={handlePagoActualizado}
+        onSolicitarCancelacion={handleSolicitarCancelacion}
       />
       <CajaModalValeGarantia
         show={showModalValeGarantia}

@@ -922,7 +922,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     pagos: {
       $elemMatch: {
         cancelado: true,
-        comprobante: { $in: ['NOTA_VENTA', 'REMISION'] },
+        comprobante: { $in: ['NOTA_VENTA', 'REMISION', 'RECIBO_PROVISIONAL'] },
         $or: [
           { canceladoEn: { $gte: d, $lte: h } },
           { canceladoEn: null, fecha: { $gte: d, $lte: h } },
@@ -940,7 +940,11 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       // Cancelación por error de captura (solo admin): no es "pasa a factura",
       // no pertenece a esta banda.
       if (p.motivoCancelacionTipo === 'ERROR') continue;
-      const esAnticipo = p.comprobante === 'NOTA_VENTA' && p.tipoPago === 'ANTICIPO';
+      // Un anticipo puede documentarse con Nota de Venta (histórico) o con
+      // Recibo Provisional (ver anticipoDestino en cajas.js); ambos cuentan
+      // igual aquí. Un Recibo Provisional de un ABONO (no anticipo) no.
+      const esAnticipo =
+        (p.comprobante === 'NOTA_VENTA' || p.comprobante === 'RECIBO_PROVISIONAL') && p.tipoPago === 'ANTICIPO';
       const esRemision = p.comprobante === 'REMISION';
       if (!esAnticipo && !esRemision) continue;
       const fechaEvento = new Date(p.canceladoEn || p.fecha);
@@ -1030,7 +1034,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         cliente: `SE CANCELÓ ANTICIPO Y PASA A FACTURA ${folioCfdi}`,
         fecha: fechaEvento,
         anticipo: -p.monto,
-        notas: notaConMetodo(p.notas, p.notaVenta),
+        notas: notaConMetodo(p.notas, p.comprobante === 'RECIBO_PROVISIONAL' ? p.reciboProvisional : p.notaVenta),
       });
       totalAnticipo -= p.monto;
     }

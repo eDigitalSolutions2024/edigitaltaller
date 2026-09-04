@@ -40,11 +40,14 @@ function bancoNotaVenta(formaPago, terminal) {
 }
 
 // Solo estos pagos pueden pasar a una factura (los que el Reporte de Facturas
-// cruza con FacturaCfdi). Un anticipo documentado con Recibo Provisional no:
-// al cancelarse simplemente deja de sumar (ver reportes.js).
+// cruza con FacturaCfdi): un anticipo, documentado con Nota de Venta
+// (histórico) o con Recibo Provisional (ver anticipoDestino), o una remisión.
+// Un Recibo Provisional de un ABONO (no anticipo) no pasa a factura por sí
+// solo: se cancela por error o simplemente deja de sumar al liquidarse la orden.
 function puedePasarAFactura(pago) {
   return (
-    (pago.comprobante === 'NOTA_VENTA' && pago.tipoPago === 'ANTICIPO') ||
+    ((pago.comprobante === 'NOTA_VENTA' || pago.comprobante === 'RECIBO_PROVISIONAL') &&
+      pago.tipoPago === 'ANTICIPO') ||
     pago.comprobante === 'REMISION'
   );
 }
@@ -695,8 +698,9 @@ router.post('/:id/pagos', proteger, async (req, res) => {
 // `modo`:
 //  - 'ERROR' (default, SOLO admin): corrección de captura. facturaId queda
 //    null, se pisa `notas` con el motivo. Comportamiento histórico.
-//  - 'PASA_A_FACTURA_EXISTENTE' (admin o cajas): solo anticipo (Nota de Venta) o
-//    remisión. Se liga a una FacturaCfdi YA generada (pago.facturaId); NO pisa
+//  - 'PASA_A_FACTURA_EXISTENTE' (admin o cajas, sin ticket de Soporte de por
+//    medio): solo anticipo (Nota de Venta o Recibo Provisional) o remisión.
+//    Se liga a una FacturaCfdi YA generada (pago.facturaId); NO pisa
 //    `notas` (el Reporte de Facturas conserva la referencia original).
 // Desde Cajas NO se puede cancelar hacia una factura que aún no existe: para
 // eso se usa la pantalla de Facturar (elección por comprobante), que cancela
@@ -927,8 +931,9 @@ router.post('/:id/pagos/:pagoId/deshacer-cancelacion', proteger, requiereRol('ad
 
 // GET /api/cajas/:id/pagos/:pagoId/preview-cancelacion?modo=&facturaId=
 // Mini-PDF (solo para ver): cómo quedaría la fila de esta cancelación en el
-// Reporte de Cajas (Facturas para un anticipo Nota de Venta, Remisiones para
-// una remisión). SIN proteger, igual que los demás PDF de Cajas.
+// Reporte de Cajas (Facturas para un anticipo —Nota de Venta o Recibo
+// Provisional—, Remisiones para una remisión). SIN proteger, igual que los
+// demás PDF de Cajas.
 router.get('/:id/pagos/:pagoId/preview-cancelacion', async (req, res) => {
   try {
     const { facturaId = '' } = req.query || {};

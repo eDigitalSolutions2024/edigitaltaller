@@ -138,6 +138,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   const [dig, setDig] = useState(0);
   const [autoNumero, setAutoNumero] = useState(false);
   const [quienEntrega, setQuienEntrega] = useState("");
+  // Solo obligatorio cuando sí se va a generar vale (checkGenerarVale marcado).
+  const [quienEntregaInvalido, setQuienEntregaInvalido] = useState(false);
   const [estatusVale, setEstatusVale] = useState("Contado");
   const [estatusValeEditado, setEstatusValeEditado] = useState(false);
   const [observacionesVale, setObservacionesVale] = useState("");
@@ -264,6 +266,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setDig(0);
     setAutoNumero(false);
     setQuienEntrega("");
+    setQuienEntregaInvalido(false);
     setEstatusVale("Contado");
     setEstatusValeEditado(false);
     setObservacionesVale("");
@@ -657,6 +660,12 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     }
     if (generarVale && !noVale) {
       setError("Captura o genera el número de vale.");
+      return;
+    }
+    if (generarVale && !quienEntrega.trim()) {
+      setError("Captura quién entrega el vale de salida.");
+      setQuienEntregaInvalido(true);
+      setPaso(3);
       return;
     }
 
@@ -1520,7 +1529,10 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                     type="checkbox"
                     id="checkGenerarVale"
                     checked={generarVale}
-                    onChange={(e) => setGenerarVale(e.target.checked)}
+                    onChange={(e) => {
+                      setGenerarVale(e.target.checked);
+                      setQuienEntregaInvalido(false);
+                    }}
                   />
                   <label className="form-check-label fw-semibold" htmlFor="checkGenerarVale">
                     Generar Vale de Salida con este pago
@@ -1551,11 +1563,17 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                         <label className="form-label small fw-semibold">Quien Entrega</label>
                         <input
                           type="text"
-                          className="form-control"
+                          className={`form-control${quienEntregaInvalido ? " is-invalid border-danger" : ""}`}
                           value={quienEntrega}
-                          onChange={(e) => setQuienEntrega(e.target.value)}
+                          onChange={(e) => {
+                            setQuienEntrega(e.target.value);
+                            setQuienEntregaInvalido(false);
+                          }}
                           required
                         />
+                        {quienEntregaInvalido && (
+                          <small className="text-danger">Obligatorio para generar el vale.</small>
+                        )}
                       </div>
                       <div className="col-md-4">
                         <label className="form-label small fw-semibold">Estatus</label>

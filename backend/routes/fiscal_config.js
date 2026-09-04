@@ -5,8 +5,13 @@ const fs = require("fs");
 const { execFile } = require("child_process");
 
 const FiscalConfig = require("../models/FiscalConfig"); // ajusta si tu archivo se llama distinto
+const { proteger, requiereRol } = require("../middleware/auth");
 
 const router = express.Router();
+
+// Emisor, series/folios y certificado+llave del CSD: solo admin. Cajas ya
+// puede facturar (Nueva Factura/Consultar), pero no ver ni tocar esto.
+router.use(proteger, requiereRol("admin"));
 
 /* ================== OPENSSL (Windows friendly) ================== */
 function findOpenSSLPath() {

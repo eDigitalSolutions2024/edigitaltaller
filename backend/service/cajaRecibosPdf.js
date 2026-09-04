@@ -79,7 +79,9 @@ const provisionalStyles = `
   }
   .encabezado h2 { margin: 0; font-weight: 600; font-size: 24px; }
   .encabezado small { color: #555; font-weight: 700; font-size: 13px; }
+  .folio-wrap { display: flex; flex-direction: column; align-items: flex-end; }
   .folio { color: #d00000; font-weight: 700; font-size: 24px; }
+  .folio-destino { margin-top: 2px; font-size: 10px; font-weight: 700; color: #1414c8; }
   table { border: 1px solid #000; border-collapse: collapse; width: 100%; font-size: 12.5px; }
   th, td { border: 1px solid #000; text-align: center; padding: 6px 8px; }
   .ref-dolares { display: block; margin-top: 4px; font-size: 11px; font-weight: 700; }
@@ -240,14 +242,9 @@ exports.generarReciboProvisionalPDF = async (res, orden, pago) => {
     const fecha = dayjsFecha(pago?.fecha || new Date());
     const rp = pago?.reciboProvisional || {};
 
-    // "Bueno por": desglosa Pesos y Dólares cuando el pago incluye ambos.
-    const pesos = Number(pago?.montoPesos || 0);
-    const dolares = Number(pago?.montoDolares || 0);
-    const partesBuenoPor = [];
-    if (pesos > 0) partesBuenoPor.push(`${money(pesos)} M.N.`);
-    if (dolares > 0) partesBuenoPor.push(`$${dolares.toFixed(2)} USD`);
-    if (pesos > 0 && dolares > 0) partesBuenoPor.push(`(T.C. ${money(pago?.tipoCambio)})`);
-    const buenoPorTexto = partesBuenoPor.join(' + ') || `${money(pago?.monto)} M.N.`;
+    // "Bueno por": un solo monto ya convertido a pesos (pago.monto ya trae
+    // montoPesos + montoDolares*tipoCambio); ya no se desglosa cómo entró.
+    const buenoPorTexto = `${money(pago?.monto)} M.N.`;
 
     const fechaTexto = escapeHtml(fecha.format('DD/MM/YYYY'));
     const noOrdenTexto = escapeHtml(orden.ordenServicio || '');
@@ -255,6 +252,13 @@ exports.generarReciboProvisionalPDF = async (res, orden, pago) => {
     const telefonoTexto = escapeHtml(telefono(orden));
     const conceptoTexto = escapeHtml(rp.concepto || '');
     const recibioTexto = escapeHtml(rp.recibio || pago?.registradoPor || '');
+
+    // Un Anticipo sabe desde que se registra a qué reporte diario de Cajas se
+    // va a sumar (ver pago.anticipoDestino) — o sea, si esta orden va a
+    // terminar facturándose o remisionándose. Un Abono no lo sabe todavía
+    // (se define hasta que la orden se liquide), así que no se muestra nada.
+    const DESTINO_LABEL = { NOTA_VENTA: 'Factura', REMISION: 'Remisión' };
+    const destinoTexto = pago?.anticipoDestino ? DESTINO_LABEL[pago.anticipoDestino] || pago.anticipoDestino : '';
 
     // El No. de Recibo de Dólares ligado a este mismo abono/anticipo solo se
     // muestra en la copia de Caja (ver checkbox de la solicitud del usuario).
@@ -280,7 +284,10 @@ exports.generarReciboProvisionalPDF = async (res, orden, pago) => {
         <h2>Recibo Provisional</h2>
         <small>(CAJA)</small>
       </div>
-      <span class="folio">${escapeHtml(rp.numero ?? '')}</span>
+      <div class="folio-wrap">
+        <span class="folio">${escapeHtml(rp.numero ?? '')}</span>
+        ${destinoTexto ? `<span class="folio-destino">Aplica a: ${escapeHtml(destinoTexto)}</span>` : ''}
+      </div>
     </div>
 
     ${tablaCaja}
