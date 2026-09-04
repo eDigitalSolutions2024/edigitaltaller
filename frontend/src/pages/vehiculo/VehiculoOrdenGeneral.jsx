@@ -71,7 +71,7 @@ function formaPagoDePago(p) {
   return "";
 }
 
-export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor }) {
+export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor, soloConsulta = false }) {
   const [cerrando, setCerrando] = useState(false);
   const [solicitandoRestablecer, setSolicitandoRestablecer] = useState(false);
   const [solicitudEnviada, setSolicitudEnviada] = useState(false);
@@ -95,10 +95,12 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor }) {
   const yaCerrada = orden.estadoOrden === "CERRADA";
   const yaCancelada = orden.estadoOrden === "CANCELADA";
   const puedesCerrar = orden.estadoOrden === "PENDIENTE_CERRAR";
-  const puedeSolicitarRestablecer = esAsesor && (yaCerrada || yaCancelada);
+  // Órdenes de otro asesor: solo se consultan. No se cierran ni se pide su
+  // restablecimiento (el asesor dueño o un compañero de su grupo sí pueden).
+  const puedeSolicitarRestablecer = esAsesor && !soloConsulta && (yaCerrada || yaCancelada);
 
   const handleCerrarOrden = async () => {
-    if (yaCerrada || !puedesCerrar) return;
+    if (yaCerrada || !puedesCerrar || soloConsulta) return;
 
     const ok = window.confirm(
       "¿Seguro que deseas CERRAR esta orden de servicio? Ya no podrás modificarla."
@@ -271,8 +273,14 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor }) {
             type="button"
             className="btn btn-danger btn-sm"
             onClick={handleCerrarOrden}
-            disabled={cerrando || yaCerrada || !puedesCerrar}
-            title={!puedesCerrar && !yaCerrada ? "La reparación aún no ha sido completada" : undefined}
+            disabled={cerrando || yaCerrada || !puedesCerrar || soloConsulta}
+            title={
+              soloConsulta
+                ? "Orden de otro asesor — solo el asesor asignado puede cerrarla"
+                : !puedesCerrar && !yaCerrada
+                ? "La reparación aún no ha sido completada"
+                : undefined
+            }
           >
             {yaCerrada ? "Orden cerrada" : cerrando ? "Cerrando..." : "Cerrar orden"}
           </button>

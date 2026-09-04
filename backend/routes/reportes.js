@@ -19,6 +19,16 @@ const { streamReportePendientesFacturaPdf } = require('../service/reportePendien
 const { streamReporteClientesAnticiposPdf } = require('../service/reporteClientesAnticiposPdf');
 const { calcImporteHoras } = require('../utils/manoObra');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
+const { abreviaturaFormaPago } = require('../utils/abreviaturaFormaPago');
+
+// Adjunta a una nota la abreviatura del método de pago usado (" - BR-C"), a
+// partir del sub-objeto pago.notaVenta o pago.reciboProvisional. Mismo estilo
+// separador que la banda "Complementos de pago".
+function notaConMetodo(notas, formaPagoDesc) {
+  const abrev = abreviaturaFormaPago(formaPagoDesc);
+  if (!abrev) return notas || '';
+  return notas ? `${notas} - ${abrev}` : abrev;
+}
 
 const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares esEmpleado';
 const POPULATE_GRUPO = { path: 'grupoId', select: 'nombre miembros', populate: { path: 'miembros', select: 'name' } };
@@ -642,7 +652,7 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
         cliente: nombreCliente(o.cliente),
         fecha: p.fecha,
         anticipo: p.monto,
-        notas: p.notas || '',
+        notas: notaConMetodo(p.notas, p.reciboProvisional),
       });
       totalAnticipo += p.monto;
     }
@@ -724,10 +734,11 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
 //      cobrado hoy de una factura a crédito (PPD) emitida antes.
 //   4. Notas de crédito (FacturaCfdi tipoFactura=notaCredito): descuentan de
 //      la Venta del Día y de Cuentas por Cobrar, igual que una cancelación.
-//   5. Facturas del día (FacturaCfdi tipoFactura=factura, una sola orden).
-//   6. Factura general del día (FacturaCfdi tipoFactura=factura que agrupa
-//      varias órdenes): misma banda que Facturas, pero con el desglose de
-//      las notas de venta que la componen en la columna Notas.
+//   5. Facturas del día (FacturaCfdi tipoFactura=factura, agrupen una o varias
+//      órdenes).
+//   6. Factura global del día (FacturaCfdi tipoFactura=facturaGlobal, CFDI al
+//      público en general): banda propia al final, con el desglose de las
+//      notas de venta agrupadas ("PUBLICO GENERAL.=(P.. $.. CON ..)--(..)").
 const BANCOS_TARJETA_CD = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
 // Catálogo SAT c_FormaPago usado en FacturaCfdi.pago.formaPago (complementos
 // de pago): solo se mapean los códigos que representan un depósito real.
@@ -752,6 +763,18 @@ const SAT_FORMA_PAGO_LABEL = {
   '29': 'TARJETA DE SERVICIOS',
 };
 
+// Abreviatura corta de la forma de pago SAT para la columna Notas de una
+// factura, cuando no hay un pago de Cajas cruzado del que sacar la terminal
+// (un CFDI no guarda "banco", solo el código c_FormaPago).
+const SAT_FORMA_PAGO_ABREV = {
+  '01': 'EFECTIVO',
+  '02': 'CHEQUE',
+  '03': 'TRANSFERENCIA',
+  '04': 'TC',
+  '28': 'TD',
+  '29': 'TARJ-SERV',
+};
+
 function bancoADeposito(banco) {
   if (banco === 'EFECTIVOS' || banco === 'DOLARES') return 'efectivo';
   if (banco === 'CHEQUE') return 'cheques';
@@ -765,26 +788,45 @@ function bancoADeposito(banco) {
 // bancoADeposito(notaVenta.banco), que sigue sirviendo para Notas viejas y
 // para las nuevas simples (banco guarda EFECTIVOS/CHEQUE/TRANSFERENCIA o la
 // terminal). `sumarDeposito` es el helper local de cada reporte.
-function sumarDepositoNotaVenta(sumarDeposito, pago) {
-  const nv = pago.notaVenta || {};
-  if (nv.formaPago === 'COMBINADO' && nv.combinado) {
-    const c = nv.combinado;
-    const tc = Number(pago.tipoCambio) || 0;
-    sumarDeposito('efectivo', (Number(c.efectivo) || 0) + (Number(c.efectivoDolares) || 0) * tc);
-    sumarDeposito('tarjetasCD', (Number(c.credito) || 0) + (Number(c.debito) || 0));
-    sumarDeposito('cheques', Number(c.cheque) || 0);
-    sumarDeposito('transferencias', Number(c.transferencia) || 0);
-    return;
-  }
-  sumarDeposito(bancoADeposito(nv.banco), pago.monto);
-}
-
 function formaPagoProvisionalADeposito(formaPago) {
   if (formaPago === 'EFECTIVO') return 'efectivo';
   if (formaPago === 'CHEQUE') return 'cheques';
   if (formaPago === 'TRANSFERENCIA') return 'transferencias';
   if (formaPago === 'CREDITO' || formaPago === 'DEBITO') return 'tarjetasCD';
   return null;
+}
+
+// Desglose COMBINADO -> buckets de Depósito (mismo cálculo para Nota de Venta y
+// Recibo Provisional: comparten la forma del sub-objeto `combinado`).
+function sumarDepositoCombinado(sumarDeposito, combinado, tipoCambio) {
+  const c = combinado || {};
+  const tc = Number(tipoCambio) || 0;
+  sumarDeposito('efectivo', (Number(c.efectivo) || 0) + (Number(c.efectivoDolares) || 0) * tc);
+  sumarDeposito('tarjetasCD', (Number(c.credito) || 0) + (Number(c.debito) || 0));
+  sumarDeposito('cheques', Number(c.cheque) || 0);
+  sumarDeposito('transferencias', Number(c.transferencia) || 0);
+}
+
+function sumarDepositoNotaVenta(sumarDeposito, pago) {
+  const nv = pago.notaVenta || {};
+  if (nv.formaPago === 'COMBINADO' && nv.combinado) {
+    sumarDepositoCombinado(sumarDeposito, nv.combinado, pago.tipoCambio);
+    return;
+  }
+  // Preferir formaPago (dato confiable en Notas de Venta nuevas); `banco` solo
+  // trae terminal para tarjeta y '' para todo lo demás, así que las Notas
+  // viejas siguen resolviéndose por banco (EFECTIVOS/CHEQUE/TRANSFERENCIA/…).
+  const bucket = formaPagoProvisionalADeposito(nv.formaPago) || bancoADeposito(nv.banco);
+  sumarDeposito(bucket, pago.monto);
+}
+
+function sumarDepositoReciboProvisional(sumarDeposito, pago) {
+  const rp = pago.reciboProvisional || {};
+  if (rp.formaPago === 'COMBINADO' && rp.combinado) {
+    sumarDepositoCombinado(sumarDeposito, rp.combinado, pago.tipoCambio);
+    return;
+  }
+  sumarDeposito(formaPagoProvisionalADeposito(rp.formaPago), pago.monto);
 }
 
 async function buildReporteFacturasDiario({ desde, hasta }) {
@@ -829,7 +871,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         cliente: nombreCliente(o.cliente),
         fecha: p.fecha,
         anticipo: p.monto,
-        notas: p.notas || '',
+        notas: notaConMetodo(p.notas, p.notaVenta),
       });
       totalAnticipo += p.monto;
       sumarDepositoNotaVenta(sumarDeposito, p);
@@ -865,9 +907,10 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         cliente: nombreCliente(o.cliente),
         fecha: p.fecha,
         anticipo: p.monto,
-        notas: p.notas || '',
+        notas: notaConMetodo(p.notas, p.reciboProvisional),
       });
       totalAnticipo += p.monto;
+      sumarDepositoReciboProvisional(sumarDeposito, p);
     }
   }
 
@@ -879,7 +922,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     pagos: {
       $elemMatch: {
         cancelado: true,
-        comprobante: { $in: ['NOTA_VENTA', 'REMISION'] },
+        comprobante: { $in: ['NOTA_VENTA', 'REMISION', 'RECIBO_PROVISIONAL'] },
         $or: [
           { canceladoEn: { $gte: d, $lte: h } },
           { canceladoEn: null, fecha: { $gte: d, $lte: h } },
@@ -897,7 +940,11 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       // Cancelación por error de captura (solo admin): no es "pasa a factura",
       // no pertenece a esta banda.
       if (p.motivoCancelacionTipo === 'ERROR') continue;
-      const esAnticipo = p.comprobante === 'NOTA_VENTA' && p.tipoPago === 'ANTICIPO';
+      // Un anticipo puede documentarse con Nota de Venta (histórico) o con
+      // Recibo Provisional (ver anticipoDestino en cajas.js); ambos cuentan
+      // igual aquí. Un Recibo Provisional de un ABONO (no anticipo) no.
+      const esAnticipo =
+        (p.comprobante === 'NOTA_VENTA' || p.comprobante === 'RECIBO_PROVISIONAL') && p.tipoPago === 'ANTICIPO';
       const esRemision = p.comprobante === 'REMISION';
       if (!esAnticipo && !esRemision) continue;
       const fechaEvento = new Date(p.canceladoEn || p.fecha);
@@ -987,7 +1034,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         cliente: `SE CANCELÓ ANTICIPO Y PASA A FACTURA ${folioCfdi}`,
         fecha: fechaEvento,
         anticipo: -p.monto,
-        notas: p.notas || '',
+        notas: notaConMetodo(p.notas, p.comprobante === 'RECIBO_PROVISIONAL' ? p.reciboProvisional : p.notaVenta),
       });
       totalAnticipo -= p.monto;
     }
@@ -1046,7 +1093,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     };
   });
 
-  // ---- 5 y 6: Facturas y Factura general ----
+  // ---- 5: Facturas del día (la banda 7, Factura global, se arma más abajo) ----
   const facturaDocs = await FacturaCfdi.find({
     tipoFactura: 'factura',
     estatus: 'generada',
@@ -1056,7 +1103,9 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     .lean();
 
   const facturas = [];
-  const facturaGeneral = [];
+  // Bandas 5 y 7: facturas normales del día (agrupen una o varias órdenes) y,
+  // al final, las facturas globales al público en general (banda propia).
+  const facturaGlobal = [];
 
   // Cada factura (agrupe una o varias órdenes) se cruza con los pagos
   // NOTA_VENTA (Liquida) de esas órdenes: alimenta la tabla Depósito con la
@@ -1102,8 +1151,18 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       notas: notaCanceladoPrevio(facturaIdStr, ordenes),
     };
 
-    (ordenes.length > 1 ? facturaGeneral : facturas).push(fila);
-    facturasConOrdenes.push({ fila, ordenes, facturaIdStr });
+    // Facturas normales, agrupen una o varias órdenes, van todas a la banda
+    // "Facturas". La última banda se reserva para la factura global real.
+    facturas.push(fila);
+    facturasConOrdenes.push({
+      fila,
+      ordenes,
+      facturaIdStr,
+      cfdiFormaPago: f.cfdi?.formaPago,
+      esPue,
+      total,
+      metodos: new Set(),
+    });
     for (const o of ordenes) if (o.vehiculoId) vehiculoIdsFacturas.push(String(o.vehiculoId));
   }
 
@@ -1120,7 +1179,8 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       .lean();
     const pagosPorVehiculo = new Map(vehiculosNotaVenta.map((v) => [String(v._id), v.pagos || []]));
 
-    for (const { fila, ordenes, facturaIdStr } of facturasConOrdenes) {
+    for (const entry of facturasConOrdenes) {
+      const { fila, ordenes, facturaIdStr, metodos } = entry;
       const partes = [];
       for (const o of ordenes) {
         const vehiculoIdStr = String(o.vehiculoId);
@@ -1130,6 +1190,8 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         for (const p of pagos) {
           if (p.comprobante !== 'NOTA_VENTA' || p.tipoPago !== 'COMPLETO' || p.cancelado) continue;
           sumarDepositoNotaVenta(sumarDeposito, p);
+          const abrevNota = abreviaturaFormaPago(p.notaVenta);
+          if (abrevNota) metodos.add(abrevNota);
           if (ordenes.length <= 1) continue;
 
           const folioNota = p.notaVenta?.numero != null ? `P${p.notaVenta.numero}` : 'S/N';
@@ -1154,12 +1216,84 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     }
   }
 
-  // En "Factura general" el receptor fiscal (normalmente PUBLICO GENERAL) no
-  // aporta nada útil en la columna Cliente: se reemplaza por el desglose que
-  // se arma en Notas y esa columna se deja vacía.
-  for (const fila of facturaGeneral) {
-    fila.cliente = fila.notas || '';
-    fila.notas = '';
+  // Por cada factura, dos cosas a partir del cruce con pagos de Cajas:
+  //   - Notas: la(s) forma(s) de los pagos NOTA_VENTA cruzados (terminal
+  //     abreviada, p. ej. "BR-C"); si no hubo pago cruzado, la forma SAT del CFDI.
+  //   - Depósito: si la factura es de contado (PUE) y NO tuvo pago de Cajas que
+  //     ya alimentó la tabla, se aporta su total al bucket según cfdi.formaPago
+  //     (una factura fiscal normal se cobra en el mismo acto, sin Nota de Venta).
+  for (const { fila, cfdiFormaPago, esPue, total, metodos } of facturasConOrdenes) {
+    if (!/PUBLICO GENERAL/.test(fila.notas || '')) {
+      const abrev = metodos.size
+        ? [...metodos].join(', ')
+        : SAT_FORMA_PAGO_ABREV[cfdiFormaPago] || '';
+      if (abrev) fila.notas = fila.notas ? `${fila.notas} - ${abrev}` : abrev;
+    }
+    if (esPue && metodos.size === 0) {
+      sumarDeposito(SAT_FORMA_PAGO_A_DEPOSITO[cfdiFormaPago], total);
+    }
+  }
+
+  // ---- 7: Factura global (CFDI al público en general) ----
+  // Última banda del reporte. En la columna Cliente lleva el desglose de sus
+  // notas de venta: "PUBLICO GENERAL.=(P<folio> $<monto> CON <método>)", y si
+  // agrupó varias notas, separadas por "--".
+  const facturasGlobalDocs = await FacturaCfdi.find({
+    tipoFactura: 'facturaGlobal',
+    estatus: 'generada',
+    fecha: { $gte: d, $lte: h },
+  })
+    .select('serie folio fecha totales notasVenta cfdi')
+    .lean();
+
+  if (facturasGlobalDocs.length) {
+    // Cruce con Cajas: el método de pago de cada nota de venta agrupada vive en
+    // el pago NOTA_VENTA cuyo facturaGlobalId apunta a este CFDI.
+    const globalIds = facturasGlobalDocs.map((f) => f._id);
+    const vehiculosNotasGlobal = await Vehiculo.find({
+      'pagos.facturaGlobalId': { $in: globalIds },
+    })
+      .select('pagos')
+      .lean();
+    const metodoPorNotaGlobal = new Map(); // `${facturaGlobalId}_${notaVentaNumero}` -> abreviatura
+    for (const v of vehiculosNotasGlobal) {
+      for (const p of v.pagos || []) {
+        if (!p.facturaGlobalId || p.comprobante !== 'NOTA_VENTA') continue;
+        const num = p.notaVenta?.numero;
+        if (num == null) continue;
+        metodoPorNotaGlobal.set(`${String(p.facturaGlobalId)}_${num}`, abreviaturaFormaPago(p.notaVenta));
+      }
+    }
+
+    const fmtMonto = (n) =>
+      Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    for (const f of facturasGlobalDocs) {
+      const total = f.totales?.total || 0;
+      const esPue = (f.cfdi?.metodoPago || 'PUE') !== 'PPD';
+      totalVentaDia += total;
+      if (esPue) totalContado += total;
+      else totalPorCobrar += total;
+
+      const partes = (f.notasVenta || []).map((n) => {
+        const metodo = metodoPorNotaGlobal.get(`${String(f._id)}_${n.numero}`);
+        const folio = n.numero != null ? `P${n.numero}` : 'S/N';
+        return metodo
+          ? `(${folio} $${fmtMonto(n.monto)} CON ${metodo})`
+          : `(${folio} $${fmtMonto(n.monto)})`;
+      });
+
+      facturaGlobal.push({
+        folio: `${f.serie || ''}${f.folio || ''}`,
+        ordenServicio: (f.notasVenta || []).map((n) => n.ordenServicio).filter(Boolean).join(', '),
+        cliente: `PUBLICO GENERAL.=${partes.join('--')}`,
+        fecha: f.fecha,
+        ventaDia: total,
+        ingresoContado: esPue ? total : undefined,
+        cuentasPorCobrar: esPue ? undefined : total,
+        notas: '',
+      });
+    }
   }
 
   anticipos.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
@@ -1167,7 +1301,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
   complementosPago.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
   notasCredito.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
   facturas.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-  facturaGeneral.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  facturaGlobal.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
 
   const totalIngreso = totalContado + totalCredito + totalAnticipo;
   const totalDeposito = deposito.efectivo + deposito.cheques + deposito.transferencias + deposito.tarjetasCD;
@@ -1178,7 +1312,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     complementosPago,
     notasCredito,
     facturas,
-    facturaGeneral,
+    facturaGlobal,
     totales: { totalVentaDia, totalContado, totalCredito, totalAnticipo, totalPorCobrar, totalIngreso },
     deposito: { ...deposito, total: totalDeposito },
   };
@@ -1245,7 +1379,7 @@ async function buildResumenDiarioFacturas({ desde, hasta }) {
         rep.complementosPago.length +
         rep.notasCredito.length +
         rep.facturas.length +
-        rep.facturaGeneral.length;
+        rep.facturaGlobal.length;
       return {
         desde: dia.desde.toISOString(),
         hasta: dia.hasta.toISOString(),

@@ -15,6 +15,76 @@ const { calcularTotalesOrden } = require('../utils/cajaTotales');
 const { sincronizarAnticiposAplicados } = require('../utils/anticiposCliente');
 const { backfillCreadoPorId } = require('../utils/backfillCreadoPorId');
 const { reasignarAsesorOrden } = require('../utils/reasignarAsesor');
+const {
+  puedeGestionarOrden,
+  bloquearSiOrdenTerminal,
+} = require('../utils/ordenPermisos');
+const { registrarAccion } = require('../utils/registrarAccion');
+
+// -------------------------------------------------------------------------
+// Registro INTERNO de desarrollador. Nada de esto se expone en la API ni lo
+// ve ningún rol de la aplicación. Se consulta solo con acceso a Mongo o con
+// los scripts de dev (backend/verRegistroAcciones.js,
+// backend/auditarOrdenesReabiertas.js).
+//   - Vehiculo.historialEstados[]  -> permanente, por orden (campo select:false)
+//   - RegistroAccion               -> log rodante, se autoborra a los 15 días
+// -------------------------------------------------------------------------
+
+// Aplica el guard de "orden terminal" y, si bloquea, deja rastro del intento.
+// Devuelve el bloqueo ({ status, msg }) o null si se puede continuar.
+function guardOrdenTerminal(req, vehiculo) {
+  const bloqueo = bloquearSiOrdenTerminal(vehiculo, req.user);
+  if (bloqueo) {
+    registrarAccion(req, {
+      accion: 'ORDEN_EDICION_BLOQUEADA',
+      entidadId: vehiculo._id,
+      referencia: vehiculo.ordenServicio || '',
+      ok: false,
+      detalle: { estado: vehiculo.estadoOrden, msg: bloqueo.msg },
+    });
+  }
+  return bloqueo;
+}
+
+// Registra un cambio de estado en la bitácora permanente de la orden
+// (historialEstados, vía $push atómico para no depender de que el campo esté
+// cargado) Y en el log rodante (RegistroAccion). No hace nada si no cambia.
+function logCambioEstado(
+  req,
+  vehiculo,
+  nuevoEstado,
+  { accionBitacora = 'CAMBIO_ESTADO', accionLog = 'ORDEN_CAMBIO_ESTADO', motivo = '', ruta = '' } = {}
+) {
+  const de = vehiculo.estadoOrden || '';
+  if (!nuevoEstado || nuevoEstado === de) return;
+  const u = req && req.user;
+
+  Vehiculo.updateOne(
+    { _id: vehiculo._id },
+    {
+      $push: {
+        historialEstados: {
+          de,
+          a: nuevoEstado,
+          accion: accionBitacora,
+          por: (u && (u.name || u.username || u.email)) || '',
+          porId: (u && u._id) || null,
+          motivo: motivo || '',
+          ruta: ruta || '',
+          fecha: new Date(),
+        },
+      },
+    }
+  ).catch((err) => console.error('historialEstados (no crítico):', err.message));
+
+  registrarAccion(req, {
+    accion: accionLog,
+    entidadId: vehiculo._id,
+    referencia: vehiculo.ordenServicio || '',
+    detalle: { de, a: nuevoEstado, motivo },
+  });
+}
+
 const EntradaInventario = require('../models/EntradaInventario');
 const SalidaInventario  = require('../models/SalidaInventario');
 const AjusteInventario  = require('../models/AjusteInventario');
@@ -646,9 +716,17 @@ router.get('/mis-ordenes', proteger, requiereRol('asesor_servicio', 'admin'), as
 });
 
 // PUT /api/vehiculos/:id/servicio  -> guarda servicio/reparación e inicia la orden
-router.put('/:id/servicio', async (req, res) => {
+router.put('/:id/servicio', proteger, async (req, res) => {
   try {
     const { servicioReparacion } = req.body;
+
+    const ordenActual = await Vehiculo.findById(req.params.id)
+      .select('estadoOrden ordenServicio creadoPor creadoPorId grupoId');
+    if (!ordenActual) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+    const bloqueo = guardOrdenTerminal(req, ordenActual);
+    if (bloqueo) return res.status(bloqueo.status).json({ ok: false, msg: bloqueo.msg });
 
     const vehiculo = await Vehiculo.findByIdAndUpdate(
       req.params.id,
@@ -670,7 +748,7 @@ router.put('/:id/servicio', async (req, res) => {
 });
 
 // PUT /api/vehiculos/:id/requisicion-diagnostico
-router.put('/:id/requisicion-diagnostico', async (req, res) => {
+router.put('/:id/requisicion-diagnostico', proteger, async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -686,6 +764,9 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
     if (!vehiculo) {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     }
+
+    const bloqueo = guardOrdenTerminal(req, vehiculo);
+    if (bloqueo) return res.status(bloqueo.status).json({ ok: false, msg: bloqueo.msg });
 
     // Diagnóstico
     if (diagnosticoTecnico !== undefined) {
@@ -710,6 +791,9 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
 
     // Si quieres ir moviendo la orden de estado
     if (estadoOrden) {
+      logCambioEstado(req, vehiculo, estadoOrden, {
+        ruta: 'PUT /:id/requisicion-diagnostico',
+      });
       vehiculo.estadoOrden = estadoOrden;
 
       if (estadoOrden === 'PENDIENTE_REFACCIONARIA') {
@@ -756,7 +840,7 @@ router.put('/:id/requisicion-diagnostico', async (req, res) => {
 // El asesor continúa sin pedir refacciones: los servicios capturados entran
 // al presupuesto como partidas esServicio y la orden brinca directo a
 // PENDIENTE_AUTORIZACION_CLIENTE sin pasar por refaccionaria.
-router.put('/:id/omitir-refacciones', async (req, res) => {
+router.put('/:id/omitir-refacciones', proteger, async (req, res) => {
   try {
     const { servicios, serviciosCatalogo } = req.body;
 
@@ -806,6 +890,9 @@ router.put('/:id/omitir-refacciones', async (req, res) => {
     if (!vehiculo) {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     }
+
+    const bloqueo = guardOrdenTerminal(req, vehiculo);
+    if (bloqueo) return res.status(bloqueo.status).json({ ok: false, msg: bloqueo.msg });
 
     for (const s of validos) {
       vehiculo.presupuesto.push({
@@ -904,6 +991,9 @@ router.put('/:id/omitir-refacciones', async (req, res) => {
     // sacar la orden de la cola de refaccionaria mientras esa solicitud
     // sigue sin cotizar.
     if (vehiculo.estadoOrden !== 'PENDIENTE_REFACCIONARIA') {
+      logCambioEstado(req, vehiculo, 'PENDIENTE_AUTORIZACION_CLIENTE', {
+        ruta: 'PUT /:id/omitir-refacciones',
+      });
       vehiculo.estadoOrden = 'PENDIENTE_AUTORIZACION_CLIENTE';
     }
 
@@ -945,6 +1035,12 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
     if (!vehiculo) {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     }
+
+    // Una orden ya CERRADA/CANCELADA no se edita ni se reabre por aquí (esta
+    // ruta también es la que cancela, pero solo desde un estado activo). Para
+    // reabrirla: ticket "Restablecer OS" o que un admin use PUT /:id/restablecer.
+    const bloqueo = guardOrdenTerminal(req, vehiculo);
+    if (bloqueo) return res.status(bloqueo.status).json({ ok: false, msg: bloqueo.msg });
 
     // Bloqueada mientras haya un ticket GARANTIA_NO_APLICA pendiente de que
     // el admin decida si la garantía aplica (ver POST /api/tickets y
@@ -1104,7 +1200,12 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
         const pendientesSurtir = (vehiculo.presupuesto || [])
           .filter(p => p.autorizado && !p.esServicio && !p.esGrua && !p.surtida).length;
 
-        if (hayAutorizadas && pendientesSurtir === 0) {
+        const destinoSurtir =
+          hayAutorizadas && pendientesSurtir === 0 ? 'REPARACION_EN_CURSO' : 'PENDIENTE_SURTIR';
+        logCambioEstado(req, vehiculo, destinoSurtir, {
+          ruta: 'PUT /:id/presupuesto-venta',
+        });
+        if (destinoSurtir === 'REPARACION_EN_CURSO') {
           vehiculo.estadoOrden = 'REPARACION_EN_CURSO';
         } else {
           vehiculo.estadoOrden     = 'PENDIENTE_SURTIR';
@@ -1113,6 +1214,15 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
 
         inventarioResult = { autoSurtidas, pendientesSurtir };
       } else {
+        logCambioEstado(req, vehiculo, estadoOrden, {
+          ruta: 'PUT /:id/presupuesto-venta',
+          accionBitacora: estadoOrden === 'CANCELADA' ? 'CANCELAR' : 'CAMBIO_ESTADO',
+          accionLog: estadoOrden === 'CANCELADA' ? 'ORDEN_CANCELAR' : 'ORDEN_CAMBIO_ESTADO',
+          motivo:
+            estadoOrden === 'CANCELADA' && typeof motivoCancelacion === 'string'
+              ? motivoCancelacion.trim()
+              : '',
+        });
         if (estadoOrden === 'CANCELADA' && vehiculo.estadoOrden !== 'CANCELADA') {
           vehiculo.estadoAnterior = vehiculo.estadoOrden;
           if (typeof motivoCancelacion === 'string' && motivoCancelacion.trim()) {
@@ -1493,12 +1603,20 @@ router.get('/:id/operativo-pdf', async (req, res) => {
 
 // Guarda la firma del cliente (data URL PNG) capturada desde el visor del
 // Formato Operativo — se muestra en la sección "AUTORIZACIÓN Y FIRMA...".
-router.put('/:id/firma-operativo', async (req, res) => {
+router.put('/:id/firma-operativo', proteger, async (req, res) => {
   try {
     const { firma } = req.body;
     if (typeof firma !== 'string' || !firma.startsWith('data:image/')) {
       return res.status(400).json({ ok: false, msg: 'Firma inválida.' });
     }
+
+    const ordenActual = await Vehiculo.findById(req.params.id)
+      .select('estadoOrden ordenServicio creadoPor creadoPorId grupoId');
+    if (!ordenActual) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+    const bloqueo = guardOrdenTerminal(req, ordenActual);
+    if (bloqueo) return res.status(bloqueo.status).json({ ok: false, msg: bloqueo.msg });
 
     const vehiculo = await Vehiculo.findByIdAndUpdate(
       req.params.id,
@@ -1531,9 +1649,17 @@ router.get('/:id/orden-pdf', async (req, res) => {
 });
 
 // PUT /api/vehiculos/:id/datos  -> admin actualiza datos del cliente / vehículo
-router.put('/:id/datos', async (req, res) => {
+router.put('/:id/datos', proteger, async (req, res) => {
   try {
     const { id } = req.params;
+
+    const ordenActual = await Vehiculo.findById(id)
+      .select('estadoOrden ordenServicio creadoPor creadoPorId grupoId');
+    if (!ordenActual) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+    const bloqueo = guardOrdenTerminal(req, ordenActual);
+    if (bloqueo) return res.status(bloqueo.status).json({ ok: false, msg: bloqueo.msg });
 
     // Campos que viven en el documento Vehiculo
     const camposVehiculo = [
@@ -1651,13 +1777,21 @@ router.put('/:id/datos', async (req, res) => {
 
 // POST /api/vehiculos/:id/imagenes -> subir una o más imágenes (fotos del
 // vehículo, daños, etc.) adjuntas a la orden.
-router.post('/:id/imagenes', uploadImagenesVehiculo.array('imagenes', 10), async (req, res) => {
+router.post('/:id/imagenes', proteger, uploadImagenesVehiculo.array('imagenes', 10), async (req, res) => {
   try {
     const { id } = req.params;
 
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ ok: false, msg: 'No se recibieron imágenes.' });
     }
+
+    const ordenActual = await Vehiculo.findById(id)
+      .select('estadoOrden ordenServicio creadoPor creadoPorId grupoId');
+    if (!ordenActual) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+    const bloqueo = guardOrdenTerminal(req, ordenActual);
+    if (bloqueo) return res.status(bloqueo.status).json({ ok: false, msg: bloqueo.msg });
 
     const nuevas = req.files.map((f) => ({
       filename: f.filename,
@@ -1686,14 +1820,17 @@ router.post('/:id/imagenes', uploadImagenesVehiculo.array('imagenes', 10), async
 });
 
 // DELETE /api/vehiculos/:id/imagenes/:imagenId -> eliminar una imagen adjunta
-router.delete('/:id/imagenes/:imagenId', async (req, res) => {
+router.delete('/:id/imagenes/:imagenId', proteger, async (req, res) => {
   try {
     const { id, imagenId } = req.params;
 
-    const vehiculo = await Vehiculo.findById(id).select('imagenes');
+    const vehiculo = await Vehiculo.findById(id).select('imagenes estadoOrden ordenServicio creadoPor creadoPorId grupoId');
     if (!vehiculo) {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     }
+
+    const bloqueo = guardOrdenTerminal(req, vehiculo);
+    if (bloqueo) return res.status(bloqueo.status).json({ ok: false, msg: bloqueo.msg });
 
     const imagen = vehiculo.imagenes.id(imagenId);
     if (!imagen) {
@@ -1780,7 +1917,7 @@ router.delete('/imagenes/temp/:tempId', validarTempId, (req, res) => {
 });
 
 // PUT /api/vehiculos/:id/cerrar  -> cerrar orden de servicio
-router.put('/:id/cerrar', async (req, res) => {
+router.put('/:id/cerrar', proteger, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1789,11 +1926,22 @@ router.put('/:id/cerrar', async (req, res) => {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     }
 
+    // Solo el asesor dueño (o un compañero de su grupo, o un admin) puede
+    // cerrar la orden; un asesor no cierra las órdenes de otro.
+    if (!(await puedeGestionarOrden(req.user, vehiculo))) {
+      return res.status(403).json({ ok: false, msg: 'No puedes cerrar una orden de otro asesor.' });
+    }
+
     if (vehiculo.estadoOrden !== 'PENDIENTE_CERRAR') {
       return res.status(400).json({ ok: false, msg: 'La orden debe estar en estado PENDIENTE_CERRAR para poder cerrarse.' });
     }
 
     // marcar como cerrada
+    logCambioEstado(req, vehiculo, 'CERRADA', {
+      accionBitacora: 'CERRAR',
+      accionLog: 'ORDEN_CERRAR',
+      ruta: 'PUT /:id/cerrar',
+    });
     vehiculo.estadoAnterior = vehiculo.estadoOrden;
     vehiculo.estadoOrden = 'CERRADA';
     vehiculo.pendienteCierre = false;
@@ -1843,7 +1991,14 @@ router.put('/:id/restablecer', proteger, requiereRol('admin'), async (req, res) 
       CANCELADA: 'PENDIENTE_AUTORIZACION_CLIENTE',
     };
 
-    vehiculo.estadoOrden = vehiculo.estadoAnterior || ESTADO_ANTERIOR_FALLBACK[estadoPrevio];
+    const estadoDestino = vehiculo.estadoAnterior || ESTADO_ANTERIOR_FALLBACK[estadoPrevio];
+    logCambioEstado(req, vehiculo, estadoDestino, {
+      accionBitacora: 'RESTABLECER',
+      accionLog: 'ORDEN_RESTABLECER',
+      motivo: typeof req.body?.motivo === 'string' ? req.body.motivo.trim() : '',
+      ruta: 'PUT /:id/restablecer',
+    });
+    vehiculo.estadoOrden = estadoDestino;
     vehiculo.estadoAnterior = null;
 
     if (estadoPrevio === 'CERRADA') {
@@ -1935,6 +2090,9 @@ router.put('/:id/surtir', proteger, async (req, res) => {
       return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     }
 
+    const bloqueo = guardOrdenTerminal(req, vehiculo);
+    if (bloqueo) return res.status(bloqueo.status).json({ ok: false, msg: bloqueo.msg });
+
     // Detectar qué índices ya estaban surtidos ANTES de la actualización
     const prevSurtidasIds = new Set(
       (vehiculo.presupuesto || []).reduce((acc, p, i) => {
@@ -2007,6 +2165,9 @@ router.put('/:id/surtir', proteger, async (req, res) => {
     const todasSurtidas = autorizadas.length > 0 && autorizadas.every(p => p.surtida);
 
     if (todasSurtidas) {
+      logCambioEstado(req, vehiculo, 'REPARACION_EN_CURSO', {
+        ruta: 'PUT /:id/surtir',
+      });
       vehiculo.estadoOrden = 'REPARACION_EN_CURSO';
     }
 

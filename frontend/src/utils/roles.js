@@ -6,7 +6,7 @@ const ROLE_MODULES = {
   refaccionario:   ['refaccionaria', 'proveedores'],
   asesor_servicio: ['clientes', 'vehiculo'],
   captura:         ['reportes'],
-  cajas:           ['cajas', 'vehiculo', 'clientes'],
+  cajas:           ['cajas', 'vehiculo', 'clientes', 'facturacion'],
 };
 
 // El apartado Clientes (alta + consulta) queda reservado a estos roles, sin

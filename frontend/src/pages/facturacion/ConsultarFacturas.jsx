@@ -31,6 +31,224 @@ function nombreZipExport() {
   return `facturas_${Date.now()}.zip`;
 }
 
+const METODO_PAGO_LABEL = {
+  PUE: "PUE - Pago en una sola exhibición",
+  PPD: "PPD - Pago en parcialidades o diferido",
+};
+const FORMA_PAGO_LABEL = {
+  "01": "01 - Efectivo",
+  "02": "02 - Cheque nominativo",
+  "03": "03 - Transferencia electrónica de fondos",
+  "04": "04 - Tarjeta de crédito",
+  "15": "15 - Condonación",
+  "28": "28 - Tarjeta de débito",
+  "30": "30 - Aplicación de anticipos",
+  "99": "99 - Por definir",
+};
+const TIPO_FACTURA_LABEL = {
+  factura: "Factura (Ingreso)",
+  notaCredito: "Nota de crédito (Egreso)",
+  complementoPago: "Complemento de pago",
+  facturaGlobal: "Factura global (Público en general)",
+};
+
+function CampoDetalle({ label, children }) {
+  return (
+    <div className="col-12 col-md-4 mb-2">
+      <div className="text-muted small">{label}</div>
+      <div className="fw-semibold" style={{ wordBreak: "break-word" }}>
+        {children == null || children === "" ? "—" : children}
+      </div>
+    </div>
+  );
+}
+
+/* Vista de solo lectura de una factura ya emitida: re-arma el formulario de
+   facturación a partir del snapshot guardado (sin editar, sin vista previa). */
+function FacturaDetalleModal({ factura: f, onClose }) {
+  if (!f) return null;
+  const c = f.cfdi || {};
+  const cli = f.cliente || {};
+  const t = f.totales || {};
+  const dir = cli.direccion || {};
+  const folio = [f.serie, f.folio].filter(Boolean).join("-") || "—";
+  const condicion = c.metodoPago === "PPD" ? "Crédito" : "Contado";
+  const ivaPct = c.ivaRate != null ? `${Math.round(Number(c.ivaRate) * 100)}%` : "—";
+  const dirTxt = [
+    dir.calle,
+    dir.numeroExterior && `#${dir.numeroExterior}`,
+    dir.numeroInterior && `int. ${dir.numeroInterior}`,
+    dir.colonia,
+    dir.codigoPostal,
+    dir.ciudad,
+    dir.estado,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return (
+    <div
+      className="position-fixed top-0 start-0 w-100 h-100"
+      style={{ background: "rgba(0,0,0,.45)", zIndex: 9999 }}
+      onClick={onClose}
+    >
+      <div
+        className="bg-white shadow"
+        style={{
+          width: "94%",
+          maxWidth: 980,
+          maxHeight: "92%",
+          margin: "3% auto",
+          borderRadius: 10,
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="d-flex justify-content-between align-items-center p-2 border-bottom">
+          <b>
+            Detalle de facturación — Folio {folio}{" "}
+            <span className="badge bg-light text-dark ms-1">solo consulta</span>
+          </b>
+          <button className="btn btn-sm btn-outline-danger" onClick={onClose}>
+            Cerrar
+          </button>
+        </div>
+
+        <div className="p-3" style={{ overflow: "auto" }}>
+          <h6 className="text-uppercase text-muted small">Comprobante</h6>
+          <div className="row">
+            <CampoDetalle label="Tipo">{TIPO_FACTURA_LABEL[f.tipoFactura] || f.tipoFactura}</CampoDetalle>
+            <CampoDetalle label="Folio">{folio}</CampoDetalle>
+            <CampoDetalle label="Fecha">{fecha(f.fecha)}</CampoDetalle>
+            <CampoDetalle label="Uso CFDI">{c.usoCfdi}</CampoDetalle>
+            <CampoDetalle label="Método de pago">{METODO_PAGO_LABEL[c.metodoPago] || c.metodoPago}</CampoDetalle>
+            <CampoDetalle label="Forma de pago">{FORMA_PAGO_LABEL[c.formaPago] || c.formaPago}</CampoDetalle>
+            <CampoDetalle label="Condición">{condicion}</CampoDetalle>
+            <CampoDetalle label="Moneda">
+              {c.moneda}
+              {c.moneda === "USD" && c.tipoCambio ? ` · TC ${c.tipoCambio}` : ""}
+            </CampoDetalle>
+            <CampoDetalle label="IVA">{ivaPct}</CampoDetalle>
+            <CampoDetalle label="Orden de compra">{c.oc}</CampoDetalle>
+            <CampoDetalle label="Retención ISR">{c.aplicarRetencionIsr ? "Sí (1.25%)" : "No"}</CampoDetalle>
+            <CampoDetalle label="Estatus">{f.estatus === "cancelada" ? "Cancelada" : "Generada"}</CampoDetalle>
+          </div>
+          {c.comentarios ? (
+            <div className="mb-2">
+              <div className="text-muted small">Comentarios</div>
+              <div>{c.comentarios}</div>
+            </div>
+          ) : null}
+
+          <h6 className="text-uppercase text-muted small mt-3">Receptor</h6>
+          <div className="row">
+            <CampoDetalle label="Nombre (facturado)">{cli.nombre}</CampoDetalle>
+            <CampoDetalle label="RFC">{cli.rfc}</CampoDetalle>
+            <CampoDetalle label="Régimen fiscal">{cli.regimenFiscal}</CampoDetalle>
+            <CampoDetalle label="CP fiscal">{cli.codigoPostalFiscal}</CampoDetalle>
+            <CampoDetalle label="Domicilio">{dirTxt}</CampoDetalle>
+          </div>
+          {f.notaFacturacion ? (
+            <div className="alert alert-warning py-2 px-3 small mb-2">{f.notaFacturacion}</div>
+          ) : null}
+
+          <h6 className="text-uppercase text-muted small mt-3">Conceptos</h6>
+          <div className="table-responsive">
+            <table className="table table-sm table-bordered align-middle mb-2">
+              <thead className="table-light">
+                <tr>
+                  <th>Cant.</th>
+                  <th>Unidad</th>
+                  <th>ClaveProdServ</th>
+                  <th>ClaveUnidad</th>
+                  <th>Descripción</th>
+                  <th>No. Ident.</th>
+                  <th className="text-end">Valor unit.</th>
+                  <th className="text-end">Importe</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(f.conceptos || []).map((x, i) => (
+                  <tr key={i}>
+                    <td>{x.cantidad}</td>
+                    <td>{x.unidad}</td>
+                    <td>{x.cProdServ}</td>
+                    <td>{x.cUnidad}</td>
+                    <td>{x.descripcion}</td>
+                    <td>{x.noIdentificacion || "—"}</td>
+                    <td className="text-end">{money(x.valorUnitario)}</td>
+                    <td className="text-end">
+                      {money(Number(x.cantidad || 0) * Number(x.valorUnitario || 0))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {f.tipoFactura === "facturaGlobal" && (f.notasVenta?.length ?? 0) > 0 && (
+            <>
+              <h6 className="text-uppercase text-muted small mt-2">Notas de venta agrupadas</h6>
+              <div className="table-responsive">
+                <table className="table table-sm table-bordered mb-2">
+                  <thead className="table-light">
+                    <tr>
+                      <th>Nota</th>
+                      <th>Orden</th>
+                      <th className="text-end">Monto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {f.notasVenta.map((n, i) => (
+                      <tr key={i}>
+                        <td>#{n.numero ?? "—"}</td>
+                        <td>{n.ordenServicio || "—"}</td>
+                        <td className="text-end">{money(n.monto)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          <div className="d-flex justify-content-end">
+            <div style={{ minWidth: 280 }}>
+              <div className="d-flex justify-content-between">
+                <span>Subtotal</span>
+                <span>{money(t.subtotal)}</span>
+              </div>
+              {Number(t.descuento) > 0 && (
+                <div className="d-flex justify-content-between">
+                  <span>Descuento</span>
+                  <span>- {money(t.descuento)}</span>
+                </div>
+              )}
+              <div className="d-flex justify-content-between">
+                <span>IVA</span>
+                <span>{money(t.iva)}</span>
+              </div>
+              {Number(t.isr) > 0 && (
+                <div className="d-flex justify-content-between">
+                  <span>Retención ISR</span>
+                  <span>- {money(t.isr)}</span>
+                </div>
+              )}
+              <hr className="my-1" />
+              <div className="d-flex justify-content-between fw-bold fs-5">
+                <span>Total</span>
+                <span>{money(t.total)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function descargarZipBlob(data, nombre) {
   const blob = new Blob([data], { type: "application/zip" });
   const url = URL.createObjectURL(blob);
@@ -112,6 +330,13 @@ export default function ConsultarFacturas() {
   };
 
   const cerrarXmlModal = () => setXmlModal(null);
+
+  /* ==========
+     DETALLE (solo consulta) — clic en la fila fuera del modo selección
+  ========== */
+  const [detalle, setDetalle] = useState(null);
+  const abrirDetalle = (f) => setDetalle(f);
+  const cerrarDetalle = () => setDetalle(null);
 
   /* ==========
      VER PDF
@@ -409,11 +634,21 @@ export default function ConsultarFacturas() {
                   <tr
                     key={f._id}
                     className={seleccionadas[f._id] ? "table-primary" : ""}
-                    style={modoSeleccion ? { cursor: "pointer" } : undefined}
-                    onClick={() => modoSeleccion && toggleFactura(f)}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => (modoSeleccion ? toggleFactura(f) : abrirDetalle(f))}
                   >
                     <td>{[f.serie, f.folio].filter(Boolean).join("-") || "—"}</td>
-                    <td>{f.cliente?.nombre || "—"}</td>
+                    <td>
+                      {f.cliente?.nombre || "—"}
+                      {f.notaFacturacion && (
+                        <span
+                          className="badge bg-warning text-dark ms-1"
+                          title={f.notaFacturacion}
+                        >
+                          nota
+                        </span>
+                      )}
+                    </td>
                     <td>{f.cliente?.rfc || "—"}</td>
                     <td>{fecha(f.fecha)}</td>
                     <td>{ordenesDeFactura(f)}</td>
@@ -503,6 +738,9 @@ export default function ConsultarFacturas() {
           </div>
         </div>
       )}
+
+      {/* Modal detalle (solo consulta) */}
+      <FacturaDetalleModal factura={detalle} onClose={cerrarDetalle} />
 
       {pdfModal}
     </div>

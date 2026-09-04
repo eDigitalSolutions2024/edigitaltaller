@@ -14,6 +14,7 @@ import {
   getReciboDolaresPdfUrl,
 } from "../../api/cajas";
 import { createTicket } from "../../api/tickets";
+import { getAnticiposDisponibles } from "../../api/anticipos";
 import { getValePdfUrl } from "../../api/vales";
 import usePdfModal from "../../hooks/usePdfModal";
 import { getUser } from "../../auth";
@@ -55,6 +56,7 @@ export default function CajaOrdenDetalle() {
   const [showModalPago, setShowModalPago] = useState(false);
   const [pagoACancelar, setPagoACancelar] = useState(null);
   const [showModalValeGarantia, setShowModalValeGarantia] = useState(false);
+  const [anticiposDisponibles, setAnticiposDisponibles] = useState([]);
 
   const cargar = async () => {
     try {
@@ -72,6 +74,29 @@ export default function CajaOrdenDetalle() {
     cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Recibos de anticipo del cliente con saldo sin gastar, para poder elegir de
+  // cuál aplicar en Registrar Pago. Se recarga cuando cambia el cliente o su
+  // saldo a favor (p. ej. tras registrar un pago que consumió saldo).
+  const clienteId = orden?.cliente?._id;
+  const saldoAFavorCliente = orden?.cliente?.saldoAFavor || 0;
+  useEffect(() => {
+    let cancelado = false;
+    if (!clienteId || saldoAFavorCliente <= 0) {
+      setAnticiposDisponibles([]);
+      return undefined;
+    }
+    getAnticiposDisponibles(clienteId)
+      .then((res) => {
+        if (!cancelado) setAnticiposDisponibles(res.data?.disponibles || []);
+      })
+      .catch(() => {
+        if (!cancelado) setAnticiposDisponibles([]);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [clienteId, saldoAFavorCliente]);
 
   const totales = useMemo(() => (orden ? calcularTotalesOrden(orden) : null), [orden]);
 
@@ -132,21 +157,20 @@ export default function CajaOrdenDetalle() {
     }
   };
 
-  // Para una cancelación POR ERROR (solo admin), un usuario no-admin abre un
-  // ticket RESTABLECER_COBRO en Soporte con la orden ya ligada. Las
-  // cancelaciones "pasa a factura" sí las hace Caja directo (ver el modal).
+  // Cuando CajaModalCancelarPago no ofrece ningún modo directo (no es admin y
+  // el comprobante no es anticipo/remisión), abre un ticket RESTABLECER_COBRO
+  // en Soporte con la orden ya ligada. Las cancelaciones "pasa a factura" sí
+  // las hace Caja directo, sin pasar por aquí (ver el modal). Devuelve el
+  // folio del ticket (o deja que el error se propague) para que el modal
+  // muestre el resultado en su propio cuerpo.
   const handleSolicitarCancelacion = async (pago, detalle) => {
-    try {
-      const res = await createTicket({
-        tipoProblema: "RESTABLECER_COBRO",
-        detalle,
-        ordenServicio: orden._id,
-        folioOrdenServicio: orden.ordenServicio,
-      });
-      alert(`Solicitud ${res.data.data.folio} enviada. Un administrador la revisará.`);
-    } catch (err) {
-      alert(err.response?.data?.msg || "Error al enviar la solicitud.");
-    }
+    const res = await createTicket({
+      tipoProblema: "RESTABLECER_COBRO",
+      detalle,
+      ordenServicio: orden._id,
+      folioOrdenServicio: orden.ordenServicio,
+    });
+    return res.data.data.folio;
   };
 
   // Actualiza el "Último Vale" en memoria (sin volver a pedir toda la orden:
@@ -443,8 +467,6 @@ export default function CajaOrdenDetalle() {
           onCancelar={setPagoACancelar}
           esAdmin={esAdmin}
           onDeshacerCancelacion={handleDeshacerCancelacion}
-          puedeSolicitarCancelacion={!esAdmin}
-          onSolicitarCancelacion={handleSolicitarCancelacion}
         />
       </div>
 
@@ -453,6 +475,7 @@ export default function CajaOrdenDetalle() {
         orden={orden}
         saldoPendiente={totales.saldoPendiente}
         saldoClienteDisponible={orden.cliente?.saldoAFavor || 0}
+        anticiposDisponibles={anticiposDisponibles}
         onClose={() => setShowModalPago(false)}
         onSubmit={handleRegistrarPago}
         onValeGuardado={handleValeGuardado}
@@ -473,6 +496,7 @@ export default function CajaOrdenDetalle() {
         esAdmin={esAdmin}
         onClose={() => setPagoACancelar(null)}
         onConfirmado={handlePagoActualizado}
+        onSolicitarCancelacion={handleSolicitarCancelacion}
       />
       <CajaModalValeGarantia
         show={showModalValeGarantia}

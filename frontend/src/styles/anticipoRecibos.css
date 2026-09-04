@@ -1,0 +1,66 @@
+/* Lista de recibos de anticipo (Registrar Pago / Abono, Cajas). Fila plana con
+   separador delgado (no tarjeta con caja); al seleccionar, la opción de
+   "cuánto retirar" se despliega con una animación de acordeón. */
+
+.anticipo-lista {
+  border: 1px solid #e3e8ee;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.anticipo-fila {
+  cursor: pointer;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e9edf2;
+  border-left: 3px solid transparent;
+  background: #fff;
+  transition: background-color 0.15s ease, border-left-color 0.15s ease;
+}
+.anticipo-lista .anticipo-fila:last-child {
+  border-bottom: none;
+}
+.anticipo-fila:hover {
+  background: #f5f8fc;
+}
+.anticipo-fila.is-selected {
+  background: #eaf3ff;
+  border-left-color: #4c8dff;
+}
+
+.anticipo-fila__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.anticipo-fila__caret {
+  display: inline-block;
+  margin-right: 6px;
+  color: #8a97a8;
+  transition: transform 0.2s ease;
+}
+.anticipo-fila.is-selected .anticipo-fila__caret {
+  transform: rotate(90deg);
+  color: #2f6fe0;
+}
+
+/* Truco de acordeón sin medir alturas en JS: el contenedor grid anima su fila
+   de 0fr a 1fr; el hijo directo necesita overflow:hidden + min-height:0 para
+   que el recorte funcione durante la transición. */
+.anticipo-fila__expand {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.28s ease;
+}
+.anticipo-fila.is-selected .anticipo-fila__expand {
+  grid-template-rows: 1fr;
+}
+.anticipo-fila__expand-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+.anticipo-fila__expand-content {
+  padding-top: 10px;
+}

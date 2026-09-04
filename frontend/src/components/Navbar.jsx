@@ -505,12 +505,14 @@ useEffect(() => {
             >
               <span className="label">Consultar</span>
             </NavLink>
+            {user?.role === 'admin' && (
             <NavLink
               to="/facturacion/configuracion-fiscal"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">Config. Fiscal</span>
             </NavLink>
+            )}
           </div>
         </div>
         )}

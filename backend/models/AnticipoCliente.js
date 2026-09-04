@@ -8,7 +8,25 @@
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
-const FORMAS_PAGO = ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFERENCIA'];
+const FORMAS_PAGO = ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFERENCIA', 'COMBINADO'];
+
+// Desglose del monto en pesos por método, usado cuando formaPago ===
+// 'COMBINADO'. Mismo shape que pagos[].reciboProvisional.combinado /
+// pagos[].notaVenta.combinado en models/Vehiculo.js (combinadoCajaSchema).
+const combinadoAnticipoSchema = () => ({
+  credito: { type: Number, default: 0 },
+  efectivo: { type: Number, default: 0 },
+  // Dólares dentro del Efectivo combinado (con su propia conversión a pesos
+  // vía tipoCambio); los demás métodos son solo pesos.
+  efectivoDolares: { type: Number, default: 0 },
+  debito: { type: Number, default: 0 },
+  cheque: { type: Number, default: 0 },
+  transferencia: { type: Number, default: 0 },
+  // Terminal por la que se cobró la parte de T. Crédito/T. Débito de este
+  // combinado; mismo catálogo que BANCO_A_TERMINAL en
+  // utils/cierreCajaTerminales.js, para poder sumarla al Cierre de Caja.
+  banco: { type: String, enum: ['', 'BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'], default: '' },
+});
 
 const anticipoClienteSchema = new Schema(
   {
@@ -35,6 +53,13 @@ const anticipoClienteSchema = new Schema(
     // efectivo/cheque/transferencia (mismo criterio que TERMINALES_TARJETA_CAJA
     // en models/Vehiculo.js).
     banco: { type: String, enum: ['', 'BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'], default: '' },
+    // Presente solo si formaPago === 'COMBINADO'.
+    combinado: combinadoAnticipoSchema(),
+    // Número del Recibo Provisional impreso para este depósito (Contador
+    // 'reciboProvisional', el mismo que usan los recibos provisionales
+    // ligados a una orden en Vehiculo.pagos[]/routes/cajas.js): un depósito
+    // de anticipo YA NO tiene su propio "Recibo de Anticipo" ni numeración
+    // separada, comparte la secuencia.
     folioRecibo: { type: Number },
     referencia: { type: String, default: '' },
     observaciones: { type: String, default: '' },
@@ -47,6 +72,12 @@ const anticipoClienteSchema = new Schema(
     // saldo a favor pero queda trazado a la orden y al pago que lo originó. =====
     ordenAplicada: { type: Schema.Types.ObjectId, ref: 'Vehiculo', default: null },
     pagoId: { type: Schema.Types.ObjectId, default: null },
+
+    // Solo en USO: el DEPOSITO (recibo provisional / recibo de anticipo) que el
+    // cajero eligió gastar en Registrar Pago. El saldo sigue siendo una sola
+    // bolsa (Cliente.saldoAFavor) y la guarda atómica es la misma; esto solo
+    // deja constancia de qué recibo se usó, para el historial y el reporte.
+    depositoOrigenId: { type: Schema.Types.ObjectId, ref: 'AnticipoCliente', default: null },
 
     // Cancelación de un DEPOSITO (corrección de captura). El folio se
     // conserva; el movimiento no se borra ni deja de contar en el historial,

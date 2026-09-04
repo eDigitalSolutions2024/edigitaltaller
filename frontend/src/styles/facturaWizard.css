@@ -1,0 +1,227 @@
+/* Asistente de facturación por pasos.
+   Usa la paleta del sistema: rojo Bootstrap (danger, #dc3545) como acento y el
+   degradado morado→rojo del panel de facturación (#6f42c1 → #d94848). */
+
+.fw-scope {
+  --fw-accent: #dc3545;
+  --fw-accent-strong: #c02233;
+  --fw-grad: linear-gradient(135deg, #6f42c1, #d94848);
+  --fw-muted: #adb5bd;
+  --fw-line: #e3e6ea;
+  --fw-ink: #2a2d31;
+  --fw-orange: #fd7e14;
+  --fw-orange-ink: #93450a;
+  --fw-orange-bg: #fff2e4;
+  --fw-orange-border: #f5b784;
+}
+
+/* ---- Tarjetas de cada paso: radios y sombra suave del sistema ---- */
+.fw-scope .card {
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 14px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.055);
+}
+
+/* ---- Stepper ---- */
+.fw-stepper {
+  list-style: none;
+  display: flex;
+  align-items: flex-start;
+  margin: 0 0 20px;
+  padding: 14px 8px 4px;
+  background: #f7f5f8;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 14px;
+  overflow-x: auto;
+}
+
+.fw-step {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 92px;
+  text-align: center;
+}
+
+/* Conector entre puntos (va detrás del punto, centrado verticalmente en él) */
+.fw-step + .fw-step::before {
+  content: "";
+  position: absolute;
+  top: 17px;
+  left: -50%;
+  width: 100%;
+  height: 2px;
+  background: var(--fw-line);
+  z-index: 0;
+}
+.fw-step.is-done::before,
+.fw-step.is-current::before {
+  background: var(--fw-accent);
+}
+
+.fw-step__btn {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  padding: 0 4px;
+  width: 100%;
+  cursor: default;
+}
+/* Clicable = alcanzable (ver pasoAlcanzable), no solo "ya recorrido": permite
+   saltar del 1 al 3 de un clic si el 2 sigue con sus datos completos. */
+.fw-step__btn:not(:disabled) {
+  cursor: pointer;
+}
+
+.fw-step__dot {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 15px;
+  background: #fff;
+  border: 2px solid var(--fw-line);
+  color: var(--fw-muted);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.fw-step.is-current .fw-step__dot {
+  border-color: var(--fw-accent);
+  color: var(--fw-accent);
+  box-shadow: 0 0 0 4px rgba(220, 53, 69, 0.14);
+}
+.fw-step.is-done .fw-step__dot {
+  background: var(--fw-grad);
+  border-color: transparent;
+  color: #fff;
+}
+.fw-step__btn:not(:disabled):hover .fw-step__dot {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+}
+
+.fw-step__label {
+  font-size: 12.5px;
+  line-height: 1.25;
+  color: var(--fw-muted);
+  max-width: 12ch;
+}
+.fw-step.is-current .fw-step__label {
+  color: var(--fw-ink);
+  font-weight: 700;
+}
+.fw-step.is-done .fw-step__label {
+  color: #495057;
+}
+
+@media (max-width: 640px) {
+  .fw-step__label {
+    display: none;
+  }
+  .fw-step {
+    min-width: 54px;
+  }
+}
+
+/* ---- Barra de navegación del asistente (Atrás / Siguiente) ---- */
+/* Barra en flujo normal (NO sticky): con contenido corto una barra sticky se
+   queda flotando a media página y se encima al desplegable de búsqueda. */
+.fw-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 20px 0 4px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.055);
+}
+.fw-nav__progress {
+  font-size: 13px;
+  color: #6c757d;
+  font-weight: 600;
+}
+
+/* ---- Panel de revisión (paso 5) ---- */
+.fw-review {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 16px;
+  background: #f7f5f8;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+}
+.fw-review__k {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6c757d;
+}
+.fw-review__v {
+  font-weight: 700;
+  color: var(--fw-ink);
+  word-break: break-word;
+}
+
+/* ---- Burbuja de aviso (naranja): p. ej. facturar con un nombre distinto a la
+   razón social. Lleva "colita" apuntando al control que la origina; con
+   .fw-bubble--flat se omite para usarla como aviso suelto (no bajo un campo). */
+.fw-bubble {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fw-orange-ink);
+  background: var(--fw-orange-bg);
+  border: 1px solid var(--fw-orange-border);
+  border-radius: 10px;
+}
+.fw-bubble::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 24px;
+  width: 14px;
+  height: 14px;
+  background: var(--fw-orange-bg);
+  border-left: 1px solid var(--fw-orange-border);
+  border-top: 1px solid var(--fw-orange-border);
+  border-radius: 2px 0 0 0;
+  transform: rotate(45deg);
+}
+.fw-bubble--flat {
+  margin-top: 0;
+}
+.fw-bubble--flat::before {
+  content: none;
+}
+.fw-bubble__icon {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 12px;
+  color: #fff;
+  background: var(--fw-orange);
+}
+.fw-bubble b {
+  color: #7a3a06;
+}

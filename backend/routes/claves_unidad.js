@@ -2,11 +2,17 @@
 // Catálogo administrable de claves de unidad SAT (Configuración fiscal).
 const express = require("express");
 const ClaveUnidad = require("../models/ClaveUnidad");
+const { proteger, requiereRol } = require("../middleware/auth");
 
 const router = express.Router();
 
 const rx = (s) =>
   new RegExp(String(s).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+
+// Cualquiera logueado puede LEER el catálogo (lo usa Nueva Factura al armar
+// conceptos); administrarlo (alta/edición/baja) es solo de Configuración
+// fiscal, así que eso sí queda restringido a admin.
+router.use(proteger);
 
 // GET /api/claves-unidad?search=
 router.get("/", async (req, res) => {
@@ -30,7 +36,7 @@ router.get("/", async (req, res) => {
 const FALTAN_DATOS = "Faltan datos: clave y descripción son obligatorios.";
 
 // POST /api/claves-unidad
-router.post("/", async (req, res) => {
+router.post("/", requiereRol("admin"), async (req, res) => {
   try {
     const { clave, descripcion } = req.body || {};
 
@@ -51,7 +57,7 @@ router.post("/", async (req, res) => {
 });
 
 // PUT /api/claves-unidad/:id
-router.put("/:id", async (req, res) => {
+router.put("/:id", requiereRol("admin"), async (req, res) => {
   try {
     const { clave, descripcion } = req.body || {};
 
@@ -77,7 +83,7 @@ router.put("/:id", async (req, res) => {
 });
 
 // DELETE /api/claves-unidad/:id
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requiereRol("admin"), async (req, res) => {
   try {
     const doc = await ClaveUnidad.findByIdAndDelete(req.params.id);
     if (!doc) return res.status(404).json({ ok: false, error: "No encontrado" });

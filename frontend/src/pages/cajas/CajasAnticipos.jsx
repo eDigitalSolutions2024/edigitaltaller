@@ -143,7 +143,7 @@ export default function CajasAnticipos() {
     await Promise.all([cargarHistorial(payload.clienteId), cargarLista()]);
     setShowModalDeposito(false);
     const movimiento = res.data.movimiento;
-    abrirPdf(getAnticipoReciboPdfUrl(movimiento._id), "recibo-anticipo.pdf", "Recibo de Anticipo");
+    abrirPdf(getAnticipoReciboPdfUrl(movimiento._id), "recibo-provisional.pdf", "Recibo Provisional");
   };
 
   const handleConfirmarCancelar = async (motivo) => {
@@ -154,7 +154,7 @@ export default function CajasAnticipos() {
 
   return (
     <div>
-      <h5 className="fw-semibold mb-3">Anticipos de ddf Clientes</h5>
+      <h5 className="fw-semibold mb-3">Anticipos de Clientes</h5>
 
       <div className="position-relative mb-3" style={{ maxWidth: 480 }}>
         <input
@@ -287,7 +287,7 @@ export default function CajasAnticipos() {
                       {m.tipo === "USO" ? "-" : "+"}{formatMoney(m.monto)}
                     </td>
                     <td className="text-center">
-                      {m.tipo === "DEPOSITO" ? `Recibo N°${m.folioRecibo ?? "-"}` : (m.ordenAplicada?.ordenServicio || "-")}
+                      {m.tipo === "DEPOSITO" ? `Provisional N°${m.folioRecibo ?? "-"}` : (m.ordenAplicada?.ordenServicio || "-")}
                     </td>
                     <td>{m.registradoPor}</td>
                     <td className="text-center">
@@ -295,8 +295,8 @@ export default function CajasAnticipos() {
                         {m.tipo === "DEPOSITO" && (
                           <button
                             className="btn btn-outline-secondary btn-sm"
-                            title="Imprimir Recibo de Anticipo"
-                            onClick={() => abrirPdf(getAnticipoReciboPdfUrl(m._id), "recibo-anticipo.pdf", "Recibo de Anticipo")}
+                            title="Imprimir Recibo Provisional"
+                            onClick={() => abrirPdf(getAnticipoReciboPdfUrl(m._id), "recibo-provisional.pdf", "Recibo Provisional")}
                           >
                             Imprimir
                           </button>

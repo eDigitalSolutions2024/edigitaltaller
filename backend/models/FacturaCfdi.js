@@ -87,7 +87,12 @@ const FacturaCfdiSchema = new Schema(
 
     cliente: {
       clienteId: { type: Schema.Types.ObjectId, ref: "Cliente", default: null },
+      // Nombre con el que se emitió el CFDI (atributo Nombre del Receptor).
       nombre: { type: String, default: "" },
+      // Razón social fiscal original del cliente al momento de facturar. Si el
+      // usuario editó el nombre de facturación, `nombre` != `razonSocialOriginal`
+      // y se llena `notaFacturacion` (abajo) para el historial.
+      razonSocialOriginal: { type: String, default: "" },
       rfc: { type: String, default: "" },
       regimenFiscal: { type: String, default: "" },
       codigoPostalFiscal: { type: String, default: "" },
@@ -141,6 +146,14 @@ const FacturaCfdiSchema = new Schema(
       comentarios: String,
       aplicarRetencionIsr: Boolean,
       isrRate: Number,
+      // cfdi:CfdiRelacionados (CFDI 4.0). Para nota de crédito siempre
+      // tipoRelacion "01"; para factura de ingreso es opcional (ver
+      // NuevaFactura "Facturas relacionadas"). Null si el CFDI no relaciona
+      // ningún otro.
+      relacion: {
+        tipoRelacion: { type: String, default: "" },
+        uuids: { type: [String], default: [] },
+      },
     },
 
     emisor: {
@@ -166,6 +179,11 @@ const FacturaCfdiSchema = new Schema(
 
     estatus: { type: String, enum: ["generada", "cancelada"], default: "generada" },
     generadoPor: { type: String, default: "" },
+
+    // Nota para el historial: se llena cuando el usuario factura con un nombre
+    // distinto a la razón social fiscal del cliente (ver NuevaFactura).
+    // Ej.: 'Facturado como "X" (razón social: "Y")'.
+    notaFacturacion: { type: String, default: "" },
   },
   { timestamps: true }
 );

@@ -14,6 +14,11 @@ export const getClientesConSaldo = () => http.get("/anticipos/clientes");
 export const getHistorialAnticipos = (clienteId) =>
   http.get(`/anticipos/cliente/${clienteId}`);
 
+// Recibos de anticipo / provisionales del cliente con saldo sin gastar
+// (restante > 0), para elegir de cuál aplicar en Registrar Pago.
+export const getAnticiposDisponibles = (clienteId) =>
+  http.get(`/anticipos/cliente/${clienteId}/disponibles`);
+
 // Cancela un depósito (solo admin, corrección de captura).
 export const cancelarAnticipo = (id, payload) =>
   http.post(`/anticipos/${id}/cancelar`, payload);

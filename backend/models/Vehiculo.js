@@ -145,6 +145,30 @@ const vehiculoSchema = new Schema(
     //---- FECHA DE CIERRE -----
     fechaCierre:{ type: Date, default: null},
 
+    // Bitácora INTERNA de cambios de estado sensibles (cerrar, cancelar,
+    // restablecer, reabrir y avances de flujo por las rutas de edición).
+    // `select: false` => NUNCA se incluye en las respuestas de la API ni la
+    // ve ningún rol de la aplicación; solo se consulta directo en Mongo o con
+    // los scripts de dev (verRegistroAcciones.js / auditarOrdenesReabiertas.js).
+    // Se escribe con un $push atómico desde routes/vehiculos.js:logCambioEstado,
+    // así que no depende de que el campo esté cargado en el documento.
+    historialEstados: {
+      select: false,
+      type: [
+        {
+          de: { type: String, default: '' },
+          a: { type: String, default: '' },
+          // CERRAR | RESTABLECER | REABRIR | CANCELAR | CAMBIO_ESTADO
+          accion: { type: String, default: 'CAMBIO_ESTADO' },
+          por: { type: String, default: '' },
+          porId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+          motivo: { type: String, default: '' },
+          ruta: { type: String, default: '' },
+          fecha: { type: Date, default: Date.now },
+        },
+      ],
+    },
+
 
     // Versión del contrato (ContratoOrdenServicio) vigente al crear esta
     // orden. Se fija una sola vez, al crearla (ver POST /api/vehiculos y
@@ -742,6 +766,15 @@ pendienteCierre: { type: Boolean, default: false },
         saldoAplicado: {
           monto: { type: Number, default: 0 },
           movimientoId: { type: Schema.Types.ObjectId, ref: 'AnticipoCliente', default: null },
+          // Desglose cuando el cajero eligió de qué recibo(s) de anticipo salió
+          // el saldo (ver aplicarUsoDeDeposito). `monto` de arriba es el total.
+          aplicaciones: [
+            {
+              depositoId: { type: Schema.Types.ObjectId, ref: 'AnticipoCliente', default: null },
+              movimientoId: { type: Schema.Types.ObjectId, ref: 'AnticipoCliente', default: null },
+              monto: { type: Number, default: 0 },
+            },
+          ],
           // Desglose FIFO de con qué forma(s) de pago se depositó originalmente
           // el saldo que se está aplicando aquí (ver calcularOrigenSaldo en
           // utils/anticiposCliente.js). formaPago null = dinero reembolsado de

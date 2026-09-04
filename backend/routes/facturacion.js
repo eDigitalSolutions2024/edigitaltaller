@@ -11,6 +11,8 @@ const path = require("path");
 const FiscalConfig = require("../models/FiscalConfig");
 const FacturaCfdi = require("../models/FacturaCfdi");
 const Vehiculo = require("../models/Vehiculo");
+const { formaPagoSatDeNotaVenta } = require("../utils/formaPagoSat");
+const { abreviaturaFormaPago } = require("../utils/abreviaturaFormaPago");
 
 const router = express.Router();
 
@@ -90,6 +92,57 @@ const FORMA_PAGO_LABELS = {
 function formaPagoLabel(code) {
   const c = safe(code);
   return c ? `${c} - ${FORMA_PAGO_LABELS[c] || ""}`.trim() : "—";
+}
+
+// Catálogo SAT c_UsoCFDI (CFDI 4.0), para mostrar junto al código en el PDF
+// qué tipo de uso es (mismo catálogo que USO_CFDI en NuevaFactura.jsx).
+const USO_CFDI_LABELS = {
+  G01: "Adquisición de mercancías.",
+  G02: "Devoluciones, descuentos o bonificaciones.",
+  G03: "Gastos en general.",
+  I01: "Construcciones.",
+  I02: "Mobiliario y equipo de oficina por inversiones.",
+  I03: "Equipo de transporte.",
+  I04: "Equipo de computo y accesorios.",
+  I05: "Dados, troqueles, moldes, matrices y herramental.",
+  I06: "Comunicaciones telefónicas.",
+  I07: "Comunicaciones satelitales.",
+  I08: "Otra maquinaria y equipo.",
+  D01: "Honorarios médicos, dentales y gastos hospitalarios.",
+  D02: "Gastos médicos por incapacidad o discapacidad.",
+  D03: "Gastos funerales.",
+  D04: "Donativos.",
+  D05: "Intereses reales por créditos hipotecarios (casa habitación).",
+  D06: "Aportaciones voluntarias al SAR.",
+  D07: "Primas por seguros de gastos médicos.",
+  D08: "Gastos de transportación escolar obligatoria.",
+  D09: "Depósitos para el ahorro, primas de planes de pensiones.",
+  D10: "Pagos por servicios educativos (colegiaturas).",
+  S01: "Sin efectos fiscales.",
+  CP01: "Pagos",
+  CN01: "Nómina",
+};
+
+function usoCfdiLabel(code) {
+  const c = safe(code);
+  return c ? `${c} - ${USO_CFDI_LABELS[c] || ""}`.trim() : "—";
+}
+
+// Catálogo SAT c_TipoRelacion (cfdi:CfdiRelacionados), para el bloque
+// "Relación / UUID Relacionado" de una factura con facturas relacionadas.
+const TIPO_RELACION_LABELS = {
+  "01": "Nota de crédito de los documentos relacionados",
+  "02": "Nota de débito de los documentos relacionados",
+  "03": "Devolución de mercancía sobre facturas o traslados previos",
+  "04": "Sustitución de los CFDI previos",
+  "05": "Traslados de mercancías facturados previamente",
+  "06": "Factura generada por los traslados previos",
+  "07": "CFDI por aplicación de anticipo",
+};
+
+function tipoRelacionLabel(code) {
+  const c = safe(code);
+  return c ? `${c} - ${TIPO_RELACION_LABELS[c] || ""}`.trim() : "—";
 }
 
 /* Nombre para mostrar de un cliente poblado (mismo criterio que
@@ -351,7 +404,15 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
   const ordenUnica = listaOrdenes.length === 1 ? listaOrdenes[0] : null;
   const listaRelacionadas = Array.isArray(relacionadas) ? relacionadas : [];
 
-  const h = 118;
+  // El nombre/razón social puede ser largo y partirse en 2+ líneas: se mide
+  // el alto real ANTES de fijar el del cuadro, para que ni se corte ni se
+  // encime con lo que sigue (dirección).
+  doc.font("Helvetica-Bold").fontSize(8);
+  const nombreReceptorTexto = safe(cliente?.nombre) || "—";
+  const nombreReceptorH = doc.heightOfString(nombreReceptorTexto, { width: 255 });
+  const nombreReceptorExtra = Math.max(0, nombreReceptorH - 10);
+
+  const h = 118 + nombreReceptorExtra;
   ui.box(M, y0, W, h);
 
   // --- Receptor (izquierda) ---
@@ -359,8 +420,9 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
   let ry = y0 + 8;
   ui.kv(rx, ry, "RFC Receptor:", safe(cliente?.rfc), 78, 260);
   ry += 13;
-  doc.font("Helvetica-Bold").fontSize(8).text(safe(cliente?.nombre) || "—", rx, ry, { width: 255 });
-  ry += 13;
+  doc.font("Helvetica-Bold").fontSize(8);
+  doc.text(nombreReceptorTexto, rx, ry, { width: 255 });
+  ry += Math.max(nombreReceptorH, 10) + 3;
   const dirReceptor = formatDireccion(cliente?.direccion, cliente?.pais);
   ui.oneLine(dirReceptor.linea1, rx, ry, 255, 7);
   ry += 10;
@@ -370,7 +432,7 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
   ry += 13;
   ui.kv(rx, ry, "C.P. Fiscal:", safe(cliente?.codigoPostalFiscal), 78, 260);
   ry += 13;
-  ui.kv(rx, ry, "Uso CFDI:", safe(cfdi?.usoCfdi), 78, 260);
+  ui.kv(rx, ry, "Uso CFDI:", usoCfdiLabel(cfdi?.usoCfdi), 78, 260);
 
   // --- Vehículo (centro) o factura relacionada (nota de crédito) ---
   const vx = M + 280;
@@ -473,7 +535,13 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
 
 /* Fila con datos generales del CFDI */
 function drawFilaCfdi(doc, ui, y0, { cfdi }) {
-  const h = 30;
+  // Facturas relacionadas (cfdi:CfdiRelacionados), opcional: si la factura
+  // tiene, se agrega un tercer renglón abajo del Método de Pago.
+  const relacion = cfdi?.relacion;
+  const uuidsRelacionados = Array.isArray(relacion?.uuids) ? relacion.uuids.filter(Boolean) : [];
+  const tieneRelacion = !!relacion?.tipoRelacion && uuidsRelacionados.length > 0;
+
+  const h = tieneRelacion ? 43 : 30;
   ui.box(M, y0, W, h);
   let y = y0 + 5;
 
@@ -494,6 +562,14 @@ function drawFilaCfdi(doc, ui, y0, { cfdi }) {
     7
   );
   ui.kv(M + 400, y, "IVA:", `${Math.round(Number(cfdi?.ivaRate || 0) * 100)}%`, 76, 160, 7);
+
+  if (tieneRelacion) {
+    y += 13;
+    ui.kv(M + 8, y, "Relación:", tipoRelacionLabel(relacion.tipoRelacion), 50, 260, 7);
+    doc.font("Helvetica-Bold").fontSize(7).text("UUID Relacionado:", M + 280, y, { width: 95 });
+    doc.font("Helvetica");
+    ui.oneLine(uuidsRelacionados.join(", "), M + 280 + 95, y, W + M - (M + 280 + 95) - 6, 7);
+  }
 
   return y0 + h + 8;
 }
@@ -987,6 +1063,11 @@ router.get("/notas-venta-pendientes", async (req, res) => {
           ivaPct,
           montoSinIva,
           cliente: nombreClienteDisplay(v.cliente),
+          // Forma de pago de esta nota, para elegir la de la factura global
+          // (la de la orden de mayor monto, regla SAT): código SAT c_FormaPago
+          // + etiqueta corta legible.
+          formaPagoSat: formaPagoSatDeNotaVenta(p.notaVenta),
+          formaPagoLabel: abreviaturaFormaPago(p.notaVenta),
         });
       }
     }

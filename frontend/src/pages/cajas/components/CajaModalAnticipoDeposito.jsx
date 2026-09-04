@@ -8,12 +8,19 @@ const FORMAS_PAGO = [
   { value: "DEBITO", label: "T. Débito" },
   { value: "CHEQUE", label: "Cheque No." },
   { value: "TRANSFERENCIA", label: "Transferencia" },
+  { value: "COMBINADO", label: "Combinado" },
 ];
 
 // Terminales físicas (mismo catálogo que BANCO_A_TERMINAL en
 // backend/utils/cierreCajaTerminales.js): un depósito con tarjeta debe decir
 // en cuál se cobró para que el Cierre de Caja cuadre por terminal.
 const TERMINALES = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER"];
+
+// EFECTIVO/EFECTIVO_USD desglosan el efectivo en pesos y dólares (con
+// conversión, igual que "Cantidad en Pesos/Dólares"); los demás métodos del
+// combinado son solo en pesos. Mismo patrón que CajaModalPago.jsx.
+const MONTOS_COMBINADO_INICIAL = { EFECTIVO: "", EFECTIVO_USD: "", CREDITO: "", DEBITO: "", CHEQUE: "", TRANSFERENCIA: "" };
+const MONTOS_COMBINADO_PESOS = ["EFECTIVO", "CREDITO", "DEBITO", "CHEQUE", "TRANSFERENCIA"];
 
 function formatMoney(n) {
   return new Intl.NumberFormat("es-MX", {
@@ -31,9 +38,13 @@ function nombreCliente(c) {
 }
 
 // Registra un depósito de anticipo (saldo a favor) para un cliente, sin
-// ligarlo a ninguna orden. Mismo patrón de captura pesos/dólares/forma de
-// pago que CajaModalPago.jsx (Abono/Anticipo), sin tipoPago/comprobante ni
-// vale de salida, que no aplican aquí.
+// ligarlo a ninguna orden — imprime un Recibo Provisional igual que
+// cualquier otro (ya no existe un "Recibo de Anticipo" aparte). Mismo
+// patrón de captura pesos/dólares/forma de pago (incluido Combinado) que
+// CajaModalPago.jsx (Abono/Anticipo), sin tipoPago/comprobante ni vale de
+// salida, que no aplican aquí; tampoco lleva "aplicar anticipo del
+// cliente" — no se puede fondear un anticipo nuevo con saldo a favor que
+// el cliente ya tiene.
 export default function CajaModalAnticipoDeposito({ show, cliente, onClose, onSubmit }) {
   const [montoPesos, setMontoPesos] = useState("");
   const [montoDolares, setMontoDolares] = useState("");
@@ -41,7 +52,10 @@ export default function CajaModalAnticipoDeposito({ show, cliente, onClose, onSu
   const [formaPago, setFormaPago] = useState("EFECTIVO");
   const [chequeNumero, setChequeNumero] = useState("");
   const [banco, setBanco] = useState("");
-  const [referencia, setReferencia] = useState("");
+  // Desglose por método cuando formaPago === "COMBINADO"; su suma reemplaza
+  // los campos de Cantidad en Pesos/Dólares (que se deshabilitan en ese caso).
+  const [montosCombinado, setMontosCombinado] = useState(MONTOS_COMBINADO_INICIAL);
+  const [terminalCombinado, setTerminalCombinado] = useState("");
   const [observaciones, setObservaciones] = useState("");
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -56,15 +70,36 @@ export default function CajaModalAnticipoDeposito({ show, cliente, onClose, onSu
     setFormaPago("EFECTIVO");
     setChequeNumero("");
     setBanco("");
-    setReferencia("");
+    setMontosCombinado(MONTOS_COMBINADO_INICIAL);
+    setTerminalCombinado("");
     setObservaciones("");
     setError("");
   }, [show, tipoCambioConfig]);
+
+  // Con Combinado, Pesos/Dólares no se capturan a mano: pesos es la suma de
+  // los métodos en pesos del desglose, y dólares es el Efectivo en dólares.
+  useEffect(() => {
+    if (formaPago !== "COMBINADO") return;
+    const totalPesos = MONTOS_COMBINADO_PESOS.reduce((acc, k) => acc + (Number(montosCombinado[k]) || 0), 0);
+    setMontoPesos(totalPesos > 0 ? String(totalPesos) : "");
+    const totalDolares = Number(montosCombinado.EFECTIVO_USD) || 0;
+    setMontoDolares(totalDolares > 0 ? String(totalDolares) : "");
+  }, [formaPago, montosCombinado]);
 
   if (!show || !cliente) return null;
 
   const dolaresConvertidos = Number(montoDolares || 0) * Number(tipoCambio || 0);
   const totalDeposito = Number(montoPesos || 0) + dolaresConvertidos;
+
+  const combinadoAplicado = () => ({
+    credito: Number(montosCombinado.CREDITO) || 0,
+    efectivo: Number(montosCombinado.EFECTIVO) || 0,
+    efectivoDolares: Number(montosCombinado.EFECTIVO_USD) || 0,
+    debito: Number(montosCombinado.DEBITO) || 0,
+    cheque: Number(montosCombinado.CHEQUE) || 0,
+    transferencia: Number(montosCombinado.TRANSFERENCIA) || 0,
+    banco: terminalCombinado,
+  });
 
   const handleSubmit = async () => {
     if (totalDeposito <= 0) {
@@ -77,6 +112,18 @@ export default function CajaModalAnticipoDeposito({ show, cliente, onClose, onSu
     }
     if ((formaPago === "CREDITO" || formaPago === "DEBITO") && !banco) {
       setError("Selecciona la terminal donde se cobró la tarjeta.");
+      return;
+    }
+    if (
+      formaPago === "COMBINADO" &&
+      (Number(montosCombinado.CREDITO) > 0 || Number(montosCombinado.DEBITO) > 0) &&
+      !terminalCombinado
+    ) {
+      setError("Selecciona la terminal donde se cobró la parte con tarjeta del combinado.");
+      return;
+    }
+    if (formaPago === "COMBINADO" && Number(montosCombinado.CHEQUE) > 0 && !chequeNumero.trim()) {
+      setError("Captura el número de cheque.");
       return;
     }
     if (Number(montoDolares) > 0 && !Number(tipoCambio)) {
@@ -95,7 +142,7 @@ export default function CajaModalAnticipoDeposito({ show, cliente, onClose, onSu
         formaPago,
         chequeNumero,
         banco,
-        referencia,
+        ...(formaPago === "COMBINADO" ? { combinado: combinadoAplicado() } : {}),
         observaciones,
       });
     } catch (err) {
@@ -131,6 +178,8 @@ export default function CajaModalAnticipoDeposito({ show, cliente, onClose, onSu
                       className="form-control"
                       value={montoPesos}
                       onChange={(e) => setMontoPesos(e.target.value)}
+                      readOnly={formaPago === "COMBINADO"}
+                      title={formaPago === "COMBINADO" ? "Se calcula sola con la suma del desglose combinado" : undefined}
                     />
                   </div>
                   <div className="col-6">
@@ -141,6 +190,12 @@ export default function CajaModalAnticipoDeposito({ show, cliente, onClose, onSu
                       className="form-control"
                       value={montoDolares}
                       onChange={(e) => setMontoDolares(e.target.value)}
+                      readOnly={formaPago === "COMBINADO"}
+                      title={
+                        formaPago === "COMBINADO"
+                          ? "Se calcula solo con el Efectivo en dólares del desglose combinado"
+                          : undefined
+                      }
                     />
                     {Number(montoDolares) > 0 && Number(tipoCambio) > 0 && (
                       <small className="text-muted">≈ {formatMoney(dolaresConvertidos)} MXN</small>
@@ -199,18 +254,107 @@ export default function CajaModalAnticipoDeposito({ show, cliente, onClose, onSu
                     </div>
                   )}
                 </div>
+
+                {formaPago === "COMBINADO" && (
+                  <div className="border rounded p-3 mb-2">
+                    <label className="form-label fw-semibold d-block">Desglose del pago combinado</label>
+                    <div className="row g-2">
+                      <div className="col-6">
+                        <label className="form-label mb-0 small">Efectivo (Pesos)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control form-control-sm"
+                          value={montosCombinado.EFECTIVO}
+                          onChange={(e) => setMontosCombinado((prev) => ({ ...prev, EFECTIVO: e.target.value }))}
+                        />
+                      </div>
+                      <div className="col-6">
+                        <label className="form-label mb-0 small">Efectivo (Dólares)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control form-control-sm"
+                          value={montosCombinado.EFECTIVO_USD}
+                          onChange={(e) => setMontosCombinado((prev) => ({ ...prev, EFECTIVO_USD: e.target.value }))}
+                        />
+                        {Number(montosCombinado.EFECTIVO_USD) > 0 && Number(tipoCambio) > 0 && (
+                          <small className="text-muted">
+                            ≈ {formatMoney(Number(montosCombinado.EFECTIVO_USD) * Number(tipoCambio))} MXN
+                          </small>
+                        )}
+                      </div>
+                      <div className="col-6">
+                        <label className="form-label mb-0 small">T. Crédito</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control form-control-sm"
+                          value={montosCombinado.CREDITO}
+                          onChange={(e) => setMontosCombinado((prev) => ({ ...prev, CREDITO: e.target.value }))}
+                        />
+                      </div>
+                      <div className="col-6">
+                        <label className="form-label mb-0 small">T. Débito</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control form-control-sm"
+                          value={montosCombinado.DEBITO}
+                          onChange={(e) => setMontosCombinado((prev) => ({ ...prev, DEBITO: e.target.value }))}
+                        />
+                      </div>
+                      {(Number(montosCombinado.CREDITO) > 0 || Number(montosCombinado.DEBITO) > 0) && (
+                        <div className="col-12">
+                          <label className="form-label mb-0 small">Terminal</label>
+                          <Dropdown
+                            className="form-select form-select-sm"
+                            value={terminalCombinado}
+                            onChange={(e) => setTerminalCombinado(e.target.value)}
+                          >
+                            <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                            {TERMINALES.map((t) => (
+                              <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+                            ))}
+                          </Dropdown>
+                          <small className="text-muted">Obligatoria: con qué terminal se cobró el T. Crédito/T. Débito.</small>
+                        </div>
+                      )}
+                      <div className="col-6">
+                        <label className="form-label mb-0 small">No. de Cheque</label>
+                        <input
+                          type="text"
+                          className="form-control form-control-sm"
+                          value={chequeNumero}
+                          onChange={(e) => setChequeNumero(e.target.value)}
+                        />
+                      </div>
+                      <div className="col-6">
+                        <label className="form-label mb-0 small">Cantidad (Cheque)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control form-control-sm"
+                          value={montosCombinado.CHEQUE}
+                          onChange={(e) => setMontosCombinado((prev) => ({ ...prev, CHEQUE: e.target.value }))}
+                        />
+                      </div>
+                      <div className="col-12">
+                        <label className="form-label mb-0 small">Transferencia</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control form-control-sm"
+                          value={montosCombinado.TRANSFERENCIA}
+                          onChange={(e) => setMontosCombinado((prev) => ({ ...prev, TRANSFERENCIA: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="col-md-6">
-                <div className="mb-2">
-                  <label className="form-label mb-0">Referencia</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    value={referencia}
-                    onChange={(e) => setReferencia(e.target.value)}
-                  />
-                </div>
                 <div className="mb-2">
                   <label className="form-label mb-0">Observaciones</label>
                   <textarea

@@ -5,7 +5,7 @@ import { listOrdenesServicio, getVehiculoById } from "../../api/vehiculos";
 import { updateCustomer } from "../../api/customers";
 import { listConceptosPreset } from "../../api/conceptosPreset";
 import { listClavesUnidad } from "../../api/clavesUnidad";
-import { listFacturasCfdi } from "../../api/facturasCfdi";
+import { listFacturasCfdi, getFacturaCfdiPdf } from "../../api/facturasCfdi";
 import { generarVistaPreviaPDF, getNotasVentaPendientes } from "../../api/facturacion";
 import api from "../../api/http";
 import usePdfModal from "../../hooks/usePdfModal";
@@ -13,6 +13,7 @@ import CajaModalCancelarPago from "../cajas/components/CajaModalCancelarPago";
 import useTipoCambioActual from "../../hooks/useTipoCambioActual";
 import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 import { calcularTotalesOrden } from "../../utils/cajaTotales";
+import "../../styles/facturaWizard.css";
 
 /* =======================
    CATÁLOGOS
@@ -136,6 +137,21 @@ const METODO_PAGO = [
   { value: "PPD", label: "PPD - Pago en parcialidades o diferido" },
 ];
 
+// Catálogo SAT c_TipoRelacion (mismo en CFDI 3.3 y 4.0), para el nodo
+// cfdi:CfdiRelacionados.
+const TIPO_RELACION = [
+  { value: "01", label: "01 - Nota de crédito de los documentos relacionados" },
+  { value: "02", label: "02 - Nota de débito de los documentos relacionados" },
+  { value: "03", label: "03 - Devolución de mercancía sobre facturas o traslados previos" },
+  { value: "04", label: "04 - Sustitución de los CFDI previos" },
+  { value: "05", label: "05 - Traslados de mercancías facturados previamente" },
+  { value: "06", label: "06 - Factura generada por los traslados previos" },
+  { value: "07", label: "07 - CFDI por aplicación de anticipo" },
+];
+
+// Formato estándar de un UUID de CFDI (Folio Fiscal): 8-4-4-4-12 hex.
+const UUID_RE = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
+
 const CONCEPTO_VACIO = {
   cantidad: 1,
   unidad: "Servicio",
@@ -249,6 +265,38 @@ function SelectCProdServ({ value, disabled, onChange, opciones, size = "", place
   );
 }
 
+/* Barra de pasos del asistente de facturación. Cada paso trae si ya está
+   "completo" (sus datos siguen llenos, sin importar dónde esté parado el
+   usuario) y si es "alcanzable" (todos los anteriores están completos ahora
+   mismo): un paso alcanzable se abre con un clic, adelante o atrás, sin tener
+   que recorrer los intermedios — salvo que se les haya vaciado algún dato. */
+function PasosBarra({ pasos, actual, onIr }) {
+  return (
+    <ol className="fw-stepper">
+      {pasos.map((p) => {
+        const esActual = p.n === actual;
+        const estado = esActual ? "is-current" : p.completo ? "is-done" : "is-todo";
+        const clicable = p.alcanzable && !esActual;
+        return (
+          <li key={p.n} className={`fw-step ${estado}`}>
+            <button
+              type="button"
+              className="fw-step__btn"
+              disabled={!clicable}
+              onClick={() => clicable && onIr(p.n)}
+              title={clicable ? "Ir a este paso" : undefined}
+              aria-current={esActual ? "step" : undefined}
+            >
+              <span className="fw-step__dot">{estado === "is-done" ? "✓" : p.n}</span>
+              <span className="fw-step__label">{p.label}</span>
+            </button>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 /* =======================
    COMPONENTE
 ======================= */
@@ -324,6 +372,12 @@ export default function NuevaFactura() {
     () => (notasSel.length ? Math.max(...notasSel.map((n) => n.numero)) : null),
     [notasSel]
   );
+  // Regla SAT para la factura global: la forma de pago del CFDI debe ser la de
+  // la nota de venta (orden) de mayor monto.
+  const notaMayorGlobal = useMemo(() => {
+    if (!notasSel.length) return null;
+    return notasSel.reduce((max, n) => (Number(n.monto) > Number(max.monto) ? n : max));
+  }, [notasSel]);
   const descripcionGlobal = useMemo(() => {
     if (!notasSel.length) return "";
     const [y, m, d] = hoyISO().split("-").map(Number);
@@ -375,9 +429,96 @@ export default function NuevaFactura() {
 
   // Nota de crédito: una o varias facturas acreditadas
   const [facturasNC, setFacturasNC] = useState([]);
+  // UUID real de cada factura acreditada (CfdiRelacionados lo exige; esta
+  // pantalla no lo conoce sola porque el timbrado ocurre fuera del sistema).
+  const [ncUuids, setNcUuids] = useState({}); // { [facturaId]: uuid }
+  const setNcUuid = (id, uuid) => setNcUuids((prev) => ({ ...prev, [id]: uuid }));
 
   // Complemento de pago: varias facturas con importe pagado editable
-  const [facturasPago, setFacturasPago] = useState([]); // [{ doc, importePagado }]
+  const [facturasPago, setFacturasPago] = useState([]); // [{ doc, importePagado, uuid }]
+  const setPagoUuid = (id, uuid) =>
+    setFacturasPago((prev) => prev.map((f) => (f.doc._id === id ? { ...f, uuid } : f)));
+
+  /* ==========
+     FACTURAS RELACIONADAS (CFDI 4.0: cfdi:CfdiRelacionados) — opcional, solo
+     para factura de ingreso. Deja que esta factura declare que sustituye,
+     devuelve o de cualquier otra forma se relaciona con uno o más CFDI
+     previos. Un solo Tipo de relación agrupa todos los UUID agregados: el
+     SAT permite varios grupos con distinto tipo cada uno, pero un solo grupo
+     cubre la inmensa mayoría de los casos reales.
+  ========== */
+  const [tipoRelacion, setTipoRelacion] = useState("");
+  const [relacionadasExtra, setRelacionadasExtra] = useState([]); // [{ key, facturaId, serie, folio, cliente, uuid }]
+  const [qRelacionada, setQRelacionada] = useState("");
+  const [optsRelacionadas, setOptsRelacionadas] = useState([]);
+  const [showRelacionadas, setShowRelacionadas] = useState(false);
+  const [loadingRelacionadas, setLoadingRelacionadas] = useState(false);
+
+  const agregarRelacionadaDesdeBusqueda = (doc) => {
+    setQRelacionada("");
+    setOptsRelacionadas([]);
+    setShowRelacionadas(false);
+    if (relacionadasExtra.some((r) => r.facturaId === doc._id)) return;
+    setRelacionadasExtra((prev) => [
+      ...prev,
+      {
+        key: doc._id,
+        facturaId: doc._id,
+        serie: doc.serie || "",
+        folio: doc.folio || "",
+        cliente: doc.cliente?.nombre || "",
+        uuid: doc.uuid || "",
+      },
+    ]);
+  };
+
+  const agregarRelacionadaManual = () => {
+    const valor = qRelacionada.trim();
+    if (!valor) return;
+    setRelacionadasExtra((prev) => [
+      ...prev,
+      { key: `manual-${Date.now()}`, facturaId: null, serie: "", folio: "", cliente: "", uuid: valor },
+    ]);
+    setQRelacionada("");
+    setOptsRelacionadas([]);
+    setShowRelacionadas(false);
+  };
+
+  const quitarRelacionada = (key) =>
+    setRelacionadasExtra((prev) => prev.filter((r) => r.key !== key));
+
+  const setUuidRelacionada = (key, uuid) =>
+    setRelacionadasExtra((prev) => prev.map((r) => (r.key === key ? { ...r, uuid } : r)));
+
+  /* Búsqueda de CFDI para relacionar (opcional, solo factura de ingreso). Solo
+     ayuda a ubicar un folio propio y su cliente; el UUID sigue siendo
+     editable a mano porque el timbrado (y por lo tanto el UUID real) ocurre
+     fuera de este sistema. */
+  useEffect(() => {
+    if (!esFactura) return;
+
+    const t = setTimeout(async () => {
+      const term = qRelacionada.trim();
+      if (term.length < 1) {
+        setOptsRelacionadas([]);
+        setShowRelacionadas(false);
+        return;
+      }
+      try {
+        setLoadingRelacionadas(true);
+        const res = await listFacturasCfdi({ q: term, estatus: "generada", limit: 8 });
+        const yaAgregadas = new Set(relacionadasExtra.map((r) => r.facturaId).filter(Boolean));
+        setOptsRelacionadas((res.data?.docs || []).filter((d) => !yaAgregadas.has(d._id)));
+        setShowRelacionadas(true);
+      } catch (e) {
+        setOptsRelacionadas([]);
+      } finally {
+        setLoadingRelacionadas(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(t);
+  }, [qRelacionada, esFactura, relacionadasExtra]); // eslint-disable-line
 
   const nombreCompleto = (c) =>
     [c?.nombre, c?.apellidoPaterno, c?.apellidoMaterno].filter(Boolean).join(" ");
@@ -409,7 +550,14 @@ export default function NuevaFactura() {
     setOptsFacturas([]);
     setShowFacturas(false);
     setFacturasNC([]);
+    setNcUuids({});
     setFacturasPago([]);
+
+    setTipoRelacion("");
+    setRelacionadasExtra([]);
+    setQRelacionada("");
+    setOptsRelacionadas([]);
+    setShowRelacionadas(false);
 
     setNotasPend([]);
     setNotasSelKeys(new Set());
@@ -423,12 +571,21 @@ export default function NuevaFactura() {
     setXmlSigned("");
     setCadenaOriginal("");
     setSello("");
+    setFacturaGeneradaId(null);
+
+    // Se acaba de vaciar todo lo capturado: ningún paso más allá de donde
+    // estás parado puede seguir mostrándose como "completo" (ver pasoMaximo).
+    setPasoMaximo(paso);
   };
 
   const onPickTipo = (t) => {
-    if (t.value === tipoFactura) return;
+    if (t.value === tipoFactura) {
+      irPaso(2);
+      return;
+    }
     setTipoFactura(t.value);
     resetTodo();
+    irPaso(2);
 
     // Defaults del comprobante según el tipo
     if (t.value === "factura") {
@@ -451,6 +608,17 @@ export default function NuevaFactura() {
       setFormaPago("03");
       setFechaPago(hoyISO());
     }
+  };
+
+  // Botón "Nueva factura": vuelve al paso 1 en blanco sin salir de la
+  // pantalla (para cuando ya se hizo/canceló una y se quiere capturar otra,
+  // sin depender de recargar la página).
+  const empezarDeNuevo = () => {
+    if (!window.confirm("¿Empezar una factura nueva? Se perderá lo capturado en esta.")) return;
+    setTipoFactura("");
+    resetTodo();
+    setPaso(1);
+    setPasoMaximo(1);
   };
 
   /* Búsqueda de órdenes de servicio (tipo: factura).
@@ -644,6 +812,27 @@ export default function NuevaFactura() {
             descripcion: l.concepto || l.descripcionServicio || l.descripcionSat,
           }),
         }));
+      // Descuento aplicado en Cajas (v.descuentos): Cajas lo calcula sobre el
+      // total CON IVA y no distingue por línea; el CFDI descuenta ANTES de IVA.
+      // Se convierte a su equivalente pre-IVA y se reparte proporcional entre
+      // los conceptos bajando su valorUnitario, para que el total del CFDI
+      // coincida con lo que Cajas le cobró al cliente (totalOrden).
+      const { descuentoMonto, ivaPct } = calcularTotalesOrden(v);
+      if (descuentoMonto > 0 && conceptosOrden.length) {
+        const baseConceptos = conceptosOrden.reduce(
+          (s, c) => s + c.cantidad * c.valorUnitario,
+          0
+        );
+        const descuentoPreIva = descuentoMonto / (1 + (Number(ivaPct) || 0) / 100);
+        const factor =
+          baseConceptos > 0 ? Math.max(0, 1 - descuentoPreIva / baseConceptos) : 1;
+        if (factor < 1) {
+          conceptosOrden.forEach((c) => {
+            c.valorUnitario = Math.round(c.valorUnitario * factor * 100) / 100;
+          });
+        }
+      }
+
       if (conceptosOrden.length) {
         setConceptos((prev) => [...prev, ...conceptosOrden]);
       }
@@ -726,12 +915,18 @@ export default function NuevaFactura() {
 
     setFacturasNC((prev) => [...prev, doc]);
     setConceptos((prev) => [...prev, conceptoDeFacturaNC(doc)]);
+    if (doc.uuid) setNcUuid(doc._id, doc.uuid);
     cancelEdit();
   };
 
   const quitarFacturaNC = (id) => {
     setFacturasNC((prev) => prev.filter((f) => f._id !== id));
     setConceptos((prev) => prev.filter((c) => c._origenFacturaId !== id));
+    setNcUuids((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
     cancelEdit();
   };
 
@@ -754,7 +949,7 @@ export default function NuevaFactura() {
 
     setFacturasPago((prev) => [
       ...prev,
-      { doc, importePagado: Number(doc.totales?.total || 0) },
+      { doc, importePagado: Number(doc.totales?.total || 0), uuid: doc.uuid || "" },
     ]);
   };
 
@@ -1102,6 +1297,10 @@ export default function NuevaFactura() {
   const { tipoCambio: tipoCambioConfig, loading: cargandoTipoCambio } = useTipoCambioActual();
   const [oc, setOc] = useState("");
   const [comentarios, setComentarios] = useState("");
+  // Nombre con el que se quiere facturar (F3). Arranca en la razón social del
+  // receptor y se puede editar; si cambia, la factura guarda una nota en el
+  // historial diciendo a qué nombre se facturó.
+  const [nombreFacturacion, setNombreFacturacion] = useState("");
 
   const [aplicarRetencionIsr, setAplicarRetencionIsr] = useState(false);
   const isrRate = 0.0125;
@@ -1126,6 +1325,37 @@ export default function NuevaFactura() {
     [baseGravable, aplicarRetencionIsr]
   );
   const total = useMemo(() => baseGravable + iva - isr, [baseGravable, iva, isr]);
+
+  /* Forma de pago "99 - Por definir" obliga a método PPD: no se puede documentar
+     como pago en una sola exhibición algo cuya forma de pago aún no se conoce. */
+  useEffect(() => {
+    if (formaPago === "99" && metodoPago !== "PPD") setMetodoPago("PPD");
+  }, [formaPago, metodoPago]);
+
+  /* Factura global: la forma de pago la fija la nota de venta de mayor monto
+     (regla SAT). El select queda bloqueado y se sincroniza aquí. */
+  useEffect(() => {
+    if (!esFacturaGlobal) return;
+    const fp = notaMayorGlobal?.formaPagoSat;
+    if (fp && fp !== formaPago) setFormaPago(fp);
+  }, [esFacturaGlobal, notaMayorGlobal, formaPago]);
+
+  /* El nombre de facturación (F3) arranca en la razón social del receptor;
+     se re-sincroniza cuando cambia el receptor (otra orden / otro cliente). */
+  useEffect(() => {
+    setNombreFacturacion(receptor?.nombre || "");
+  }, [receptor?.nombre]);
+
+  // ¿Se está facturando con un nombre distinto a la razón social fiscal del
+  // cliente? (F3) — dispara el aviso de que quedará una nota en el historial.
+  const razonSocialFiscal = (cliente?.nombre || "").trim();
+  const nombreFacturacionTrim = nombreFacturacion.trim();
+  const facturaConNombreDistinto =
+    esFactura && !!nombreFacturacionTrim && nombreFacturacionTrim !== razonSocialFiscal;
+
+  /* Condición que llevará la factura, derivada del método de pago (así la lee el
+     PDF y el filtro del historial): PPD => Crédito, cualquier otro => Contado. */
+  const condicionPago = metodoPago === "PPD" ? "Crédito" : "Contado";
 
   const montoPago = useMemo(
     () => facturasPago.reduce((s, f) => s + Number(f.importePagado || 0), 0),
@@ -1238,13 +1468,46 @@ export default function NuevaFactura() {
 
     if (esComplementoPago) {
       if (!fechaPago) return false;
-      return facturasPago.length > 0 && facturasPago.every((f) => Number(f.importePagado) > 0);
+      if (!(facturasPago.length > 0 && facturasPago.every((f) => Number(f.importePagado) > 0))) {
+        return false;
+      }
+      // El complemento de pago (Pagos 2.0) exige el UUID real de cada
+      // factura pagada (nodo pago20:DoctoRelacionado IdDocumento).
+      return facturasPago.every((f) => UUID_RE.test((f.uuid || "").trim()));
     }
 
     if (conceptos.length === 0) return false;
     if (moneda === "USD" && !Number(tipoCambio || 0)) return false;
+
+    // Nota de crédito: CfdiRelacionados exige el UUID real de cada factura
+    // acreditada; sin él el XML quedaría inválido para el SAT.
+    if (esNotaCredito && !facturasNC.every((f) => UUID_RE.test((ncUuids[f._id] || "").trim()))) {
+      return false;
+    }
+
+    // Factura: si se agregó alguna relacionada, hace falta el tipo de
+    // relación y que todos los UUID capturados tengan formato válido.
+    if (esFactura && relacionadasExtra.length > 0) {
+      if (!tipoRelacion) return false;
+      if (!relacionadasExtra.every((r) => UUID_RE.test((r.uuid || "").trim()))) return false;
+    }
+
     return true;
-  }, [pasoBaseOk, esComplementoPago, fechaPago, facturasPago, conceptos, moneda, tipoCambio]);
+  }, [
+    pasoBaseOk,
+    esComplementoPago,
+    fechaPago,
+    facturasPago,
+    conceptos,
+    moneda,
+    tipoCambio,
+    esNotaCredito,
+    facturasNC,
+    ncUuids,
+    esFactura,
+    relacionadasExtra,
+    tipoRelacion,
+  ]);
 
   /* ==========
      PAYLOAD COMÚN
@@ -1255,6 +1518,7 @@ export default function NuevaFactura() {
           facturaId: f._id,
           serie: f.serie || "",
           folio: f.folio || "",
+          uuid: (ncUuids[f._id] || "").trim().toUpperCase(),
           total: Number(f.totales?.total || 0),
         }))
       : esComplementoPago
@@ -1262,6 +1526,7 @@ export default function NuevaFactura() {
           facturaId: f.doc._id,
           serie: f.doc.serie || "",
           folio: f.doc.folio || "",
+          uuid: (f.uuid || "").trim().toUpperCase(),
           total: Number(f.doc.totales?.total || 0),
           saldoAnterior: Number(f.doc.totales?.total || 0),
           importePagado: Number(f.importePagado || 0),
@@ -1302,6 +1567,18 @@ export default function NuevaFactura() {
     // InformacionGlobal: periodicidad diaria con el mes/año de emisión (hoy).
     const [gAnio, gMes] = esFacturaGlobal ? hoyISO().split("-") : ["", ""];
 
+    // Nombre de facturación (F3): solo aplica a factura de ingreso. Se manda el
+    // nombre tecleado como `nombre` y la razón social original aparte, para que
+    // el backend deje la nota en el historial si difieren.
+    const clientePayload =
+      esFactura && receptor
+        ? {
+            ...receptor,
+            nombre: (nombreFacturacion || receptor.nombre || "").trim(),
+            razonSocialOriginal: receptor.nombre || "",
+          }
+        : receptor;
+
     // Decisión por comprobante de Cajas VIGENTE (los ya cancelados-pendientes
     // los liga el backend solo). Sin entrada = 'INCLUIR' (histórico), aquí se
     // manda explícito solo cuando NO es INCLUIR.
@@ -1317,7 +1594,7 @@ export default function NuevaFactura() {
 
     return {
       tipoFactura,
-      cliente: receptor,
+      cliente: clientePayload,
       comprobantesCajas: comprobantesCajasPayload,
       // `orden` (singular) se conserva para el historial y los reportes que ya
       // lo leían; `ordenes` lleva la lista completa.
@@ -1345,6 +1622,14 @@ export default function NuevaFactura() {
         comentarios,
         aplicarRetencionIsr: esFactura ? aplicarRetencionIsr : false,
         isrRate,
+        // CFDI 4.0 cfdi:CfdiRelacionados — opcional, solo factura de ingreso.
+        relacion:
+          esFactura && tipoRelacion && relacionadasExtra.length > 0
+            ? {
+                tipoRelacion,
+                uuids: relacionadasExtra.map((r) => (r.uuid || "").trim().toUpperCase()),
+              }
+            : null,
       },
     };
   };
@@ -1399,6 +1684,12 @@ export default function NuevaFactura() {
   const [xmlSigned, setXmlSigned] = useState("");
   const [cadenaOriginal, setCadenaOriginal] = useState("");
   const [sello, setSello] = useState("");
+  // Id de la FacturaCfdi ya guardada en esta sesión del asistente. En cuanto
+  // se genera, "Vista previa"/"Generar XML" desaparecen (ya no tiene caso
+  // volver a generar sobre la misma captura) y se cambia por "Ver Factura",
+  // que abre el PDF real ya guardado (folio asignado, sin los "—" de antes).
+  const [facturaGeneradaId, setFacturaGeneradaId] = useState(null);
+  const [pdfGeneradaLoading, setPdfGeneradaLoading] = useState(false);
 
   const onGenerarXML = async () => {
     if (!puedePreview) return alert("Completa la información antes de generar el XML.");
@@ -1424,6 +1715,7 @@ export default function NuevaFactura() {
       if (data.xmlSigned) {
         alert("✅ XML generado y guardado en el sistema.");
         if (data.persistWarning) alert(data.persistWarning);
+        if (data.facturaId) setFacturaGeneradaId(data.facturaId);
       } else {
         alert("XML generado, pero no llegó el xmlSigned.");
       }
@@ -1440,10 +1732,123 @@ export default function NuevaFactura() {
     }
   };
 
+  const verFacturaGenerada = async () => {
+    if (!facturaGeneradaId) return;
+    try {
+      setPdfGeneradaLoading(true);
+      const res = await getFacturaCfdiPdf(facturaGeneradaId);
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      abrirPdf(
+        url,
+        "factura.pdf",
+        `${tipoInfo?.label || "Factura"} generada`,
+        () => URL.revokeObjectURL(url)
+      );
+    } catch (e) {
+      console.error(e);
+      alert("No se pudo abrir la factura generada.");
+    } finally {
+      setPdfGeneradaLoading(false);
+    }
+  };
+
   /* ==========
      UI helpers
   ========== */
   const disabledSteps = !pasoBaseOk;
+
+  /* ==========
+     ASISTENTE POR PASOS
+     1) Tipo · 2) Selección · 3) Conceptos · 4) Comprobante · 5) Revisión
+  ========== */
+  const [paso, setPaso] = useState(1);
+  // Paso más lejano al que se ha llegado de VERDAD (avanzando o saltando),
+  // nunca baja solo por dar "Atrás". Es lo único que decide la palomita
+  // "completo" del stepper — puedeAvanzarDe() por sí solo no sirve para eso:
+  // varios pasos (p. ej. 4, con moneda MXN por default) pasan su propia
+  // validación sin que el usuario haya escrito nada, así que usarlo solo
+  // marcaría esos pasos como "hechos" en una factura recién abierta.
+  const [pasoMaximo, setPasoMaximo] = useState(1);
+
+  const PASOS = useMemo(
+    () => [
+      { n: 1, label: "Tipo" },
+      {
+        n: 2,
+        label: esFactura
+          ? "Órdenes y cliente"
+          : esNotaCredito
+          ? "Facturas a acreditar"
+          : esComplementoPago
+          ? "Facturas a pagar"
+          : "Notas de venta",
+      },
+      {
+        n: 3,
+        label: esComplementoPago ? "Detalle del pago" : esFacturaGlobal ? "Concepto global" : "Conceptos",
+      },
+      { n: 4, label: "Comprobante" },
+      { n: 5, label: "Revisión" },
+    ],
+    [esFactura, esNotaCredito, esComplementoPago, esFacturaGlobal]
+  );
+
+  const puedeAvanzarDe = (n) => {
+    if (n === 1) return !!tipoFactura;
+    if (n === 2) return pasoBaseOk;
+    if (n === 3) {
+      if (esComplementoPago) {
+        return !!fechaPago && facturasPago.length > 0 && facturasPago.every((f) => Number(f.importePagado) > 0);
+      }
+      if (esFacturaGlobal) return sumaSinIvaGlobal > 0;
+      return conceptos.length > 0;
+    }
+    if (n === 4) return moneda !== "USD" || Number(tipoCambio || 0) > 0;
+    return true;
+  };
+
+  // ¿Se puede saltar directo al paso n (adelante o atrás)? Revalida en vivo
+  // que TODOS los pasos anteriores sigan con sus datos completos: si el
+  // usuario regresa al 1 y el 2 seguía lleno, puede saltar directo al 3 sin
+  // volver a pasar por el 2; si vació algo del 2, deja de poder saltárselo.
+  const pasoAlcanzable = (n) => {
+    for (let k = 1; k < n; k++) {
+      if (!puedeAvanzarDe(k)) return false;
+    }
+    return true;
+  };
+
+  // Salto hacia un paso (adelante o atrás) que SÍ cuenta como "haber llegado
+  // ahí": marca pasoMaximo. Úsalo para cualquier avance real; "Atrás" NO pasa
+  // por aquí (ver pasoAnterior) porque solo estás mirando hacia atrás, no
+  // "completando" nada de nuevo.
+  const irPaso = (n) => {
+    setPaso(n);
+    setPasoMaximo((m) => Math.max(m, n));
+  };
+
+  const irAPaso = (n) => {
+    if (n === paso || !pasoAlcanzable(n)) return;
+    irPaso(n);
+  };
+  const pasoSiguiente = () => {
+    if (!puedeAvanzarDe(paso)) return;
+    irPaso(Math.min(5, paso + 1));
+  };
+  const pasoAnterior = () => setPaso(Math.max(1, paso - 1));
+
+  // Estado de cada paso para el stepper: "completo" = ya se llegó más allá de
+  // ese paso (pasoMaximo) Y sigue pasando su propia validación ahora mismo
+  // (si se regresó y se vació algo, deja de contar como completo). Usar solo
+  // puedeAvanzarDe() no alcanza: varios pasos (p. ej. 4, con moneda MXN de
+  // default) pasan su propia validación sin que el usuario haya tocado nada,
+  // y eso marcaría el paso como "hecho" en una factura recién abierta.
+  const pasosConEstado = PASOS.map((p) => ({
+    ...p,
+    completo: p.n < pasoMaximo && puedeAvanzarDe(p.n),
+    alcanzable: pasoAlcanzable(p.n),
+  }));
 
   const placeholderBusqueda = esFactura
     ? "Busca una orden cerrada por folio, placas, serie o cliente…"
@@ -1481,7 +1886,7 @@ export default function NuevaFactura() {
   );
 
   return (
-    <div className="container-fluid py-3" style={{ maxWidth: 1400 }}>
+    <div className="container-fluid py-3 fw-scope" style={{ maxWidth: 1400 }}>
       {/* ======================
           SECCIÓN 1) TÍTULO + REGRESAR
       ====================== */}
@@ -1494,7 +1899,19 @@ export default function NuevaFactura() {
           ← Regresar
         </button>
         <h2 className="mb-0">Nueva Factura</h2>
+        {tipoFactura && (
+          <button
+            type="button"
+            className="btn btn-outline-danger ms-auto"
+            onClick={empezarDeNuevo}
+            title="Vaciar todo y empezar otra factura desde cero"
+          >
+            Nueva factura (limpiar)
+          </button>
+        )}
       </div>
+
+      {tipoFactura && <PasosBarra pasos={pasosConEstado} actual={paso} onIr={irAPaso} />}
 
       {/* Precarga desde Cajas ("Facturar" en el detalle de la orden) */}
       {precargando && (
@@ -1543,6 +1960,11 @@ export default function NuevaFactura() {
         </div>
       )}
 
+      {/* ======================
+          PASO 1) TIPO DE COMPROBANTE
+      ====================== */}
+      {paso === 1 && (
+      <>
       {/* Tipo de factura (se elige antes de los conceptos) */}
       <div className="card p-3 mb-3">
         <h5 className="mb-1">Tipo de factura</h5>
@@ -1583,11 +2005,13 @@ export default function NuevaFactura() {
           Elige un tipo de factura para comenzar.
         </div>
       )}
+      </>
+      )}
 
       {/* ======================
-          SECCIÓN 2) BÚSQUEDA (centrada)
+          PASO 2) SELECCIÓN (órdenes / notas / facturas relacionadas) + cliente
       ====================== */}
-      {tipoFactura && (
+      {paso === 2 && tipoFactura && (
         <div className="card p-3 mb-3">
           <div className="mx-auto w-100" style={{ maxWidth: 720 }}>
             <h5 className="text-center mb-1">
@@ -1621,7 +2045,7 @@ export default function NuevaFactura() {
                 {showOrdenes && (
                   <div
                     className="list-group position-absolute w-100"
-                    style={{ zIndex: 20, maxHeight: 300, overflow: "auto" }}
+                    style={{ zIndex: 1050, maxHeight: 300, overflow: "auto" }}
                   >
                     {loadingOrden && <div className="list-group-item">Buscando…</div>}
 
@@ -1667,7 +2091,7 @@ export default function NuevaFactura() {
                 {showFacturas && (
                   <div
                     className="list-group position-absolute w-100"
-                    style={{ zIndex: 20, maxHeight: 300, overflow: "auto" }}
+                    style={{ zIndex: 1050, maxHeight: 300, overflow: "auto" }}
                   >
                     {loadingFacturas && <div className="list-group-item">Buscando…</div>}
 
@@ -1818,6 +2242,30 @@ export default function NuevaFactura() {
                   valor={money(resumenGlobal.totalOrden)}
                   sub={`IVA: ${money(resumenGlobal.ivaMonto)}`}
                 />
+              </div>
+
+              {/* Nombre de facturación (F3): editable. Si difiere de la razón
+                  social fiscal, la factura guarda una nota en el historial. */}
+              <div className="row g-3 mt-1">
+                <div className="col-12 col-md-8">
+                  <label className="form-label">Facturar a nombre de</label>
+                  <input
+                    className="form-control"
+                    value={nombreFacturacion}
+                    disabled={disabledSteps}
+                    onChange={(e) => setNombreFacturacion(e.target.value)}
+                  />
+                  {facturaConNombreDistinto && (
+                    <div className="fw-bubble">
+                      <span className="fw-bubble__icon">!</span>
+                      <span>
+                        Vas a facturar como <b>“{nombreFacturacionTrim}”</b> en vez de la razón
+                        social fiscal <b>“{razonSocialFiscal || "—"}”</b>. Se guardará una nota en
+                        el historial de facturación.
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Órdenes agregadas, con su desglose de costo de venta */}
@@ -2179,29 +2627,47 @@ export default function NuevaFactura() {
                       <th>Orden</th>
                       <th className="text-end">Subtotal</th>
                       <th className="text-end">Total</th>
+                      <th style={{ width: 260 }}>UUID (folio fiscal)</th>
                       <th style={{ width: 110 }}>Acción</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {facturasNC.map((f) => (
-                      <tr key={f._id}>
-                        <td className="fw-bold">{(f.serie || "") + (f.folio || "") || "—"}</td>
-                        <td>{fechaCorta(f.fecha)}</td>
-                        <td>{f.orden?.ordenServicio || "—"}</td>
-                        <td className="text-end">{money(f.totales?.subtotal)}</td>
-                        <td className="text-end">{money(f.totales?.total)}</td>
-                        <td>
-                          <button
-                            className="btn btn-sm btn-outline-danger"
-                            onClick={() => quitarFacturaNC(f._id)}
-                          >
-                            Quitar
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {facturasNC.map((f) => {
+                      const uuidF = ncUuids[f._id] || "";
+                      return (
+                        <tr key={f._id}>
+                          <td className="fw-bold">{(f.serie || "") + (f.folio || "") || "—"}</td>
+                          <td>{fechaCorta(f.fecha)}</td>
+                          <td>{f.orden?.ordenServicio || "—"}</td>
+                          <td className="text-end">{money(f.totales?.subtotal)}</td>
+                          <td className="text-end">{money(f.totales?.total)}</td>
+                          <td>
+                            <input
+                              className={`form-control form-control-sm ${
+                                uuidF && !UUID_RE.test(uuidF.trim()) ? "is-invalid" : ""
+                              }`}
+                              value={uuidF}
+                              placeholder="00000000-0000-0000-0000-000000000000"
+                              onChange={(e) => setNcUuid(f._id, e.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <button
+                              className="btn btn-sm btn-outline-danger"
+                              onClick={() => quitarFacturaNC(f._id)}
+                            >
+                              Quitar
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
+                <div className="text-muted small mt-1">
+                  Captura el UUID (folio fiscal) real de cada factura acreditada — lo exige el
+                  SAT para la relación 01 y no se conoce hasta que esa factura se timbra.
+                </div>
               </div>
             </div>
           )}
@@ -2244,9 +2710,9 @@ export default function NuevaFactura() {
       )}
 
       {/* ======================
-          SECCIÓN 3) CONCEPTO ÚNICO + DESCUENTO (factura global)
+          PASO 3) CONCEPTO ÚNICO + DESCUENTO (factura global)
       ====================== */}
-      {esFacturaGlobal && (
+      {paso === 3 && esFacturaGlobal && (
         <div className={`card p-3 mb-3 ${disabledSteps ? "opacity-50" : ""}`}>
           <h5>Concepto de la factura global</h5>
 
@@ -2307,9 +2773,9 @@ export default function NuevaFactura() {
       )}
 
       {/* ======================
-          SECCIÓN 3) CONCEPTOS (factura / nota de crédito)
+          PASO 3) CONCEPTOS (factura / nota de crédito)
       ====================== */}
-      {tipoFactura && (esFactura || esNotaCredito) && (
+      {paso === 3 && (esFactura || esNotaCredito) && (
         <div className={`card p-3 mb-3 ${disabledSteps ? "opacity-50" : ""}`}>
           <h5>Conceptos</h5>
 
@@ -2630,9 +3096,9 @@ export default function NuevaFactura() {
       )}
 
       {/* ======================
-          SECCIÓN 3) DETALLE DEL PAGO (complemento de pago)
+          PASO 3) DETALLE DEL PAGO (complemento de pago)
       ====================== */}
-      {esComplementoPago && (
+      {paso === 3 && esComplementoPago && (
         <div className={`card p-3 mb-3 ${disabledSteps ? "opacity-50" : ""}`}>
           <h5>Detalle del pago</h5>
 
@@ -2653,13 +3119,14 @@ export default function NuevaFactura() {
                   <th style={{ width: 150 }}>Saldo anterior</th>
                   <th style={{ width: 170 }}>Importe pagado</th>
                   <th style={{ width: 150 }}>Saldo insoluto</th>
+                  <th style={{ width: 240 }}>UUID (folio fiscal)</th>
                   <th style={{ width: 110 }}>Acción</th>
                 </tr>
               </thead>
               <tbody>
                 {facturasPago.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center text-muted">
+                    <td colSpan={9} className="text-center text-muted">
                       Agrega al menos 1 factura
                     </td>
                   </tr>
@@ -2668,6 +3135,7 @@ export default function NuevaFactura() {
                     const saldoAnt = Number(f.doc.totales?.total || 0);
                     const pagado = Number(f.importePagado || 0);
                     const insoluto = Math.max(saldoAnt - pagado, 0);
+                    const uuidF = f.uuid || "";
 
                     return (
                       <tr key={f.doc._id}>
@@ -2690,6 +3158,16 @@ export default function NuevaFactura() {
                         </td>
                         <td className="text-end">{money(insoluto)}</td>
                         <td>
+                          <input
+                            className={`form-control form-control-sm ${
+                              uuidF && !UUID_RE.test(uuidF.trim()) ? "is-invalid" : ""
+                            }`}
+                            value={uuidF}
+                            placeholder="00000000-0000-0000-0000-000000000000"
+                            onChange={(e) => setPagoUuid(f.doc._id, e.target.value)}
+                          />
+                        </td>
+                        <td>
                           <button
                             className="btn btn-sm btn-outline-danger"
                             onClick={() => quitarFacturaPago(f.doc._id)}
@@ -2708,9 +3186,9 @@ export default function NuevaFactura() {
       )}
 
       {/* ======================
-          SECCIÓN 4) DATOS DEL COMPROBANTE
+          PASO 4) DATOS DEL COMPROBANTE
       ====================== */}
-      {tipoFactura && (
+      {paso === 4 && tipoFactura && (
         <div className={`card p-3 mb-3 ${disabledSteps ? "opacity-50" : ""}`}>
           <h5>Datos del comprobante</h5>
           <div className="text-muted small mb-2">
@@ -2836,28 +3314,15 @@ export default function NuevaFactura() {
                   )}
                 </div>
 
-                <div className="col-12 col-md-4">
-                  <label className="form-label">Método de pago</label>
-                  <Dropdown
-                    className="form-select"
-                    value={metodoPago}
-                    disabled={disabledSteps}
-                    onChange={(e) => setMetodoPago(e.target.value)}
-                  >
-                    {METODO_PAGO.map((x) => (
-                      <Dropdown.Option key={x.value} value={x.value}>
-                        {x.label}
-                      </Dropdown.Option>
-                    ))}
-                  </Dropdown>
-                </div>
-
+                {/* Forma de pago va antes que método: cuando es "99 - Por definir"
+                    el método se fuerza a PPD (ver efecto arriba). En factura
+                    global la fija la nota de mayor monto (regla SAT). */}
                 <div className="col-12 col-md-4">
                   <label className="form-label">Forma de pago</label>
                   <Dropdown
                     className="form-select"
                     value={formaPago}
-                    disabled={disabledSteps}
+                    disabled={disabledSteps || esFacturaGlobal}
                     onChange={(e) => setFormaPago(e.target.value)}
                   >
                     {FORMA_PAGO.map((x) => (
@@ -2866,6 +3331,34 @@ export default function NuevaFactura() {
                       </Dropdown.Option>
                     ))}
                   </Dropdown>
+                  {esFacturaGlobal && notaMayorGlobal && (
+                    <small className="text-muted">
+                      Regla SAT: forma de pago de la nota de mayor monto (#
+                      {notaMayorGlobal.numero} · {money(notaMayorGlobal.monto)}
+                      {notaMayorGlobal.formaPagoLabel ? ` · ${notaMayorGlobal.formaPagoLabel}` : ""}).
+                    </small>
+                  )}
+                </div>
+
+                <div className="col-12 col-md-4">
+                  <label className="form-label">Método de pago</label>
+                  <Dropdown
+                    className="form-select"
+                    value={metodoPago}
+                    disabled={disabledSteps || formaPago === "99"}
+                    onChange={(e) => setMetodoPago(e.target.value)}
+                  >
+                    {METODO_PAGO.map((x) => (
+                      <Dropdown.Option key={x.value} value={x.value}>
+                        {x.label}
+                      </Dropdown.Option>
+                    ))}
+                  </Dropdown>
+                  {formaPago === "99" && (
+                    <small className="text-muted">
+                      Con forma de pago “Por definir” el método es PPD.
+                    </small>
+                  )}
                 </div>
 
                 <div className="col-12 col-md-4">
@@ -2878,19 +3371,179 @@ export default function NuevaFactura() {
                   />
                 </div>
 
+                {/* Burbuja informativa: qué condición llevará la factura. */}
+                <div className="col-12">
+                  <div className="alert alert-info py-2 px-3 mb-0 small">
+                    Esta factura se emitirá como <b>{condicionPago}</b>
+                    {condicionPago === "Crédito"
+                      ? " — método PPD (pago en parcialidades o diferido)."
+                      : " — método PUE (pago en una sola exhibición)."}
+                  </div>
+                </div>
+
                 {esNotaCredito && facturasNC.length > 0 && (
-                  <div className="col-12 col-md-6">
-                    <label className="form-label">
-                      Facturas relacionadas (Relación 01)
+                  <div className="col-12">
+                    <div className="alert alert-info py-2 px-3 mb-0 small">
+                      Relación 01 — Nota de crédito de:{" "}
+                      <b>
+                        {facturasNC.map((f) => (f.serie || "") + (f.folio || "")).join(", ")}
+                      </b>{" "}
+                      · {money(totalNC)}. Verifica el UUID de cada factura en el paso 2.
+                    </div>
+                  </div>
+                )}
+
+                {/* CFDI 4.0 CfdiRelacionados: opcional, solo factura de ingreso. */}
+                {esFactura && (
+                  <div className="col-12">
+                    <hr className="my-1" />
+                    <label className="form-label mb-1">
+                      Facturas relacionadas{" "}
+                      <span className="text-muted fw-normal">(opcional)</span>
                     </label>
-                    <input
-                      className="form-control"
-                      value={`${facturasNC
-                        .map((f) => (f.serie || "") + (f.folio || ""))
-                        .join(", ")} · ${money(totalNC)}`}
-                      disabled
-                      readOnly
-                    />
+                    <div className="text-muted small mb-2">
+                      Si esta factura sustituye, devuelve, aplica un anticipo o de cualquier
+                      otra forma se relaciona con uno o más CFDI previos, indícalo aquí.
+                    </div>
+
+                    <div className="row g-3">
+                      <div className="col-12 col-md-4">
+                        <Dropdown
+                          className="form-select"
+                          value={tipoRelacion}
+                          disabled={disabledSteps}
+                          onChange={(e) => setTipoRelacion(e.target.value)}
+                        >
+                          <Dropdown.Option value="">Tipo de relación…</Dropdown.Option>
+                          {TIPO_RELACION.map((x) => (
+                            <Dropdown.Option key={x.value} value={x.value}>
+                              {x.label}
+                            </Dropdown.Option>
+                          ))}
+                        </Dropdown>
+                        {relacionadasExtra.length > 0 && !tipoRelacion && (
+                          <small className="text-danger">Selecciona el tipo de relación.</small>
+                        )}
+                      </div>
+
+                      <div className="col-12 col-md-8 position-relative">
+                        <input
+                          className="form-control"
+                          placeholder="Busca por folio o cliente, o pega el UUID completo…"
+                          value={qRelacionada}
+                          disabled={disabledSteps}
+                          onChange={(e) => setQRelacionada(e.target.value)}
+                          onFocus={() =>
+                            (optsRelacionadas.length || qRelacionada.trim()) &&
+                            setShowRelacionadas(true)
+                          }
+                          onBlur={() => setTimeout(() => setShowRelacionadas(false), 150)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && UUID_RE.test(qRelacionada.trim())) {
+                              e.preventDefault();
+                              agregarRelacionadaManual();
+                            }
+                          }}
+                        />
+                        {showRelacionadas && (
+                          <div
+                            className="list-group position-absolute w-100"
+                            style={{ zIndex: 1050, maxHeight: 260, overflow: "auto" }}
+                          >
+                            {loadingRelacionadas && (
+                              <div className="list-group-item">Buscando…</div>
+                            )}
+                            {!loadingRelacionadas &&
+                              optsRelacionadas.map((d) => (
+                                <button
+                                  type="button"
+                                  key={d._id}
+                                  className="list-group-item list-group-item-action"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => agregarRelacionadaDesdeBusqueda(d)}
+                                >
+                                  <div className="d-flex justify-content-between">
+                                    <span className="fw-bold">
+                                      {(d.serie || "") + (d.folio || "") || "(sin folio)"}
+                                    </span>
+                                    <span>{money(d.totales?.total)}</span>
+                                  </div>
+                                  <div style={{ fontSize: 13, opacity: 0.8 }}>
+                                    {d.cliente?.nombre || "Sin cliente"} · {fechaCorta(d.fecha)}
+                                    {d.uuid ? ` · UUID: ${d.uuid}` : " · sin UUID capturado"}
+                                  </div>
+                                </button>
+                              ))}
+                            {!loadingRelacionadas && UUID_RE.test(qRelacionada.trim()) && (
+                              <button
+                                type="button"
+                                className="list-group-item list-group-item-action"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={agregarRelacionadaManual}
+                              >
+                                Usar <b>“{qRelacionada.trim()}”</b> directamente como UUID
+                              </button>
+                            )}
+                            {!loadingRelacionadas &&
+                              optsRelacionadas.length === 0 &&
+                              !UUID_RE.test(qRelacionada.trim()) && (
+                                <div className="list-group-item text-muted small">
+                                  Sin coincidencias. Si ya tienes el UUID completo, pégalo aquí.
+                                </div>
+                              )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {relacionadasExtra.length > 0 && (
+                      <div className="table-responsive mt-2">
+                        <table className="table table-sm table-bordered align-middle mb-0">
+                          <thead className="table-light">
+                            <tr>
+                              <th>Factura</th>
+                              <th>UUID</th>
+                              <th style={{ width: 90 }}>Acción</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {relacionadasExtra.map((r) => (
+                              <tr key={r.key}>
+                                <td>
+                                  {r.folio ? (
+                                    <>
+                                      <div className="fw-bold">{(r.serie || "") + r.folio}</div>
+                                      <div className="text-muted small">{r.cliente || "—"}</div>
+                                    </>
+                                  ) : (
+                                    <span className="text-muted">UUID capturado a mano</span>
+                                  )}
+                                </td>
+                                <td>
+                                  <input
+                                    className={`form-control form-control-sm ${
+                                      r.uuid && !UUID_RE.test(r.uuid.trim()) ? "is-invalid" : ""
+                                    }`}
+                                    value={r.uuid}
+                                    placeholder="00000000-0000-0000-0000-000000000000"
+                                    disabled={disabledSteps}
+                                    onChange={(e) => setUuidRelacionada(r.key, e.target.value)}
+                                  />
+                                </td>
+                                <td>
+                                  <button
+                                    className="btn btn-sm btn-outline-danger"
+                                    onClick={() => quitarRelacionada(r.key)}
+                                  >
+                                    Quitar
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2929,10 +3582,52 @@ export default function NuevaFactura() {
       )}
 
       {/* ======================
-          TOTALES + ACCIONES
+          PASO 5) REVISIÓN — TOTALES + ACCIONES
       ====================== */}
-      {tipoFactura && (
+      {paso === 5 && tipoFactura && (
         <div className="card p-3 mb-4">
+          <h5 className="mb-2">Revisión</h5>
+          <div className="fw-review">
+            <div>
+              <div className="fw-review__k">Tipo</div>
+              <div className="fw-review__v">{tipoInfo?.label || tipoFactura}</div>
+            </div>
+            <div>
+              <div className="fw-review__k">Receptor</div>
+              <div className="fw-review__v">
+                {esFacturaGlobal ? "PÚBLICO EN GENERAL" : nombreFacturacion || receptor?.nombre || "—"}
+              </div>
+            </div>
+            {!esComplementoPago && (
+              <div>
+                <div className="fw-review__k">Conceptos</div>
+                <div className="fw-review__v">{conceptos.length}</div>
+              </div>
+            )}
+            {!esComplementoPago && (
+              <div>
+                <div className="fw-review__k">Condición</div>
+                <div className="fw-review__v">{condicionPago}</div>
+              </div>
+            )}
+            <div>
+              <div className="fw-review__k">Forma de pago</div>
+              <div className="fw-review__v">
+                {(FORMA_PAGO.find((x) => x.value === formaPago) || {}).label || formaPago}
+              </div>
+            </div>
+          </div>
+          {facturaConNombreDistinto && (
+            <div className="fw-bubble fw-bubble--flat mb-3">
+              <span className="fw-bubble__icon">!</span>
+              <span>
+                Vas a facturar como <b>“{nombreFacturacionTrim}”</b> en vez de la razón social
+                fiscal <b>“{razonSocialFiscal || "—"}”</b>. Se guardará una nota en el historial
+                de facturación.
+              </span>
+            </div>
+          )}
+
           <div className="d-flex justify-content-end">
             <div style={{ minWidth: 360 }}>
               {esComplementoPago ? (
@@ -2957,6 +3652,13 @@ export default function NuevaFactura() {
                     <b>SUBTOTAL</b>
                     <span>{money(subtotal)}</span>
                   </div>
+
+                  {esFactura && resumenGlobal?.descuentoMonto > 0 && (
+                    <div className="text-muted small">
+                      Incluye descuento aplicado en caja (−{money(resumenGlobal.descuentoMonto)} con IVA),
+                      ya reflejado en los precios de los conceptos.
+                    </div>
+                  )}
 
                   {esFacturaGlobal && (
                     <div className="d-flex justify-content-between">
@@ -2988,21 +3690,33 @@ export default function NuevaFactura() {
           </div>
 
           <div className="mt-3 d-flex gap-2 justify-content-end">
-            <button
-              className="btn btn-outline-secondary"
-              onClick={onPreviewPDF}
-              disabled={!puedePreview || pdfLoading}
-            >
-              {pdfLoading ? "Generando PDF..." : "Vista previa PDF"}
-            </button>
+            {facturaGeneradaId ? (
+              <button
+                className="btn btn-success fw-semibold"
+                onClick={verFacturaGenerada}
+                disabled={pdfGeneradaLoading}
+              >
+                {pdfGeneradaLoading ? "Abriendo..." : "Ver Factura"}
+              </button>
+            ) : (
+              <>
+                <button
+                  className="btn btn-outline-secondary"
+                  onClick={onPreviewPDF}
+                  disabled={!puedePreview || pdfLoading}
+                >
+                  {pdfLoading ? "Generando PDF..." : "Vista previa PDF"}
+                </button>
 
-            <button
-              className="btn btn-primary"
-              onClick={onGenerarXML}
-              disabled={!puedePreview || xmlLoading}
-            >
-              {xmlLoading ? "Generando XML..." : "Generar XML"}
-            </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={onGenerarXML}
+                  disabled={!puedePreview || xmlLoading}
+                >
+                  {xmlLoading ? "Generando XML..." : "Generar XML"}
+                </button>
+              </>
+            )}
           </div>
 
           {/* Debug (opcional) */}
@@ -3036,6 +3750,40 @@ export default function NuevaFactura() {
                 </div>
               )}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ======================
+          NAVEGACIÓN DEL ASISTENTE
+      ====================== */}
+      {tipoFactura && (
+        <div className="fw-nav">
+          <button
+            type="button"
+            className="btn btn-outline-secondary"
+            onClick={pasoAnterior}
+            disabled={paso <= 1}
+          >
+            ← Atrás
+          </button>
+          <span className="fw-nav__progress d-none d-sm-inline">
+            Paso {paso} de {PASOS.length}
+          </span>
+          {paso < 5 ? (
+            <button
+              type="button"
+              className="btn btn-danger px-4"
+              onClick={pasoSiguiente}
+              disabled={!puedeAvanzarDe(paso)}
+              title={!puedeAvanzarDe(paso) ? "Completa este paso para continuar" : undefined}
+            >
+              Siguiente →
+            </button>
+          ) : (
+            <span className="text-success fw-semibold">
+              Último paso · genera el comprobante abajo
+            </span>
           )}
         </div>
       )}
