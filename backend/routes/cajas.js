@@ -14,7 +14,7 @@ const { generarComprobanteCajaPDF } = require('../service/cajaComprobantePdf');
 const { generarReciboProvisionalPDF, generarReciboDolaresPDF } = require('../service/cajaRecibosPdf');
 const { streamReporteFacturasDiarioPdf } = require('../service/reporteFacturasDiarioPdf');
 const { streamReporteRemisionesDiarioPdf } = require('../service/reporteRemisionesDiarioPdf');
-const { aplicarUso, aplicarDeposito, cancelarDeposito, revertirUso, calcularOrigenSaldo, SaldoInsuficienteError, sincronizarAnticiposAplicados } = require('../utils/anticiposCliente');
+const { aplicarUso, aplicarUsoDeDeposito, aplicarDeposito, cancelarDeposito, revertirUso, calcularOrigenSaldo, SaldoInsuficienteError, ReciboSinSaldoError, sincronizarAnticiposAplicados } = require('../utils/anticiposCliente');
 
 // saldoAFavor: necesario para que Cajas muestre "Saldo disponible del
 // cliente" y pueda aplicarlo a un pago (ver POST /:id/pagos abajo).
@@ -257,7 +257,7 @@ router.post('/:id/pagos', proteger, async (req, res) => {
   // Declarados fuera del try para que el catch pueda revertir el saldo si
   // aplicarUso / aplicarDeposito ya se ejecutó pero algo después falló (ver
   // catch al final).
-  let movimientoSaldo = null;
+  const movimientosSaldo = []; // USO(s) de saldo a favor aplicados en este pago
   let movimientoDeposito = null;
   let clienteParaRevertirSaldo = null;
   try {
@@ -268,6 +268,9 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       montoDolares = 0,
       tipoCambio = 0,
       montoSaldoAplicado = 0,
+      // Anticipos elegidos por recibo: [{ depositoId, monto }]. Se suman al
+      // saldo a favor genérico (montoSaldoAplicado) y se consumen por recibo.
+      anticiposAplicados = [],
       referencia = '',
       observaciones = '',
       notas = '',
@@ -373,12 +376,37 @@ router.post('/:id/pagos', proteger, async (req, res) => {
     // favor del cliente (ver más abajo). Por lo mismo no admite "usar saldo a
     // favor" (no tiene sentido consumir saldo para volver a depositarlo).
     const esAnticipoSaldo = tipoPago === 'ANTICIPO';
-    const montoSaldo = esRemisionCredito || esAnticipoSaldo ? 0 : Number(montoSaldoAplicado) || 0;
+
+    // Anticipos elegidos por recibo: se normalizan y se suman al saldo a favor
+    // genérico. Un mismo recibo no puede venir dos veces en la misma petición.
+    const anticiposLimpios = [];
+    if (Array.isArray(anticiposAplicados)) {
+      for (const a of anticiposAplicados) {
+        const m = Math.round((Number(a?.monto) || 0) * 100) / 100;
+        if (!a?.depositoId || !mongoose.isValidObjectId(a.depositoId) || m <= 0) continue;
+        if (anticiposLimpios.some((x) => x.depositoId === String(a.depositoId))) {
+          return res.status(400).json({ ok: false, msg: 'Un recibo de anticipo aparece dos veces.' });
+        }
+        anticiposLimpios.push({ depositoId: String(a.depositoId), monto: m });
+      }
+    }
+    const montoAnticiposDeposito = anticiposLimpios.reduce((s, a) => s + a.monto, 0);
+
+    if ((esRemisionCredito || esAnticipoSaldo) && (Number(montoSaldoAplicado) > 0 || montoAnticiposDeposito > 0)) {
+      return res.status(400).json({
+        ok: false,
+        msg: esAnticipoSaldo
+          ? 'Un Anticipo no puede consumir saldo a favor.'
+          : 'Una Remisión a Crédito no recibe dinero: no se puede aplicar saldo.',
+      });
+    }
+
+    const montoSaldo =
+      esRemisionCredito || esAnticipoSaldo
+        ? 0
+        : (Number(montoSaldoAplicado) || 0) + montoAnticiposDeposito;
     if (montoSaldo < 0) {
       return res.status(400).json({ ok: false, msg: 'El saldo aplicado no puede ser negativo.' });
-    }
-    if (esRemisionCredito && Number(montoSaldoAplicado) > 0) {
-      return res.status(400).json({ ok: false, msg: 'Una Remisión a Crédito no recibe dinero: no se puede aplicar saldo.' });
     }
     const monto = esRemisionCredito
       ? 0
@@ -420,24 +448,57 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       // se calcula ANTES de aplicarUso, sobre el ledger tal como está antes
       // de este nuevo USO.
       const origenesSaldo = await calcularOrigenSaldo(ordenExistente.cliente, montoSaldo);
+      const metaUso = {
+        ordenAplicada: req.params.id,
+        pagoId,
+        registradoPor: req.user?.name || req.user?.username || '',
+        registradoPorId: req.user?._id || null,
+      };
+      const aplicaciones = [];
       try {
-        const resultado = await aplicarUso(ordenExistente.cliente, montoSaldo, {
-          ordenAplicada: req.params.id,
-          pagoId,
-          registradoPor: req.user?.name || req.user?.username || '',
-          registradoPorId: req.user?._id || null,
-        });
-        movimientoSaldo = resultado.movimiento;
+        // 1) Parte elegida recibo por recibo.
+        for (const a of anticiposLimpios) {
+          const { movimiento } = await aplicarUsoDeDeposito(ordenExistente.cliente, a.depositoId, a.monto, metaUso);
+          movimientosSaldo.push(movimiento);
+          aplicaciones.push({ depositoId: a.depositoId, movimientoId: movimiento._id, monto: a.monto });
+        }
+        // 2) Resto: saldo a favor genérico (FIFO), si el cajero lo capturó aparte.
+        const montoGenerico = Math.round((Number(montoSaldoAplicado) || 0) * 100) / 100;
+        if (montoGenerico > 0) {
+          const { movimiento } = await aplicarUso(ordenExistente.cliente, montoGenerico, metaUso);
+          movimientosSaldo.push(movimiento);
+        }
       } catch (errSaldo) {
+        // Revertir lo que sí se alcanzó a aplicar antes de fallar, para no
+        // dejar saldo descontado sin pago que lo respalde.
+        for (const mov of movimientosSaldo) {
+          try {
+            await revertirUso(ordenExistente.cliente, mov.monto, metaUso);
+          } catch (e) {
+            console.error('Error revirtiendo saldo parcial tras fallo:', e);
+          }
+        }
+        movimientosSaldo.length = 0;
         if (errSaldo instanceof SaldoInsuficienteError) {
           return res.status(400).json({
             ok: false,
             msg: `El cliente no tiene saldo suficiente. Saldo disponible: ${errSaldo.saldoDisponible}.`,
           });
         }
+        if (errSaldo instanceof ReciboSinSaldoError) {
+          return res.status(400).json({ ok: false, msg: errSaldo.message });
+        }
+        if (errSaldo.message && /recibo de anticipo seleccionado/i.test(errSaldo.message)) {
+          return res.status(400).json({ ok: false, msg: errSaldo.message });
+        }
         throw errSaldo;
       }
-      pago.saldoAplicado = { monto: montoSaldo, movimientoId: movimientoSaldo._id, origenes: origenesSaldo };
+      pago.saldoAplicado = {
+        monto: montoSaldo,
+        movimientoId: movimientosSaldo[0]?._id || null,
+        origenes: origenesSaldo,
+        ...(aplicaciones.length ? { aplicaciones } : {}),
+      };
     }
 
     // Un "Anticipo" guarda su dinero como saldo a favor del cliente
@@ -603,16 +664,18 @@ router.post('/:id/pagos', proteger, async (req, res) => {
     // llegó a quedar registrado en la orden (falló algo después, p. ej. el
     // $push), hay que regresarle el saldo: si no, quedaría descontado sin
     // ningún pago real que lo respalde.
-    if (movimientoSaldo && clienteParaRevertirSaldo) {
-      try {
-        await revertirUso(clienteParaRevertirSaldo, movimientoSaldo.monto, {
-          ordenAplicada: req.params.id,
-          pagoId: movimientoSaldo.pagoId,
-          registradoPor: req.user?.name || req.user?.username || '',
-          registradoPorId: req.user?._id || null,
-        });
-      } catch (errRevertir) {
-        console.error('Error revirtiendo saldo tras fallo al registrar pago:', errRevertir);
+    if (movimientosSaldo.length && clienteParaRevertirSaldo) {
+      for (const mov of movimientosSaldo) {
+        try {
+          await revertirUso(clienteParaRevertirSaldo, mov.monto, {
+            ordenAplicada: req.params.id,
+            pagoId: mov.pagoId,
+            registradoPor: req.user?.name || req.user?.username || '',
+            registradoPorId: req.user?._id || null,
+          });
+        } catch (errRevertir) {
+          console.error('Error revirtiendo saldo tras fallo al registrar pago:', errRevertir);
+        }
       }
     }
     // Simétrico para el DEPOSITO de un "Anticipo": si el saldo a favor ya se
@@ -918,7 +981,7 @@ router.get('/:id/pagos/:pagoId/preview-cancelacion', async (req, res) => {
       complementosPago: [],
       notasCredito: [],
       facturas: [],
-      facturaGeneral: [],
+      facturaGlobal: [],
       totales: { totalVentaDia: 0, totalContado: 0, totalCredito: 0, totalAnticipo: -monto, totalPorCobrar: 0, totalIngreso: -monto },
       deposito: { efectivo: 0, cheques: 0, transferencias: 0, tarjetasCD: 0, total: 0 },
     };

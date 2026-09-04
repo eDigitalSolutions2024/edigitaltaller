@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { FaPrint } from "react-icons/fa";
+import "../../../styles/anticipoRecibos.css";
 import Dropdown from "../../../components/Dropdown";
 import PdfViewer from "../../../components/PdfViewer";
 import useTipoCambioActual from "../../../hooks/useTipoCambioActual";
@@ -75,7 +76,7 @@ function telefonoCelularOrden(orden) {
   return [cel.lada, cel.numero].filter(Boolean).join(" ");
 }
 
-export default function CajaModalPago({ show, orden, saldoPendiente, saldoClienteDisponible = 0, onClose, onSubmit, onValeGuardado }) {
+export default function CajaModalPago({ show, orden, saldoPendiente, saldoClienteDisponible = 0, anticiposDisponibles = [], onClose, onSubmit, onValeGuardado }) {
   const user = getUser();
 
   // Paso actual del asistente (1: tipo de pago · 2: forma de pago y montos ·
@@ -123,6 +124,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   // total con saldo). El máximo que ve el cajero es solo UX: el backend
   // siempre revalida el saldo real al guardar (ver POST /:id/pagos).
   const [montoSaldoAplicado, setMontoSaldoAplicado] = useState("");
+  // Monto a usar de cada recibo de anticipo elegido: { [depositoId]: "123.45" }.
+  const [anticiposSel, setAnticiposSel] = useState({});
   const [observaciones, setObservaciones] = useState("");
   const [notas, setNotas] = useState("");
   const [notasEditadas, setNotasEditadas] = useState(false);
@@ -248,6 +251,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setMontoPesos("");
     setMontoDolares("");
     setMontoSaldoAplicado("");
+    setAnticiposSel({});
     setObservaciones("");
     setNotas("");
     setNotasEditadas(false);
@@ -439,7 +443,13 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     0,
     Math.min(saldoClienteDisponible || 0, saldoValido !== undefined ? saldoValido : Infinity)
   );
-  const montoSaldo = Math.min(Number(montoSaldoAplicado) || 0, maxSaldoAplicable);
+  // Monto elegido recibo por recibo (topado al restante de cada recibo).
+  const montoAnticiposSel = (anticiposDisponibles || []).reduce((s, a) => {
+    const v = Number(anticiposSel[a.depositoId]) || 0;
+    return s + Math.max(0, Math.min(v, Number(a.restante) || 0));
+  }, 0);
+  const montoSaldoGenerico = Math.max(0, Number(montoSaldoAplicado) || 0);
+  const montoSaldo = Math.min(montoSaldoGenerico + montoAnticiposSel, maxSaldoAplicable);
   const totalConSaldo = totalPago + montoSaldo;
 
   // El "cambio" (efectivo recibido de más) solo aplica a un Liquida (COMPLETO,
@@ -661,13 +671,31 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
       }
 
       const { pesos, dolares } = montosAplicados();
+
+      // Reparte el saldo aplicable (topado a maxSaldoAplicable vía montoSaldo)
+      // entre los recibos elegidos primero y el saldo genérico después, para
+      // que la suma que ve el backend nunca pase de lo permitido.
+      let cupo = montoSaldo;
+      const anticiposAplicadosPayload = [];
+      for (const a of anticiposDisponibles || []) {
+        if (cupo <= 0.005) break;
+        const pedido = Math.max(0, Math.min(Number(anticiposSel[a.depositoId]) || 0, Number(a.restante) || 0));
+        const usar = Math.round(Math.min(pedido, cupo) * 100) / 100;
+        if (usar > 0.005) {
+          anticiposAplicadosPayload.push({ depositoId: a.depositoId, monto: usar });
+          cupo = Math.round((cupo - usar) * 100) / 100;
+        }
+      }
+      const montoSaldoGenericoPayload = Math.max(0, Math.round(cupo * 100) / 100);
+
       const pagoCreado = await onSubmit({
         tipoPago,
         comprobante,
         montoPesos: pesos,
         montoDolares: dolares,
         tipoCambio: Number(tipoCambio) || 0,
-        montoSaldoAplicado: montoSaldo,
+        montoSaldoAplicado: montoSaldoGenericoPayload,
+        ...(anticiposAplicadosPayload.length ? { anticiposAplicados: anticiposAplicadosPayload } : {}),
         observaciones,
         notas,
         ...(comprobante === "NOTA_VENTA"
@@ -920,33 +948,173 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     </>
   );
 
-  const bloqueSaldoFavor = !esRemisionCredito && saldoClienteDisponible > 0 && !esAnticipoSaldo && (
+  const sumaRestanteRecibos = (anticiposDisponibles || []).reduce(
+    (s, a) => s + (Number(a.restante) || 0),
+    0
+  );
+  // Saldo del cliente que no está atado a un recibo concreto (p. ej. reembolsos
+  // de usos previos): solo se puede aplicar con el campo genérico.
+  const saldoSinRecibo = Math.max(
+    0,
+    (Number(saldoClienteDisponible) || 0) - sumaRestanteRecibos
+  );
+
+  const etiquetaRecibo = (a) => {
+    // Un anticipo (ligado a una orden o no) es, sin más, un Recibo
+    // Provisional — comparten la misma numeración (ver routes/anticipos.js).
+    const numero = a.reciboProvisionalNumero ?? a.folioRecibo;
+    const folio = numero != null ? `Recibo provisional #${numero}` : "Anticipo";
+    const os = a.ordenServicio ? ` · ${a.ordenServicio}` : "";
+    const f = a.fecha ? ` · ${new Date(a.fecha).toLocaleDateString("es-MX")}` : "";
+    return `${folio}${os}${f}`;
+  };
+
+  // "Cómo se hizo" ese recibo: forma de pago con la que entró el anticipo (+
+  // terminal, si fue tarjeta) — mismo catálogo que la Nota de Venta/Recibo
+  // Provisional (Vehiculo.js FORMAS_PAGO_CAJA).
+  const FORMA_PAGO_RECIBO_LABEL = {
+    EFECTIVO: "Efectivo",
+    TRANSFERENCIA: "Transferencia",
+    CHEQUE: "Cheque",
+    CREDITO: "Crédito",
+    DEBITO: "Débito",
+    COMBINADO: "Combinado",
+  };
+  const formaPagoRecibo = (a) => {
+    const base = FORMA_PAGO_RECIBO_LABEL[a.formaPago] || a.formaPago || "—";
+    return a.banco ? `${base} · ${a.banco}` : base;
+  };
+
+  // Selecciona/deselecciona una tarjeta de recibo. Al seleccionar, precarga
+  // el campo con lo que todavía falta cubrir del pago (topado a lo
+  // disponible de ESE recibo) para que, si un solo recibo alcanza, el
+  // cajero no tenga que escribir nada; puede ajustarlo después.
+  const toggleAnticipoSel = (a) => {
+    setAnticiposSel((prev) => {
+      if (prev[a.depositoId] !== undefined) {
+        const next = { ...prev };
+        delete next[a.depositoId];
+        return next;
+      }
+      const restA = Number(a.restante) || 0;
+      const cupoLibre = Math.max(0, maxSaldoAplicable - montoAnticiposSel - montoSaldoGenerico);
+      const sugerido = Math.min(restA, cupoLibre > 0 ? cupoLibre : restA);
+      return { ...prev, [a.depositoId]: String(Math.round(sugerido * 100) / 100) };
+    });
+  };
+
+  const bloqueSaldoFavor = !esRemisionCredito && !esAnticipoSaldo && saldoClienteDisponible > 0 && (
     <div className="border rounded p-3 mb-3 bg-light">
-      <label className="form-label mb-0 fw-semibold">Usar saldo a favor del cliente</label>
-      <div className="text-muted small mb-1">
-        Disponible: <strong>{formatMoney(saldoClienteDisponible)}</strong>
+      <label className="form-label mb-1 fw-semibold">Aplicar anticipo del cliente</label>
+      <div className="text-muted small mb-2">
+        Saldo a favor: <strong>{formatMoney(saldoClienteDisponible)}</strong>
+        {saldoValido !== undefined && (
+          <>
+            {" "}· Máximo a este pago: <strong>{formatMoney(maxSaldoAplicable)}</strong>
+          </>
+        )}
       </div>
-      <input
-        type="number"
-        step="0.01"
-        min="0"
-        max={maxSaldoAplicable}
-        className="form-control"
-        value={montoSaldoAplicado}
-        onChange={(e) => {
-          const v = e.target.value;
-          // No solo se topa el total (ver montoSaldo): el campo mismo no
-          // debe poder quedarse mostrando más de lo que se puede aplicar.
-          if (v === "" || Number.isNaN(Number(v))) {
-            setMontoSaldoAplicado(v);
-            return;
-          }
-          setMontoSaldoAplicado(Number(v) > maxSaldoAplicable ? String(maxSaldoAplicable) : v);
-        }}
-        placeholder="0.00"
-      />
-      <small className="text-muted">
-        Se puede combinar con efectivo/tarjeta, o cubrir todo el pago con saldo.
+
+      {(anticiposDisponibles || []).length > 0 && (
+        <div className="anticipo-lista mb-1">
+          {anticiposDisponibles.map((a) => {
+            const restA = Number(a.restante) || 0;
+            const seleccionado = anticiposSel[a.depositoId] !== undefined;
+            return (
+              <div
+                key={a.depositoId}
+                role="button"
+                tabIndex={0}
+                className={`anticipo-fila${seleccionado ? " is-selected" : ""}`}
+                onClick={() => toggleAnticipoSel(a)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    toggleAnticipoSel(a);
+                  }
+                }}
+              >
+                <div className="anticipo-fila__header">
+                  <div className="d-flex align-items-center">
+                    <span className="anticipo-fila__caret">▸</span>
+                    <div>
+                      <div className="small fw-semibold">{etiquetaRecibo(a)}</div>
+                      <div className="text-muted small">Disponible: {formatMoney(restA)}</div>
+                    </div>
+                  </div>
+                  <span className="badge text-bg-secondary">{formaPagoRecibo(a)}</span>
+                </div>
+
+                {/* Siempre montado (para animar el despliegue con CSS); solo
+                    ocupa espacio/es interactivo cuando la fila está seleccionada. */}
+                <div className="anticipo-fila__expand">
+                  <div className="anticipo-fila__expand-inner">
+                    <div
+                      className="anticipo-fila__expand-content"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <label className="form-label small mb-1">
+                        ¿Cuánto se retira de este recibo?
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max={restA}
+                        className="form-control"
+                        tabIndex={seleccionado ? 0 : -1}
+                        value={anticiposSel[a.depositoId] ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setAnticiposSel((prev) => {
+                            if (v === "" || Number.isNaN(Number(v))) {
+                              return { ...prev, [a.depositoId]: v };
+                            }
+                            return {
+                              ...prev,
+                              [a.depositoId]: Number(v) > restA ? String(restA) : v,
+                            };
+                          });
+                        }}
+                        onFocus={(e) => e.target.select()}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {(saldoSinRecibo > 0.005 || (anticiposDisponibles || []).length === 0) && (
+        <div className="mt-2">
+          <label className="form-label mb-0 small">
+            {(anticiposDisponibles || []).length > 0 ? "Otro saldo a favor (sin recibo)" : "Monto a usar"}
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            max={maxSaldoAplicable}
+            className="form-control"
+            value={montoSaldoAplicado}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "" || Number.isNaN(Number(v))) {
+                setMontoSaldoAplicado(v);
+                return;
+              }
+              setMontoSaldoAplicado(Number(v) > maxSaldoAplicable ? String(maxSaldoAplicable) : v);
+            }}
+            placeholder="0.00"
+          />
+        </div>
+      )}
+
+      <small className="text-muted d-block mt-2">
+        Total a aplicar: <strong>{formatMoney(montoSaldo)}</strong>. Se puede combinar con efectivo/tarjeta.
       </small>
     </div>
   );
@@ -1386,6 +1554,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                           className="form-control"
                           value={quienEntrega}
                           onChange={(e) => setQuienEntrega(e.target.value)}
+                          required
                         />
                       </div>
                       <div className="col-md-4">

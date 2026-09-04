@@ -3,7 +3,7 @@
 // Contado / Crédito / Anticipo / Cuentas por Cobrar), en una sola tabla
 // dividida en 6 secciones separadas por bandas grises sin título (Anticipos /
 // Anticipos cancelados / Complementos de pago / Notas de crédito / Facturas /
-// Factura general), a partir de los datos ya agregados por
+// Factura global), a partir de los datos ya agregados por
 // buildReporteFacturasDiario en routes/reportes.js. Los montos van en estilo
 // contable como el original: sin símbolo de moneda, negativos entre
 // paréntesis y ceros como "-". Debajo de TOTAL INGRESO se agrega la tabla
@@ -102,7 +102,7 @@ function buildHtml(data, desde, hasta) {
     complementosPago = [],
     notasCredito = [],
     facturas = [],
-    facturaGeneral = [],
+    facturaGlobal = [],
     totales = {},
     deposito = {},
   } = data;
@@ -113,7 +113,7 @@ function buildHtml(data, desde, hasta) {
     banda(complementosPago),
     banda(notasCredito),
     banda(facturas),
-    banda(facturaGeneral),
+    banda(facturaGlobal),
   ].join('');
 
   const sinDatos =
@@ -122,7 +122,7 @@ function buildHtml(data, desde, hasta) {
     !complementosPago.length &&
     !notasCredito.length &&
     !facturas.length &&
-    !facturaGeneral.length;
+    !facturaGlobal.length;
 
   const filasDeposito = DEPOSITO_LABELS.map(
     ([key, label]) => `

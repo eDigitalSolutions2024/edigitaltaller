@@ -766,6 +766,15 @@ pendienteCierre: { type: Boolean, default: false },
         saldoAplicado: {
           monto: { type: Number, default: 0 },
           movimientoId: { type: Schema.Types.ObjectId, ref: 'AnticipoCliente', default: null },
+          // Desglose cuando el cajero eligió de qué recibo(s) de anticipo salió
+          // el saldo (ver aplicarUsoDeDeposito). `monto` de arriba es el total.
+          aplicaciones: [
+            {
+              depositoId: { type: Schema.Types.ObjectId, ref: 'AnticipoCliente', default: null },
+              movimientoId: { type: Schema.Types.ObjectId, ref: 'AnticipoCliente', default: null },
+              monto: { type: Number, default: 0 },
+            },
+          ],
           // Desglose FIFO de con qué forma(s) de pago se depositó originalmente
           // el saldo que se está aplicando aquí (ver calcularOrigenSaldo en
           // utils/anticiposCliente.js). formaPago null = dinero reembolsado de

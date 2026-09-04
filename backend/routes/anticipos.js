@@ -9,14 +9,25 @@ const router = express.Router();
 
 const Cliente = require('../models/Cliente');
 const AnticipoCliente = require('../models/AnticipoCliente');
+const Vehiculo = require('../models/Vehiculo');
 const Contador = require('../models/Contador');
 const { proteger, requiereRol } = require('../middleware/auth');
-const { aplicarDeposito, cancelarDeposito, montoValido, SaldoInsuficienteError } = require('../utils/anticiposCliente');
+const {
+  aplicarDeposito,
+  cancelarDeposito,
+  montoValido,
+  SaldoInsuficienteError,
+  restantePorDeposito,
+} = require('../utils/anticiposCliente');
 const { registrarMovimientoTerminal } = require('../utils/cierreCajaTerminales');
 const { generarAnticipoReciboPDF } = require('../service/anticipoReciboPdf');
 
-const CONTADOR_RECIBO_ANTICIPO = 'reciboAnticipo';
-const FORMAS_PAGO = ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFERENCIA'];
+// Un depósito de anticipo ya no tiene su propio "Recibo de Anticipo": ahora
+// es, sin más, un Recibo Provisional — comparte la MISMA secuencia de folio
+// que los recibos provisionales ligados a una orden (ver CONTADOR_RECIBO_PROVISIONAL
+// en routes/cajas.js).
+const CONTADOR_RECIBO_PROVISIONAL = 'reciboProvisional';
+const FORMAS_PAGO = ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFERENCIA', 'COMBINADO'];
 const TERMINALES_TARJETA = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
 
 // POST /api/anticipos -> registra un depósito de anticipo para un cliente.
@@ -33,7 +44,7 @@ router.post('/', proteger, async (req, res) => {
       formaPago = 'EFECTIVO',
       chequeNumero = '',
       banco = '',
-      referencia = '',
+      combinado = null,
       observaciones = '',
     } = req.body || {};
 
@@ -48,6 +59,16 @@ router.post('/', proteger, async (req, res) => {
     if (['CREDITO', 'DEBITO'].includes(formaPago) && !TERMINALES_TARJETA.includes(banco)) {
       return res.status(400).json({ ok: false, msg: 'Selecciona la terminal donde se cobró la tarjeta.' });
     }
+    if (
+      formaPago === 'COMBINADO' &&
+      ((Number(combinado?.credito) || 0) > 0 || (Number(combinado?.debito) || 0) > 0) &&
+      !TERMINALES_TARJETA.includes(combinado?.banco)
+    ) {
+      return res.status(400).json({ ok: false, msg: 'Selecciona la terminal donde se cobró la parte con tarjeta del combinado.' });
+    }
+    if (formaPago === 'COMBINADO' && (Number(combinado?.cheque) || 0) > 0 && !chequeNumero) {
+      return res.status(400).json({ ok: false, msg: 'Captura el número de cheque.' });
+    }
 
     const cliente = await Cliente.findById(clienteId);
     if (!cliente) return res.status(404).json({ ok: false, msg: 'Cliente no encontrado.' });
@@ -61,20 +82,33 @@ router.post('/', proteger, async (req, res) => {
     }
 
     const contador = await Contador.findOneAndUpdate(
-      { nombre: CONTADOR_RECIBO_ANTICIPO },
+      { nombre: CONTADOR_RECIBO_PROVISIONAL },
       { $inc: { valor: 1 } },
       { new: true, upsert: true }
     );
+
+    const combinadoLimpio =
+      formaPago === 'COMBINADO'
+        ? {
+            credito: Number(combinado?.credito) || 0,
+            efectivo: Number(combinado?.efectivo) || 0,
+            efectivoDolares: Number(combinado?.efectivoDolares) || 0,
+            debito: Number(combinado?.debito) || 0,
+            cheque: Number(combinado?.cheque) || 0,
+            transferencia: Number(combinado?.transferencia) || 0,
+            banco: combinado?.banco || '',
+          }
+        : null;
 
     const { cliente: clienteActualizado, movimiento } = await aplicarDeposito(clienteId, monto, {
       montoPesos: Number(montoPesos) || 0,
       montoDolares: Number(montoDolares) || 0,
       tipoCambio: Number(tipoCambio) || 0,
       formaPago,
-      chequeNumero: formaPago === 'CHEQUE' ? chequeNumero : '',
+      chequeNumero: (formaPago === 'CHEQUE' || (formaPago === 'COMBINADO' && combinadoLimpio.cheque > 0)) ? chequeNumero : '',
       banco: ['CREDITO', 'DEBITO'].includes(formaPago) ? banco : '',
+      combinado: combinadoLimpio,
       folioRecibo: contador.valor,
-      referencia,
       observaciones,
       registradoPor: req.user?.name || req.user?.username || '',
       registradoPorId: req.user?._id || null,
@@ -88,6 +122,14 @@ router.post('/', proteger, async (req, res) => {
         await registrarMovimientoTerminal(banco, Number(montoPesos) || 0, movimiento.fecha);
       } catch (errTerminal) {
         console.error('Error actualizando terminal del cierre de caja (anticipo):', errTerminal);
+      }
+    }
+    const montoTarjetaCombinado = combinadoLimpio ? combinadoLimpio.credito + combinadoLimpio.debito : 0;
+    if (formaPago === 'COMBINADO' && montoTarjetaCombinado > 0 && combinadoLimpio.banco) {
+      try {
+        await registrarMovimientoTerminal(combinadoLimpio.banco, montoTarjetaCombinado, movimiento.fecha);
+      } catch (errTerminal) {
+        console.error('Error actualizando terminal del cierre de caja (anticipo combinado):', errTerminal);
       }
     }
 
@@ -136,6 +178,52 @@ router.get('/cliente/:clienteId', proteger, async (req, res) => {
   }
 });
 
+// GET /api/anticipos/cliente/:clienteId/disponibles -> recibos de anticipo /
+// recibos provisionales del cliente con saldo sin gastar (restante > 0), para
+// que el cajero elija de cuál aplicar en Registrar Pago. El "restante" se
+// reconstruye por FIFO del ledger (ver restantePorDeposito); la bolsa real
+// sigue siendo Cliente.saldoAFavor.
+router.get('/cliente/:clienteId/disponibles', proteger, async (req, res) => {
+  try {
+    const cliente = await Cliente.findById(req.params.clienteId).select('saldoAFavor');
+    if (!cliente) return res.status(404).json({ ok: false, msg: 'Cliente no encontrado.' });
+
+    const lotes = (await restantePorDeposito(req.params.clienteId)).filter((l) => l.restante > 0.005);
+
+    // Enriquecer con el folio del Recibo Provisional (cuando el depósito nació
+    // de un Anticipo de caja ligado a una orden) y el folio de esa orden.
+    const ordenIds = [...new Set(lotes.map((l) => l.ordenAplicada).filter(Boolean))];
+    const ordenesById = new Map();
+    if (ordenIds.length) {
+      const ordenes = await Vehiculo.find({ _id: { $in: ordenIds } })
+        .select('ordenServicio pagos._id pagos.reciboProvisional.numero')
+        .lean();
+      for (const o of ordenes) ordenesById.set(String(o._id), o);
+    }
+
+    const disponibles = lotes.map((l) => {
+      const orden = l.ordenAplicada ? ordenesById.get(l.ordenAplicada) : null;
+      const pago = orden && l.pagoId ? (orden.pagos || []).find((p) => String(p._id) === l.pagoId) : null;
+      return {
+        depositoId: l.depositoId,
+        restante: l.restante,
+        montoOriginal: l.montoOriginal,
+        formaPago: l.formaPago,
+        banco: l.banco,
+        fecha: l.fecha,
+        folioRecibo: l.folioRecibo,
+        reciboProvisionalNumero: pago?.reciboProvisional?.numero ?? null,
+        ordenServicio: orden?.ordenServicio || '',
+      };
+    });
+
+    return res.json({ ok: true, saldoAFavor: cliente.saldoAFavor || 0, disponibles });
+  } catch (err) {
+    console.error('Error listando anticipos disponibles:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
 // POST /api/anticipos/:id/cancelar -> cancela un depósito (solo admin, para
 // corregir errores de captura). Solo procede si el cliente todavía tiene
 // disponible el monto completo del depósito (ver cancelarDeposito).
@@ -156,6 +244,16 @@ router.post('/:id/cancelar', proteger, requiereRol('admin'), async (req, res) =>
         await registrarMovimientoTerminal(movimiento.banco, -(Number(movimiento.montoPesos) || 0), movimiento.fecha);
       } catch (errTerminal) {
         console.error('Error revirtiendo terminal del cierre de caja (cancelar anticipo):', errTerminal);
+      }
+    }
+    const montoTarjetaCombinado = movimiento.combinado
+      ? (Number(movimiento.combinado.credito) || 0) + (Number(movimiento.combinado.debito) || 0)
+      : 0;
+    if (movimiento.formaPago === 'COMBINADO' && montoTarjetaCombinado > 0 && movimiento.combinado.banco) {
+      try {
+        await registrarMovimientoTerminal(movimiento.combinado.banco, -montoTarjetaCombinado, movimiento.fecha);
+      } catch (errTerminal) {
+        console.error('Error revirtiendo terminal del cierre de caja (cancelar anticipo combinado):', errTerminal);
       }
     }
 
@@ -182,16 +280,16 @@ router.get('/:id/recibo-pdf', async (req, res) => {
   try {
     const movimiento = await AnticipoCliente.findById(req.params.id);
     if (!movimiento || movimiento.tipo !== 'DEPOSITO') {
-      return res.status(404).json({ ok: false, msg: 'Recibo de anticipo no encontrado.' });
+      return res.status(404).json({ ok: false, msg: 'Recibo provisional no encontrado.' });
     }
     const cliente = await Cliente.findById(movimiento.cliente);
     if (!cliente) return res.status(404).json({ ok: false, msg: 'Cliente no encontrado.' });
 
     await generarAnticipoReciboPDF(res, movimiento, cliente);
   } catch (err) {
-    console.error('Error generando PDF de Recibo de Anticipo:', err);
+    console.error('Error generando PDF de Recibo Provisional (anticipo):', err);
     if (!res.headersSent) {
-      return res.status(500).json({ ok: false, msg: 'Error al generar el PDF del Recibo de Anticipo' });
+      return res.status(500).json({ ok: false, msg: 'Error al generar el PDF del Recibo Provisional' });
     }
   }
 });

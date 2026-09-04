@@ -375,7 +375,7 @@ function ReporteFacturas({ data }) {
     complementosPago = [],
     notasCredito = [],
     facturas = [],
-    facturaGeneral = [],
+    facturaGlobal = [],
     totales = {},
     deposito = {},
   } = data;
@@ -385,7 +385,7 @@ function ReporteFacturas({ data }) {
     !complementosPago.length &&
     !notasCredito.length &&
     !facturas.length &&
-    !facturaGeneral.length;
+    !facturaGlobal.length;
 
   return (
     <>
@@ -413,7 +413,7 @@ function ReporteFacturas({ data }) {
               <BandaRemision titulo="Complementos de pago" filas={complementosPago} />
               <BandaRemision titulo="Notas de crédito" filas={notasCredito} />
               <BandaRemision titulo="Facturas" filas={facturas} />
-              <BandaRemision titulo="Factura general" filas={facturaGeneral} />
+              <BandaRemision titulo="Factura global" filas={facturaGlobal} />
             </tbody>
             <tfoot>
               <tr className="table-light">

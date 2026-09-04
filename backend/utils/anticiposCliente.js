@@ -56,6 +56,7 @@ async function aplicarDeposito(clienteId, monto, meta = {}) {
     formaPago: meta.formaPago,
     chequeNumero: meta.chequeNumero || '',
     banco: meta.banco || '',
+    combinado: meta.formaPago === 'COMBINADO' ? meta.combinado : undefined,
     folioRecibo: meta.folioRecibo,
     referencia: meta.referencia || '',
     observaciones: meta.observaciones || '',
@@ -121,11 +122,115 @@ async function aplicarUso(clienteId, monto, meta = {}) {
     fecha: new Date(),
     ordenAplicada: meta.ordenAplicada || null,
     pagoId: meta.pagoId || null,
+    // Recibo (DEPOSITO) que el cajero eligió gastar, si lo hizo por recibo
+    // (ver aplicarUsoDeDeposito); null cuando fue "usar saldo a favor" genérico.
+    depositoOrigenId: meta.depositoOrigenId || null,
     registradoPor: meta.registradoPor || '',
     registradoPorId: meta.registradoPorId || null,
   });
 
   return { cliente, movimiento };
+}
+
+// Reconstruye, por FIFO sobre el ledger, cuánto queda sin gastar de cada
+// DEPOSITO del cliente (misma mecánica de cola que calcularOrigenSaldo:
+// los usos consumen del más antiguo primero; un REEMBOLSO_USO regresa dinero
+// al frente de la cola con origen desconocido). Cliente.saldoAFavor sigue
+// siendo la única bolsa real y la guarda atómica; esto es solo una vista
+// derivada para poder elegir "de qué recibo" gastar.
+async function restantePorDeposito(clienteId) {
+  const movimientos = await AnticipoCliente.find({ cliente: clienteId })
+    .sort({ fecha: 1, _id: 1 })
+    .select('tipo monto formaPago banco chequeNumero folioRecibo fecha cancelado ordenAplicada pagoId depositoOrigenId')
+    .lean();
+
+  const cola = []; // FIFO; { depositoId|null, meta, restante }
+  for (const m of movimientos) {
+    if (m.tipo === 'DEPOSITO') {
+      if (m.cancelado) continue;
+      cola.push({
+        depositoId: String(m._id),
+        meta: {
+          folioRecibo: m.folioRecibo ?? null,
+          formaPago: m.formaPago || null,
+          banco: m.banco || '',
+          chequeNumero: m.chequeNumero || '',
+          fecha: m.fecha,
+          montoOriginal: m.monto,
+          ordenAplicada: m.ordenAplicada ? String(m.ordenAplicada) : null,
+          pagoId: m.pagoId ? String(m.pagoId) : null,
+        },
+        restante: m.monto,
+      });
+    } else if (m.tipo === 'USO') {
+      let pendiente = m.monto;
+      // Uso etiquetado a un recibo concreto (aplicarUsoDeDeposito): sale primero
+      // de ESE depósito; el sobrante, FIFO del más antiguo.
+      if (m.depositoOrigenId) {
+        const lote = cola.find((l) => l.depositoId === String(m.depositoOrigenId) && l.restante > 0.005);
+        if (lote) {
+          const c = Math.min(lote.restante, pendiente);
+          lote.restante -= c;
+          pendiente -= c;
+        }
+      }
+      while (pendiente > 0.005 && cola.length) {
+        const lote = cola[0];
+        if (lote.restante <= 0.005) {
+          cola.shift();
+          continue;
+        }
+        const c = Math.min(lote.restante, pendiente);
+        lote.restante -= c;
+        pendiente -= c;
+      }
+    } else if (m.tipo === 'REEMBOLSO_USO') {
+      cola.unshift({ depositoId: null, meta: null, restante: m.monto });
+    }
+  }
+
+  const porId = new Map();
+  for (const lote of cola) {
+    if (!lote.depositoId || lote.restante <= 0.005) continue;
+    const prev = porId.get(lote.depositoId);
+    if (prev) prev.restante += lote.restante;
+    else porId.set(lote.depositoId, { depositoId: lote.depositoId, ...lote.meta, restante: lote.restante });
+  }
+  return [...porId.values()].map((l) => ({ ...l, restante: Math.round(l.restante * 100) / 100 }));
+}
+
+class ReciboSinSaldoError extends Error {
+  constructor(restanteDisponible) {
+    super(`El recibo seleccionado solo tiene ${restanteDisponible} disponible.`);
+    this.name = 'ReciboSinSaldoError';
+    this.restanteDisponible = restanteDisponible;
+  }
+}
+
+// Aplica saldo a favor eligiendo de qué DEPOSITO (recibo provisional / recibo
+// de anticipo) sale. Valida contra el restante FIFO de ese recibo y delega el
+// movimiento real de dinero en aplicarUso (guarda atómica sobre
+// Cliente.saldoAFavor). Deja `depositoOrigenId` en el USO para el historial.
+async function aplicarUsoDeDeposito(clienteId, depositoId, monto, meta = {}) {
+  const montoUso = montoValido(monto);
+  if (!montoUso) throw new Error('El monto a aplicar del recibo debe ser mayor a 0.');
+
+  const deposito = await AnticipoCliente.findOne({
+    _id: depositoId,
+    cliente: clienteId,
+    tipo: 'DEPOSITO',
+    cancelado: { $ne: true },
+  })
+    .select('_id')
+    .lean();
+  if (!deposito) throw new Error('El recibo de anticipo seleccionado no existe o está cancelado.');
+
+  const lotes = await restantePorDeposito(clienteId);
+  const lote = lotes.find((l) => l.depositoId === String(depositoId));
+  const restante = lote ? lote.restante : 0;
+  if (montoUso > restante + 0.005) throw new ReciboSinSaldoError(restante);
+
+  return aplicarUso(clienteId, montoUso, { ...meta, depositoOrigenId: depositoId });
 }
 
 // Reembolsa al cliente un uso de saldo previamente aplicado (p. ej. se
@@ -348,11 +453,14 @@ async function sincronizarAnticiposAplicados(vehiculo) {
 
 module.exports = {
   SaldoInsuficienteError,
+  ReciboSinSaldoError,
   montoValido,
   aplicarDeposito,
   aplicarUso,
+  aplicarUsoDeDeposito,
   revertirUso,
   cancelarDeposito,
   calcularOrigenSaldo,
+  restantePorDeposito,
   sincronizarAnticiposAplicados,
 };

@@ -14,6 +14,7 @@ import {
   getReciboDolaresPdfUrl,
 } from "../../api/cajas";
 import { createTicket } from "../../api/tickets";
+import { getAnticiposDisponibles } from "../../api/anticipos";
 import { getValePdfUrl } from "../../api/vales";
 import usePdfModal from "../../hooks/usePdfModal";
 import { getUser } from "../../auth";
@@ -55,6 +56,7 @@ export default function CajaOrdenDetalle() {
   const [showModalPago, setShowModalPago] = useState(false);
   const [pagoACancelar, setPagoACancelar] = useState(null);
   const [showModalValeGarantia, setShowModalValeGarantia] = useState(false);
+  const [anticiposDisponibles, setAnticiposDisponibles] = useState([]);
 
   const cargar = async () => {
     try {
@@ -72,6 +74,29 @@ export default function CajaOrdenDetalle() {
     cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Recibos de anticipo del cliente con saldo sin gastar, para poder elegir de
+  // cuál aplicar en Registrar Pago. Se recarga cuando cambia el cliente o su
+  // saldo a favor (p. ej. tras registrar un pago que consumió saldo).
+  const clienteId = orden?.cliente?._id;
+  const saldoAFavorCliente = orden?.cliente?.saldoAFavor || 0;
+  useEffect(() => {
+    let cancelado = false;
+    if (!clienteId || saldoAFavorCliente <= 0) {
+      setAnticiposDisponibles([]);
+      return undefined;
+    }
+    getAnticiposDisponibles(clienteId)
+      .then((res) => {
+        if (!cancelado) setAnticiposDisponibles(res.data?.disponibles || []);
+      })
+      .catch(() => {
+        if (!cancelado) setAnticiposDisponibles([]);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [clienteId, saldoAFavorCliente]);
 
   const totales = useMemo(() => (orden ? calcularTotalesOrden(orden) : null), [orden]);
 
@@ -453,6 +478,7 @@ export default function CajaOrdenDetalle() {
         orden={orden}
         saldoPendiente={totales.saldoPendiente}
         saldoClienteDisponible={orden.cliente?.saldoAFavor || 0}
+        anticiposDisponibles={anticiposDisponibles}
         onClose={() => setShowModalPago(false)}
         onSubmit={handleRegistrarPago}
         onValeGuardado={handleValeGuardado}

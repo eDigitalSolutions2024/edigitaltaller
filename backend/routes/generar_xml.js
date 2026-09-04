@@ -17,6 +17,13 @@ const router = express.Router();
 /* =========================
    HELPERS
 ========================= */
+// Formato estándar de un UUID de CFDI (Folio Fiscal): 8-4-4-4-12 hex. Se usa
+// para validar cfdi:CfdiRelacionados y pago20:DoctoRelacionado — el SAT
+// rechaza el XML si UUID/IdDocumento no tiene esta forma.
+const UUID_RE = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
+// Catálogo SAT c_TipoRelacion (mismo en CFDI 3.3 y 4.0).
+const TIPO_RELACION_VALIDOS = ["01", "02", "03", "04", "05", "06", "07"];
+
 function escapeXml(str = "") {
   return String(str)
     .replace(/&/g, "&amp;")
@@ -381,7 +388,10 @@ function buildPagoXmlUnsigned({ emisor, receptor, cfdi, pago, relacionadas }) {
       const saldoAnt = Number(r.saldoAnterior ?? r.total ?? 0);
       const pagado = Number(r.importePagado || 0);
       const insoluto = Number(r.saldoInsoluto ?? Math.max(saldoAnt - pagado, 0));
-      const idDoc = r.uuid || `${r.serie || ""}${r.folio || ""}`;
+      // IdDocumento SIEMPRE es el UUID real de la factura pagada (Pagos 2.0 lo
+      // exige); se valida en POST /xml antes de llegar aquí, nunca se cae a
+      // serie+folio, que no es un UUID válido.
+      const idDoc = String(r.uuid || "").trim().toUpperCase();
 
       const serieDrAttr = r.serie ? ` Serie="${escapeXml(r.serie)}"` : "";
       const folioDrAttr = r.folio ? ` Folio="${escapeXml(r.folio)}"` : "";
@@ -650,6 +660,42 @@ router.post("/xml", async (req, res) => {
       });
     }
 
+    // El UUID (folio fiscal) es obligatorio y debe tener el formato real del
+    // SAT: ni la nota de crédito (cfdi:CfdiRelacionados) ni el complemento de
+    // pago (pago20:DoctoRelacionado) son válidos con un folio interno en su
+    // lugar.
+    if (
+      (esNotaCredito || esComplementoPago) &&
+      relacionadas.some((r) => !UUID_RE.test(String(r.uuid || "").trim()))
+    ) {
+      return res.status(400).json({
+        ok: false,
+        error: esNotaCredito
+          ? "Captura el UUID (folio fiscal) real de cada factura acreditada."
+          : "Captura el UUID (folio fiscal) real de cada factura del complemento de pago.",
+      });
+    }
+
+    // Factura de ingreso con "facturas relacionadas" opcionales
+    // (cfdi:CfdiRelacionados): mismo formato de UUID, más el catálogo SAT
+    // c_TipoRelacion.
+    if (cfdi?.relacion) {
+      const { tipoRelacion: tipoRelacionBody, uuids: uuidsBody } = cfdi.relacion;
+      if (!TIPO_RELACION_VALIDOS.includes(tipoRelacionBody)) {
+        return res.status(400).json({ ok: false, error: "Tipo de relación inválido." });
+      }
+      if (
+        !Array.isArray(uuidsBody) ||
+        uuidsBody.length === 0 ||
+        uuidsBody.some((u) => !UUID_RE.test(String(u || "").trim()))
+      ) {
+        return res.status(400).json({
+          ok: false,
+          error: "Captura el UUID (folio fiscal) de cada factura relacionada.",
+        });
+      }
+    }
+
     if (esComplementoPago) {
       if (!pago || !pago.fechaPago) {
         return res.status(400).json({ ok: false, error: "Falta la fecha de pago del complemento." });
@@ -788,13 +834,23 @@ router.post("/xml", async (req, res) => {
           }
         : null,
 
-      // Nota de crédito: CFDI relacionado con TipoRelacion 01 (nota de crédito de los documentos relacionados)
+      // Nota de crédito: CFDI relacionado con TipoRelacion 01 (nota de crédito de
+      // los documentos relacionados). El UUID es el real de cada factura
+      // acreditada (validado arriba); NUNCA se cae a serie+folio, que no es un
+      // UUID válido y dejaría el XML inválido para el SAT.
+      // Cualquier otro tipo (solo factura de ingreso): grupo opcional que
+      // captura la pantalla de "Facturas relacionadas" (ver cfdi.relacion).
       relacion: esNotaCredito
         ? {
             tipoRelacion: "01",
-            uuids: relacionadas.map((r) => r.uuid || `${r.serie || ""}${r.folio || ""}`),
+            uuids: relacionadas.map((r) => String(r.uuid || "").trim().toUpperCase()),
           }
-        : cfdi.relacion || null,
+        : cfdi.relacion
+        ? {
+            tipoRelacion: cfdi.relacion.tipoRelacion,
+            uuids: (cfdi.relacion.uuids || []).map((u) => String(u || "").trim().toUpperCase()),
+          }
+        : null,
 
       aplicarRetencionIsr: !!cfdi.aplicarRetencionIsr,
       isrRate: Number(cfdi.isrRate ?? 0.0125),
@@ -857,6 +913,16 @@ router.post("/xml", async (req, res) => {
     try {
       await FiscalConfig.findByIdAndUpdate(cfg._id, { folioInterno: String(folioAsignado) });
 
+      // Nombre de facturación editado (F3): si el CFDI se emitió con un nombre
+      // distinto a la razón social fiscal del cliente, se deja constancia en el
+      // historial.
+      const razonSocialOriginal = String(cliente.razonSocialOriginal || "").trim();
+      const nombreEmitido = String(receptor.nombre || "").trim();
+      const notaFacturacion =
+        !esFacturaGlobal && razonSocialOriginal && razonSocialOriginal !== nombreEmitido
+          ? `Facturado como "${nombreEmitido}" (razón social: "${razonSocialOriginal}")`
+          : "";
+
       const facturaDoc = await FacturaCfdi.create({
         tipoFactura,
         tipoComprobante: cfdiFinal.tipoComprobante,
@@ -881,9 +947,11 @@ router.post("/xml", async (req, res) => {
               monto: Number(totales.total),
             }
           : undefined,
+        notaFacturacion,
         cliente: {
           clienteId: cliente._id || null,
           nombre: receptor.nombre,
+          razonSocialOriginal: razonSocialOriginal || receptor.nombre || "",
           rfc: receptor.rfc,
           regimenFiscal: receptor.regimenFiscal,
           codigoPostalFiscal: receptor.cp,
@@ -919,6 +987,9 @@ router.post("/xml", async (req, res) => {
           comentarios: cfdiFinal.comentarios,
           aplicarRetencionIsr: cfdiFinal.aplicarRetencionIsr,
           isrRate: cfdiFinal.isrRate,
+          relacion: cfdiFinal.relacion
+            ? { tipoRelacion: cfdiFinal.relacion.tipoRelacion, uuids: cfdiFinal.relacion.uuids }
+            : undefined,
         },
         emisor: {
           rfc: cfg.rfc,

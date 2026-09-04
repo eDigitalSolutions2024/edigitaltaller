@@ -1,7 +1,10 @@
-// PDF del Recibo de Anticipo (depósito de saldo a favor de un cliente), clon
-// del layout de Recibo Provisional en cajaRecibosPdf.js: dos copias en
-// páginas separadas (Caja / Cliente), mismo estilo. Se genera desde
-// routes/anticipos.js (GET /:id/recibo-pdf).
+// PDF del Recibo Provisional de un depósito de anticipo (saldo a favor de un
+// cliente, sin ligar a ninguna orden), clon del layout de Recibo Provisional
+// en cajaRecibosPdf.js: dos copias en páginas separadas (Caja / Cliente),
+// mismo estilo. Se genera desde routes/anticipos.js (GET /:id/recibo-pdf).
+// Un depósito de anticipo ya no tiene un documento propio ("Recibo de
+// Anticipo"): es, sin más, un Recibo Provisional — comparte numeración con
+// los ligados a una orden (ver CONTADOR_RECIBO_PROVISIONAL en routes/anticipos.js).
 const puppeteer = require('puppeteer');
 const { dayjsFecha } = require('../utils/fechas');
 
@@ -38,7 +41,29 @@ const FORMA_PAGO_LABEL = {
   DEBITO: 'T. Débito',
   CHEQUE: 'Cheque',
   TRANSFERENCIA: 'Transferencia',
+  COMBINADO: 'Combinado',
 };
+
+// Cuando formaPago === 'COMBINADO', "Bueno por" desglosa cada método usado en
+// vez de un solo monto (mismo criterio que importeFormaPagoHtml en
+// cajaRecibosPdf.js, pero en una sola celda de tabla en vez de una caja aparte).
+function buenoPorCombinadoTexto(combinado, tipoCambio) {
+  const c = combinado || {};
+  const partes = [];
+  const efectivoPesos = Number(c.efectivo) || 0;
+  const efectivoDolares = Number(c.efectivoDolares) || 0;
+  if (efectivoPesos > 0 || efectivoDolares > 0) {
+    const sub = [];
+    if (efectivoPesos > 0) sub.push(`${money(efectivoPesos)} M.N.`);
+    if (efectivoDolares > 0) sub.push(`$${efectivoDolares.toFixed(2)} USD`);
+    partes.push(`Efectivo: ${sub.join(' + ')}${efectivoDolares > 0 ? ` (T.C. ${money(tipoCambio)})` : ''}`);
+  }
+  if (Number(c.credito) > 0) partes.push(`T. Crédito: ${money(c.credito)}${c.banco ? ` (${c.banco})` : ''}`);
+  if (Number(c.debito) > 0) partes.push(`T. Débito: ${money(c.debito)}${c.banco ? ` (${c.banco})` : ''}`);
+  if (Number(c.cheque) > 0) partes.push(`Cheque: ${money(c.cheque)}`);
+  if (Number(c.transferencia) > 0) partes.push(`Transferencia: ${money(c.transferencia)}`);
+  return partes.join(' + ');
+}
 
 const styles = `
   @page { size: Letter; margin: 14mm; }
@@ -114,22 +139,30 @@ exports.generarAnticipoReciboPDF = async (res, movimiento, cliente) => {
 
     const fecha = dayjsFecha(movimiento?.fecha || new Date());
 
-    const pesos = Number(movimiento?.montoPesos || 0);
-    const dolares = Number(movimiento?.montoDolares || 0);
-    const partesBuenoPor = [];
-    if (pesos > 0) partesBuenoPor.push(`${money(pesos)} M.N.`);
-    if (dolares > 0) partesBuenoPor.push(`$${dolares.toFixed(2)} USD`);
-    if (pesos > 0 && dolares > 0) partesBuenoPor.push(`(T.C. ${money(movimiento?.tipoCambio)})`);
-    const buenoPorTexto = partesBuenoPor.join(' + ') || `${money(movimiento?.monto)} M.N.`;
+    const esCombinado = movimiento?.formaPago === 'COMBINADO';
+
+    let buenoPorTexto;
+    if (esCombinado) {
+      buenoPorTexto = buenoPorCombinadoTexto(movimiento?.combinado, movimiento?.tipoCambio);
+    } else {
+      const pesos = Number(movimiento?.montoPesos || 0);
+      const dolares = Number(movimiento?.montoDolares || 0);
+      const partesBuenoPor = [];
+      if (pesos > 0) partesBuenoPor.push(`${money(pesos)} M.N.`);
+      if (dolares > 0) partesBuenoPor.push(`$${dolares.toFixed(2)} USD`);
+      if (pesos > 0 && dolares > 0) partesBuenoPor.push(`(T.C. ${money(movimiento?.tipoCambio)})`);
+      buenoPorTexto = partesBuenoPor.join(' + ') || `${money(movimiento?.monto)} M.N.`;
+    }
 
     const formaPagoTexto = escapeHtml(
       FORMA_PAGO_LABEL[movimiento?.formaPago] +
-        (movimiento?.formaPago === 'CHEQUE' && movimiento?.chequeNumero ? ` No. ${movimiento.chequeNumero}` : '')
+        (movimiento?.chequeNumero && (movimiento?.formaPago === 'CHEQUE' || esCombinado)
+          ? ` No. ${movimiento.chequeNumero}`
+          : '')
     );
 
     const fechaTexto = escapeHtml(fecha.format('DD/MM/YYYY'));
     const clienteTexto = escapeHtml(nombreCliente(cliente));
-    const referenciaTexto = escapeHtml(movimiento?.referencia || '');
     const observacionesTexto = escapeHtml(movimiento?.observaciones || '');
     const recibioTexto = escapeHtml(movimiento?.registradoPor || '');
     const folioTexto = escapeHtml(movimiento?.folioRecibo ?? '');
@@ -147,7 +180,7 @@ exports.generarAnticipoReciboPDF = async (res, movimiento, cliente) => {
   <div class="hoja hoja--caja">
     <div class="encabezado">
       <div>
-        <h2>Recibo de Anticipo</h2>
+        <h2>Recibo Provisional</h2>
         <small>(CAJA)</small>
       </div>
       <span class="folio">${folioTexto}</span>
@@ -156,7 +189,6 @@ exports.generarAnticipoReciboPDF = async (res, movimiento, cliente) => {
     ${tabla}
 
     <div class="dato"><span class="lbl">Recibimos de:</span> ${clienteTexto}</div>
-    <div class="dato"><span class="lbl">Referencia:</span> ${referenciaTexto}</div>
     <div class="dato"><span class="lbl">Observaciones:</span> ${observacionesTexto}</div>
     <div class="dato"><span class="lbl">Recibió:</span> ${recibioTexto}</div>
   </div>
@@ -164,7 +196,7 @@ exports.generarAnticipoReciboPDF = async (res, movimiento, cliente) => {
   <div class="hoja">
     <div class="encabezado">
       <div>
-        <h2>Recibo de Anticipo</h2>
+        <h2>Recibo Provisional</h2>
         <small>(CLIENTE)</small>
       </div>
       <span class="folio">${folioTexto}</span>
@@ -172,10 +204,7 @@ exports.generarAnticipoReciboPDF = async (res, movimiento, cliente) => {
 
     ${tabla}
 
-    <div class="fila2">
-      <div class="dato"><span class="lbl">Recibimos de:</span> ${clienteTexto}</div>
-      <div class="dato"><span class="lbl">Referencia:</span> ${referenciaTexto}</div>
-    </div>
+    <div class="dato"><span class="lbl">Recibimos de:</span> ${clienteTexto}</div>
 
     <div class="firma-area">
       <div class="firma-linea">Recibió: ${recibioTexto}</div>
@@ -190,8 +219,8 @@ exports.generarAnticipoReciboPDF = async (res, movimiento, cliente) => {
     res.contentType('application/pdf');
     res.send(pdfBuffer);
   } catch (error) {
-    console.error('Error generando PDF de Recibo de Anticipo:', error);
-    if (!res.headersSent) res.status(500).send('Error al generar el PDF del Recibo de Anticipo');
+    console.error('Error generando PDF de Recibo Provisional (anticipo):', error);
+    if (!res.headersSent) res.status(500).send('Error al generar el PDF del Recibo Provisional');
   } finally {
     if (browser) await browser.close();
   }
