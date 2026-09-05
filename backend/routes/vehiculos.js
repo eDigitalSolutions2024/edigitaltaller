@@ -9,6 +9,9 @@ const OrdenCompra = require('../models/OrdenCompra');
 const User = require('../models/User');
 const Grupo = require('../models/Grupo');
 const ContratoOrdenServicio = require('../models/ContratoOrdenServicio');
+const FacturaCfdi = require('../models/FacturaCfdi');
+const AnticipoCliente = require('../models/AnticipoCliente');
+const GarageVehiculo = require('../models/GarageVehiculo');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { normalizarOrdenServicio, regexBusquedaOS } = require('../utils/ordenServicio');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
@@ -1951,7 +1954,6 @@ router.put('/:id/cerrar', proteger, async (req, res) => {
 
     // incrementar contador de usos en el garaje si el vehículo tiene serie
     if (vehiculo.serie) {
-      const GarageVehiculo = require('../models/GarageVehiculo');
       await GarageVehiculo.findOneAndUpdate(
         { serie: vehiculo.serie },
         { $inc: { vecesUsado: 1 } }
@@ -2050,6 +2052,155 @@ router.put('/:id/cambiar-asesor', proteger, requiereRol('admin'), async (req, re
       return res.status(err.status).json({ ok: false, msg: err.message });
     }
     console.error('Error cambiando asesor de la orden:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// PUT /api/vehiculos/:id/cambiar-cliente -> (solo admin) corrige el cliente
+// dueño de una orden que se abrió por error con el cliente equivocado.
+// Solo re-apunta Vehiculo.cliente: los datos del vehículo (marca/modelo/
+// placas) y el asesor no se tocan. Se BLOQUEA si la orden ya tiene actividad
+// aguas abajo ligada al cliente actual —pago activo en Cajas, factura, o
+// anticipo/saldo a favor aplicado—, porque cambiar el cliente ahí dejaría
+// recibos, CFDI y saldo del cliente apuntando a la persona equivocada; en
+// ese caso hay que cancelar esa actividad o abrir una orden nueva.
+router.put('/:id/cambiar-cliente', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { clienteId, motivo } = req.body;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ ok: false, msg: 'Orden inválida.' });
+    }
+    if (!clienteId || !mongoose.isValidObjectId(clienteId)) {
+      return res.status(400).json({ ok: false, msg: 'Debes seleccionar un cliente.' });
+    }
+
+    const vehiculo = await Vehiculo.findById(id);
+    if (!vehiculo) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+
+    const clienteActualId = String(vehiculo.cliente || '');
+    if (clienteActualId === String(clienteId)) {
+      return res.status(400).json({ ok: false, msg: 'La orden ya pertenece a ese cliente.' });
+    }
+
+    const nuevoCliente = await Cliente.findById(clienteId).select('nombre');
+    if (!nuevoCliente) {
+      return res.status(404).json({ ok: false, msg: 'Cliente no encontrado.' });
+    }
+
+    // --- Guardrails: no permitir el cambio si hay actividad ligada al cliente ---
+    const tienePagoActivo = (vehiculo.pagos || []).some((p) => p && !p.cancelado);
+    if (tienePagoActivo) {
+      return res.status(409).json({
+        ok: false,
+        msg: 'No se puede cambiar el cliente: la orden ya tiene pagos registrados en Cajas. Cancela los pagos o abre una orden nueva.',
+      });
+    }
+
+    const [factura, anticipo] = await Promise.all([
+      FacturaCfdi.findOne({
+        estatus: { $ne: 'cancelada' },
+        $or: [
+          { 'orden.vehiculoId': vehiculo._id },
+          { 'ordenes.vehiculoId': vehiculo._id },
+          { 'notasVenta.vehiculoId': vehiculo._id },
+        ],
+      }).select('serie folio'),
+      AnticipoCliente.findOne({ ordenAplicada: vehiculo._id, cancelado: { $ne: true } }).select('_id'),
+    ]);
+
+    if (factura) {
+      const ref = [factura.serie, factura.folio].filter(Boolean).join('-') || 'CFDI';
+      return res.status(409).json({
+        ok: false,
+        msg: `No se puede cambiar el cliente: la orden ya está facturada (${ref}).`,
+      });
+    }
+    if (anticipo) {
+      return res.status(409).json({
+        ok: false,
+        msg: 'No se puede cambiar el cliente: la orden tiene un anticipo / saldo a favor aplicado.',
+      });
+    }
+
+    const clienteAnterior = await Cliente.findById(clienteActualId).select('nombre').lean();
+
+    vehiculo.cliente = nuevoCliente._id;
+    await vehiculo.save();
+
+    // Mantener sincronizado el Garaje (catálogo de vehículos por VIN). El alta
+    // de la orden metió el cliente equivocado en GarageVehiculo.clientes (ver
+    // upsertGarageVehiculo en VehiculoNuevoForm) — esa lista solo alimenta la
+    // sugerencia al teclear el VIN en una orden nueva, nada de facturación.
+    // Se agrega el cliente correcto y se quita el anterior SOLO si ya no le
+    // queda ninguna otra orden con ese mismo VIN. No crítico: si falla, el
+    // cambio de cliente igual queda hecho.
+    const serieVehiculo = String(vehiculo.serie || '').trim();
+    if (serieVehiculo) {
+      try {
+        await GarageVehiculo.updateOne(
+          { serie: serieVehiculo },
+          { $addToSet: { clientes: nuevoCliente._id } }
+        );
+        const otrasDelAnterior = await Vehiculo.countDocuments({
+          _id: { $ne: vehiculo._id },
+          serie: serieVehiculo,
+          cliente: clienteActualId,
+        });
+        if (otrasDelAnterior === 0) {
+          await GarageVehiculo.updateOne(
+            { serie: serieVehiculo },
+            { $pull: { clientes: clienteActualId } }
+          );
+        }
+      } catch (errGaraje) {
+        console.error('Sincronización de Garaje (no crítico):', errGaraje.message);
+      }
+    }
+
+    // Bitácora permanente de la orden (historialEstados) + log rodante, igual
+    // que PUT /:id/restablecer. El estado de la orden no cambia; de/a guardan
+    // el cliente para dejar rastro de quién hizo la corrección y por qué.
+    const u = req.user;
+    const motivoLimpio = typeof motivo === 'string' ? motivo.trim() : '';
+    Vehiculo.updateOne(
+      { _id: vehiculo._id },
+      {
+        $push: {
+          historialEstados: {
+            de: clienteAnterior?.nombre || clienteActualId,
+            a: nuevoCliente.nombre || String(nuevoCliente._id),
+            accion: 'CAMBIO_CLIENTE',
+            por: (u && (u.name || u.username || u.email)) || '',
+            porId: (u && u._id) || null,
+            motivo: motivoLimpio,
+            ruta: 'PUT /:id/cambiar-cliente',
+            fecha: new Date(),
+          },
+        },
+      }
+    ).catch((err) => console.error('historialEstados (no crítico):', err.message));
+
+    registrarAccion(req, {
+      accion: 'ORDEN_CAMBIAR_CLIENTE',
+      entidadId: vehiculo._id,
+      referencia: vehiculo.ordenServicio || '',
+      detalle: {
+        de: { clienteId: clienteActualId, nombre: clienteAnterior?.nombre || '' },
+        a: { clienteId: String(nuevoCliente._id), nombre: nuevoCliente.nombre || '' },
+        motivo: motivoLimpio,
+      },
+    });
+
+    const vehiculoActualizado = await Vehiculo.findById(vehiculo._id)
+      .populate('cliente', POPULATE_CLIENTE)
+      .populate(POPULATE_GRUPO);
+    return res.json({ ok: true, vehiculo: vehiculoActualizado });
+  } catch (err) {
+    console.error('Error cambiando cliente de la orden:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });

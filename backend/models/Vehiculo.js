@@ -158,7 +158,7 @@ const vehiculoSchema = new Schema(
         {
           de: { type: String, default: '' },
           a: { type: String, default: '' },
-          // CERRAR | RESTABLECER | REABRIR | CANCELAR | CAMBIO_ESTADO
+          // CERRAR | RESTABLECER | REABRIR | CANCELAR | CAMBIO_ESTADO | CAMBIO_CLIENTE
           accion: { type: String, default: 'CAMBIO_ESTADO' },
           por: { type: String, default: '' },
           porId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },

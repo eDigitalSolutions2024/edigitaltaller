@@ -81,6 +81,9 @@ export const restoreOrden = (id) =>
 export const cambiarAsesorOrden = (id, asesorId) =>
   http.put(`/vehiculos/${id}/cambiar-asesor`, { asesorId });
 
+export const cambiarClienteOrden = (id, clienteId, motivo = "") =>
+  http.put(`/vehiculos/${id}/cambiar-cliente`, { clienteId, motivo });
+
 export const getVentaClientePdfUrl = (id) => `${API}/vehiculos/${id}/venta-cliente-pdf`;
 
 export const marcarSurtidas = (id, presupuesto) =>
