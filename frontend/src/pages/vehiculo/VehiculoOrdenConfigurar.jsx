@@ -1,12 +1,15 @@
 // src/pages/vehiculo/VehiculoOrdenConfigurar.jsx
 import React, { useState } from "react";
-import { restoreOrden, cambiarAsesorOrden } from "../../api/vehiculos";
+import { restoreOrden, cambiarAsesorOrden, cambiarClienteOrden } from "../../api/vehiculos";
 import ModalCambiarAsesor from "./ModalCambiarAsesor";
+import ModalCambiarCliente from "./ModalCambiarCliente";
 
-export default function VehiculoOrdenConfigurar({ orden, onRestored, onAsesorCambiado }) {
+export default function VehiculoOrdenConfigurar({ orden, onRestored, onAsesorCambiado, onClienteCambiado }) {
   const [restableciendo, setRestableciendo] = useState(false);
   const [modalAbierto, setModalAbierto] = useState(false);
   const [guardandoAsesor, setGuardandoAsesor] = useState(false);
+  const [modalClienteAbierto, setModalClienteAbierto] = useState(false);
+  const [guardandoCliente, setGuardandoCliente] = useState(false);
 
   if (!orden) return null;
 
@@ -52,6 +55,20 @@ export default function VehiculoOrdenConfigurar({ orden, onRestored, onAsesorCam
     }
   };
 
+  const handleConfirmarCambioCliente = async (clienteId, motivo) => {
+    try {
+      setGuardandoCliente(true);
+      const res = await cambiarClienteOrden(orden._id, clienteId, motivo);
+      if (onClienteCambiado) onClienteCambiado(res.data.vehiculo);
+      setModalClienteAbierto(false);
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.msg || "Error al cambiar el cliente de la orden.");
+    } finally {
+      setGuardandoCliente(false);
+    }
+  };
+
   return (
     <div className="card card-body mb-4">
       <h4 className="mb-3">CONFIGURACIÓN DE LA ORDEN</h4>
@@ -82,6 +99,22 @@ export default function VehiculoOrdenConfigurar({ orden, onRestored, onAsesorCam
             Cambiar asesor
           </button>
         </div>
+
+        <div className="border rounded p-3">
+          <div className="fw-semibold mb-1">Cambiar cliente</div>
+          <p className="text-muted small mb-2">
+            Corrige el cliente cuando la orden se abrió por error con el cliente
+            equivocado. No disponible si la orden ya tiene pagos, factura o
+            anticipo aplicado.
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => setModalClienteAbierto(true)}
+          >
+            Cambiar cliente
+          </button>
+        </div>
       </div>
 
       {modalAbierto && (
@@ -90,6 +123,15 @@ export default function VehiculoOrdenConfigurar({ orden, onRestored, onAsesorCam
           guardando={guardandoAsesor}
           onClose={() => !guardandoAsesor && setModalAbierto(false)}
           onConfirm={handleConfirmarCambioAsesor}
+        />
+      )}
+
+      {modalClienteAbierto && (
+        <ModalCambiarCliente
+          clienteActual={orden.cliente}
+          guardando={guardandoCliente}
+          onClose={() => !guardandoCliente && setModalClienteAbierto(false)}
+          onConfirm={handleConfirmarCambioCliente}
         />
       )}
     </div>

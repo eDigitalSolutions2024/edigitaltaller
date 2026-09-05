@@ -487,6 +487,7 @@ export default function VehiculoOrdenDetalle() {
           orden={orden}
           onRestored={(vActualizado) => setOrden(vActualizado)}
           onAsesorCambiado={(vActualizado) => setOrden(vActualizado)}
+          onClienteCambiado={(vActualizado) => setOrden(vActualizado)}
         />
       )}
 
