@@ -9,8 +9,11 @@ const { Xslt, XmlParser } = require("xslt-processor");
 const FiscalConfig = require("../models/FiscalConfig");
 const FacturaCfdi = require("../models/FacturaCfdi");
 const Vehiculo = require("../models/Vehiculo");
+const Cliente = require("../models/Cliente");
+const AnticipoCliente = require("../models/AnticipoCliente");
 const { sincronizarFechaPagadaRemisiones } = require("../utils/cajaTotales");
-const { registrarMovimientoTerminal } = require("../utils/cierreCajaTerminales");
+const { datosMovimientosTerminal, moverTerminalesDePago } = require("../utils/movimientosTerminalPago");
+const { cancelarDeposito, revertirUso, SaldoInsuficienteError } = require("../utils/anticiposCliente");
 
 const router = express.Router();
 
@@ -495,18 +498,74 @@ function injectSello(xmlUnsigned, selloB64) {
   return xmlUnsigned.replace(/Sello=""/, `Sello="${selloB64}"`);
 }
 
+// Un anticipo o remisión "pasa a esta factura": la parte de INCLUIR de la
+// pantalla de Nueva Factura (ver comprobantesCajas). 'OTRA_FACTURA' ya se
+// canceló aparte y 'VIGENTE' se deja tal cual.
+const esAnticipoORemisionVigente = (p) =>
+  !p.cancelado && (p.tipoPago === "ANTICIPO" || p.comprobante === "REMISION");
+
+// Pre-check ANTES de timbrar: un anticipo se guarda como saldo a favor del
+// cliente (aSaldoAFavor / saldoAFavorMovimientoId). Si el cliente ya usó ese
+// saldo en otra orden, el depósito no se puede revertir y cancelar el anticipo
+// al facturar dejaría el saldo descuadrado. Como el CFDI ya estaría timbrado
+// cuando corre la cancelación, esto se valida antes: devuelve la lista de
+// conflictos (vacía = se puede timbrar). El chequeo es acumulativo por cliente
+// (si dos anticipos van a esta factura, el saldo debe alcanzar para ambos).
+async function conflictosAnticiposAntesDeTimbrar(ordenes, decisiones = {}) {
+  const decision = (pagoId) => decisiones[String(pagoId)] || "INCLUIR";
+  const centavos = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const conflictos = [];
+  const saldoLibrePorCliente = new Map(); // clienteId -> saldo a favor aún no reservado
+
+  for (const o of ordenes) {
+    if (!o?._id) continue;
+    const vehiculo = await Vehiculo.findById(o._id).select("ordenServicio pagos").lean();
+    if (!vehiculo) continue;
+    for (const p of vehiculo.pagos || []) {
+      if (!esAnticipoORemisionVigente(p) || decision(p._id) !== "INCLUIR") continue;
+      if (!p.aSaldoAFavor || !p.saldoAFavorMovimientoId) continue;
+
+      const mov = await AnticipoCliente.findById(p.saldoAFavorMovimientoId)
+        .select("tipo monto cliente cancelado")
+        .lean();
+      if (!mov || mov.tipo !== "DEPOSITO" || mov.cancelado) continue;
+
+      const clienteKey = String(mov.cliente);
+      if (!saldoLibrePorCliente.has(clienteKey)) {
+        const c = await Cliente.findById(mov.cliente).select("saldoAFavor").lean();
+        saldoLibrePorCliente.set(clienteKey, centavos(c?.saldoAFavor));
+      }
+      const libre = saldoLibrePorCliente.get(clienteKey);
+      const requerido = centavos(mov.monto);
+      if (libre + 1e-6 < requerido) {
+        conflictos.push({
+          ordenServicio: vehiculo.ordenServicio || o.ordenServicio || "",
+          recibo: p.reciboProvisional?.numero ?? p.notaVenta?.numero ?? null,
+          requerido,
+          disponible: libre,
+        });
+      } else {
+        saldoLibrePorCliente.set(clienteKey, centavos(libre - requerido));
+      }
+    }
+  }
+  return conflictos;
+}
+
 // Al generar una factura de ingreso, cualquier anticipo o remisión vigente de
 // las órdenes facturadas deja de tener sentido como comprobante de cobro
 // aparte: se cancela automáticamente y se enlaza a la factura recién creada
 // (pago.facturaId), en vez de dejar que un admin lo cancele a mano sin dejar
 // registrado a qué factura pasó (eso queda solo para corregir errores de
 // captura, ver POST /api/cajas/:id/pagos/:pagoId/cancelar).
-async function cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc, decisiones = {}) {
+// La reversa económica (saldo a favor + terminal del Cierre de Caja) usa los
+// mismos helpers que esa ruta de Cajas. Devuelve los avisos (best-effort) de
+// pagos que no se pudieron revertir del todo.
+async function cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc, decisiones = {}, user = null) {
   const folioFactura = `${facturaDoc.serie || ""}${facturaDoc.folio || ""}`;
   // Sin decisión para un pago = 'INCLUIR' (comportamiento histórico).
   const decision = (pagoId) => decisiones[String(pagoId)] || "INCLUIR";
-  const esAnticipoORemision = (p) =>
-    (p.comprobante === "NOTA_VENTA" && p.tipoPago === "ANTICIPO") || p.comprobante === "REMISION";
+  const avisos = [];
 
   for (const o of ordenes) {
     if (!o?._id) continue;
@@ -515,13 +574,13 @@ async function cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc, decis
 
     // Vigentes que el usuario dejó (o dejó por defecto) para ESTA factura.
     // 'OTRA_FACTURA' (ya se canceló aparte, hacia otra factura) y 'VIGENTE' se saltan.
-    const pagosPorCancelar = (vehiculo.pagos || []).filter(
-      (p) => !p.cancelado && esAnticipoORemision(p) && decision(p._id) === "INCLUIR"
+    const candidatos = (vehiculo.pagos || []).filter(
+      (p) => esAnticipoORemisionVigente(p) && decision(p._id) === "INCLUIR"
     );
 
     // Al facturar de verdad la orden deja de estar "pendiente de facturar".
     const debeLimpiarPendiente = !!vehiculo.pendienteFactura;
-    if (!pagosPorCancelar.length && !debeLimpiarPendiente) continue;
+    if (!candidatos.length && !debeLimpiarPendiente) continue;
 
     if (debeLimpiarPendiente) {
       vehiculo.pendienteFactura = false;
@@ -529,7 +588,32 @@ async function cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc, decis
       vehiculo.pendienteFacturaPor = "";
     }
 
-    for (const pago of pagosPorCancelar) {
+    // Datos para revertir la terminal, leídos ANTES de tocar el pago.
+    const cancelados = [];
+    for (const pago of candidatos) {
+      const datosTerm = datosMovimientosTerminal(pago);
+
+      // Anticipo guardado como saldo a favor: revertir el depósito ANTES de
+      // marcar el pago (guarda atómica). Si el cliente ya gastó ese saldo, se
+      // deja el anticipo vigente y se avisa (el pre-check debió evitarlo).
+      if (pago.aSaldoAFavor && pago.saldoAFavorMovimientoId) {
+        try {
+          await cancelarDeposito(
+            pago.saldoAFavorMovimientoId,
+            `Se cancela anticipo y pasa a factura ${folioFactura}`,
+            user
+          );
+        } catch (errDep) {
+          if (errDep instanceof SaldoInsuficienteError) {
+            avisos.push(
+              `El anticipo de la orden ${vehiculo.ordenServicio || o.ordenServicio || ""} no se pudo cancelar automáticamente: el cliente ya usó ese saldo a favor. Cancélalo a mano en Cajas.`
+            );
+            continue;
+          }
+          throw errDep;
+        }
+      }
+
       const esRemision = pago.comprobante === "REMISION";
       pago.cancelado = true;
       pago.canceladoEn = new Date();
@@ -544,22 +628,36 @@ async function cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc, decis
         if (!pago.remisionTipoAntesCancelar) pago.remisionTipoAntesCancelar = pago.remision?.tipo || "Contado";
         pago.remision.tipo = "Cancelada";
       }
+      cancelados.push({ pago, datosTerm });
     }
+
+    if (!cancelados.length && !debeLimpiarPendiente) continue;
 
     await vehiculo.save();
     // Al dejar de contar como abonado puede reaparecer saldo: las remisiones
     // vigentes de la orden vuelven a quedar sin Fecha de Pagada.
     await sincronizarFechaPagadaRemisiones(vehiculo);
 
-    for (const pago of pagosPorCancelar) {
-      if (pago.comprobante !== "NOTA_VENTA") continue;
-      try {
-        await registrarMovimientoTerminal(pago.notaVenta?.banco, -pago.monto, pago.fecha);
-      } catch (errTerminal) {
-        console.error("Error revirtiendo terminal del cierre de caja:", errTerminal);
+    for (const { pago, datosTerm } of cancelados) {
+      // Saldo a favor que este anticipo ya tenía aplicado a la orden
+      // (sincronizarAnticiposAplicados): se le regresa al cliente.
+      if (datosTerm.saldoAplicado > 0) {
+        try {
+          await revertirUso(vehiculo.cliente, datosTerm.saldoAplicado, {
+            ordenAplicada: vehiculo._id,
+            pagoId: pago._id,
+            registradoPor: user?.name || user?.username || "Sistema (factura)",
+            registradoPorId: user?._id || null,
+          });
+        } catch (errRev) {
+          console.error("Error revirtiendo saldo aplicado al facturar:", errRev);
+        }
       }
+      await moverTerminalesDePago(datosTerm, -1);
     }
   }
+
+  return avisos;
 }
 
 // Al generar la factura global, cada Nota de Venta que quedó agrupada se marca
@@ -900,6 +998,26 @@ router.post("/xml", async (req, res) => {
       });
     }
 
+    // Último chequeo ANTES de timbrar: si esta factura va a cancelar un
+    // anticipo cuyo saldo a favor el cliente ya usó en otra orden, se aborta
+    // aquí (con el CFDI ya timbrado no habría vuelta atrás). El asistente de
+    // Nueva Factura muestra estos conflictos para resolverlos primero.
+    if (tipoFactura === "factura" && ordenes.length) {
+      const decisionesPre = {};
+      for (const c of Array.isArray(comprobantesCajas) ? comprobantesCajas : []) {
+        if (c?.pagoId) decisionesPre[String(c.pagoId)] = c.accion;
+      }
+      const conflictos = await conflictosAnticiposAntesDeTimbrar(ordenes, decisionesPre);
+      if (conflictos.length) {
+        return res.status(409).json({
+          ok: false,
+          error:
+            "Hay anticipos que no se pueden cancelar hacia esta factura porque el cliente ya usó ese saldo a favor. Resuélvelos antes de generar la factura.",
+          conflictosAnticipos: conflictos,
+        });
+      }
+    }
+
     const cadenaOriginal = await generarCadenaOriginal(xmlUnsigned);
 
     const privateKeyPem = fs.readFileSync(pemPath, "utf8");
@@ -1019,7 +1137,15 @@ router.post("/xml", async (req, res) => {
         for (const c of Array.isArray(comprobantesCajas) ? comprobantesCajas : []) {
           if (c?.pagoId) decisiones[String(c.pagoId)] = c.accion;
         }
-        await cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc, decisiones);
+        const avisos = await cancelarAnticiposYRemisionesPorFactura(
+          ordenes,
+          facturaDoc,
+          decisiones,
+          req.user
+        );
+        if (avisos.length) {
+          persistWarning = (persistWarning ? persistWarning + " " : "") + avisos.join(" ");
+        }
       }
 
       if (esFacturaGlobal) {

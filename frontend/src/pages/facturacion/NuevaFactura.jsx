@@ -1410,18 +1410,17 @@ export default function NuevaFactura() {
 
   const [ordenDesglosada, setOrdenDesglosada] = useState("");
 
-  /* Anticipos (Nota de Venta) y remisiones de las órdenes seleccionadas que
-     hay que resolver para facturar: vigentes (elección por comprobante) o ya
-     cancelados hacia una factura (pendientes de esta, o movidos a otra). Los
-     cancelados POR ERROR ya no aparecen. */
+  /* Anticipos (Nota de Venta o Recibo Provisional) y remisiones de las órdenes
+     seleccionadas que hay que resolver para facturar: vigentes (elección por
+     comprobante) o ya cancelados hacia una factura (pendientes de esta, o
+     movidos a otra). Los cancelados POR ERROR ya no aparecen. */
   const comprobantesCajas = useMemo(
     () =>
       ordenes.flatMap((o) =>
         (o.pagos || [])
           .filter(
             (p) =>
-              ((p.comprobante === "NOTA_VENTA" && p.tipoPago === "ANTICIPO") ||
-                p.comprobante === "REMISION") &&
+              (p.tipoPago === "ANTICIPO" || p.comprobante === "REMISION") &&
               (!p.cancelado || p.motivoCancelacionTipo === "PASA_A_FACTURA")
           )
           .map((p) => ({ ordenId: o._id, ordenServicio: o.ordenServicio, pago: p }))
@@ -1721,11 +1720,23 @@ export default function NuevaFactura() {
       }
     } catch (e) {
       console.error(e);
+      const data = e?.response?.data || {};
+      const conflictos = Array.isArray(data.conflictosAnticipos) ? data.conflictosAnticipos : [];
+      const detalle = conflictos.length
+        ? "\n\n" +
+          conflictos
+            .map(
+              (c) =>
+                `• Orden ${c.ordenServicio || "—"}${
+                  c.recibo != null ? ` (recibo N°${c.recibo})` : ""
+                }: se necesitan $${Number(c.requerido || 0).toFixed(2)} de saldo a favor y solo hay $${Number(
+                  c.disponible || 0
+                ).toFixed(2)}.`
+            )
+            .join("\n")
+        : "";
       const msg =
-        e?.response?.data?.error ||
-        e?.response?.data?.message ||
-        e?.message ||
-        "Error al generar XML.";
+        (data.error || data.message || e?.message || "Error al generar XML.") + detalle;
       alert(msg);
     } finally {
       setXmlLoading(false);
@@ -2423,6 +2434,8 @@ export default function NuevaFactura() {
                           const comp =
                             pago.comprobante === "REMISION"
                               ? `Remisión N°${pago.remision?.numero ?? "—"}`
+                              : pago.comprobante === "RECIBO_PROVISIONAL"
+                              ? `Anticipo · Recibo N°${pago.reciboProvisional?.numero ?? "—"}`
                               : `Anticipo · Nota de Venta N°${pago.notaVenta?.numero ?? "—"}`;
                           const accion = accionDe(pago._id);
                           return (
