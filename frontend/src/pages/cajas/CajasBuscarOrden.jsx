@@ -83,30 +83,48 @@ export default function CajasBuscarOrden() {
 
   // Búsqueda reactiva: cada cambio espera un momento antes de disparar la
   // consulta, para no pegarle al servidor en cada tecla.
+  //
+  // Guard de respuesta obsoleta: al teclear rápido pueden quedar varias
+  // consultas en vuelo a la vez (p. ej. la búsqueda vacía del montaje, que trae
+  // TODAS las órdenes y es lenta, contra una búsqueda específica que responde
+  // antes). Sin este guard, la respuesta que llega última pisa a la demás y
+  // "unos segundos después se muestran otra vez todas". Se aborta la petición
+  // anterior y se ignora cualquier respuesta que no sea la del último efecto.
   useEffect(() => {
+    const controller = new AbortController();
+    let cancelado = false;
     const timer = setTimeout(async () => {
       try {
         setLoading(true);
         setError("");
-        const res = await listOrdenesCaja({
-          vista,
-          sort,
-          search: busqueda,
-          fechaDesde,
-          fechaHasta,
-          page,
-          limit: PAGE_SIZE,
-        });
+        const res = await listOrdenesCaja(
+          {
+            vista,
+            sort,
+            search: busqueda,
+            fechaDesde,
+            fechaHasta,
+            page,
+            limit: PAGE_SIZE,
+          },
+          { signal: controller.signal }
+        );
+        if (cancelado) return;
         setRows(res.data.data || []);
         setTotal(res.data.total || 0);
       } catch (err) {
+        if (cancelado || err.code === "ERR_CANCELED" || err.name === "CanceledError") return;
         console.error("Error cargando órdenes de Cajas:", err);
         setError("No se pudieron cargar las órdenes.");
       } finally {
-        setLoading(false);
+        if (!cancelado) setLoading(false);
       }
     }, DEBOUNCE_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelado = true;
+      clearTimeout(timer);
+      controller.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busqueda, fechaDesde, fechaHasta, page, vista, sort]);
 
