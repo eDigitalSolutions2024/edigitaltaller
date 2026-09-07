@@ -43,6 +43,16 @@ function fechaLargaEs(valor) {
   return `${f.date()} ${MESES_ES[f.month()]} ${f.year()}`;
 }
 
+// Notas de la banda "Anticipos" del Reporte de Facturas: solo cómo se cobró el
+// anticipo y el folio del recibo, p. ej. "BR-C REC#1234". No se incluye la
+// descripción libre del pago (no repetir "Anticipo").
+function notaAnticipoFactura(p) {
+  const desc = p.comprobante === 'RECIBO_PROVISIONAL' ? p.reciboProvisional : p.notaVenta;
+  const abrev = abreviaturaFormaPago(desc);
+  const numRecibo = desc?.numero;
+  return [abrev, numRecibo != null ? `REC#${numRecibo}` : ''].filter(Boolean).join(' ');
+}
+
 const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares esEmpleado';
 const POPULATE_GRUPO = { path: 'grupoId', select: 'nombre miembros', populate: { path: 'miembros', select: 'name' } };
 
@@ -891,7 +901,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         cliente: nombreCliente(o.cliente),
         fecha: p.fecha,
         anticipo: p.monto,
-        notas: notaConMetodo(p.notas, p.notaVenta),
+        notas: notaAnticipoFactura(p),
       });
       totalAnticipo += p.monto;
       sumarDepositoNotaVenta(sumarDeposito, p);
@@ -927,7 +937,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         cliente: nombreCliente(o.cliente),
         fecha: p.fecha,
         anticipo: p.monto,
-        notas: notaConMetodo(p.notas, p.reciboProvisional),
+        notas: notaAnticipoFactura(p),
       });
       totalAnticipo += p.monto;
       sumarDepositoReciboProvisional(sumarDeposito, p);
