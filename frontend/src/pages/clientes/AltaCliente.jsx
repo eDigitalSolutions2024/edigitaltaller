@@ -619,7 +619,7 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
             onChange={(e) => upd("lineaNegocio", e.target.value)}
           >
             <Dropdown.Option value="SERVICOMPACTO">Servicompacto</Dropdown.Option>
-            <Dropdown.Option value="CHIREY">Chirey</Dropdown.Option>
+            {/* <Dropdown.Option value="CHIREY">Chirey</Dropdown.Option> */}
           </Dropdown>
           {form.lineaNegocio === "CHIREY" && (
             <small className="text-muted">
