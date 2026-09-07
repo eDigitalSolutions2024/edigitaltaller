@@ -68,7 +68,7 @@ function mismoDia(desde, hasta) {
 function fila(r, folioDefault) {
   return `
     <tr class="body-style">
-      <td class="cen">${esc(r.folio ?? folioDefault ?? '')}</td>
+      <td class="cen">${esc(r.folio ?? folioDefault ?? '').replace(/\n/g, '<br>')}</td>
       <td class="cen">${esc(r.ordenServicio)}</td>
       <td class="cliente">${esc(r.cliente)}</td>
       <td class="num">${fmtCelda(r.ventaDia)}</td>

@@ -20,14 +20,27 @@ const { streamReporteClientesAnticiposPdf } = require('../service/reporteCliente
 const { calcImporteHoras } = require('../utils/manoObra');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
 const { abreviaturaFormaPago } = require('../utils/abreviaturaFormaPago');
+const { FILTRO_SERVICOMPACTO } = require('../utils/lineaNegocio');
+const { dayjsFecha } = require('../utils/fechas');
 
-// Adjunta a una nota la abreviatura del método de pago usado (" - BR-C"), a
-// partir del sub-objeto pago.notaVenta o pago.reciboProvisional. Mismo estilo
-// separador que la banda "Complementos de pago".
+// Adjunta a una nota la abreviatura del método de pago usado ("... BR-C"), a
+// partir del sub-objeto pago.notaVenta o pago.reciboProvisional. Solo texto,
+// sin símbolos "+" ni "-" como separadores.
 function notaConMetodo(notas, formaPagoDesc) {
   const abrev = abreviaturaFormaPago(formaPagoDesc);
   if (!abrev) return notas || '';
-  return notas ? `${notas} - ${abrev}` : abrev;
+  return notas ? `${notas} ${abrev}` : abrev;
+}
+
+// Fecha en el estilo del reporte en papel: "17 JULIO 2026" (día, mes en
+// mayúsculas, año). Se usa en la columna Notas de los anticipos cancelados.
+const MESES_ES = [
+  'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+  'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE',
+];
+function fechaLargaEs(valor) {
+  const f = dayjsFecha(valor);
+  return `${f.date()} ${MESES_ES[f.month()]} ${f.year()}`;
 }
 
 const POPULATE_CLIENTE = 'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares esEmpleado';
@@ -147,6 +160,12 @@ async function filtroAsesor(asesor) {
   return { creadoPor: asesor };
 }
 
+// NOTA: todas las consultas de órdenes de este archivo esparcen
+// `...FILTRO_SERVICOMPACTO` para excluir las órdenes de la línea de negocio
+// Chirey (ver backend/utils/lineaNegocio.js). Los reportes de Cajas
+// (cajas-ingresos / remisiones-diario / facturas-diario) y el de
+// clientes-anticipos quedan pendientes de esa decisión y por ahora NO filtran.
+
 // GET /api/reportes/originales?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
 router.get('/originales', async (req, res) => {
   try {
@@ -156,7 +175,7 @@ router.get('/originales', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...FILTRO_SERVICOMPACTO, ...dateFilter })
       .sort({ fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
@@ -189,7 +208,7 @@ router.get('/ventas-asesores', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...FILTRO_SERVICOMPACTO, ...dateFilter })
       .sort({ creadoPor: 1, fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
@@ -236,7 +255,7 @@ router.get('/originales-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...FILTRO_SERVICOMPACTO, ...dateFilter })
       .sort({ fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .lean();
@@ -267,7 +286,7 @@ router.get('/ventas-asesores-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...FILTRO_SERVICOMPACTO, ...dateFilter })
       .sort({ creadoPor: 1, fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .lean();
@@ -310,7 +329,7 @@ router.get('/ordenes-abiertas', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...FILTRO_SERVICOMPACTO, ...dateFilter })
       .sort({ creadoPor: 1, fechaRecepcion: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
@@ -359,7 +378,7 @@ router.get('/originales-abiertas', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter };
+    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...FILTRO_SERVICOMPACTO, ...dateFilter };
     const filtroAsesorQuery = await filtroAsesor(asesor);
     if (filtroAsesorQuery) Object.assign(query, filtroAsesorQuery);
     const ordenes = await Vehiculo.find(query)
@@ -398,6 +417,7 @@ async function buildReporteGarantias({ desde, hasta, asesor }) {
     'garantia.estado': 'APROBADA',
     // Solo se reportan garantías cuya orden nueva ya está cerrada
     estadoOrden: 'CERRADA',
+    ...FILTRO_SERVICOMPACTO,
     ...buildDateFilterAbiertas(desde, hasta),
   };
   const filtroAsesorQuery = await filtroAsesor(asesor);
@@ -1028,13 +1048,21 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       // Anticipos vigentes), solo sirve arriba para el cruce con Facturas.
       if (esRemision) continue;
 
+      // Notas del anticipo cancelado: "TIPO DE PAGO  FECHA  NOMBRE CLIENTE"
+      // (formato acordado con el cliente), p. ej. "EFECTIVO 17 JULIO 2026
+      // MANUEL MATEO REYES". La fecha es la del anticipo original.
+      const formaPagoDesc = p.comprobante === 'RECIBO_PROVISIONAL' ? p.reciboProvisional : p.notaVenta;
+      const tipoPagoTxt = abreviaturaFormaPago(formaPagoDesc);
       anticiposCancelados.push({
         folio: 'ANT',
         ordenServicio: o.ordenServicio || '',
         cliente: `SE CANCELÓ ANTICIPO Y PASA A FACTURA ${folioCfdi}`,
         fecha: fechaEvento,
         anticipo: -p.monto,
-        notas: notaConMetodo(p.notas, p.comprobante === 'RECIBO_PROVISIONAL' ? p.reciboProvisional : p.notaVenta),
+        notas: [tipoPagoTxt, fechaLargaEs(p.fecha), nombreCliente(o.cliente)]
+          .filter(Boolean)
+          .join(' ')
+          .toUpperCase(),
       });
       totalAnticipo -= p.monto;
     }
@@ -1054,16 +1082,18 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     totalCredito += monto;
     sumarDeposito(SAT_FORMA_PAGO_A_DEPOSITO[f.pago?.formaPago], monto);
     const formaPagoLabel = SAT_FORMA_PAGO_LABEL[f.pago?.formaPago] || '';
-    const notaFactura = rel
-      ? `COMPLEMENTO DE PAGO FACTURA ${rel.serie || ''}${rel.folio || ''}`
-      : 'COMPLEMENTO DE PAGO';
+    // Folio en dos líneas: el del Complemento (CP…) arriba y el de la factura
+    // a la que abona debajo. El renderer parte por el salto de línea.
+    const folioCp = `${f.serie || ''}${f.folio || ''}`;
+    const folioFactura = rel ? `${rel.serie || ''}${rel.folio || ''}` : '';
     return {
-      folio: `${f.serie || ''}${f.folio || ''}`,
+      folio: folioFactura ? `${folioCp}\n${folioFactura}` : folioCp,
       ordenServicio: f.orden?.ordenServicio || (f.ordenes || []).map((x) => x.ordenServicio).join(', '),
       cliente: f.cliente?.nombre || '',
       fecha: f.fecha,
       ingresoCredito: monto,
-      notas: formaPagoLabel ? `${notaFactura} - ${formaPagoLabel}` : notaFactura,
+      // Notas: solo la forma de pago del complemento.
+      notas: formaPagoLabel,
     };
   });
 
@@ -1196,10 +1226,9 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
 
           const folioNota = p.notaVenta?.numero != null ? `P${p.notaVenta.numero}` : 'S/N';
           const montoNotaVenta = p.monto || 0;
-          // Texto para el desglose "PUBLICO GENERAL": la terminal/método, o
-          // 'COMBINADO' cuando el pago se repartió entre varios métodos.
-          const formaNotaTexto =
-            p.notaVenta?.formaPago === 'COMBINADO' ? 'COMBINADO' : p.notaVenta?.banco || 'S/D';
+          // Texto para el desglose "PUBLICO GENERAL": método de pago con la
+          // terminal abreviada (BANREGIO -> BR-C / BR-D), o la combinación.
+          const formaNotaTexto = abreviaturaFormaPago(p.notaVenta) || 'S/D';
           if (cruce) {
             const totalOrden = montoNotaVenta + cruce.monto;
             const textoCruce =
@@ -1217,17 +1246,18 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
   }
 
   // Por cada factura, dos cosas a partir del cruce con pagos de Cajas:
-  //   - Notas: la(s) forma(s) de los pagos NOTA_VENTA cruzados (terminal
-  //     abreviada, p. ej. "BR-C"); si no hubo pago cruzado, la forma SAT del CFDI.
+  //   - Notas: el método de pago y la terminal abreviada de los pagos
+  //     NOTA_VENTA cruzados (p. ej. "BR-C"); si no hubo pago cruzado, la forma
+  //     SAT del CFDI. Solo texto, sin símbolos "+" ni "-" como separadores.
   //   - Depósito: si la factura es de contado (PUE) y NO tuvo pago de Cajas que
   //     ya alimentó la tabla, se aporta su total al bucket según cfdi.formaPago
   //     (una factura fiscal normal se cobra en el mismo acto, sin Nota de Venta).
   for (const { fila, cfdiFormaPago, esPue, total, metodos } of facturasConOrdenes) {
     if (!/PUBLICO GENERAL/.test(fila.notas || '')) {
       const abrev = metodos.size
-        ? [...metodos].join(', ')
+        ? [...metodos].join(' ')
         : SAT_FORMA_PAGO_ABREV[cfdiFormaPago] || '';
-      if (abrev) fila.notas = fila.notas ? `${fila.notas} - ${abrev}` : abrev;
+      if (abrev) fila.notas = fila.notas ? `${fila.notas} ${abrev}` : abrev;
     }
     if (esPue && metodos.size === 0) {
       sumarDeposito(SAT_FORMA_PAGO_A_DEPOSITO[cfdiFormaPago], total);
@@ -1472,7 +1502,7 @@ router.get('/ordenes-abiertas-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...FILTRO_SERVICOMPACTO, ...dateFilter })
       .sort({ creadoPor: 1, fechaRecepcion: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .lean();
@@ -1519,7 +1549,7 @@ router.get('/originales-abiertas-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter };
+    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...FILTRO_SERVICOMPACTO, ...dateFilter };
     const filtroAsesorQuery = await filtroAsesor(asesor);
     if (filtroAsesorQuery) Object.assign(query, filtroAsesorQuery);
     const ordenes = await Vehiculo.find(query)
@@ -1555,6 +1585,7 @@ router.get('/originales-abiertas-pdf', async (req, res) => {
 async function buildReporteRhCxC({ desde, hasta, mecanico }) {
   const query = {
     estadoOrden: 'CERRADA',
+    ...FILTRO_SERVICOMPACTO,
     ...buildDateFilter(desde, hasta),
   };
 
@@ -1683,6 +1714,7 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
   if (estado === 'cerradas') query = filtroCerradas;
   else if (estado === 'abiertas') query = filtroAbiertas;
   else query = { $or: [filtroAbiertas, filtroCerradas] }; // 'todas' (o sin valor)
+  query = { ...query, ...FILTRO_SERVICOMPACTO };
 
   const ordenes = await Vehiculo.find(query)
     .sort({ fechaRecepcion: 1 })
@@ -1832,6 +1864,7 @@ async function buildReportePendientesFactura({ desde, hasta }) {
 
   const ordenes = await Vehiculo.find({
     pendienteFactura: true,
+    ...FILTRO_SERVICOMPACTO,
     pendienteFacturaEn: { $gte: d, $lte: h },
   })
     .sort({ pendienteFacturaEn: 1 })

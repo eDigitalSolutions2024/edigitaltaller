@@ -14,6 +14,7 @@ const AnticipoCliente = require('../models/AnticipoCliente');
 const GarageVehiculo = require('../models/GarageVehiculo');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { normalizarOrdenServicio, regexBusquedaOS } = require('../utils/ordenServicio');
+const { normalizaLineaNegocio, FILTRO_SERVICOMPACTO } = require('../utils/lineaNegocio');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
 const { sincronizarAnticiposAplicados } = require('../utils/anticiposCliente');
 const { backfillCreadoPorId } = require('../utils/backfillCreadoPorId');
@@ -307,6 +308,17 @@ router.post('/', async (req, res) => {
       ...data,
     };
 
+    // La línea de negocio se HEREDA del cliente y se "sella" aquí: nunca se
+    // acepta cruda del body (un caller no debe poder abrir una orden Chirey
+    // para un cliente de Servicompacto ni al revés). Los reportes filtran por
+    // Vehiculo.lineaNegocio; ver backend/utils/lineaNegocio.js.
+    delete payload.lineaNegocio;
+    const clienteLinea = await Cliente.findById(clienteId).select('lineaNegocio');
+    if (!clienteLinea) {
+      return res.status(400).json({ ok: false, msg: 'El cliente indicado no existe.' });
+    }
+    payload.lineaNegocio = normalizaLineaNegocio(clienteLinea.lineaNegocio);
+
     // ===== Solicitud de Garantía =====
     // El sub-objeto garantia nunca se acepta crudo del cliente; se arma aquí
     // a partir de garantiaSolicitud { ordenAnteriorId, motivo }.
@@ -542,6 +554,7 @@ router.get('/ordenes', proteger, async (req, res) => {
       fechaDesde = '',
       fechaHasta = '',
       cliente = '',
+      lineaNegocio = '',
       soloMisOrdenes = '',
       page = 1,
       limit = 10,
@@ -555,6 +568,15 @@ router.get('/ordenes', proteger, async (req, res) => {
     // Para facturar varias órdenes juntas, todas deben ser del mismo cliente.
     if (cliente && mongoose.isValidObjectId(cliente)) {
       q.cliente = cliente;
+    }
+
+    // Filtro por línea de negocio (botón en Consulta General de Órdenes).
+    // Sin valor => todas. 'SERVICOMPACTO' usa $ne:'CHIREY' para no dejar fuera
+    // órdenes viejas sin el campo (ver backend/utils/lineaNegocio.js).
+    if (lineaNegocio === 'CHIREY') {
+      q.lineaNegocio = 'CHIREY';
+    } else if (lineaNegocio === 'SERVICOMPACTO') {
+      Object.assign(q, FILTRO_SERVICOMPACTO);
     }
 
     const filtroCobranza = ['pendientes', 'liquidadas'].includes(cobranza) ? cobranza : '';
@@ -705,7 +727,7 @@ router.get('/mis-ordenes', proteger, requiereRol('asesor_servicio', 'admin'), as
       estadoOrden: { $nin: ['CERRADA', 'CANCELADA'] },
       ...condicionPropias,
     })
-      .select('ordenServicio estadoOrden marca modelo anio color createdAt cliente creadoPor creadoPorId grupoId')
+      .select('ordenServicio estadoOrden marca modelo anio color createdAt cliente creadoPor creadoPorId grupoId lineaNegocio')
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
       .sort({ createdAt: -1 })
@@ -1524,11 +1546,13 @@ router.get('/stats/dashboard', proteger, async (req, res) => {
       // Órdenes creadas dentro del periodo
       Vehiculo.countDocuments({
         ...alcance,
+        ...FILTRO_SERVICOMPACTO,
         createdAt: { $gte: inicio, $lte: ahora },
       }),
       // Órdenes cerradas dentro del periodo
       Vehiculo.countDocuments({
         ...alcance,
+        ...FILTRO_SERVICOMPACTO,
         estadoOrden: 'CERRADA',
         updatedAt: { $gte: inicio, $lte: ahora },
       }),

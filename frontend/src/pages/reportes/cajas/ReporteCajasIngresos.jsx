@@ -276,7 +276,7 @@ function ListaDias({ titulo, dias, onVerDia }) {
 function FilaRemision({ r }) {
   return (
     <tr>
-      <td>{r.folio ?? '—'}</td>
+      <td style={{ whiteSpace: 'pre-line' }}>{r.folio ?? '—'}</td>
       <td>{r.ordenServicio || '—'}</td>
       <td>{r.cliente || '—'}</td>
       <td className="text-end">{celda(r.ventaDia)}</td>

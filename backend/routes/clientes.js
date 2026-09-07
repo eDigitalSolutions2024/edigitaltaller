@@ -2,6 +2,7 @@
 const express = require("express");
 const Cliente = require("../models/Cliente");
 const { proteger, requiereRol } = require("../middleware/auth");
+const { normalizaLineaNegocio } = require("../utils/lineaNegocio");
 const router = express.Router();
 
 // Todas las rutas de clientes requieren sesión: antes no había ningún
@@ -108,11 +109,18 @@ router.post("/", async (req, res) => {
   try {
     const body = { ...req.body };
 
+    // Línea de negocio (Servicompacto / Chirey). Se normaliza siempre: si no
+    // viene, cae al default 'SERVICOMPACTO'. El chequeo de nombre duplicado de
+    // abajo se hace por línea, para no bloquear un alta de Chirey solo porque
+    // el mismo nombre ya existe en la cartera de Servicompacto.
+    body.lineaNegocio = normalizaLineaNegocio(body.lineaNegocio);
+
     // 👇 Validación de nombre duplicado
     const { nombre, apellidoPaterno, apellidoMaterno, tipoCliente } = body;
 
     if (tipoCliente === "Particular" && nombre) {
       const query = {
+        lineaNegocio: body.lineaNegocio,
         nombre: { $regex: new RegExp(`^${escapeRegex(nombre.trim())}$`, "i") },
         apellidoPaterno: { $regex: new RegExp(`^${escapeRegex((apellidoPaterno || "").trim())}$`, "i") },
         apellidoMaterno: { $regex: new RegExp(`^${escapeRegex((apellidoMaterno || "").trim())}$`, "i") },
@@ -132,6 +140,7 @@ router.post("/", async (req, res) => {
       if (body.nombre) {
         const existe = await Cliente.findOne({
           tipoCliente,
+          lineaNegocio: body.lineaNegocio,
           nombre: { $regex: new RegExp(`^${escapeRegex(body.nombre.trim())}$`, "i") },
         });
         if (existe) {
@@ -147,6 +156,7 @@ router.post("/", async (req, res) => {
       const nombreGob = body.gobierno?.nombreGobierno;
       if (nombreGob) {
         const existe = await Cliente.findOne({
+          lineaNegocio: body.lineaNegocio,
           "gobierno.nombreGobierno": { $regex: new RegExp(`^${escapeRegex(nombreGob.trim())}$`, "i") },
         });
         if (existe) {
@@ -297,6 +307,13 @@ router.put("/:id", async (req, res) => {
     // el body de "Editar Cliente" puede traer una copia vieja (si se abrió el
     // modal ⚙ y se guardó ahí sin recargar) que pisaría el catálogo.
     delete body.codigosServicio;
+
+    // Solo se toca la línea de negocio si el body la trae explícitamente
+    // (para no pisar con el default a un cliente cuyo formulario no la envió);
+    // si viene, se normaliza a un valor válido.
+    if (body.lineaNegocio !== undefined) {
+      body.lineaNegocio = normalizaLineaNegocio(body.lineaNegocio);
+    }
 
     // 🔴 Tampoco actualizamos facturación por ahora
     //delete body.facturacion;

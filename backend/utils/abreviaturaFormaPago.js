@@ -8,7 +8,8 @@
  * Reglas (acordadas con el cliente):
  *   - Tarjeta: <abrev. terminal>-<C|D>      ej. "BanRegio Crédito" -> "BR-C"
  *   - Efectivo / Cheque / Transferencia: texto completo
- *   - Combinado: cada componente presente, unido con "+"   ej. "EFECTIVO+BR-C"
+ *   - Combinado: cada componente presente, separado por un espacio (solo
+ *     texto, sin símbolos)   ej. "EFECTIVO BR-C"
  *
  * Recibe el sub-objeto `pago.notaVenta` o `pago.reciboProvisional` (comparten
  * forma: { formaPago, banco, combinado }). Devuelve "" si no hay datos
@@ -51,7 +52,7 @@ function abreviaturaCombinado(combinado) {
   if (n(c.debito)) partes.push(abrevTarjeta('DEBITO', c.banco));
   if (n(c.cheque)) partes.push('CHEQUE');
   if (n(c.transferencia)) partes.push('TRANSFERENCIA');
-  return partes.join('+');
+  return partes.join(' ');
 }
 
 function abreviaturaFormaPago(desc) {
