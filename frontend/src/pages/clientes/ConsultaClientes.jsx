@@ -124,6 +124,9 @@ export default function ConsultaClientes() {
               ) : (
                 [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") || "—"
               )}
+              {c.lineaNegocio === "CHIREY" && (
+                <span className="badge bg-info text-dark ms-1">Chirey</span>
+              )}
             </div>
             <div>
               {Array.isArray(c.emails) && c.emails.length

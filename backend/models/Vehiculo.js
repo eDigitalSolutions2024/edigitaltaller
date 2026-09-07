@@ -1,6 +1,7 @@
 // backend/models/Vehiculo.js
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
+const { LINEAS_NEGOCIO, LINEA_DEFAULT } = require('../utils/lineaNegocio');
 
 // al inicio, antes del schema:
 const ESTADOS_ORDEN = [
@@ -95,6 +96,17 @@ const vehiculoSchema = new Schema(
     // no se incluye en el whitelist de PUT /:id/datos, por lo que es
     // inmutable después de creada la orden.
     sinVehiculo: { type: Boolean, default: false },
+
+    // Línea de negocio "sellada" al crear la orden, copiada del cliente
+    // (ver backend/utils/lineaNegocio.js y POST /api/vehiculos). Nunca se
+    // acepta cruda del body ni se re-deriva después: los reportes de
+    // Servicompacto filtran por este campo y excluyen 'CHIREY'.
+    lineaNegocio: {
+      type: String,
+      enum: LINEAS_NEGOCIO,
+      default: LINEA_DEFAULT,
+      index: true,
+    },
 
     // Firma capturada del cliente (data URL PNG) para el Formato Operativo —
     // se muestra en la sección "AUTORIZACIÓN Y FIRMA DEL CLIENTE...". null

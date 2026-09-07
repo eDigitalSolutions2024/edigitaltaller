@@ -1,5 +1,6 @@
 const Vehiculo = require('../models/Vehiculo');
 const ContratoOrdenServicio = require('../models/ContratoOrdenServicio');
+const { normalizaLineaNegocio } = require('./lineaNegocio');
 
 // Campos de la orden de garantía que se copian a la orden de reemplazo
 // cuando la garantía "No aplica". Mismo conjunto que ya arma
@@ -90,6 +91,8 @@ async function noAplicaGarantia(ordenId, resueltoPor) {
     creadoPor: ordenGarantia.creadoPor || '',
     creadoPorId: ordenGarantia.creadoPorId || null,
     grupoId: ordenGarantia.grupoId || null,
+    // La orden de reemplazo hereda la línea de negocio de la orden original.
+    lineaNegocio: normalizaLineaNegocio(ordenGarantia.lineaNegocio),
     contratoOrdenServicio: contratoVigente._id,
     observacionesInternas: `Orden de reemplazo por garantía no aplicada sobre la orden ${ordenGarantia.ordenServicio}.`,
   });

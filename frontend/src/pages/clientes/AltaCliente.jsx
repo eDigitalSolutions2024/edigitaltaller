@@ -60,6 +60,10 @@ function setIn(obj, path, value) {
 const initial = {
   tipoCliente: "Particular",
 
+  // Línea de negocio: "SERVICOMPACTO" (operación histórica) o "CHIREY"
+  // (cartera de Chirey; sus órdenes no entran en los reportes de Servicompacto).
+  lineaNegocio: "SERVICOMPACTO",
+
   // COMUNES
   nombre: "",
   apellidoPaterno: "",
@@ -606,6 +610,22 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
               </Dropdown.Option>
             ))}
           </Dropdown>
+        </div>
+
+        <div className="form-row">
+          <label>Línea de negocio</label>
+          <Dropdown
+            value={form.lineaNegocio || "SERVICOMPACTO"}
+            onChange={(e) => upd("lineaNegocio", e.target.value)}
+          >
+            <Dropdown.Option value="SERVICOMPACTO">Servicompacto</Dropdown.Option>
+            <Dropdown.Option value="CHIREY">Chirey</Dropdown.Option>
+          </Dropdown>
+          {form.lineaNegocio === "CHIREY" && (
+            <small className="text-muted">
+              Las órdenes de este cliente no aparecerán en los reportes de Servicompacto.
+            </small>
+          )}
         </div>
       </div>
 

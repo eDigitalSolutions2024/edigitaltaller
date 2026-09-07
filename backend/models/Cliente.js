@@ -1,6 +1,7 @@
 // models/Cliente.js
 const mongoose = require("mongoose");
 const { Schema } = mongoose;
+const { LINEAS_NEGOCIO, LINEA_DEFAULT } = require("../utils/lineaNegocio");
 
 /* ---------- Subesquemas reutilizables ---------- */
 
@@ -104,6 +105,17 @@ const ClienteSchema = new Schema(
   {
     // Tipo controla qué ramas se usan (empresa/gobierno/particular)
     tipoCliente: { type: String, enum: TIPOS, default: "Particular", index: true },
+
+    // Línea de negocio del cliente (ver backend/utils/lineaNegocio.js). Se
+    // captura en el alta; las órdenes que se le abran heredan y "sellan" este
+    // valor (Vehiculo.lineaNegocio) y las de 'CHIREY' quedan fuera de los
+    // reportes de Servicompacto.
+    lineaNegocio: {
+      type: String,
+      enum: LINEAS_NEGOCIO,
+      default: LINEA_DEFAULT,
+      index: true,
+    },
 
     // Datos “particular” (también útiles como contacto general)
     nombre: { type: String, trim: true },

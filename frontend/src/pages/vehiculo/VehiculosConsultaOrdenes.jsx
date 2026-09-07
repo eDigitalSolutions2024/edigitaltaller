@@ -95,6 +95,8 @@ export default function VehiculosConsultaOrdenes() {
 
   const [searchOs, setSearchOs] = useState("");
   const [search, setSearch] = useState("");
+  // Filtro por línea de negocio: "" = todas, "SERVICOMPACTO" o "CHIREY"
+  const [lineaNegocio, setLineaNegocio] = useState("");
   const [page, setPage] = useState(1);
   const [limit] = useState(10);
   const [total, setTotal] = useState(0);
@@ -113,12 +115,15 @@ export default function VehiculosConsultaOrdenes() {
       setLoading(true);
       setError("");
 
+      const base = { searchOs, search, page, limit };
+      if (lineaNegocio) base.lineaNegocio = lineaNegocio;
+
       const params =
         tab === "PENDIENTE_CIERRE"
-          ? { pendienteCierre: true, searchOs, search, page, limit }
+          ? { ...base, pendienteCierre: true }
           : COBRANZA_MAP[tab]
-          ? { cobranza: COBRANZA_MAP[tab], searchOs, search, page, limit }
-          : { estado: tab, searchOs, search, page, limit };
+          ? { ...base, cobranza: COBRANZA_MAP[tab] }
+          : { ...base, estado: tab };
 
       const res = await listOrdenesServicio(params);
 
@@ -133,15 +138,20 @@ export default function VehiculosConsultaOrdenes() {
   };
 
   useEffect(() => {
-    // cada que cambie tab o página o filtros, recarga
+    // cada que cambie tab, página o el filtro de línea de negocio, recarga
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, page]);
+  }, [tab, page, lineaNegocio]);
 
   const handleBuscar = (e) => {
     e.preventDefault();
     setPage(1);
     fetchData();
+  };
+
+  const cambiarLineaNegocio = (valor) => {
+    setLineaNegocio(valor);
+    setPage(1);
   };
 
   const handleGlobalSearch = async (e) => {
@@ -235,7 +245,12 @@ export default function VehiculosConsultaOrdenes() {
                       style={{ cursor: "pointer" }}
                       onClick={() => irAOrden(r)}
                     >
-                      <td className="text-center">{r.ordenServicio || "-"}</td>
+                      <td className="text-center">
+                        {r.ordenServicio || "-"}
+                        {r.lineaNegocio === "CHIREY" && (
+                          <div><span className="badge bg-info text-dark">Chirey</span></div>
+                        )}
+                      </td>
                       <td>
                         {nombreClienteOrden(r.cliente) || "-"}
                         {r.cliente?.esEmpleado && (
@@ -324,8 +339,31 @@ export default function VehiculosConsultaOrdenes() {
             </div>
           </form>
 
-          {/* Leyenda de colores */}
-          <div className="d-flex justify-content-end mb-2">
+          {/* Filtro por línea de negocio + leyenda de colores */}
+          <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+            <div className="btn-group btn-group-sm" role="group" aria-label="Filtro línea de negocio">
+              <button
+                type="button"
+                className={"btn " + (lineaNegocio === "" ? "btn-primary" : "btn-outline-primary")}
+                onClick={() => cambiarLineaNegocio("")}
+              >
+                Todas
+              </button>
+              <button
+                type="button"
+                className={"btn " + (lineaNegocio === "SERVICOMPACTO" ? "btn-primary" : "btn-outline-primary")}
+                onClick={() => cambiarLineaNegocio("SERVICOMPACTO")}
+              >
+                Servicompacto
+              </button>
+              <button
+                type="button"
+                className={"btn " + (lineaNegocio === "CHIREY" ? "btn-info" : "btn-outline-info")}
+                onClick={() => cambiarLineaNegocio("CHIREY")}
+              >
+                Chirey
+              </button>
+            </div>
             <div className="d-flex align-items-center gap-3 small text-muted">
               <span className="d-flex align-items-center gap-1">
                 <span
@@ -391,7 +429,12 @@ export default function VehiculosConsultaOrdenes() {
       style={{ cursor: "pointer" }}
       onClick={() => irAOrden(r)}
     >
-      <td className="text-center">{r.ordenServicio || "-"}</td>
+      <td className="text-center">
+        {r.ordenServicio || "-"}
+        {r.lineaNegocio === "CHIREY" && (
+          <div><span className="badge bg-info text-dark">Chirey</span></div>
+        )}
+      </td>
       <td>
         {nombreClienteOrden(r.cliente) || "-"}
         {r.cliente?.esEmpleado && (
