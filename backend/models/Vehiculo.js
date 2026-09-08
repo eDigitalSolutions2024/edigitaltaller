@@ -653,7 +653,11 @@ pendienteCierre: { type: Boolean, default: false },
       {
         fecha: { type: Date, default: Date.now },
         tipoPago: { type: String, enum: ['COMPLETO', 'ABONO', 'ANTICIPO'], default: 'ABONO' },
-        comprobante: { type: String, enum: ['NOTA_VENTA', 'REMISION', 'RECIBO_PROVISIONAL'], required: true },
+        // SIN_COMPROBANTE: opción "Liquidar" de Cajas — un pago (abono o
+        // liquidación total) que cuenta como abonado a la orden pero NO genera
+        // Nota de Venta, Remisión ni Recibo Provisional (la factura es el
+        // documento fiscal). No aparece en los reportes diarios de Cajas.
+        comprobante: { type: String, enum: ['NOTA_VENTA', 'REMISION', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'], required: true },
         // Solo cuando tipoPago === 'ANTICIPO': a qué reporte diario de Cajas
         // se suma este anticipo (ver buildReporteFacturasDiario /
         // buildReporteRemisionesDiario en routes/reportes.js). Reusa el mismo
@@ -760,6 +764,16 @@ pendienteCierre: { type: Boolean, default: false },
           banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
           // Presente solo si formaPago === 'COMBINADO': desglose del monto en
           // pesos por método (su suma es el montoPesos del pago).
+          combinado: combinadoCajaSchema(),
+        },
+
+        // Datos del cobro cuando comprobante === 'SIN_COMPROBANTE' (opción
+        // "Liquidar"): misma forma que reciboProvisional pero sin folio ni
+        // concepto/recibió — solo lo necesario para el Cierre de Caja.
+        liquidacion: {
+          formaPago: { type: String, enum: FORMAS_PAGO_CAJA, default: 'EFECTIVO' },
+          chequeNumero: { type: String, default: '' },
+          banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
           combinado: combinadoCajaSchema(),
         },
 

@@ -87,6 +87,11 @@ export const getCierreCaja = (fecha) =>
 export const guardarCierreCaja = (payload) =>
   http.post('/reportes/cierre-caja', payload);
 
+// Cancela una captura del día (una ronda de "Guardar") mal hecha. Solo admin.
+// capturaId puede ser 'baseline' para el movimiento inicial de un día viejo.
+export const cancelarCapturaCierreCaja = (fecha, capturaId, motivo = '') =>
+  http.post(`/reportes/cierre-caja/captura/${encodeURIComponent(capturaId)}/cancelar`, { fecha, motivo });
+
 export const getHistorialCierresCaja = (desde, hasta) =>
   http.get('/reportes/cierre-caja/historial', { params: { desde, hasta } });
 

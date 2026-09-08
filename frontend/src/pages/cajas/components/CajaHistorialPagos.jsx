@@ -25,6 +25,7 @@ function comprobanteLabel(p) {
   if (p.comprobante === "NOTA_VENTA") return `Nota Venta N°${p.notaVenta?.numero ?? "-"}`;
   if (p.comprobante === "REMISION") return `Remisión N°${p.remision?.numero ?? "-"}`;
   if (p.comprobante === "RECIBO_PROVISIONAL") return `Recibo Provisional N°${p.reciboProvisional?.numero ?? "-"}`;
+  if (p.comprobante === "SIN_COMPROBANTE") return "Sin comprobante";
   return "-";
 }
 
@@ -64,6 +65,7 @@ export default function CajaHistorialPagos({
           <Dropdown.Option value="NOTA_VENTA">Nota de Venta</Dropdown.Option>
           <Dropdown.Option value="REMISION">Remisión</Dropdown.Option>
           <Dropdown.Option value="RECIBO_PROVISIONAL">Recibo Provisional</Dropdown.Option>
+          <Dropdown.Option value="SIN_COMPROBANTE">Sin comprobante</Dropdown.Option>
         </Dropdown>
       </div>
 

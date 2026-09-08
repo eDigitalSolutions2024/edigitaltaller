@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   getCierreCaja,
   guardarCierreCaja,
+  cancelarCapturaCierreCaja,
   cerrarCierreCaja,
   restablecerCierreCaja,
   getCierreCajaPdfUrl,
@@ -9,6 +10,7 @@ import {
 import { createTicket } from '../../api/tickets';
 import { getUser } from '../../auth';
 import CierreCajaResumen from './components/CierreCajaResumen';
+import CajaHistorialCapturas from './components/CajaHistorialCapturas';
 import CajaModalVale from './components/CajaModalVale';
 import useTipoCambioActual from '../../hooks/useTipoCambioActual';
 import usePdfModal from '../../hooks/usePdfModal';
@@ -60,6 +62,7 @@ export default function GestionCaja() {
   const [form, setForm] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
+  const [cancelandoCapturaId, setCancelandoCapturaId] = useState(null);
   const [cerrando, setCerrando] = useState(false);
   const [confirmarCierre, setConfirmarCierre] = useState(false);
   const [restableciendo, setRestableciendo] = useState(false);
@@ -129,6 +132,28 @@ export default function GestionCaja() {
       setError(err?.response?.data?.msg || 'Error al guardar la captura.');
     } finally {
       setGuardando(false);
+    }
+  };
+
+  // Cancelar una captura del día equivocada (solo admin). Se resta del total
+  // del día; queda tachada en el historial como bitácora.
+  const cancelarCaptura = async (captura) => {
+    const motivo = window.prompt(
+      'Motivo de la cancelación de esta captura (opcional):',
+      ''
+    );
+    if (motivo === null) return; // cerró el prompt
+    setCancelandoCapturaId(captura._id);
+    setError('');
+    setMensaje('');
+    try {
+      await cancelarCapturaCierreCaja(fecha, captura._id, motivo.trim());
+      await cargar();
+      setMensaje('Captura cancelada. El total del día se actualizó.');
+    } catch (err) {
+      setError(err?.response?.data?.msg || 'Error al cancelar la captura.');
+    } finally {
+      setCancelandoCapturaId(null);
     }
   };
 
@@ -274,7 +299,7 @@ export default function GestionCaja() {
   return (
     <div className="container-fluid py-3">
       <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-        <h2 className="mb-0">💰 Gestión de Caja</h2>
+        <h2 className="mb-0">Gestión de Caja</h2>
         <span className={`badge ${cerrada ? 'bg-secondary' : 'bg-success'}`}>
           {cerrada ? 'Caja cerrada' : 'Caja abierta'}
         </span>
@@ -474,6 +499,21 @@ export default function GestionCaja() {
                 <button type="button" className="btn btn-primary" onClick={guardar} disabled={guardando}>
                   {guardando ? <><span className="spinner-border spinner-border-sm me-1" />Guardando…</> : 'Guardar'}
                 </button>
+              </div>
+            </div>
+          )}
+
+          {cierre.capturas?.length > 0 && (
+            <div className="card shadow-sm mb-3">
+              <div className="card-header fw-bold">Historial de capturas del día</div>
+              <div className="card-body">
+                <CajaHistorialCapturas
+                  capturas={cierre.capturas}
+                  esAdmin={esAdmin}
+                  cerrada={cerrada}
+                  onCancelar={cancelarCaptura}
+                  cancelandoId={cancelandoCapturaId}
+                />
               </div>
             </div>
           )}

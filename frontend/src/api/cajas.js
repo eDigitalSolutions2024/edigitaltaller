@@ -6,8 +6,8 @@ const API = process.env.REACT_APP_API_URL || "http://localhost:8010";
 // salvo las canceladas y las ya liquidadas (ver backend/routes/cajas.js).
 // params.vista: "activas" (default) | "cerradas" | "liquidadas" | "pendientes" | "garantias".
 // params.sort: "recientes" (default) | "os_asc" | "os_desc".
-export const listOrdenesCaja = (params) =>
-  http.get("/cajas", { params });
+export const listOrdenesCaja = (params, config = {}) =>
+  http.get("/cajas", { params, ...config });
 
 // Detalle de la orden + totales ya calculados (total, abonado, saldo)
 export const getOrdenCaja = (id) =>
