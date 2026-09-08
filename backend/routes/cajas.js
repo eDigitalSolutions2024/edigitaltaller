@@ -249,6 +249,10 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       // remisión (a veces se captura un día después). Sin valor = hoy. No se
       // permiten fechas futuras (ver validación abajo).
       fecha: fechaBody = '',
+      // Cuando la orden ya tiene una Remisión activa y se va a generar un nuevo
+      // comprobante (Nota de Venta / Remisión): motivo con el que se cancela esa
+      // remisión existente en el mismo paso (obligatorio en ese caso).
+      cancelarRemisionMotivo = '',
     } = req.body || {};
 
     // 'Cancelada' NO es un tipo de alta válido: es un ESTADO que solo fija el
@@ -314,25 +318,67 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Captura el número de cheque.' });
     }
 
-    const ordenExistente = await Vehiculo.findById(req.params.id).select('cliente garantia pagos.comprobante pagos.cancelado');
+    const ordenExistente = await Vehiculo.findById(req.params.id).select('cliente garantia pagos');
     if (!ordenExistente) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     if (ordenExistente.garantia) {
       return res.status(400).json({ ok: false, msg: 'No se puede registrar un pago para una orden de garantía.' });
     }
     clienteParaRevertirSaldo = ordenExistente.cliente;
 
-    // Una vez que la orden tiene una Remisión, ya no se puede generar otra
-    // Remisión ni una Nota de Venta (evita duplicar/mezclar comprobantes fiscales).
-    // Una remisión cancelada no cuenta: precisamente se cancela para poder
-    // volver a facturar/remisionar la orden.
-    const yaTieneRemision = (ordenExistente.pagos || []).some(
+    // Una orden solo puede tener UNA Remisión activa. Si ya la tiene y se va a
+    // generar otro comprobante (Nota de Venta / Remisión), esa remisión se
+    // cancela en el mismo paso — el comprobante quedó equivocado — siempre con
+    // un motivo. Una remisión ya cancelada no cuenta.
+    const remisionActiva = (ordenExistente.pagos || []).find(
       (p) => p.comprobante === 'REMISION' && !p.cancelado
     );
-    if (yaTieneRemision && ['NOTA_VENTA', 'REMISION'].includes(comprobante)) {
-      return res.status(400).json({
-        ok: false,
-        msg: 'Esta orden ya tiene una Remisión registrada; no se puede generar otra Remisión ni una Nota de Venta.',
-      });
+    if (remisionActiva && ['NOTA_VENTA', 'REMISION'].includes(comprobante)) {
+      const motivoRem = String(cancelarRemisionMotivo || '').trim();
+      if (!motivoRem) {
+        return res.status(400).json({
+          ok: false,
+          msg: `Esta orden ya tiene la Remisión N°${remisionActiva.remision?.numero ?? ''} activa. Captura el motivo para cancelarla y generar el nuevo comprobante.`,
+        });
+      }
+
+      // Reversa económica de la remisión, igual que POST /:id/pagos/:pagoId/cancelar
+      // en modo ERROR (corrección de captura: facturaId null, se pisa `notas`).
+      const datosTermRem = datosMovimientosTerminal(remisionActiva);
+      const updRem = await Vehiculo.updateOne(
+        { _id: req.params.id, pagos: { $elemMatch: { _id: remisionActiva._id, cancelado: { $ne: true } } } },
+        {
+          $set: {
+            'pagos.$.cancelado': true,
+            'pagos.$.canceladoEn': new Date(),
+            'pagos.$.canceladoPor': req.user?.name || req.user?.username || '',
+            'pagos.$.motivoCancelacion': motivoRem,
+            'pagos.$.motivoCancelacionTipo': 'ERROR',
+            'pagos.$.notasAntesCancelar': remisionActiva.notas || '',
+            'pagos.$.notas': motivoRem,
+            'pagos.$.facturaId': null,
+            'pagos.$.remisionTipoAntesCancelar': remisionActiva.remision?.tipo || 'Contado',
+            'pagos.$.remision.tipo': 'Cancelada',
+          },
+        }
+      );
+      if (!updRem.matchedCount) {
+        return res.status(409).json({ ok: false, msg: 'No se pudo cancelar la Remisión existente. Recarga la orden e intenta de nuevo.' });
+      }
+
+      // Si esa remisión tenía saldo a favor aplicado, se le regresa al cliente.
+      if (datosTermRem.saldoAplicado > 0) {
+        try {
+          await revertirUso(ordenExistente.cliente, datosTermRem.saldoAplicado, {
+            ordenAplicada: req.params.id,
+            pagoId: remisionActiva._id,
+            registradoPor: req.user?.name || req.user?.username || '',
+            registradoPorId: req.user?._id || null,
+          });
+        } catch (e) {
+          console.error('Error revirtiendo saldo de la remisión cancelada al regenerar comprobante:', e);
+        }
+      }
+      await moverTerminalesDePago(datosTermRem, -1);
     }
 
     // Una Remisión a Crédito documenta la venta sin recibir dinero: es el único

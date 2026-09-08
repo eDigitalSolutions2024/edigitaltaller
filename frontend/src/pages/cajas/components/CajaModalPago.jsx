@@ -103,6 +103,10 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   // Fecha de la remisión: por defecto hoy, editable (a veces se captura un día
   // después). El backend no acepta fechas futuras.
   const [fechaRemision, setFechaRemision] = useState(hoyISO());
+  // Motivo con el que se cancela la Remisión activa de la orden cuando se elige
+  // generar otro comprobante (Nota de Venta / Remisión) encima de ella.
+  const [cancelarRemisionMotivo, setCancelarRemisionMotivo] = useState("");
+  const [cancelarRemisionMotivoInvalido, setCancelarRemisionMotivoInvalido] = useState(false);
 
   // Forma de pago del comprobante que mueve dinero (Recibo Provisional y Nota
   // de Venta comparten catálogo).
@@ -164,10 +168,14 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
 
   const { tipoCambio: tipoCambioConfig, loading: cargandoTipoCambio } = useTipoCambioActual();
 
-  // Una vez que la orden ya tiene una Remisión, no se puede generar otra
-  // Remisión ni una Nota de Venta (y por lo tanto tampoco un Liquida, que
-  // depende de una de las dos): solo quedan disponibles Abono/Anticipo.
-  const bloqueaFacturacion = (orden.pagos || []).some((p) => p.comprobante === "REMISION");
+  // Remisión activa (no cancelada) de la orden. Solo puede haber una. Si existe
+  // y se quiere generar otro comprobante (Nota de Venta / Remisión), no se
+  // bloquea: se ofrece cancelarla en el mismo paso pidiendo un motivo. Una
+  // remisión CANCELADA no cuenta (se canceló justo para poder regenerar).
+  const remisionActiva = (orden.pagos || []).find(
+    (p) => p.comprobante === "REMISION" && !p.cancelado
+  );
+  const tieneRemisionActiva = !!remisionActiva;
 
   useEffect(() => {
     setTipoCambio(tipoCambioConfig ? String(tipoCambioConfig) : "");
@@ -253,6 +261,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setTipoNota("Contado");
     setTipoRemision("Contado");
     setFechaRemision(hoyISO());
+    setCancelarRemisionMotivo("");
+    setCancelarRemisionMotivoInvalido(false);
     setFormaPago("EFECTIVO");
     setChequeNumero("");
     setMontosCombinado(MONTOS_COMBINADO_INICIAL);
@@ -604,13 +614,16 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
         setAnticipoDestinoInvalido(true);
         return false;
       }
-      if (tipoPago === "COMPLETO" && bloqueaFacturacion) {
-        setError("Esta orden ya tiene una Remisión registrada; no se puede registrar otra Remisión o Factura.");
-        return false;
-      }
       if (tipoPago === "COMPLETO" && !comprobante) {
         setError("Selecciona un comprobante (Nota de Venta o Remisión).");
         setComprobanteInvalido(true);
+        return false;
+      }
+      if (tipoPago === "COMPLETO" && tieneRemisionActiva && !cancelarRemisionMotivo.trim()) {
+        setError(
+          `Esta orden ya tiene la Remisión N°${remisionActiva?.remision?.numero ?? ""}. Captura el motivo para cancelarla y generar el nuevo comprobante.`
+        );
+        setCancelarRemisionMotivoInvalido(true);
         return false;
       }
       return true;
@@ -721,6 +734,11 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
         ...(anticiposAplicadosPayload.length ? { anticiposAplicados: anticiposAplicadosPayload } : {}),
         observaciones,
         notas,
+        // Genera un comprobante encima de una Remisión activa: se cancela esa
+        // remisión con este motivo en el mismo paso (ver POST /:id/pagos).
+        ...(tieneRemisionActiva && ["NOTA_VENTA", "REMISION"].includes(comprobante)
+          ? { cancelarRemisionMotivo: cancelarRemisionMotivo.trim() }
+          : {}),
         ...(comprobante === "NOTA_VENTA"
           ? {
               formaPago,
@@ -1415,10 +1433,10 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
               </div>
             )}
 
-            {bloqueaFacturacion && (
+            {tieneRemisionActiva && (
               <div className="alert alert-warning py-2 small">
-                Esta orden ya tiene una Remisión registrada: no se puede generar otra Remisión ni una Nota de
-                Venta. Solo se pueden registrar Abonos, Anticipos (Recibo Provisional) o Liquidar (sin comprobante).
+                Esta orden ya tiene la <strong>Remisión N°{remisionActiva?.remision?.numero}</strong>. Si generas
+                una Nota de Venta o una Remisión, esa remisión se cancelará (se te pedirá el motivo).
               </div>
             )}
 
@@ -1434,12 +1452,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                   >
                     <Dropdown.Option value="">Selecciona una opción...</Dropdown.Option>
                     {TIPOS_PAGO.map((t) => (
-                      <Dropdown.Option
-                        key={t.value}
-                        value={t.value}
-                        disabled={t.value === "COMPLETO" && bloqueaFacturacion}
-                        title={t.value === "COMPLETO" && bloqueaFacturacion ? "Bloqueado: la orden ya tiene una Remisión" : undefined}
-                      >
+                      <Dropdown.Option key={t.value} value={t.value}>
                         {t.label}
                       </Dropdown.Option>
                     ))}
@@ -1462,6 +1475,24 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                       </Dropdown>
                       {comprobanteInvalido && <small className="text-danger">Debes elegir un comprobante.</small>}
                     </div>
+
+                    {tieneRemisionActiva && (
+                      <div className="mb-3">
+                        <label className="form-label mb-0 text-danger fw-semibold">
+                          Motivo para cancelar la Remisión N°{remisionActiva?.remision?.numero}
+                        </label>
+                        <input
+                          type="text"
+                          className={`form-control${cancelarRemisionMotivoInvalido ? " is-invalid border-danger" : ""}`}
+                          value={cancelarRemisionMotivo}
+                          onChange={(e) => { setCancelarRemisionMotivo(e.target.value); setCancelarRemisionMotivoInvalido(false); }}
+                          placeholder="Ej. Se generó remisión por error, el cliente pidió Nota de Venta"
+                        />
+                        <small className="text-muted">
+                          Al registrar este comprobante se cancelará la Remisión N°{remisionActiva?.remision?.numero}.
+                        </small>
+                      </div>
+                    )}
 
                     {comprobante === "NOTA_VENTA" && (
                       <div className="mb-3">
