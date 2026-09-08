@@ -60,8 +60,15 @@ const capturaCajaSchema = new Schema({
 
 const cierreCajaSchema = new Schema(
   {
-    // Medianoche UTC del día que se cierra (ver utils/fechaSoloDia).
+    // Una "sesión de caja" = el período entre dos "Cerrar Caja". NO está atada
+    // a un día calendario: se mantiene ABIERTA (acumulando pagos y capturas)
+    // hasta que alguien la cierra a mano, aunque cruce la medianoche.
+    // `abiertaEn` es el instante en que arrancó la sesión (normalmente el
+    // `cerradoEn` de la sesión anterior). `fecha` = medianoche UTC del día en
+    // que se abrió; se conserva para PDF/historial/compatibilidad, YA NO es
+    // única (puede haber varias sesiones el mismo día).
     fecha: { type: Date, required: true },
+    abiertaEn: { type: Date, default: Date.now },
 
     billetes: [conteoSchema],
     monedas: [conteoSchema],
@@ -117,7 +124,17 @@ const cierreCajaSchema = new Schema(
   { timestamps: true }
 );
 
-cierreCajaSchema.index({ fecha: 1 }, { unique: true });
+// `fecha` ya NO es única (varias sesiones pueden abrirse el mismo día). Se
+// indexa para el historial y las lecturas por día de docs viejos.
+cierreCajaSchema.index({ fecha: 1 });
+cierreCajaSchema.index({ estado: 1, abiertaEn: -1 });
+// Integridad: como mucho UNA sesión ABIERTA a la vez. En bases existentes lo
+// crea utils/migrarCierreCajaSesion.js después de limpiar los huérfanos del
+// modelo por-día (autoIndex fallaría si hay duplicados).
+cierreCajaSchema.index(
+  { estado: 1 },
+  { unique: true, partialFilterExpression: { estado: 'ABIERTA' }, name: 'una_sesion_abierta' }
+);
 
 module.exports = mongoose.model('CierreCaja', cierreCajaSchema);
 module.exports.DENOMINACIONES_BILLETES = DENOMINACIONES_BILLETES;

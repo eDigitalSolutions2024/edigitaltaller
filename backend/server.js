@@ -5,10 +5,12 @@ const cookieParser = require('cookie-parser');
 const path = require('path');
 const connectDB  = require('./config/db');
 const limpiarImagenesTemp = require('./utils/limpiarImagenesTemp');
+const { migrarCierreCajaSesion } = require('./utils/migrarCierreCajaSesion');
 console.log('JWT_SECRET cargado:', !!process.env.JWT_SECRET);
 
 const app = express();
 connectDB();
+migrarCierreCajaSesion();
 
 // Purga carpetas de imágenes temporales (subidas antes de guardar una orden
 // nueva) que quedaron abandonadas por más de 24h.

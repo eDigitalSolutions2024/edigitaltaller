@@ -31,6 +31,12 @@ export const cancelarPagoCaja = (id, pagoId, payload = {}) =>
 export const deshacerCancelacionPago = (id, pagoId) =>
   http.post(`/cajas/${id}/pagos/${pagoId}/deshacer-cancelacion`);
 
+// Corrige la fecha de un pago ya registrado (fecha 'YYYY-MM-DD', con motivo
+// obligatorio). El comprobante impreso y los reportes diarios pasan a usar esa
+// fecha.
+export const editarFechaPago = (id, pagoId, fecha, motivo) =>
+  http.patch(`/cajas/${id}/pagos/${pagoId}/fecha`, { fecha, motivo });
+
 // URL del mini-PDF de vista previa (solo para ver): cómo quedaría esta
 // cancelación en el Reporte de Cajas. Se pasa el facturaId destino.
 export const getPreviewCancelacionUrl = (id, pagoId, { facturaId } = {}) => {

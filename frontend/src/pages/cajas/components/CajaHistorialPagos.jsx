@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import Dropdown from "../../../components/Dropdown";
-import { FaPrint, FaBan, FaUndo } from "react-icons/fa";
+import { FaPrint, FaBan, FaUndo, FaRegCalendarAlt } from "react-icons/fa";
 import { formatFecha } from "../../../utils/fechas";
 
 function formatMoney(n) {
@@ -46,10 +46,16 @@ export default function CajaHistorialPagos({
   onCancelar,
   esAdmin = false,
   onDeshacerCancelacion,
+  onEditarFecha,
 }) {
   const [filtro, setFiltro] = useState("TODOS");
 
-  const ordenados = [...pagos].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  // Los pagos cancelados se van SIEMPRE al final (aunque su fecha sea mayor);
+  // dentro de cada grupo, del más reciente al más antiguo.
+  const ordenados = [...pagos].sort((a, b) => {
+    if (!!a.cancelado !== !!b.cancelado) return a.cancelado ? 1 : -1;
+    return new Date(b.fecha) - new Date(a.fecha);
+  });
   const visibles = filtro === "TODOS" ? ordenados : ordenados.filter((p) => p.comprobante === filtro);
 
   return (
@@ -95,7 +101,27 @@ export default function CajaHistorialPagos({
             )}
             {visibles.map((p, idx) => (
               <tr key={p._id || idx} className={p.cancelado ? "table-secondary text-decoration-line-through" : ""}>
-                <td className="text-center">{formatFecha(p.fecha)}</td>
+                <td className="text-center text-nowrap">
+                  {onEditarFecha && !p.cancelado ? (
+                    <button
+                      className="btn btn-link btn-sm p-0 text-decoration-none"
+                      title="Corregir la fecha de este pago"
+                      onClick={() => onEditarFecha(p)}
+                    >
+                      {formatFecha(p.fecha)} <FaRegCalendarAlt className="ms-1" />
+                    </button>
+                  ) : (
+                    formatFecha(p.fecha)
+                  )}
+                  {p.motivoCambioFecha && (
+                    <span
+                      className="badge bg-warning text-dark ms-1"
+                      title={`Fecha corregida${p.fechaEditadaPor ? ` por ${p.fechaEditadaPor}` : ""}: ${p.motivoCambioFecha}`}
+                    >
+                      fecha editada
+                    </span>
+                  )}
+                </td>
                 <td className="text-center">{tipoPagoLabel(p)}</td>
                 <td className="text-center">
                   {comprobanteLabel(p)}

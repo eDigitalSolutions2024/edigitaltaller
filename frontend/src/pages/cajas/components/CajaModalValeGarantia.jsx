@@ -74,6 +74,10 @@ export default function CajaModalValeGarantia({ show, orden, onClose, onGuardado
       setError("Captura o genera el número de vale.");
       return;
     }
+    if (!form.quienEntrega.trim()) {
+      setError("Captura quién entrega.");
+      return;
+    }
     try {
       setGuardando(true);
       setError("");
@@ -137,7 +141,7 @@ export default function CajaModalValeGarantia({ show, orden, onClose, onGuardado
                 <input type="text" className="form-control" value={dig} readOnly />
               </div>
               <div className="col-md-3">
-                <label className="form-label small fw-semibold">Quien Entrega</label>
+                <label className="form-label small fw-semibold">Quien Entrega<span className="text-danger">*</span></label>
                 <input
                   type="text"
                   className="form-control"

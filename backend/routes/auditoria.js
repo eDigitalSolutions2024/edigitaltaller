@@ -17,6 +17,22 @@ const ventanaMin = () => new Date(Date.now() - RETENCION_MS);
 
 // Escapa una cadena para usarla literal dentro de un RegExp.
 const escaparRegex = (s) => String(s).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escaparChar = (c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Para buscar folios ignorando guiones/espacios: "os2025001" ~ "OS-2025-001".
+// Solo se aplica si el término parece un folio (alfanumérico + guiones, corto).
+function regexReferencia(termino) {
+  const raw = String(termino).trim();
+  const compacto = raw.replace(/[\s-]+/g, '');
+  if (!/^[a-z0-9\s-]{2,40}$/i.test(raw) || !compacto) {
+    return new RegExp(escaparRegex(raw), 'i');
+  }
+  const patron = compacto
+    .split('')
+    .map((c) => `${escaparChar(c)}[-\\s]*`)
+    .join('');
+  return new RegExp(patron, 'i');
+}
 
 router.use(proteger, requiereRol('admin'));
 
@@ -80,7 +96,8 @@ router.get('/registro', async (req, res) => {
         { usuario: rx },
         { accion: rx },
         { entidad: rx },
-        { referencia: rx },
+        // La referencia se busca ignorando los guiones del folio.
+        { referencia: regexReferencia(req.query.q) },
         { ruta: rx },
       ];
     }

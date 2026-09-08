@@ -156,8 +156,8 @@ const REGLAS_DESC = [
   [/^POST \/anticipos\/:id\/cancelar$/, "Canceló un anticipo de cliente"],
   // ── Cierre de caja ──
   [/^POST \/reportes\/cierre-caja$/, "Guardó una captura de cierre de caja"],
-  [/^POST \/reportes\/cierre-caja\/cerrar$/, "Cerró la caja del día"],
-  [/^POST \/reportes\/cierre-caja\/restablecer$/, "Reabrió un cierre de caja ya cerrado"],
+  [/^POST \/reportes\/cierre-caja\/cerrar$/, "Cerró la sesión de caja"],
+  [/^POST \/reportes\/cierre-caja\/restablecer$/, "Reabrió una sesión de caja ya cerrada"],
   [/^POST \/reportes\/cierre-caja\/captura\/:id\/cancelar$/, "Canceló una captura de cierre de caja"],
   // ── Clientes ──
   [/^POST \/clientes$/, "Dio de alta un cliente"],
@@ -400,7 +400,7 @@ export default function RegistroActividad() {
               <input
                 type="text"
                 className="form-control form-control-sm"
-                placeholder="usuario, folio, ruta…"
+                placeholder="usuario, folio (con o sin guiones), ruta…"
                 value={filtros.q}
                 onChange={setF("q")}
               />

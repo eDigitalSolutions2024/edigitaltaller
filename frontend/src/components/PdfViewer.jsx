@@ -224,6 +224,12 @@ export default function PdfViewer({ src, fileName = "documento.pdf", height = 48
         style={{
           height,
           overflow: "auto",
+          // Reserva siempre el canal de la barra de scroll: sin esto, al
+          // aparecer/desaparecer la barra vertical cambia el clientWidth del
+          // contenedor, el ResizeObserver de abajo recalcula anchoBase y
+          // react-pdf vuelve a dibujar cada canvas desde cero (parpadeo /
+          // "no termina de cargar" en documentos altos).
+          scrollbarGutter: "stable",
           border: "1px solid #dee2e6",
           borderRadius: 4,
           background: "#525659",

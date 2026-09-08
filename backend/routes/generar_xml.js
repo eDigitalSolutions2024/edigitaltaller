@@ -749,6 +749,14 @@ router.post("/xml", async (req, res) => {
       });
     }
 
+    // En la factura global la forma de pago se elige a mano; no se cae a "99".
+    if (esFacturaGlobal && !String(cfdi?.formaPago || "").trim()) {
+      return res.status(400).json({
+        ok: false,
+        error: "Selecciona la forma de pago de la factura global.",
+      });
+    }
+
     if ((esNotaCredito || esComplementoPago) && (!Array.isArray(relacionadas) || relacionadas.length === 0)) {
       return res.status(400).json({
         ok: false,

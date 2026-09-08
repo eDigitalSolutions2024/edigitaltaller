@@ -4,6 +4,7 @@ import {
   getOrdenCaja,
   registrarPago,
   deshacerCancelacionPago,
+  editarFechaPago,
   agregarDescuento,
   actualizarDescuento,
   eliminarDescuento,
@@ -25,6 +26,7 @@ import CajaHistorialPagos from "./components/CajaHistorialPagos";
 import CajaModalPago from "./components/CajaModalPago";
 import CajaModalDescuento from "./components/CajaModalDescuento";
 import CajaModalCancelarPago from "./components/CajaModalCancelarPago";
+import CajaModalEditarFechaPago from "./components/CajaModalEditarFechaPago";
 import CajaModalValeGarantia from "./components/CajaModalValeGarantia";
 
 function formatMoney(n) {
@@ -55,6 +57,7 @@ export default function CajaOrdenDetalle() {
   const [showModalDescuento, setShowModalDescuento] = useState(false);
   const [showModalPago, setShowModalPago] = useState(false);
   const [pagoACancelar, setPagoACancelar] = useState(null);
+  const [pagoAEditarFecha, setPagoAEditarFecha] = useState(null);
   const [showModalValeGarantia, setShowModalValeGarantia] = useState(false);
   const [anticiposDisponibles, setAnticiposDisponibles] = useState([]);
 
@@ -155,6 +158,13 @@ export default function CajaOrdenDetalle() {
     } catch (err) {
       alert(err.response?.data?.msg || "No se pudo deshacer la cancelación.");
     }
+  };
+
+  // Lo llama CajaModalEditarFechaPago tras validar la fecha y el motivo; deja
+  // que el error se propague para que el modal lo muestre en su cuerpo.
+  const handleGuardarFechaPago = async (pago, fecha, motivo) => {
+    const res = await editarFechaPago(orden._id, pago._id, fecha, motivo);
+    setOrden(res.data.vehiculo);
   };
 
   // Cuando CajaModalCancelarPago no ofrece ningún modo directo (no es admin y
@@ -467,6 +477,7 @@ export default function CajaOrdenDetalle() {
           onCancelar={setPagoACancelar}
           esAdmin={esAdmin}
           onDeshacerCancelacion={handleDeshacerCancelacion}
+          onEditarFecha={esAdmin || esCajas ? setPagoAEditarFecha : undefined}
         />
       </div>
 
@@ -497,6 +508,12 @@ export default function CajaOrdenDetalle() {
         onClose={() => setPagoACancelar(null)}
         onConfirmado={handlePagoActualizado}
         onSolicitarCancelacion={handleSolicitarCancelacion}
+      />
+      <CajaModalEditarFechaPago
+        show={!!pagoAEditarFecha}
+        pago={pagoAEditarFecha}
+        onClose={() => setPagoAEditarFecha(null)}
+        onGuardar={handleGuardarFechaPago}
       />
       <CajaModalValeGarantia
         show={showModalValeGarantia}

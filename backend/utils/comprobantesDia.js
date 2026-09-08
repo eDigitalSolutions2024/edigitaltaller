@@ -27,8 +27,14 @@ function nombreCliente(cliente) {
 // Lista (no solo suma) de Notas de Venta, Remisiones y Recibos Provisionales
 // generados en el día — para el resumen de Gestión de Caja / Cierre de Caja.
 // Mismo filtro $elemMatch + refiltro en JS que utils/totalIngresosDia.js.
-async function listarComprobantesDia(fecha) {
+function listarComprobantesDia(fecha) {
   const { desde, hasta } = limitesDiaLocal(fecha);
+  return listarComprobantesRango(desde, hasta);
+}
+
+async function listarComprobantesRango(desdeRaw, hastaRaw) {
+  const desde = new Date(desdeRaw);
+  const hasta = new Date(hastaRaw);
   const tipos = Object.keys(FOLIO_POR_TIPO);
 
   const ordenes = await Vehiculo.find({
@@ -65,12 +71,21 @@ async function listarComprobantesDia(fecha) {
 
 // Vales de salida emitidos el día — mismo campo/patrón de filtro que
 // GET /api/vales (backend/routes/vales.js).
-async function listarValesSalidaDia(fecha) {
+function listarValesSalidaDia(fecha) {
   const { desde, hasta } = limitesDiaLocal(fecha);
-  return ValeSalida.find({ fecha: { $gte: desde, $lte: hasta } })
+  return listarValesSalidaRango(desde, hasta);
+}
+
+async function listarValesSalidaRango(desdeRaw, hastaRaw) {
+  return ValeSalida.find({ fecha: { $gte: new Date(desdeRaw), $lte: new Date(hastaRaw) } })
     .select('noVale noOrden nombreCliente estatus cajero asesor fecha')
     .sort({ fecha: 1 })
     .lean();
 }
 
-module.exports = { listarComprobantesDia, listarValesSalidaDia };
+module.exports = {
+  listarComprobantesDia,
+  listarValesSalidaDia,
+  listarComprobantesRango,
+  listarValesSalidaRango,
+};

@@ -54,7 +54,6 @@ function calcularTotalCaptura(form, tipoCambioConfig) {
 // al final. Las terminales con lectora se suman solas al registrar un pago
 // con Nota de Venta (ver backend/utils/cierreCajaTerminales.js).
 export default function GestionCaja() {
-  const fecha = hoyISO();
   const esAdmin = getUser()?.role === 'admin';
   const { tipoCambio: tipoCambioConfig, loading: cargandoTipoCambio } = useTipoCambioActual();
   const { pdfModal, abrirPdf } = usePdfModal();
@@ -76,15 +75,15 @@ export default function GestionCaja() {
     setCargando(true);
     setError('');
     try {
-      const res = await getCierreCaja(fecha);
+      const res = await getCierreCaja(); // la sesión de caja abierta actual
       setCierre(res.data.data);
       setForm(formularioVacio(res.data.data));
     } catch (err) {
-      setError('Error al cargar la caja de hoy.');
+      setError('Error al cargar la caja.');
     } finally {
       setCargando(false);
     }
-  }, [fecha]);
+  }, []);
 
   useEffect(() => {
     cargar();
@@ -117,7 +116,6 @@ export default function GestionCaja() {
     setMensaje('');
     try {
       await guardarCierreCaja({
-        fecha,
         billetes: form.billetes,
         monedas: form.monedas,
         terminales: { cheques: form.cheques, transferencias: form.transferencias },
@@ -127,7 +125,7 @@ export default function GestionCaja() {
         vales: form.vales,
       });
       await cargar();
-      setMensaje('Captura guardada y sumada al total del día.');
+      setMensaje('Captura guardada y sumada al total de la caja.');
     } catch (err) {
       setError(err?.response?.data?.msg || 'Error al guardar la captura.');
     } finally {
@@ -147,9 +145,9 @@ export default function GestionCaja() {
     setError('');
     setMensaje('');
     try {
-      await cancelarCapturaCierreCaja(fecha, captura._id, motivo.trim());
+      await cancelarCapturaCierreCaja(captura._id, motivo.trim());
       await cargar();
-      setMensaje('Captura cancelada. El total del día se actualizó.');
+      setMensaje('Captura cancelada. El total de la caja se actualizó.');
     } catch (err) {
       setError(err?.response?.data?.msg || 'Error al cancelar la captura.');
     } finally {
@@ -162,7 +160,7 @@ export default function GestionCaja() {
     setError('');
     setMensaje('');
     try {
-      await cerrarCierreCaja(fecha);
+      await cerrarCierreCaja();
       await cargar();
       setConfirmarCierre(false);
       setMensaje('Caja cerrada correctamente. Ya puedes consultarla en Reportes.');
@@ -173,14 +171,14 @@ export default function GestionCaja() {
     }
   };
 
-  // Restablecer (reabrir) un día ya cerrado: solo admin, y directo — sin
+  // Restablecer (reabrir) una sesión ya cerrada: solo admin, y directo — sin
   // pasar por Soporte. Conserva lo capturado, solo vuelve a ABIERTA.
   const restablecerCaja = async () => {
     setRestableciendo(true);
     setError('');
     setMensaje('');
     try {
-      await restablecerCierreCaja(fecha);
+      await restablecerCierreCaja(cierre?._id);
       await cargar();
       setConfirmarRestablecer(false);
       setMensaje('Caja restablecida: ya puedes volver a capturar.');
@@ -208,7 +206,7 @@ export default function GestionCaja() {
       const res = await createTicket({
         tipoProblema: 'RESTABLECER_CAJA',
         detalle: detalle.trim(),
-        fechaCierreCaja: fecha,
+        fechaCierreCaja: hoyISO(),
       });
       alert(`Solicitud ${res.data.data.folio} enviada. Un administrador la revisará.`);
     } catch (err) {
@@ -230,7 +228,7 @@ export default function GestionCaja() {
         ) : (
           <>
             <div className="small text-danger fw-bold mb-2">
-              ¿Cerrar la caja de hoy? No se podrá modificar.
+              ¿Cerrar la caja? Se congela la sesión actual y no se podrá modificar.
             </div>
             <div className="d-flex gap-2">
               <button
@@ -259,7 +257,7 @@ export default function GestionCaja() {
         ) : (
           <>
             <div className="small text-warning-emphasis fw-bold mb-2">
-              ¿Restablecer la caja de hoy? Se podrá volver a capturar.
+              ¿Restablecer esta sesión de caja? Se podrá volver a capturar.
             </div>
             <div className="d-flex gap-2">
               <button
@@ -305,6 +303,18 @@ export default function GestionCaja() {
         </span>
       </div>
 
+      {cierre?.abiertaEn && !cerrada && (
+        <div className="small text-muted mb-2">
+          Sesión abierta desde{' '}
+          <strong>
+            {new Date(cierre.abiertaEn).toLocaleString('es-MX', {
+              day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+            })}
+          </strong>
+          . Acumula todos los pagos hasta que se cierre manualmente, aunque cruce la medianoche.
+        </div>
+      )}
+
       {error && <div className="alert alert-danger py-2">{error}</div>}
       {mensaje && <div className="alert alert-success py-2">{mensaje}</div>}
 
@@ -314,13 +324,13 @@ export default function GestionCaja() {
         <>
           {cerrada && (
             <div className="alert alert-info py-2">
-              La caja de hoy ya está cerrada. El reporte quedó guardado y disponible en Reportes → Cajas.
+              Esta sesión de caja ya está cerrada. El reporte quedó guardado y disponible en Reportes → Cajas.
             </div>
           )}
 
           {!cerrada && (
             <div className="card shadow-sm mb-3">
-              <div className="card-header fw-bold">Captura del día</div>
+              <div className="card-header fw-bold">Captura de caja</div>
               <div className="card-body">
                 <div className="row g-3">
                   <div className="col-md-6">
@@ -505,7 +515,7 @@ export default function GestionCaja() {
 
           {cierre.capturas?.length > 0 && (
             <div className="card shadow-sm mb-3">
-              <div className="card-header fw-bold">Historial de capturas del día</div>
+              <div className="card-header fw-bold">Historial de capturas de la sesión</div>
               <div className="card-body">
                 <CajaHistorialCapturas
                   capturas={cierre.capturas}
@@ -520,19 +530,19 @@ export default function GestionCaja() {
 
           <div className="card shadow-sm">
             <div className="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-              <span className="fw-bold">Resumen del día</span>
+              <span className="fw-bold">Resumen de la caja</span>
               <div className="d-flex gap-2">
                 <button
                   type="button"
                   className="btn btn-sm btn-outline-danger"
-                  onClick={() => abrirPdf(getCierreCajaPdfUrl(fecha), "cierre-caja.pdf", "Cierre de Caja")}
+                  onClick={() => abrirPdf(getCierreCajaPdfUrl(cierre?._id), "cierre-caja.pdf", "Cierre de Caja")}
                 >
                   Generar PDF
                 </button>
                 <button
                   type="button"
                   className="btn btn-sm btn-danger"
-                  onClick={() => abrirPdf(getCierreCajaPdfUrl(fecha), "cierre-caja.pdf", "Cierre de Caja")}
+                  onClick={() => abrirPdf(getCierreCajaPdfUrl(cierre?._id), "cierre-caja.pdf", "Cierre de Caja")}
                   disabled={!cerrada}
                   title={!cerrada ? 'Disponible cuando la caja esté cerrada' : ''}
                 >

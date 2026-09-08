@@ -1,7 +1,13 @@
 import React, { useState } from 'react';
 import PeriodoSelector from '../../captura/PeriodoSelector';
-import { getCierreCaja, getHistorialCierresCaja, getCierreCajaPdfUrl } from '../../../api/reportes';
+import {
+  getCierreCaja,
+  getHistorialCierresCaja,
+  getCierreCajaPdfUrl,
+  restablecerCierreCaja,
+} from '../../../api/reportes';
 import { formatFecha } from '../../../utils/fechas';
+import { getUser } from '../../../auth';
 import CierreCajaResumen from '../../cajas/components/CierreCajaResumen';
 import usePdfModal from '../../../hooks/usePdfModal';
 
@@ -9,8 +15,11 @@ function formatMoney(n) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
 }
 
-function fechaISODia(fecha) {
-  return new Date(fecha).toISOString().slice(0, 10);
+function fechaHora(v) {
+  if (!v) return '—';
+  return new Date(v).toLocaleString('es-MX', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
 }
 
 function mismoDia(desde, hasta) {
@@ -28,14 +37,14 @@ export default function ReporteCierreCaja() {
   const [historial, setHistorial] = useState(null);
 
   const [cierre, setCierre] = useState(null);
-  const [fechaActiva, setFechaActiva] = useState(null);
+  const [restableciendo, setRestableciendo] = useState(false);
   const { pdfModal, abrirPdf } = usePdfModal();
+  const esAdmin = getUser()?.role === 'admin';
 
   const buscar = async (desde, hasta) => {
     setCargando(true);
     setError('');
     setCierre(null);
-    setFechaActiva(null);
     setRango({ desde, hasta });
     try {
       const res = await getHistorialCierresCaja(desde, hasta);
@@ -47,16 +56,14 @@ export default function ReporteCierreCaja() {
     }
   };
 
-  const verDetalle = async (fecha) => {
-    const f = fechaISODia(fecha);
+  const verDetalle = async (row) => {
     setCargando(true);
     setError('');
     try {
-      const res = await getCierreCaja(f);
+      const res = await getCierreCaja(row._id);
       setCierre(res.data.data);
-      setFechaActiva(f);
     } catch (err) {
-      setError('Error al cargar el detalle del cierre de este día.');
+      setError('Error al cargar el detalle de esta sesión de caja.');
     } finally {
       setCargando(false);
     }
@@ -64,7 +71,23 @@ export default function ReporteCierreCaja() {
 
   const volverALista = () => {
     setCierre(null);
-    setFechaActiva(null);
+  };
+
+  const restablecerSesion = async () => {
+    if (!cierre?._id) return;
+    if (!window.confirm('¿Reabrir esta sesión de caja? Solo se puede si no hay otra caja abierta.')) return;
+    setRestableciendo(true);
+    setError('');
+    try {
+      await restablecerCierreCaja(cierre._id);
+      const res = await getCierreCaja(cierre._id);
+      setCierre(res.data.data);
+      if (rango) buscar(rango.desde, rango.hasta);
+    } catch (err) {
+      setError(err?.response?.data?.msg || 'No se pudo restablecer la sesión.');
+    } finally {
+      setRestableciendo(false);
+    }
   };
 
   const tituloRango = rango
@@ -73,8 +96,11 @@ export default function ReporteCierreCaja() {
       : `Del ${formatFecha(rango.desde)} al ${formatFecha(rango.hasta)}`
     : '';
 
-  const tituloDetalle = fechaActiva
-    ? `Cierre de Caja — ${formatFecha(fechaActiva, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`
+  const cerrada = cierre?.estado === 'CERRADA';
+  const tituloDetalle = cierre
+    ? `Sesión de caja — ${fechaHora(cierre.abiertaEn || cierre.fecha)} → ${
+        cierre.cerradoEn ? fechaHora(cierre.cerradoEn) : 'ABIERTA'
+      }`
     : '';
 
   return (
@@ -98,13 +124,25 @@ export default function ReporteCierreCaja() {
               </button>
               <h5 className="mb-0">{tituloDetalle}</h5>
             </div>
-            <button
-              type="button"
-              className="btn btn-sm btn-outline-danger"
-              onClick={() => abrirPdf(getCierreCajaPdfUrl(fechaActiva), "cierre-caja.pdf", "Cierre de Caja")}
-            >
-              Ver PDF
-            </button>
+            <div className="d-flex gap-2">
+              {esAdmin && cerrada && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-warning"
+                  onClick={restablecerSesion}
+                  disabled={restableciendo}
+                >
+                  {restableciendo ? 'Restableciendo…' : 'Restablecer sesión'}
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-danger"
+                onClick={() => abrirPdf(getCierreCajaPdfUrl(cierre._id), "cierre-caja.pdf", "Cierre de Caja")}
+              >
+                Ver PDF
+              </button>
+            </div>
           </div>
 
           <CierreCajaResumen cierre={cierre} />
@@ -118,15 +156,17 @@ export default function ReporteCierreCaja() {
 function ListaHistorial({ titulo, historial, onVerDetalle }) {
   return (
     <>
-      <h5 className="mt-3 mb-2">Cierre de Caja — {titulo}</h5>
+      <h5 className="mt-3 mb-2">Sesiones de caja cerradas — {titulo}</h5>
       {historial.length === 0 ? (
-        <div className="alert alert-info py-2">No hay cierres de caja guardados en el período seleccionado.</div>
+        <div className="alert alert-info py-2">No hay sesiones de caja cerradas en el período seleccionado.</div>
       ) : (
         <div className="table-responsive">
           <table className="table table-sm table-bordered table-hover align-middle mb-0">
             <thead className="table-secondary">
               <tr>
-                <th>Día</th>
+                <th>Apertura</th>
+                <th>Cierre</th>
+                <th>Cerró</th>
                 <th className="text-end">Total Cobrado</th>
                 <th className="text-end">Total Reportes</th>
                 <th className="text-end">Diferencia</th>
@@ -136,8 +176,10 @@ function ListaHistorial({ titulo, historial, onVerDetalle }) {
             </thead>
             <tbody>
               {historial.map((c, i) => (
-                <tr key={i} style={{ cursor: 'pointer' }} onClick={() => onVerDetalle(c.fecha)}>
-                  <td>{formatFecha(c.fecha, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</td>
+                <tr key={c._id || i} style={{ cursor: 'pointer' }} onClick={() => onVerDetalle(c)}>
+                  <td>{fechaHora(c.abiertaEn || c.fecha)}</td>
+                  <td>{fechaHora(c.cerradoEn)}</td>
+                  <td>{c.cerradoPor || '—'}</td>
                   <td className="text-end">{formatMoney(c.totalCobrado)}</td>
                   <td className="text-end">{formatMoney(c.totalReportes)}</td>
                   <td className={`text-end fw-bold ${c.diferencia >= 0 ? 'text-success' : 'text-danger'}`}>

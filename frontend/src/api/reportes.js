@@ -79,30 +79,37 @@ export const getReporteClientesAnticipos = () =>
 export const getReporteClientesAnticiposPdfUrl = () =>
   `${BASE_URL}/reportes/clientes-anticipos-pdf`;
 
-// ===== Cierre de Caja =====
+// ===== Cierre de Caja (por SESIÓN: una caja abierta hasta que se cierra a mano) =====
 
-export const getCierreCaja = (fecha) =>
-  http.get('/reportes/cierre-caja', { params: { fecha } });
+// Sin argumento -> la sesión de caja ABIERTA actual. Con id -> una sesión
+// concreta (detalle del historial).
+export const getCierreCaja = (id) =>
+  http.get('/reportes/cierre-caja', { params: id ? { id } : {} });
 
 export const guardarCierreCaja = (payload) =>
   http.post('/reportes/cierre-caja', payload);
 
-// Cancela una captura del día (una ronda de "Guardar") mal hecha. Solo admin.
-// capturaId puede ser 'baseline' para el movimiento inicial de un día viejo.
-export const cancelarCapturaCierreCaja = (fecha, capturaId, motivo = '') =>
-  http.post(`/reportes/cierre-caja/captura/${encodeURIComponent(capturaId)}/cancelar`, { fecha, motivo });
+// Cancela una captura (una ronda de "Guardar") mal hecha de la sesión abierta.
+// Solo admin. capturaId puede ser 'baseline' para el movimiento inicial.
+export const cancelarCapturaCierreCaja = (capturaId, motivo = '') =>
+  http.post(`/reportes/cierre-caja/captura/${encodeURIComponent(capturaId)}/cancelar`, { motivo });
 
 export const getHistorialCierresCaja = (desde, hasta) =>
   http.get('/reportes/cierre-caja/historial', { params: { desde, hasta } });
 
-export const cerrarCierreCaja = (fecha) =>
-  http.post('/reportes/cierre-caja/cerrar', { fecha });
+// Cierra la sesión de caja abierta.
+export const cerrarCierreCaja = () =>
+  http.post('/reportes/cierre-caja/cerrar', {});
 
-export const restablecerCierreCaja = (fecha) =>
-  http.post('/reportes/cierre-caja/restablecer', { fecha });
+// Reabre una sesión ya cerrada (solo admin, solo si no hay otra abierta).
+export const restablecerCierreCaja = (id) =>
+  http.post('/reportes/cierre-caja/restablecer', { id });
 
 export const getValeCajaSiguienteFolio = () =>
   http.get('/reportes/cierre-caja/vale-siguiente-folio');
 
-export const getCierreCajaPdfUrl = (fecha) =>
-  `${BASE_URL}/reportes/cierre-caja/pdf?fecha=${encodeURIComponent(fecha)}`;
+// Sin argumento -> PDF de la sesión abierta; con id -> PDF de esa sesión.
+export const getCierreCajaPdfUrl = (id) =>
+  id
+    ? `${BASE_URL}/reportes/cierre-caja/pdf?id=${encodeURIComponent(id)}`
+    : `${BASE_URL}/reportes/cierre-caja/pdf`;

@@ -355,6 +355,9 @@ export default function NuevaFactura() {
   // Set de pagoId seleccionados (todas por defecto al cargar).
   const [notasSelKeys, setNotasSelKeys] = useState(() => new Set());
   const [descuentoGlobal, setDescuentoGlobal] = useState("");
+  // Concepto de la factura global: se genera solo, pero es editable. null = usar
+  // el texto automático (descripcionGlobal); string = texto capturado a mano.
+  const [descripcionGlobalManual, setDescripcionGlobalManual] = useState(null);
 
   const notasSel = useMemo(
     () => notasPend.filter((n) => notasSelKeys.has(n.pagoId)),
@@ -405,6 +408,9 @@ export default function NuevaFactura() {
             .join(", ")} Y #${folios[folios.length - 1]}`;
     return `VENTA DEL DIA ${fechaTxt} CON NOTA DE VENTA ${listaFolios}`;
   }, [notasSel, folioMinGlobal, folioMaxGlobal]);
+
+  // Texto final del concepto: el capturado a mano si lo hay, si no el automático.
+  const descripcionGlobalFinal = descripcionGlobalManual ?? descripcionGlobal;
 
   const toggleNotaGlobal = (pagoId) => {
     setNotasSelKeys((prev) => {
@@ -562,6 +568,7 @@ export default function NuevaFactura() {
     setNotasPend([]);
     setNotasSelKeys(new Set());
     setDescuentoGlobal("");
+    setDescripcionGlobalManual(null);
 
     setConceptos([]);
     setConceptosSeleccionados([]);
@@ -597,10 +604,11 @@ export default function NuevaFactura() {
       setMetodoPago("PUE");
       setFormaPago("15");
     } else if (t.value === "facturaGlobal") {
-      // Público en general: uso S01, IVA fijo 8%, contado en efectivo.
+      // Público en general: uso S01, IVA fijo 8%. La forma de pago se elige a
+      // mano (arranca vacía y bloquea hasta que se seleccione).
       setUsoCfdi("S01");
       setMetodoPago("PUE");
-      setFormaPago("01");
+      setFormaPago("");
       setIvaRate(0.08);
     } else {
       setUsoCfdi("CP01");
@@ -1167,12 +1175,12 @@ export default function NuevaFactura() {
         unidad: "Actividad",
         cUnidad: "ACT",
         cProdServ: "01010101",
-        descripcion: descripcionGlobal,
+        descripcion: descripcionGlobalFinal,
         valorUnitario: Math.round(sumaSinIvaGlobal * 100) / 100,
         noIdentificacion: "",
       },
     ]);
-  }, [esFacturaGlobal, notasSel.length, descripcionGlobal, sumaSinIvaGlobal]); // eslint-disable-line
+  }, [esFacturaGlobal, notasSel.length, descripcionGlobalFinal, sumaSinIvaGlobal]); // eslint-disable-line
 
   /* Selección de renglones, para rellenar CUnidad / CProdServ / Cód. cliente en lote */
   const [conceptosSeleccionados, setConceptosSeleccionados] = useState([]);
@@ -1332,13 +1340,9 @@ export default function NuevaFactura() {
     if (formaPago === "99" && metodoPago !== "PPD") setMetodoPago("PPD");
   }, [formaPago, metodoPago]);
 
-  /* Factura global: la forma de pago la fija la nota de venta de mayor monto
-     (regla SAT). El select queda bloqueado y se sincroniza aquí. */
-  useEffect(() => {
-    if (!esFacturaGlobal) return;
-    const fp = notaMayorGlobal?.formaPagoSat;
-    if (fp && fp !== formaPago) setFormaPago(fp);
-  }, [esFacturaGlobal, notaMayorGlobal, formaPago]);
+  /* Factura global: la forma de pago se elige a mano (arranca vacía y bloquea
+     hasta seleccionarla). Solo se muestra como sugerencia la de la nota de
+     mayor monto (ver el hint del select), no se auto-asigna. */
 
   /* El nombre de facturación (F3) arranca en la razón social del receptor;
      se re-sincroniza cuando cambia el receptor (otra orden / otro cliente). */
@@ -1478,6 +1482,9 @@ export default function NuevaFactura() {
     if (conceptos.length === 0) return false;
     if (moneda === "USD" && !Number(tipoCambio || 0)) return false;
 
+    // Factura global: la forma de pago se elige a mano.
+    if (esFacturaGlobal && !formaPago) return false;
+
     // Nota de crédito: CfdiRelacionados exige el UUID real de cada factura
     // acreditada; sin él el XML quedaría inválido para el SAT.
     if (esNotaCredito && !facturasNC.every((f) => UUID_RE.test((ncUuids[f._id] || "").trim()))) {
@@ -1506,6 +1513,8 @@ export default function NuevaFactura() {
     esFactura,
     relacionadasExtra,
     tipoRelacion,
+    esFacturaGlobal,
+    formaPago,
   ]);
 
   /* ==========
@@ -1812,10 +1821,14 @@ export default function NuevaFactura() {
       if (esComplementoPago) {
         return !!fechaPago && facturasPago.length > 0 && facturasPago.every((f) => Number(f.importePagado) > 0);
       }
-      if (esFacturaGlobal) return sumaSinIvaGlobal > 0;
+      if (esFacturaGlobal) return sumaSinIvaGlobal > 0 && !!descripcionGlobalFinal.trim();
       return conceptos.length > 0;
     }
-    if (n === 4) return moneda !== "USD" || Number(tipoCambio || 0) > 0;
+    if (n === 4) {
+      if (moneda === "USD" && !(Number(tipoCambio || 0) > 0)) return false;
+      if (esFacturaGlobal && !formaPago) return false;
+      return true;
+    }
     return true;
   };
 
@@ -2209,7 +2222,7 @@ export default function NuevaFactura() {
 
                     {notasSel.length > 0 && (
                       <div className="text-muted small mt-2">
-                        Descripción del CFDI: <b>{descripcionGlobal}</b>
+                        Descripción del CFDI: <b>{descripcionGlobalFinal}</b>
                       </div>
                     )}
                   </div>
@@ -2752,7 +2765,24 @@ export default function NuevaFactura() {
                       <td>1</td>
                       <td>ACT</td>
                       <td>01010101</td>
-                      <td>{descripcionGlobal}</td>
+                      <td>
+                        <textarea
+                          className="form-control form-control-sm"
+                          rows={3}
+                          value={descripcionGlobalFinal}
+                          disabled={disabledSteps}
+                          onChange={(e) => setDescripcionGlobalManual(e.target.value)}
+                        />
+                        {descripcionGlobalManual !== null && descripcionGlobalManual !== descripcionGlobal && (
+                          <button
+                            type="button"
+                            className="btn btn-link btn-sm p-0 mt-1"
+                            onClick={() => setDescripcionGlobalManual(null)}
+                          >
+                            Restaurar texto automático
+                          </button>
+                        )}
+                      </td>
                       <td className="text-end">{money(sumaSinIvaGlobal)}</td>
                       <td className="text-end">{money(sumaSinIvaGlobal)}</td>
                     </tr>
@@ -3329,26 +3359,29 @@ export default function NuevaFactura() {
 
                 {/* Forma de pago va antes que método: cuando es "99 - Por definir"
                     el método se fuerza a PPD (ver efecto arriba). En factura
-                    global la fija la nota de mayor monto (regla SAT). */}
+                    global se elige a mano (arranca en "Selecciona"). */}
                 <div className="col-12 col-md-4">
                   <label className="form-label">Forma de pago</label>
                   <Dropdown
-                    className="form-select"
+                    className={`form-select${esFacturaGlobal && !formaPago ? " is-invalid border-danger" : ""}`}
                     value={formaPago}
-                    disabled={disabledSteps || esFacturaGlobal}
+                    disabled={disabledSteps}
                     onChange={(e) => setFormaPago(e.target.value)}
                   >
+                    {esFacturaGlobal && <Dropdown.Option value="">— Selecciona —</Dropdown.Option>}
                     {FORMA_PAGO.map((x) => (
                       <Dropdown.Option key={x.value} value={x.value}>
                         {x.label}
                       </Dropdown.Option>
                     ))}
                   </Dropdown>
+                  {esFacturaGlobal && !formaPago && (
+                    <small className="text-danger d-block">Elige la forma de pago para continuar.</small>
+                  )}
                   {esFacturaGlobal && notaMayorGlobal && (
                     <small className="text-muted">
-                      Regla SAT: forma de pago de la nota de mayor monto (#
-                      {notaMayorGlobal.numero} · {money(notaMayorGlobal.monto)}
-                      {notaMayorGlobal.formaPagoLabel ? ` · ${notaMayorGlobal.formaPagoLabel}` : ""}).
+                      Sugerencia: la nota de mayor monto (#{notaMayorGlobal.numero} · {money(notaMayorGlobal.monto)}
+                      {notaMayorGlobal.formaPagoLabel ? ` · ${notaMayorGlobal.formaPagoLabel}` : ""}) usó esa forma de pago.
                     </small>
                   )}
                 </div>

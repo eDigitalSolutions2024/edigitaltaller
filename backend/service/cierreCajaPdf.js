@@ -21,6 +21,14 @@ function fmtFechaLarga(fecha) {
   return dayjsFecha(fecha).format('dddd, D [de] MMMM [de] YYYY');
 }
 
+// Período que cubrió la sesión de caja: "12 sep 08:00 → 13 sep 21:30" (o
+// "ABIERTA" si aún no cierra).
+function fmtPeriodoSesion(cierre) {
+  const ini = dayjsFecha(cierre.abiertaEn || cierre.fecha).format('D MMM YYYY, HH:mm');
+  const fin = cierre.cerradoEn ? dayjsFecha(cierre.cerradoEn).format('D MMM YYYY, HH:mm') : 'ABIERTA';
+  return `${ini} → ${fin}`;
+}
+
 function fmtMoney(n) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
 }
@@ -175,7 +183,7 @@ function buildHtml(cierre, totales) {
 
   <div class="titulo-row">
     <div class="titulo">Cierre de Caja</div>
-    <div class="fecha-cierre">${fmtFechaLarga(cierre.fecha)}</div>
+    <div class="fecha-cierre">${fmtPeriodoSesion(cierre)}</div>
   </div>
 
   <div class="cols">

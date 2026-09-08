@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import PdfViewer from "../components/PdfViewer";
 
@@ -36,43 +36,53 @@ export default function usePdfModal() {
   // hojas de forma normal en vez de depender de position:absolute (ese
   // truco es poco confiable con documentos de varias páginas entre
   // navegadores — en Firefox llegó a repetir la misma hoja en cada página).
-  const pdfModal = pdf && createPortal(
-    <div
-      className="position-fixed top-0 start-0 w-100 h-100 pdfmodal-backdrop"
-      style={{ background: "rgba(0,0,0,.45)", zIndex: 9999 }}
-      onClick={cerrarPdf}
-    >
-      <div
-        className="bg-white shadow pdfmodal-box"
-        style={{
-          width: "92%",
-          height: "92%",
-          margin: "2% auto",
-          borderRadius: 10,
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="d-flex justify-content-between align-items-center p-2 border-bottom pdfmodal-header">
-          <b>{pdf.titulo}</b>
-          <button className="btn btn-sm btn-outline-danger" onClick={cerrarPdf}>
-            Cerrar
-          </button>
-        </div>
-        <div className="p-2 pdfmodal-body" style={{ flex: 1, overflow: "auto" }}>
-          <PdfViewer
-            key={pdf.src}
-            src={pdf.src}
-            fileName={pdf.fileName}
-            height="100%"
-            onFirmar={pdf.onFirmar}
-          />
-        </div>
-      </div>
-    </div>,
-    document.body
+  // Memoizado por `pdf`: sin esto, cualquier re-render del componente que use
+  // el hook (p. ej. ValeSalidaForm tiene un reloj que actualiza la hora cada
+  // segundo) recrea este árbol y vuelve a renderizar el PdfViewer una y otra
+  // vez — react-pdf cancela el dibujado del canvas en curso y lo reinicia
+  // cada vez, y la vista previa nunca termina de mostrarse.
+  const pdfModal = useMemo(
+    () =>
+      pdf &&
+      createPortal(
+        <div
+          className="position-fixed top-0 start-0 w-100 h-100 pdfmodal-backdrop"
+          style={{ background: "rgba(0,0,0,.45)", zIndex: 9999 }}
+          onClick={cerrarPdf}
+        >
+          <div
+            className="bg-white shadow pdfmodal-box"
+            style={{
+              width: "92%",
+              height: "92%",
+              margin: "2% auto",
+              borderRadius: 10,
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="d-flex justify-content-between align-items-center p-2 border-bottom pdfmodal-header">
+              <b>{pdf.titulo}</b>
+              <button className="btn btn-sm btn-outline-danger" onClick={cerrarPdf}>
+                Cerrar
+              </button>
+            </div>
+            <div className="p-2 pdfmodal-body" style={{ flex: 1, overflow: "auto" }}>
+              <PdfViewer
+                key={pdf.src}
+                src={pdf.src}
+                fileName={pdf.fileName}
+                height="100%"
+                onFirmar={pdf.onFirmar}
+              />
+            </div>
+          </div>
+        </div>,
+        document.body
+      ),
+    [pdf, cerrarPdf]
   );
 
   return { pdfModal, abrirPdf, cerrarPdf };
