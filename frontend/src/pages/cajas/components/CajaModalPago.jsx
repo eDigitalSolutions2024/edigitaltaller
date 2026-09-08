@@ -31,10 +31,14 @@ const TIPOS_NOTA = ["Contado", "Credito"];
 // `nota` es lo que se sugiere en el campo Notas (el descriptor corto que sale
 // en el Reporte Diario de Remisiones), independiente de cómo se llame la opción
 // en pantalla.
+// "LIQUIDAR" es una opción de pantalla: se manda al backend como tipoPago
+// "ABONO" + comprobante "SIN_COMPROBANTE" (cuenta como abonado, no genera
+// Nota de Venta / Remisión / Recibo Provisional).
 const TIPOS_PAGO = [
   { value: "COMPLETO", label: "Generar Comprobante", nota: "Liquida" },
   { value: "ABONO", label: "Abono", nota: "Abono" },
   { value: "ANTICIPO", label: "Anticipo", nota: "Anticipo" },
+  { value: "LIQUIDAR", label: "Liquidar (sin comprobante)", nota: "Liquida" },
 ];
 // Formas de pago: las usa tanto el Recibo Provisional (Abono/Anticipo) como la
 // Nota de Venta (Liquida). En caso de tarjeta se pide además la terminal.
@@ -96,6 +100,9 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   // no se captura aquí: la marca el backend cuando la orden se queda sin saldo
   // pendiente (ver POST /api/cajas/:id/pagos).
   const [tipoRemision, setTipoRemision] = useState("Contado");
+  // Fecha de la remisión: por defecto hoy, editable (a veces se captura un día
+  // después). El backend no acepta fechas futuras.
+  const [fechaRemision, setFechaRemision] = useState(hoyISO());
 
   // Forma de pago del comprobante que mueve dinero (Recibo Provisional y Nota
   // de Venta comparten catálogo).
@@ -178,13 +185,17 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setMontoDolares(totalDolares > 0 ? String(totalDolares) : "");
   }, [formaPago, montosCombinado]);
 
-  // Un Abono/Anticipo siempre se documenta con Recibo Provisional; un Liquida
-  // usa Nota de Venta o Remisión (selección manual, ver más abajo).
+  // Un Abono/Anticipo siempre se documenta con Recibo Provisional; "Liquidar"
+  // no genera comprobante; un Liquida (COMPLETO) usa Nota de Venta o Remisión
+  // (selección manual, ver más abajo).
   useEffect(() => {
     if (tipoPago === "ABONO" || tipoPago === "ANTICIPO") {
       setComprobante("RECIBO_PROVISIONAL");
       setComprobanteInvalido(false);
-    } else if (!tipoPago || comprobante === "RECIBO_PROVISIONAL") {
+    } else if (tipoPago === "LIQUIDAR") {
+      setComprobante("SIN_COMPROBANTE");
+      setComprobanteInvalido(false);
+    } else if (!tipoPago || ["RECIBO_PROVISIONAL", "SIN_COMPROBANTE"].includes(comprobante)) {
       setComprobante("");
     }
   }, [tipoPago]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -241,6 +252,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setComprobanteInvalido(false);
     setTipoNota("Contado");
     setTipoRemision("Contado");
+    setFechaRemision(hoyISO());
     setFormaPago("EFECTIVO");
     setChequeNumero("");
     setMontosCombinado(MONTOS_COMBINADO_INICIAL);
@@ -480,10 +492,11 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   const generaDolares = Number(montoDolares) > 0;
 
   // La forma de pago se captura para el comprobante que mueve dinero: Recibo
-  // Provisional (Abono/Anticipo) y Nota de Venta (Liquida). Una Remisión no
-  // lleva forma de pago aquí.
+  // Provisional (Abono/Anticipo), Nota de Venta (Liquida) y Liquidar
+  // (SIN_COMPROBANTE). Una Remisión no lleva forma de pago aquí.
   const usaFormaPago =
-    !esRemisionCredito && (comprobante === "RECIBO_PROVISIONAL" || comprobante === "NOTA_VENTA");
+    !esRemisionCredito &&
+    ["RECIBO_PROVISIONAL", "NOTA_VENTA", "SIN_COMPROBANTE"].includes(comprobante);
   const esProvisional = comprobante === "RECIBO_PROVISIONAL";
 
   // Recorta lo capturado a lo que en realidad resta de la orden: el excedente
@@ -698,7 +711,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
       const montoSaldoGenericoPayload = Math.max(0, Math.round(cupo * 100) / 100);
 
       const pagoCreado = await onSubmit({
-        tipoPago,
+        // "LIQUIDAR" es solo de pantalla: al backend va como ABONO sin comprobante.
+        tipoPago: tipoPago === "LIQUIDAR" ? "ABONO" : tipoPago,
         comprobante,
         montoPesos: pesos,
         montoDolares: dolares,
@@ -716,7 +730,14 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
               ...(formaPago === "COMBINADO" ? { combinado: combinadoAplicado() } : {}),
             }
           : comprobante === "REMISION"
-          ? { tipoRemision }
+          ? { tipoRemision, fecha: fechaRemision }
+          : comprobante === "SIN_COMPROBANTE"
+          ? {
+              formaPago,
+              chequeNumero,
+              terminal: terminalSimple,
+              ...(formaPago === "COMBINADO" ? { combinado: combinadoAplicado() } : {}),
+            }
           : {
               formaPago,
               chequeNumero,
@@ -1297,7 +1318,9 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
         tipoPago === "COMPLETO" && comprobante === "NOTA_VENTA"
           ? `Nota de Venta · ${tipoNota}`
           : tipoPago === "COMPLETO" && comprobante === "REMISION"
-          ? `Remisión · ${tipoRemision}`
+          ? `Remisión · ${tipoRemision} · ${fechaRemision.split("-").reverse().join("/")}`
+          : comprobante === "SIN_COMPROBANTE"
+          ? "Sin comprobante"
           : "Recibo Provisional",
     });
     if (tipoPago === "ANTICIPO") {
@@ -1395,7 +1418,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
             {bloqueaFacturacion && (
               <div className="alert alert-warning py-2 small">
                 Esta orden ya tiene una Remisión registrada: no se puede generar otra Remisión ni una Nota de
-                Venta. Solo se pueden registrar Abonos o Anticipos (Recibo Provisional).
+                Venta. Solo se pueden registrar Abonos, Anticipos (Recibo Provisional) o Liquidar (sin comprobante).
               </div>
             )}
 
@@ -1459,7 +1482,17 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                             <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
                           ))}
                         </Dropdown>
+                        <label className="form-label mb-0 mt-2">Fecha de la remisión</label>
+                        <input
+                          type="date"
+                          className="form-control"
+                          value={fechaRemision}
+                          max={hoyISO()}
+                          onChange={(e) => setFechaRemision(e.target.value)}
+                          data-no-uppercase
+                        />
                         <small className="text-muted">
+                          Por defecto hoy; cámbiala si la remisión es de otro día (no se permiten fechas futuras).
                           La Fecha de Pagada se registra sola cuando la orden queda sin saldo pendiente.
                         </small>
                       </div>
@@ -1471,6 +1504,17 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                   <div className="mb-2">
                     <label className="form-label fw-semibold d-block">Comprobante</label>
                     <span className="badge bg-secondary">Recibo Provisional</span>
+                  </div>
+                )}
+
+                {tipoPago === "LIQUIDAR" && (
+                  <div className="mb-2">
+                    <label className="form-label fw-semibold d-block">Comprobante</label>
+                    <span className="badge bg-secondary">Sin comprobante</span>
+                    <small className="text-muted d-block mt-1">
+                      Registra el pago y lo abona a la orden; no genera Nota de Venta, Remisión ni Recibo
+                      Provisional (la factura es el documento). No aparece en los reportes diarios de Cajas.
+                    </small>
                   </div>
                 )}
 
@@ -1646,4 +1690,11 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
 function formatFechaCorta(d) {
   const pad = (n) => String(n).padStart(2, "0");
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+// Fecha de hoy en formato YYYY-MM-DD (para <input type="date">), en hora local.
+function hoyISO() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }

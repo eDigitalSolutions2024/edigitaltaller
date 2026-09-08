@@ -11,7 +11,11 @@ const { registrarMovimientoTerminal } = require('./cierreCajaTerminales');
 // cancelar, +1 al deshacer la cancelación.
 function datosMovimientosTerminal(pago) {
   const combinado =
-    pago.comprobante === 'NOTA_VENTA' ? pago.notaVenta?.combinado : pago.reciboProvisional?.combinado;
+    pago.comprobante === 'NOTA_VENTA'
+      ? pago.notaVenta?.combinado
+      : pago.comprobante === 'SIN_COMPROBANTE'
+      ? pago.liquidacion?.combinado
+      : pago.reciboProvisional?.combinado;
   const montoTarjetaCombinado = combinado
     ? (Number(combinado.credito) || 0) + (Number(combinado.debito) || 0)
     : 0;
@@ -23,7 +27,7 @@ function datosMovimientosTerminal(pago) {
     saldoAplicado: pago.saldoAplicado?.monto > 0 ? Number(pago.saldoAplicado.monto) : 0,
     montoTarjetaCombinado,
     bancoCombinado: combinado?.banco,
-    reciboBanco: pago.reciboProvisional?.banco || '',
+    reciboBanco: pago.reciboProvisional?.banco || pago.liquidacion?.banco || '',
     montoPesos: Number(pago.montoPesos) || 0,
   };
 }
@@ -40,18 +44,18 @@ async function moverTerminalesDePago(d, signo) {
       console.error('Error moviendo terminal (nota de venta):', e);
     }
   }
-  if (['RECIBO_PROVISIONAL', 'NOTA_VENTA'].includes(d.comprobante) && d.montoTarjetaCombinado > 0 && d.bancoCombinado) {
+  if (['RECIBO_PROVISIONAL', 'NOTA_VENTA', 'SIN_COMPROBANTE'].includes(d.comprobante) && d.montoTarjetaCombinado > 0 && d.bancoCombinado) {
     try {
       await registrarMovimientoTerminal(d.bancoCombinado, s * d.montoTarjetaCombinado, d.fecha);
     } catch (e) {
       console.error('Error moviendo terminal (combinado):', e);
     }
   }
-  if (d.comprobante === 'RECIBO_PROVISIONAL' && d.reciboBanco && d.montoPesos > 0) {
+  if (['RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(d.comprobante) && d.reciboBanco && d.montoPesos > 0) {
     try {
       await registrarMovimientoTerminal(d.reciboBanco, s * d.montoPesos, d.fecha);
     } catch (e) {
-      console.error('Error moviendo terminal (recibo provisional tarjeta):', e);
+      console.error('Error moviendo terminal (recibo provisional / liquidar tarjeta):', e);
     }
   }
 }

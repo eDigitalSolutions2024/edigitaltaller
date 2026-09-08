@@ -22,6 +22,42 @@ const valeCajaSchema = new Schema(
   { _id: false }
 );
 
+// Una captura = un "Guardar" del formulario de Captura del día (billetes,
+// monedas, cheques, transferencias, dólares y vales de esa ronda). Se guarda
+// cada una por separado para tener historial del día y poder cancelar una mal
+// hecha (monto equivocado) sin perder el resto. Lleva _id propio (por defecto)
+// para poder apuntarle desde el endpoint de cancelación.
+const capturaCajaSchema = new Schema({
+  // Instante en que se pulsó "Guardar".
+  fecha: { type: Date, default: Date.now },
+  capturadoPor: { type: String, default: '' },
+
+  billetes: [conteoSchema],
+  monedas: [conteoSchema],
+  // Únicos ingresos de terminal que son captura manual (el resto se suma solo
+  // desde los pagos, ver utils/cierreCajaTotales).
+  cheques: { type: Number, default: 0 },
+  transferencias: { type: Number, default: 0 },
+  dolares: {
+    cantidad: { type: Number, default: 0 },
+    tipoCambio: { type: Number, default: 0 },
+  },
+  vales: [valeCajaSchema],
+
+  // true = no fue un "Guardar" real: se materializó al abrir el historial de
+  // un día que ya traía captura acumulada de antes de que existiera este
+  // registro por-captura (ver asegurarCapturaBaseline en routes/cierreCaja.js).
+  sintetica: { type: Boolean, default: false },
+
+  // Un admin puede cancelar una captura equivocada mientras la caja siga
+  // ABIERTA; los totales del día se recalculan ignorando las canceladas. Queda
+  // en el historial como bitácora (tachada), no se borra.
+  cancelada: { type: Boolean, default: false },
+  canceladaEn: { type: Date, default: null },
+  canceladaPor: { type: String, default: '' },
+  motivoCancelacion: { type: String, default: '' },
+});
+
 const cierreCajaSchema = new Schema(
   {
     // Medianoche UTC del día que se cierra (ver utils/fechaSoloDia).
@@ -48,6 +84,14 @@ const cierreCajaSchema = new Schema(
     // Vales de caja capturados en el formato; su efecto sobre los totales
     // todavía no está definido (pendiente de negocio), se guardan tal cual.
     vales: [valeCajaSchema],
+
+    // Bitácora de cada "Guardar" del formulario de Captura del día. Los totales
+    // agregados de arriba (billetes/monedas/dolares/vales y
+    // terminales.cheques/transferencias) se mantienen como CACHÉ = suma de
+    // estas capturas NO canceladas (ver rebuildAgregadosCaptura en
+    // routes/cierreCaja.js). Las terminales automáticas (bancomer…banorte) no
+    // salen de aquí, se siguen sumando solas desde los pagos.
+    capturas: [capturaCajaSchema],
 
     // totalReportes y fondoCaja se recalculan server-side (pagos del día /
     // Configuración, ver utils/totalIngresosDia y GET /reportes/cierre-caja)

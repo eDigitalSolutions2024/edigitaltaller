@@ -245,6 +245,10 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       // (T. Crédito / T. Débito). El Combinado trae la suya en combinado.banco;
       // la Nota de Venta, en `banco`.
       terminal = '',
+      // Solo para comprobante === 'REMISION': fecha con la que se registra la
+      // remisión (a veces se captura un día después). Sin valor = hoy. No se
+      // permiten fechas futuras (ver validación abajo).
+      fecha: fechaBody = '',
     } = req.body || {};
 
     // 'Cancelada' NO es un tipo de alta válido: es un ESTADO que solo fija el
@@ -258,7 +262,7 @@ router.post('/:id/pagos', proteger, async (req, res) => {
     if (!['COMPLETO', 'ABONO', 'ANTICIPO'].includes(tipoPago)) {
       return res.status(400).json({ ok: false, msg: 'Tipo de pago inválido.' });
     }
-    if (!['NOTA_VENTA', 'REMISION', 'RECIBO_PROVISIONAL'].includes(comprobante)) {
+    if (!['NOTA_VENTA', 'REMISION', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante)) {
       return res.status(400).json({ ok: false, msg: 'Debes elegir un comprobante.' });
     }
     // Un Anticipo se documenta con Recibo Provisional, pero igual debe saber
@@ -267,28 +271,33 @@ router.post('/:id/pagos', proteger, async (req, res) => {
     if (tipoPago === 'ANTICIPO' && !['NOTA_VENTA', 'REMISION'].includes(anticipoDestino)) {
       return res.status(400).json({ ok: false, msg: 'Selecciona a qué reporte (Factura o Remisión) aplica este anticipo.' });
     }
-    // Un abono/anticipo siempre se documenta con Recibo Provisional; Nota de
-    // Venta y Remisión son exclusivas de un pago Liquida (COMPLETO).
-    if (['ABONO', 'ANTICIPO'].includes(tipoPago) && comprobante !== 'RECIBO_PROVISIONAL') {
-      return res.status(400).json({ ok: false, msg: 'Un Abono o Anticipo se documenta con Recibo Provisional.' });
+    // Consistencia tipoPago <-> comprobante:
+    //  - ANTICIPO -> siempre Recibo Provisional.
+    //  - ABONO    -> Recibo Provisional, o SIN_COMPROBANTE (opción "Liquidar").
+    //  - COMPLETO -> Nota de Venta o Remisión.
+    if (tipoPago === 'ANTICIPO' && comprobante !== 'RECIBO_PROVISIONAL') {
+      return res.status(400).json({ ok: false, msg: 'Un Anticipo se documenta con Recibo Provisional.' });
     }
-    if (tipoPago === 'COMPLETO' && comprobante === 'RECIBO_PROVISIONAL') {
+    if (tipoPago === 'ABONO' && !['RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante)) {
+      return res.status(400).json({ ok: false, msg: 'Un Abono se documenta con Recibo Provisional o sin comprobante.' });
+    }
+    if (tipoPago === 'COMPLETO' && !['NOTA_VENTA', 'REMISION'].includes(comprobante)) {
       return res.status(400).json({ ok: false, msg: 'Un pago de Remisión o Factura requiere Nota de Venta o Remisión.' });
     }
 
-    // La Nota de Venta usa el mismo catálogo de forma de pago que el Recibo
-    // Provisional (antes era un único combo que mezclaba método y terminal).
-    if (comprobante === 'NOTA_VENTA' && !FORMAS_PAGO_CAJA.includes(formaPago)) {
-      return res.status(400).json({ ok: false, msg: 'Selecciona la forma de pago de la Nota de Venta.' });
+    // Nota de Venta y Liquidar ("sin comprobante") capturan forma de pago con
+    // el mismo catálogo que el Recibo Provisional.
+    if (['NOTA_VENTA', 'SIN_COMPROBANTE'].includes(comprobante) && !FORMAS_PAGO_CAJA.includes(formaPago)) {
+      return res.status(400).json({ ok: false, msg: 'Selecciona la forma de pago.' });
     }
-    // Cualquier cobro con tarjeta en Cajas (Nota de Venta o Recibo Provisional)
-    // debe registrar en qué terminal se cobró, para que el Cierre de Caja del
-    // día cuadre por terminal.
-    if (['NOTA_VENTA', 'RECIBO_PROVISIONAL'].includes(comprobante) && ['CREDITO', 'DEBITO'].includes(formaPago) && !TERMINALES_TARJETA.includes(terminal)) {
+    // Cualquier cobro con tarjeta en Cajas (Nota de Venta, Recibo Provisional o
+    // Liquidar) debe registrar en qué terminal se cobró, para que el Cierre de
+    // Caja del día cuadre por terminal.
+    if (['NOTA_VENTA', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) && ['CREDITO', 'DEBITO'].includes(formaPago) && !TERMINALES_TARJETA.includes(terminal)) {
       return res.status(400).json({ ok: false, msg: 'Selecciona la terminal donde se cobró la tarjeta.' });
     }
     if (
-      ['NOTA_VENTA', 'RECIBO_PROVISIONAL'].includes(comprobante) &&
+      ['NOTA_VENTA', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) &&
       formaPago === 'COMBINADO' &&
       ((Number(combinado?.credito) || 0) > 0 || (Number(combinado?.debito) || 0) > 0) &&
       !TERMINALES_TARJETA.includes(combinado?.banco)
@@ -373,6 +382,30 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'El monto del pago debe ser mayor a 0.' });
     }
 
+    // Fecha del pago: normalmente el instante actual. Una Remisión puede
+    // registrarse con fecha anterior (se captura un día después); nunca a
+    // futuro. Los demás comprobantes siempre usan la fecha actual.
+    // El front manda 'YYYY-MM-DD'; se ancla al mediodía LOCAL de ese día para
+    // que caiga sin ambigüedad en su día calendario en los reportes y el
+    // Cierre de Caja (el servidor corre en la zona horaria del taller).
+    let fechaPago = new Date();
+    if (comprobante === 'REMISION' && String(fechaBody || '').trim()) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(fechaBody).trim());
+      if (!m) {
+        return res.status(400).json({ ok: false, msg: 'La fecha de la remisión no es válida.' });
+      }
+      const f = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
+      if (isNaN(f.getTime())) {
+        return res.status(400).json({ ok: false, msg: 'La fecha de la remisión no es válida.' });
+      }
+      const finDeHoy = new Date();
+      finDeHoy.setHours(23, 59, 59, 999);
+      if (f > finDeHoy) {
+        return res.status(400).json({ ok: false, msg: 'La fecha de la remisión no puede ser futura.' });
+      }
+      fechaPago = f;
+    }
+
     // Id pre-generado del pago: si se aplica saldo, el movimiento del ledger
     // (AnticipoCliente) necesita poder ligarse a este pago desde antes de que
     // exista en Vehiculo.pagos (el $push todavía no se ejecuta en este punto).
@@ -380,7 +413,7 @@ router.post('/:id/pagos', proteger, async (req, res) => {
 
     const pago = {
       _id: pagoId,
-      fecha: new Date(),
+      fecha: fechaPago,
       tipoPago,
       comprobante,
       ...(tipoPago === 'ANTICIPO' ? { anticipoDestino } : {}),
@@ -526,24 +559,26 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       pago.remision = { numero: contador.valor, tipo: tipoRemision, fechaPagada: null };
     }
 
-    // Recibo Provisional: automático en cada abono/anticipo (único comprobante permitido).
-    if (['ABONO', 'ANTICIPO'].includes(tipoPago)) {
+    // Desglose del pago Combinado (mismo para Recibo Provisional y Liquidar).
+    const combinadoMontos = formaPago === 'COMBINADO'
+      ? {
+          credito: Number(combinado?.credito) || 0,
+          efectivo: Number(combinado?.efectivo) || 0,
+          efectivoDolares: Number(combinado?.efectivoDolares) || 0,
+          debito: Number(combinado?.debito) || 0,
+          cheque: Number(combinado?.cheque) || 0,
+          transferencia: Number(combinado?.transferencia) || 0,
+          banco: combinado?.banco || '',
+        }
+      : null;
+
+    // Recibo Provisional: automático en cada abono/anticipo con este comprobante.
+    if (['ABONO', 'ANTICIPO'].includes(tipoPago) && comprobante === 'RECIBO_PROVISIONAL') {
       const contadorProvisional = await Contador.findOneAndUpdate(
         { nombre: CONTADOR_RECIBO_PROVISIONAL },
         { $inc: { valor: 1 } },
         { new: true, upsert: true }
       );
-      const combinadoMontos = formaPago === 'COMBINADO'
-        ? {
-            credito: Number(combinado?.credito) || 0,
-            efectivo: Number(combinado?.efectivo) || 0,
-            efectivoDolares: Number(combinado?.efectivoDolares) || 0,
-            debito: Number(combinado?.debito) || 0,
-            cheque: Number(combinado?.cheque) || 0,
-            transferencia: Number(combinado?.transferencia) || 0,
-            banco: combinado?.banco || '',
-          }
-        : null;
       pago.reciboProvisional = {
         numero: contadorProvisional.valor,
         formaPago,
@@ -551,6 +586,17 @@ router.post('/:id/pagos', proteger, async (req, res) => {
         banco: ['CREDITO', 'DEBITO'].includes(formaPago) ? terminal : '',
         concepto: reciboConcepto,
         recibio: reciboRecibio,
+        ...(combinadoMontos ? { combinado: combinadoMontos } : {}),
+      };
+    }
+
+    // Liquidar ("sin comprobante"): guarda solo la forma de pago para el Cierre
+    // de Caja; no genera folio ni recibo.
+    if (comprobante === 'SIN_COMPROBANTE') {
+      pago.liquidacion = {
+        formaPago,
+        chequeNumero: (formaPago === 'CHEQUE' || combinadoMontos?.cheque > 0) ? chequeNumero : '',
+        banco: ['CREDITO', 'DEBITO'].includes(formaPago) ? terminal : '',
         ...(combinadoMontos ? { combinado: combinadoMontos } : {}),
       };
     }
@@ -587,12 +633,12 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       }
     }
 
-    // La parte de T. Crédito/T. Débito de un pago Combinado (Nota de Venta o
-    // Recibo Provisional) también pasa por una terminal física y debe sumarse
-    // al Cierre de Caja.
+    // La parte de T. Crédito/T. Débito de un pago Combinado (Nota de Venta,
+    // Recibo Provisional o Liquidar) también pasa por una terminal física y
+    // debe sumarse al Cierre de Caja.
     const montoTarjetaCombinado = (Number(combinado?.credito) || 0) + (Number(combinado?.debito) || 0);
     if (
-      ['NOTA_VENTA', 'RECIBO_PROVISIONAL'].includes(comprobante) &&
+      ['NOTA_VENTA', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) &&
       formaPago === 'COMBINADO' &&
       montoTarjetaCombinado > 0 &&
       combinado?.banco
@@ -604,10 +650,10 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       }
     }
 
-    // Recibo Provisional SIMPLE con tarjeta (incluye un Anticipo cobrado con
-    // tarjeta): su monto en pesos también pasa por una terminal física y suma
-    // al Cierre de Caja, igual que la Nota de Venta.
-    if (comprobante === 'RECIBO_PROVISIONAL' && ['CREDITO', 'DEBITO'].includes(formaPago) && terminal) {
+    // Recibo Provisional o Liquidar SIMPLE con tarjeta (incluye un Anticipo
+    // cobrado con tarjeta): su monto en pesos también pasa por una terminal
+    // física y suma al Cierre de Caja, igual que la Nota de Venta.
+    if (['RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) && ['CREDITO', 'DEBITO'].includes(formaPago) && terminal) {
       try {
         await registrarMovimientoTerminal(terminal, Number(montoPesos) || 0, pago.fecha);
       } catch (errTerminal) {
