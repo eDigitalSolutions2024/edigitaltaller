@@ -9,14 +9,14 @@ const mongoose = require('mongoose');
 // "Registro de Actividad" del submenú Administración. También sigue disponible
 // el script de consola backend/verRegistroAcciones.js.
 //
-// Retención: 15 días. Pasado ese plazo MongoDB borra la fila sola (índice TTL
-// sobre expiresAt, igual que RefreshToken). Para cambiarlo sin recrear el
-// índice: db.runCommand({ collMod: 'registroacciones',
-//   index: { keyPattern: { expiresAt: 1 }, expireAfterSeconds: 0 } })
-// y ajustar RETENCION_DIAS aquí (afecta solo a las filas nuevas). El endpoint
-// además filtra por createdAt para no mostrar nada fuera de esa ventana aunque
-// el TTL vaya retrasado.
-const RETENCION_DIAS = 15;
+// Flujo de retención: al crear cada fila se fija `expiresAt = ahora + RETENCION_DIAS`.
+// El índice TTL sobre `expiresAt` (expireAfterSeconds: 0) hace que MongoDB borre
+// la fila sola en cuanto se pasa esa fecha. No hay que recrear el índice al
+// cambiar RETENCION_DIAS: afecta a las filas nuevas de inmediato, y a las
+// existentes las reajusta la migración de server.js
+// (utils/migrarRetencionRegistroAccion). El endpoint además filtra por
+// createdAt para no mostrar nada fuera de la ventana aunque el TTL vaya retrasado.
+const RETENCION_DIAS = 30;
 const RETENCION_MS = RETENCION_DIAS * 24 * 60 * 60 * 1000;
 
 const registroAccionSchema = new mongoose.Schema(
@@ -37,7 +37,7 @@ const registroAccionSchema = new mongoose.Schema(
     // 'manual' -> lo escribió una ruta con utils/registrarAccion.js
     origen: { type: String, enum: ['auto', 'manual'], default: 'manual' },
 
-    // Quién lo hizo (snapshot, no populate: la fila se autodestruye en 15 días).
+    // Quién lo hizo (snapshot, no populate: la fila se autodestruye a los 30 días).
     usuario: { type: String, default: '' },
     usuarioId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     rol: { type: String, default: '' },

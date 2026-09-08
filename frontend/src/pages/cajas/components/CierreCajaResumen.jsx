@@ -4,6 +4,7 @@ import { TERMINALES, calcularTotalesCierre } from '../../../utils/cierreCajaTota
 import { getNotaVentaPdfUrl, getRemisionPdfUrl, getReciboProvisionalPdfUrl } from '../../../api/cajas';
 import { getValePdfUrl } from '../../../api/vales';
 import usePdfModal from '../../../hooks/usePdfModal';
+import '../../../styles/gestionCaja.css';
 
 function formatMoney(n) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
@@ -75,6 +76,18 @@ function combinarPorOrden(cierre, filtroTipo, abrirPdf) {
     .sort((a, b) => String(a[0]).localeCompare(String(b[0]), 'es', { numeric: true }));
 }
 
+// Fila de denominación de solo lectura: importe · ×cantidad · subtotal.
+function DenominacionRO({ denominacion, cantidad }) {
+  const n = Number(cantidad) || 0;
+  return (
+    <div className="gc-den gc-den--ro">
+      <span className="gc-den__label">{formatMoney(denominacion)}</span>
+      <span className="gc-den__qty">×{n}</span>
+      <span className="gc-den__amount">{formatMoney(denominacion * n)}</span>
+    </div>
+  );
+}
+
 // Vista de solo lectura del cierre de caja de un día — mismo formato visual
 // que el papel de Cierre de Caja. La usan Gestión de Caja (resumen del día en
 // curso) y Reportes > Cierre de Caja (consulta de días ya cerrados).
@@ -88,153 +101,134 @@ export default function CierreCajaResumen({ cierre, accionesCierre }) {
   const grupos = useMemo(() => combinarPorOrden(cierre, filtroTipo, abrirPdf), [cierre, filtroTipo, abrirPdf]);
 
   return (
-    <div className="row g-3">
+    <div className="row g-3 gc">
       <div className="col-md-6">
-        <div className="card mb-3">
-          <div className="card-header py-2 fw-bold">Billetes</div>
-          <table className="table table-sm mb-0">
-            <tbody>
+        {/* Billetes */}
+        <div className="gc-sec gc-sec--billetes">
+          <div className="gc-sec__head">
+            <span>Billetes</span>
+            <span>{formatMoney(totales.totalBilletes)}</span>
+          </div>
+          <div className="gc-sec__body">
+            <div className="gc-dens gc-dens--ro">
               {(cierre.billetes || []).map((b) => (
-                <tr key={b.denominacion}>
-                  <td>{formatMoney(b.denominacion)}</td>
-                  <td className="text-end">{Number(b.cantidad) || 0}</td>
-                  <td className="text-end">{formatMoney(b.denominacion * (Number(b.cantidad) || 0))}</td>
-                </tr>
+                <DenominacionRO key={b.denominacion} denominacion={b.denominacion} cantidad={b.cantidad} />
               ))}
-            </tbody>
-            <tfoot>
-              <tr className="table-light">
-                <td colSpan={2} className="fw-bold">Total</td>
-                <td className="text-end fw-bold">{formatMoney(totales.totalBilletes)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-
-        <div className="card mb-3">
-          <div className="card-header py-2 fw-bold">Terminales</div>
-          <table className="table table-sm mb-0">
-            <tbody>
-              {TERMINALES.map((t) => (
-                <tr key={t.key}>
-                  <td>{t.label}</td>
-                  <td className="text-end">{formatMoney(cierre.terminales?.[t.key])}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="table-light">
-                <td className="fw-bold">Total</td>
-                <td className="text-end fw-bold">{formatMoney(totales.totalTerminales)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-
-        <div className="card mb-3">
-          <div className="card-body py-2 d-flex justify-content-between">
-            <span className="fw-bold">Total Cobrado</span>
-            <span className="fw-bold">{formatMoney(totales.totalCobrado)}</span>
-          </div>
-        </div>
-
-        <div className="card mb-3">
-          <div className="card-body py-2">
-            <div className="d-flex justify-content-between">
-              <span className="fw-bold">Total Reportes</span>
-              <span className="text-muted small">Ingresos registrados desde que abrió la caja</span>
             </div>
-            <div className="text-end">{formatMoney(cierre.totalReportes)}</div>
           </div>
         </div>
 
-        <div className="card mb-3">
-          <div className="card-body py-2 d-flex justify-content-between">
-            <span className="fw-bold">Fondo de Caja</span>
-            <span>{formatMoney(cierre.fondoCaja)}</span>
+        {/* Terminales */}
+        <div className="gc-sec gc-sec--terminales">
+          <div className="gc-sec__head">
+            <span>Terminales</span>
+            <span>{formatMoney(totales.totalTerminales)}</span>
+          </div>
+          <div className="gc-sec__body">
+            {TERMINALES.map((t) => (
+              <div className="gc-den gc-den--ro" key={t.key}>
+                <span className="gc-den__label">{t.label}</span>
+                <span className="gc-den__amount">{formatMoney(cierre.terminales?.[t.key])}</span>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div className="card mb-3">
-          <div className="card-body py-2 d-flex justify-content-between">
-            <span className="fw-bold">Diferencia</span>
-            <span className={`fw-bold ${totales.diferencia >= 0 ? 'text-success' : 'text-danger'}`}>
-              {formatMoney(totales.diferencia)}
-            </span>
+        {/* Totales del día */}
+        <div className="gc-sec gc-sec--totales">
+          <div className="gc-sec__head">
+            <span>Totales</span>
+          </div>
+          <div className="gc-sec__body">
+            <div className="gc-kv">
+              <span>Total Cobrado</span>
+              <span className="gc-kv__value">{formatMoney(totales.totalCobrado)}</span>
+            </div>
+            <div className="gc-kv">
+              <span>
+                Total Reportes
+                <span className="gc-kv__hint d-block">Ingresos registrados desde que abrió la caja</span>
+              </span>
+              <span className="gc-kv__value">{formatMoney(cierre.totalReportes)}</span>
+            </div>
+            <div className="gc-kv">
+              <span>Fondo de Caja</span>
+              <span className="gc-kv__value">{formatMoney(cierre.fondoCaja)}</span>
+            </div>
+            <div className="gc-kv">
+              <span>Diferencia</span>
+              <span className={`gc-kv__value ${totales.diferencia >= 0 ? 'text-success' : 'text-danger'}`}>
+                {formatMoney(totales.diferencia)}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
       <div className="col-md-6">
-        <div className="card mb-3">
-          <div className="card-header py-2 fw-bold">Monedas</div>
-          <table className="table table-sm mb-0">
-            <tbody>
+        {/* Monedas */}
+        <div className="gc-sec gc-sec--monedas">
+          <div className="gc-sec__head">
+            <span>Monedas</span>
+            <span>{formatMoney(totales.totalMonedas)}</span>
+          </div>
+          <div className="gc-sec__body">
+            <div className="gc-dens gc-dens--ro">
               {(cierre.monedas || []).map((m) => (
-                <tr key={m.denominacion}>
-                  <td>{formatMoney(m.denominacion)}</td>
-                  <td className="text-end">{Number(m.cantidad) || 0}</td>
-                  <td className="text-end">{formatMoney(m.denominacion * (Number(m.cantidad) || 0))}</td>
-                </tr>
+                <DenominacionRO key={m.denominacion} denominacion={m.denominacion} cantidad={m.cantidad} />
               ))}
-            </tbody>
-            <tfoot>
-              <tr className="table-light">
-                <td colSpan={2} className="fw-bold">Total</td>
-                <td className="text-end fw-bold">{formatMoney(totales.totalMonedas)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-
-        <div className="card mb-3">
-          <div className="card-header py-2 fw-bold">Dólares</div>
-          <div className="card-body py-2">
-            <div className="d-flex justify-content-between">
-              <span>Cantidad (USD)</span>
-              <span>{Number(cierre.dolares?.cantidad) || 0}</span>
-            </div>
-            <div className="d-flex justify-content-between">
-              <span>T.C.</span>
-              <span>{Number(cierre.dolares?.tipoCambio) || 0}</span>
-            </div>
-            <div className="d-flex justify-content-between mt-2">
-              <span className="fw-bold">Total</span>
-              <span className="fw-bold">{formatMoney(totales.totalDolares)}</span>
             </div>
           </div>
         </div>
 
-        <div className="card mb-3">
-          <div className="card-header py-2 fw-bold">Vales</div>
-          <table className="table table-sm mb-0">
-            <tbody>
-              {(cierre.vales || []).length === 0 && (
-                <tr>
-                  <td className="text-muted">Sin vales capturados.</td>
-                </tr>
-              )}
-              {(cierre.vales || []).map((v, i) => (
-                <tr key={i}>
-                  <td>{v.folio || '—'}</td>
-                  <td>{v.motivo || '—'}</td>
-                  <td className="text-end">{formatMoney(v.monto)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="table-light">
-                <td colSpan={2} className="fw-bold">Total</td>
-                <td className="text-end fw-bold">{formatMoney(totales.totalVales)}</td>
-              </tr>
-            </tfoot>
-          </table>
+        {/* Dólares */}
+        <div className="gc-sec gc-sec--dolares">
+          <div className="gc-sec__head">
+            <span>Dólares</span>
+            <span>{formatMoney(totales.totalDolares)}</span>
+          </div>
+          <div className="gc-sec__body">
+            <div className="gc-kv">
+              <span>Cantidad (USD)</span>
+              <span className="gc-kv__value">{Number(cierre.dolares?.cantidad) || 0}</span>
+            </div>
+            <div className="gc-kv">
+              <span>T.C.</span>
+              <span className="gc-kv__value">{Number(cierre.dolares?.tipoCambio) || 0}</span>
+            </div>
+          </div>
         </div>
 
-        {accionesCierre && <div className="mb-3">{accionesCierre}</div>}
+        {/* Vales */}
+        <div className="gc-sec gc-sec--vales">
+          <div className="gc-sec__head">
+            <span>Vales</span>
+            <span>{formatMoney(totales.totalVales)}</span>
+          </div>
+          <div className="gc-sec__body is-flush">
+            <table className="table table-sm mb-0">
+              <tbody>
+                {(cierre.vales || []).length === 0 && (
+                  <tr>
+                    <td className="text-muted small">Sin vales capturados.</td>
+                  </tr>
+                )}
+                {(cierre.vales || []).map((v, i) => (
+                  <tr key={i}>
+                    <td>{v.folio || '—'}</td>
+                    <td>{v.motivo || '—'}</td>
+                    <td className="text-end">{formatMoney(v.monto)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {accionesCierre && <div className="mt-3">{accionesCierre}</div>}
 
         {cierre.capturadoPor && (
-          <div className="text-muted small">Última captura por: {cierre.capturadoPor}</div>
+          <div className="text-muted small mt-2">Última captura por: {cierre.capturadoPor}</div>
         )}
         {cierre.estado === 'CERRADA' && cierre.cerradoPor && (
           <div className="text-muted small">Caja cerrada por: {cierre.cerradoPor}</div>
@@ -242,9 +236,9 @@ export default function CierreCajaResumen({ cierre, accionesCierre }) {
       </div>
 
       <div className="col-12">
-        <div className="card mb-3">
-          <div className="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <span className="fw-bold">Comprobantes y Vales de Salida</span>
+        <div className="gc-sec gc-sec--otros">
+          <div className="gc-sec__head">
+            <span>Comprobantes y Vales de Salida</span>
             <Dropdown
               className="form-select-sm w-auto"
               value={filtroTipo}
@@ -255,51 +249,53 @@ export default function CierreCajaResumen({ cierre, accionesCierre }) {
               ))}
             </Dropdown>
           </div>
-          <div className="table-responsive">
-            <table className="table table-sm mb-0">
-              <thead>
-                <tr>
-                  <th>Tipo</th>
-                  <th>Folio</th>
-                  <th>Cliente</th>
-                  <th className="text-end">Monto</th>
-                  <th>Estatus</th>
-                  <th>Registrado por</th>
-                </tr>
-              </thead>
-              <tbody>
-                {grupos.length === 0 && (
+          <div className="gc-sec__body is-flush">
+            <div className="table-responsive">
+              <table className="table table-sm mb-0">
+                <thead>
                   <tr>
-                    <td colSpan={6} className="text-muted">Sin comprobantes ni vales generados.</td>
+                    <th>Tipo</th>
+                    <th>Folio</th>
+                    <th>Cliente</th>
+                    <th className="text-end">Monto</th>
+                    <th>Estatus</th>
+                    <th>Registrado por</th>
                   </tr>
-                )}
-                {grupos.map(([orden, filas]) => (
-                  <React.Fragment key={orden}>
-                    <tr className="table-light">
-                      <td colSpan={6} className="fw-bold">
-                        Orden {orden}
-                        {filas[0]?.cliente && filas[0].cliente !== '—' ? ` — ${filas[0].cliente}` : ''}
-                      </td>
+                </thead>
+                <tbody>
+                  {grupos.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="text-muted">Sin comprobantes ni vales generados.</td>
                     </tr>
-                    {filas.map((f) => (
-                      <tr
-                        key={f.key}
-                        style={{ cursor: f.clickable ? 'pointer' : undefined }}
-                        onClick={f.onClick}
-                        title={f.tipo === 'VALE_SALIDA' ? 'Ver vale' : 'Ver comprobante'}
-                      >
-                        <td>{f.tipoLabel}</td>
-                        <td>{f.folio}</td>
-                        <td>{f.cliente}</td>
-                        <td className="text-end">{f.monto != null ? formatMoney(f.monto) : '—'}</td>
-                        <td>{f.estatus || '—'}</td>
-                        <td>{f.registradoPor}</td>
+                  )}
+                  {grupos.map(([orden, filas]) => (
+                    <React.Fragment key={orden}>
+                      <tr className="table-light">
+                        <td colSpan={6} className="fw-bold">
+                          Orden {orden}
+                          {filas[0]?.cliente && filas[0].cliente !== '—' ? ` — ${filas[0].cliente}` : ''}
+                        </td>
                       </tr>
-                    ))}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
+                      {filas.map((f) => (
+                        <tr
+                          key={f.key}
+                          style={{ cursor: f.clickable ? 'pointer' : undefined }}
+                          onClick={f.onClick}
+                          title={f.tipo === 'VALE_SALIDA' ? 'Ver vale' : 'Ver comprobante'}
+                        >
+                          <td>{f.tipoLabel}</td>
+                          <td>{f.folio}</td>
+                          <td>{f.cliente}</td>
+                          <td className="text-end">{f.monto != null ? formatMoney(f.monto) : '—'}</td>
+                          <td>{f.estatus || '—'}</td>
+                          <td>{f.registradoPor}</td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

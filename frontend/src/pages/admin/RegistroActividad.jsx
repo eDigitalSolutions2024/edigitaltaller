@@ -282,7 +282,7 @@ export default function RegistroActividad() {
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
   const [page, setPage] = useState(1);
-  const [retencionDias, setRetencionDias] = useState(15);
+  const [retencionDias, setRetencionDias] = useState(30);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

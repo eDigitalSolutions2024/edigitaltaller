@@ -6,11 +6,13 @@ const path = require('path');
 const connectDB  = require('./config/db');
 const limpiarImagenesTemp = require('./utils/limpiarImagenesTemp');
 const { migrarCierreCajaSesion } = require('./utils/migrarCierreCajaSesion');
+const { migrarRetencionRegistroAccion } = require('./utils/migrarRetencionRegistroAccion');
 console.log('JWT_SECRET cargado:', !!process.env.JWT_SECRET);
 
 const app = express();
 connectDB();
 migrarCierreCajaSesion();
+migrarRetencionRegistroAccion();
 
 // Purga carpetas de imágenes temporales (subidas antes de guardar una orden
 // nueva) que quedaron abandonadas por más de 24h.

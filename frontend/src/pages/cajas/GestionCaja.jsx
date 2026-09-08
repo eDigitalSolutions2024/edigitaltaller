@@ -5,23 +5,44 @@ import {
   cancelarCapturaCierreCaja,
   cerrarCierreCaja,
   restablecerCierreCaja,
+  getHistorialCierresCaja,
   getCierreCajaPdfUrl,
 } from '../../api/reportes';
 import { createTicket } from '../../api/tickets';
 import { getUser } from '../../auth';
+import { calcularTotalesCierre } from '../../utils/cierreCajaTotales';
 import CierreCajaResumen from './components/CierreCajaResumen';
 import CajaHistorialCapturas from './components/CajaHistorialCapturas';
 import CajaModalVale from './components/CajaModalVale';
+import CajaModalCancelarCaptura from './components/CajaModalCancelarCaptura';
 import useTipoCambioActual from '../../hooks/useTipoCambioActual';
 import usePdfModal from '../../hooks/usePdfModal';
+import '../../styles/gestionCaja.css';
+
+function fechaISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 function hoyISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return fechaISO(new Date());
+}
+
+function fechaHora(v) {
+  if (!v) return '—';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('es-MX', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
 }
 
 function formatMoney(n) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
+}
+
+// Suma denominacion × cantidad de una lista de billetes o monedas.
+function sumConteo(list) {
+  return (list || []).reduce((s, x) => s + Number(x.denominacion || 0) * (Number(x.cantidad) || 0), 0);
 }
 
 // La Captura del día es acumulativa (ver guardar() más abajo): el formulario
@@ -44,10 +65,21 @@ function formularioVacio(data) {
 // cobrado, ver utils/cierreCajaTotales) ni las terminales automáticas (esas
 // no se capturan aquí, se suman solas desde los pagos).
 function calcularTotalCaptura(form, tipoCambioConfig) {
-  const totalBilletes = (form.billetes || []).reduce((s, b) => s + b.denominacion * (Number(b.cantidad) || 0), 0);
-  const totalMonedas = (form.monedas || []).reduce((s, m) => s + m.denominacion * (Number(m.cantidad) || 0), 0);
   const totalDolares = (Number(form.dolares?.cantidad) || 0) * (Number(tipoCambioConfig) || 0);
-  return totalBilletes + totalMonedas + (Number(form.cheques) || 0) + (Number(form.transferencias) || 0) + totalDolares;
+  return (
+    sumConteo(form.billetes) +
+    sumConteo(form.monedas) +
+    (Number(form.cheques) || 0) +
+    (Number(form.transferencias) || 0) +
+    totalDolares
+  );
+}
+
+// Rango por defecto de "Registros de caja": últimos 60 días.
+function rangoRegistrosDefault() {
+  const desde = new Date();
+  desde.setDate(desde.getDate() - 60);
+  return { desde: fechaISO(desde), hasta: hoyISO() };
 }
 
 // Cajero: captura durante el día (efectivo, dólares, vales) y cierra la caja
@@ -62,6 +94,7 @@ export default function GestionCaja() {
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [cancelandoCapturaId, setCancelandoCapturaId] = useState(null);
+  const [capturaACancelar, setCapturaACancelar] = useState(null);
   const [cerrando, setCerrando] = useState(false);
   const [confirmarCierre, setConfirmarCierre] = useState(false);
   const [restableciendo, setRestableciendo] = useState(false);
@@ -70,6 +103,16 @@ export default function GestionCaja() {
   const [error, setError] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [mostrarModalVale, setMostrarModalVale] = useState(false);
+  // Tres vistas: 'captura' (el formulario), 'caja' (lo que hay en caja) y
+  // 'registros' (sesiones de caja anteriores).
+  const [vista, setVista] = useState('captura');
+  // Registros de caja (sesiones cerradas) + sesión histórica que se está viendo.
+  const [registros, setRegistros] = useState(null);
+  const [cargandoRegistros, setCargandoRegistros] = useState(false);
+  const [errorRegistros, setErrorRegistros] = useState('');
+  const [rangoRegistros, setRangoRegistros] = useState(rangoRegistrosDefault);
+  const [sesionHistorica, setSesionHistorica] = useState(null);
+  const [cargandoSesion, setCargandoSesion] = useState(false);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -88,6 +131,59 @@ export default function GestionCaja() {
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  const cerrada = cierre?.estado === 'CERRADA';
+
+  // Si la caja ya está cerrada no hay nada que capturar: abre en "lo que hay en caja".
+  useEffect(() => {
+    if (cerrada) setVista('caja');
+  }, [cerrada]);
+
+  const cargarRegistros = useCallback(async () => {
+    setCargandoRegistros(true);
+    setErrorRegistros('');
+    try {
+      const res = await getHistorialCierresCaja(rangoRegistros.desde, rangoRegistros.hasta);
+      setRegistros(res.data.data || []);
+    } catch (err) {
+      setErrorRegistros('Error al cargar los registros de caja.');
+    } finally {
+      setCargandoRegistros(false);
+    }
+  }, [rangoRegistros.desde, rangoRegistros.hasta]);
+
+  // Carga perezosa la primera vez que se abre la pestaña de registros.
+  useEffect(() => {
+    if (vista === 'registros' && registros === null && !cargandoRegistros) {
+      cargarRegistros();
+    }
+  }, [vista, registros, cargandoRegistros, cargarRegistros]);
+
+  // Las pestañas siempre muestran la caja ACTUAL; solo un renglón de
+  // "Registros de caja" (verSesionHistorica) abre una sesión anterior.
+  const irAVista = (v) => {
+    setVista(v);
+    setSesionHistorica(null);
+  };
+
+  const verSesionActual = () => {
+    setSesionHistorica(null);
+    setVista('caja');
+  };
+
+  const verSesionHistorica = async (id) => {
+    setCargandoSesion(true);
+    setErrorRegistros('');
+    try {
+      const res = await getCierreCaja(id);
+      setSesionHistorica(res.data.data);
+      setVista('caja');
+    } catch (err) {
+      setErrorRegistros('No se pudo cargar el detalle de esa sesión de caja.');
+    } finally {
+      setCargandoSesion(false);
+    }
+  };
 
   const setCantidadBillete = (idx, cantidad) => {
     setForm((f) => ({ ...f, billetes: f.billetes.map((b, i) => (i === idx ? { ...b, cantidad } : b)) }));
@@ -133,23 +229,20 @@ export default function GestionCaja() {
     }
   };
 
-  // Cancelar una captura del día equivocada (solo admin). Se resta del total
-  // del día; queda tachada en el historial como bitácora.
-  const cancelarCaptura = async (captura) => {
-    const motivo = window.prompt(
-      'Motivo de la cancelación de esta captura (opcional):',
-      ''
-    );
-    if (motivo === null) return; // cerró el prompt
+  // Cancelar una captura equivocada (solo admin) — abre el modal de
+  // confirmación con motivo. Se resta del total de la caja; queda tachada en
+  // el historial como bitácora.
+  const confirmarCancelarCaptura = async (motivo) => {
+    const captura = capturaACancelar;
+    if (!captura) return;
     setCancelandoCapturaId(captura._id);
     setError('');
     setMensaje('');
     try {
-      await cancelarCapturaCierreCaja(captura._id, motivo.trim());
+      await cancelarCapturaCierreCaja(captura._id, motivo);
       await cargar();
+      setCapturaACancelar(null);
       setMensaje('Captura cancelada. El total de la caja se actualizó.');
-    } catch (err) {
-      setError(err?.response?.data?.msg || 'Error al cancelar la captura.');
     } finally {
       setCancelandoCapturaId(null);
     }
@@ -163,6 +256,7 @@ export default function GestionCaja() {
       await cerrarCierreCaja();
       await cargar();
       setConfirmarCierre(false);
+      setRegistros(null); // que se recargue la lista de registros al abrirla
       setMensaje('Caja cerrada correctamente. Ya puedes consultarla en Reportes.');
     } catch (err) {
       setError(err?.response?.data?.msg || 'Error al cerrar la caja.');
@@ -181,6 +275,7 @@ export default function GestionCaja() {
       await restablecerCierreCaja(cierre?._id);
       await cargar();
       setConfirmarRestablecer(false);
+      setRegistros(null);
       setMensaje('Caja restablecida: ya puedes volver a capturar.');
     } catch (err) {
       setError(err?.response?.data?.msg || 'Error al restablecer la caja.');
@@ -215,8 +310,6 @@ export default function GestionCaja() {
       setSolicitandoRestablecer(false);
     }
   };
-
-  const cerrada = cierre?.estado === 'CERRADA';
 
   const accionesCierre = !cerrada ? (
     <div className="card border-danger">
@@ -294,8 +387,13 @@ export default function GestionCaja() {
     </div>
   );
 
+  const cajaMostrada = sesionHistorica || cierre;
+  const viendoHistorica = !!sesionHistorica;
+  const cajaMostradaCerrada = cajaMostrada?.estado === 'CERRADA';
+  const totalesActual = cierre ? calcularTotalesCierre(cierre) : null;
+
   return (
-    <div className="container-fluid py-3">
+    <div className="container-fluid py-3 gc">
       <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
         <h2 className="mb-0">Gestión de Caja</h2>
         <span className={`badge ${cerrada ? 'bg-secondary' : 'bg-success'}`}>
@@ -322,238 +420,422 @@ export default function GestionCaja() {
         <div className="text-muted">Cargando…</div>
       ) : (
         <>
-          {cerrada && (
-            <div className="alert alert-info py-2">
-              Esta sesión de caja ya está cerrada. El reporte quedó guardado y disponible en Reportes → Cajas.
-            </div>
-          )}
+          <div className="gc-tabs">
+            <button
+              type="button"
+              className={`btn ${vista === 'captura' ? 'btn-primary' : 'btn-outline-primary'}`}
+              onClick={() => irAVista('captura')}
+            >
+              Captura de caja
+            </button>
+            <button
+              type="button"
+              className={`btn ${vista === 'caja' ? 'btn-primary' : 'btn-outline-primary'}`}
+              onClick={() => irAVista('caja')}
+            >
+              Lo que hay en caja
+            </button>
+            <button
+              type="button"
+              className={`btn ${vista === 'registros' ? 'btn-primary' : 'btn-outline-primary'}`}
+              onClick={() => irAVista('registros')}
+            >
+              Registros de caja
+            </button>
+          </div>
 
-          {!cerrada && (
-            <div className="card shadow-sm mb-3">
-              <div className="card-header fw-bold">Captura de caja</div>
-              <div className="card-body">
-                <div className="row g-3">
-                  <div className="col-md-6">
-                    <div className="card mb-3">
-                      <div className="card-header py-2 fw-bold">Billetes</div>
-                      <table className="table table-sm mb-0">
-                        <tbody>
-                          {form.billetes.map((b, i) => (
-                            <tr key={b.denominacion}>
-                              <td className="align-middle">{formatMoney(b.denominacion)}</td>
-                              <td style={{ width: 110 }}>
+          {/* ---------- VISTA: CAPTURA DE CAJA ---------- */}
+          {vista === 'captura' && (
+            <>
+              {cerrada ? (
+                <div className="alert alert-info py-2">
+                  Esta sesión de caja ya está cerrada. Consulta el detalle en «Lo que hay en caja».
+                </div>
+              ) : (
+                <div className="card shadow-sm mb-3">
+                  <div className="card-header fw-bold py-2">Captura de caja</div>
+                  <div className="card-body">
+                    <div className="row g-3">
+                      <div className="col-md-6">
+                        {/* Billetes */}
+                        <div className="gc-sec gc-sec--billetes">
+                          <div className="gc-sec__head">
+                            <span>Billetes</span>
+                            <span>{formatMoney(sumConteo(form.billetes))}</span>
+                          </div>
+                          <div className="gc-sec__body">
+                            <div className="gc-dens">
+                              {form.billetes.map((b, i) => (
+                                <div className="gc-den" key={b.denominacion}>
+                                  <span className="gc-den__label">{formatMoney(b.denominacion)}</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    className="form-control form-control-sm gc-den__input"
+                                    value={b.cantidad}
+                                    onChange={(e) => setCantidadBillete(i, Number(e.target.value))}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Otros ingresos en efectivo */}
+                        <div className="gc-sec gc-sec--otros">
+                          <div className="gc-sec__head">
+                            <span>Otros ingresos en efectivo</span>
+                          </div>
+                          <div className="gc-sec__body">
+                            <div className="row g-2">
+                              <div className="col-6 gc-field">
+                                <label>Cheques</label>
                                 <input
                                   type="number"
                                   min="0"
+                                  step="0.01"
                                   className="form-control form-control-sm"
-                                  value={b.cantidad}
-                                  onChange={(e) => setCantidadBillete(i, Number(e.target.value))}
+                                  value={form.cheques}
+                                  onChange={(e) => setForm((f) => ({ ...f, cheques: Number(e.target.value) }))}
                                 />
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <div className="card mb-3">
-                      <div className="card-header py-2 fw-bold">Otros ingresos en efectivo</div>
-                      <div className="card-body py-2">
-                        <div className="row g-2">
-                          <div className="col-6">
-                            <label className="form-label mb-1 small">Cheques</label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              className="form-control form-control-sm"
-                              value={form.cheques}
-                              onChange={(e) => setForm((f) => ({ ...f, cheques: Number(e.target.value) }))}
-                            />
-                          </div>
-                          <div className="col-6">
-                            <label className="form-label mb-1 small">Transferencias</label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              className="form-control form-control-sm"
-                              value={form.transferencias}
-                              onChange={(e) => setForm((f) => ({ ...f, transferencias: Number(e.target.value) }))}
-                            />
-                          </div>
-                        </div>
-                        <div className="small text-muted mt-2">
-                          Las terminales bancarias (Bancomer, Banregio, Banamex, A. Express, Banorte) se suman
-                          solas al registrar un pago con Nota de Venta — no se capturan aquí.
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="card mb-3">
-                      <div className="card-body py-2">
-                        <label className="form-label mb-1 small fw-bold">Fondo de Caja (Configuración)</label>
-                        <input
-                          type="text"
-                          disabled
-                          className="form-control form-control-sm"
-                          value={formatMoney(cierre.fondoCaja)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="col-md-6">
-                    <div className="card mb-3">
-                      <div className="card-header py-2 fw-bold">Monedas</div>
-                      <table className="table table-sm mb-0">
-                        <tbody>
-                          {form.monedas.map((m, i) => (
-                            <tr key={m.denominacion}>
-                              <td className="align-middle">{formatMoney(m.denominacion)}</td>
-                              <td style={{ width: 110 }}>
+                              </div>
+                              <div className="col-6 gc-field">
+                                <label>Transferencias</label>
                                 <input
                                   type="number"
                                   min="0"
+                                  step="0.01"
                                   className="form-control form-control-sm"
-                                  value={m.cantidad}
-                                  onChange={(e) => setCantidadMoneda(i, Number(e.target.value))}
+                                  value={form.transferencias}
+                                  onChange={(e) => setForm((f) => ({ ...f, transferencias: Number(e.target.value) }))}
                                 />
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <div className="card mb-3">
-                      <div className="card-header py-2 fw-bold">Dólares</div>
-                      <div className="card-body py-2">
-                        <div className="row g-2">
-                          <div className="col-6">
-                            <label className="form-label mb-1 small">Cantidad (USD)</label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              className="form-control form-control-sm"
-                              value={form.dolares.cantidad}
-                              onChange={(e) => setDolares('cantidad', Number(e.target.value))}
-                            />
+                              </div>
+                            </div>
+                            <div className="gc-note">
+                              Las terminales bancarias (Bancomer, Banregio, Banamex, A. Express, Banorte) se suman
+                              solas al registrar un pago con Nota de Venta — no se capturan aquí.
+                            </div>
                           </div>
-                          <div className="col-6">
-                            <label className="form-label mb-1 small">T.C. (Configuración)</label>
+                        </div>
+
+                        {/* Fondo de Caja */}
+                        <div className="gc-sec gc-sec--fondo">
+                          <div className="gc-sec__head">
+                            <span>Fondo de Caja</span>
+                            <span className="gc-sec__hint">Configuración</span>
+                          </div>
+                          <div className="gc-sec__body">
                             <input
                               type="text"
                               disabled
                               className="form-control form-control-sm"
-                              value={cargandoTipoCambio ? 'Cargando…' : tipoCambioConfig || 'No configurado'}
+                              value={formatMoney(cierre.fondoCaja)}
                             />
                           </div>
                         </div>
-                        {!cargandoTipoCambio && !tipoCambioConfig && Number(form.dolares.cantidad) > 0 && (
-                          <div className="small text-danger mt-2">
-                            No hay tipo de cambio configurado — captúralo en Configuración antes de guardar dólares.
+                      </div>
+
+                      <div className="col-md-6">
+                        {/* Monedas */}
+                        <div className="gc-sec gc-sec--monedas">
+                          <div className="gc-sec__head">
+                            <span>Monedas</span>
+                            <span>{formatMoney(sumConteo(form.monedas))}</span>
                           </div>
-                        )}
+                          <div className="gc-sec__body">
+                            <div className="gc-dens">
+                              {form.monedas.map((m, i) => (
+                                <div className="gc-den" key={m.denominacion}>
+                                  <span className="gc-den__label">{formatMoney(m.denominacion)}</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    className="form-control form-control-sm gc-den__input"
+                                    value={m.cantidad}
+                                    onChange={(e) => setCantidadMoneda(i, Number(e.target.value))}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Dólares */}
+                        <div className="gc-sec gc-sec--dolares">
+                          <div className="gc-sec__head">
+                            <span>Dólares</span>
+                          </div>
+                          <div className="gc-sec__body">
+                            <div className="row g-2">
+                              <div className="col-6 gc-field">
+                                <label>Cantidad (USD)</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  className="form-control form-control-sm"
+                                  value={form.dolares.cantidad}
+                                  onChange={(e) => setDolares('cantidad', Number(e.target.value))}
+                                />
+                              </div>
+                              <div className="col-6 gc-field">
+                                <label>T.C. (Configuración)</label>
+                                <input
+                                  type="text"
+                                  disabled
+                                  className="form-control form-control-sm"
+                                  value={cargandoTipoCambio ? 'Cargando…' : tipoCambioConfig || 'No configurado'}
+                                />
+                              </div>
+                            </div>
+                            {!cargandoTipoCambio && !tipoCambioConfig && Number(form.dolares.cantidad) > 0 && (
+                              <div className="gc-note text-danger">
+                                No hay tipo de cambio configurado — captúralo en Configuración antes de guardar dólares.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Vales */}
+                        <div className="gc-sec gc-sec--vales">
+                          <div className="gc-sec__head">
+                            <span>Vales</span>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline-dark py-0"
+                              onClick={() => setMostrarModalVale(true)}
+                            >
+                              Generar Vale
+                            </button>
+                          </div>
+                          <div className="gc-sec__body is-flush">
+                            <table className="table table-sm mb-0">
+                              <tbody>
+                                {form.vales.length === 0 && (
+                                  <tr>
+                                    <td className="text-muted small">Sin vales capturados.</td>
+                                  </tr>
+                                )}
+                                {form.vales.map((v, i) => (
+                                  <tr key={i}>
+                                    <td>{v.folio || '—'}</td>
+                                    <td>{v.motivo || '—'}</td>
+                                    <td className="text-end" style={{ width: 100 }}>
+                                      {formatMoney(v.monto)}
+                                    </td>
+                                    <td style={{ width: 36 }}>
+                                      <button
+                                        type="button"
+                                        className="btn btn-sm btn-link text-danger p-0"
+                                        onClick={() => quitarVale(i)}
+                                      >
+                                        ✕
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="card mb-3">
-                      <div className="card-header py-2 d-flex justify-content-between align-items-center">
-                        <span className="fw-bold">Vales</span>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-secondary"
-                          onClick={() => setMostrarModalVale(true)}
-                        >
-                          Generar Vale
-                        </button>
-                      </div>
-                      <table className="table table-sm mb-0">
-                        <tbody>
-                          {form.vales.length === 0 && (
-                            <tr>
-                              <td className="text-muted">Sin vales capturados.</td>
-                            </tr>
-                          )}
-                          {form.vales.map((v, i) => (
-                            <tr key={i}>
-                              <td>{v.folio || '—'}</td>
-                              <td>{v.motivo || '—'}</td>
-                              <td className="text-end" style={{ width: 110 }}>
-                                {formatMoney(v.monto)}
-                              </td>
-                              <td style={{ width: 40 }}>
-                                <button
-                                  type="button"
-                                  className="btn btn-sm btn-link text-danger"
-                                  onClick={() => quitarVale(i)}
-                                >
-                                  ✕
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="gc-total mt-3">
+                      <span>Total a guardar</span>
+                      <span className="gc-total__value">{formatMoney(calcularTotalCaptura(form, tipoCambioConfig))}</span>
                     </div>
+
+                    <button type="button" className="btn btn-primary mt-3" onClick={guardar} disabled={guardando}>
+                      {guardando ? <><span className="spinner-border spinner-border-sm me-1" />Guardando…</> : 'Guardar captura'}
+                    </button>
                   </div>
                 </div>
+              )}
 
-                <div className="d-flex justify-content-between align-items-center border-top pt-3 mb-2">
-                  <span className="fw-bold">Total a guardar</span>
-                  <span className="fw-bold fs-5">{formatMoney(calcularTotalCaptura(form, tipoCambioConfig))}</span>
+              {cierre.capturas?.length > 0 && (
+                <div className="card shadow-sm mb-3">
+                  <div className="card-header fw-bold py-2">Historial de capturas de la sesión</div>
+                  <div className="card-body">
+                    <CajaHistorialCapturas
+                      capturas={cierre.capturas}
+                      esAdmin={esAdmin}
+                      cerrada={cerrada}
+                      onCancelar={(captura) => setCapturaACancelar(captura)}
+                      cancelandoId={cancelandoCapturaId}
+                    />
+                  </div>
                 </div>
-
-                <button type="button" className="btn btn-primary" onClick={guardar} disabled={guardando}>
-                  {guardando ? <><span className="spinner-border spinner-border-sm me-1" />Guardando…</> : 'Guardar'}
-                </button>
-              </div>
-            </div>
+              )}
+            </>
           )}
 
-          {cierre.capturas?.length > 0 && (
-            <div className="card shadow-sm mb-3">
-              <div className="card-header fw-bold">Historial de capturas de la sesión</div>
+          {/* ---------- VISTA: LO QUE HAY EN CAJA ---------- */}
+          {vista === 'caja' && (
+            <div className="card shadow-sm">
+              <div className="card-header d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+                <span className="fw-bold">{viendoHistorica ? 'Detalle de sesión de caja' : 'Lo que hay en caja'}</span>
+                <div className="d-flex gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-danger"
+                    onClick={() => abrirPdf(getCierreCajaPdfUrl(cajaMostrada?._id), "cierre-caja.pdf", "Cierre de Caja")}
+                  >
+                    Generar PDF
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-danger"
+                    onClick={() => abrirPdf(getCierreCajaPdfUrl(cajaMostrada?._id), "cierre-caja.pdf", "Cierre de Caja")}
+                    disabled={!cajaMostradaCerrada}
+                    title={!cajaMostradaCerrada ? 'Disponible cuando la caja esté cerrada' : ''}
+                  >
+                    Imprimir
+                  </button>
+                </div>
+              </div>
               <div className="card-body">
-                <CajaHistorialCapturas
-                  capturas={cierre.capturas}
-                  esAdmin={esAdmin}
-                  cerrada={cerrada}
-                  onCancelar={cancelarCaptura}
-                  cancelandoId={cancelandoCapturaId}
+                {viendoHistorica && (
+                  <div className="alert alert-warning py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <span>
+                      Estás viendo una sesión de caja <strong>cerrada</strong>
+                      {' '}({fechaHora(cajaMostrada.abiertaEn || cajaMostrada.fecha)} → {fechaHora(cajaMostrada.cerradoEn)}).
+                    </span>
+                    <button type="button" className="btn btn-sm btn-outline-secondary" onClick={verSesionActual}>
+                      Volver a la caja actual
+                    </button>
+                  </div>
+                )}
+                <CierreCajaResumen
+                  cierre={cajaMostrada}
+                  accionesCierre={viendoHistorica ? undefined : accionesCierre}
                 />
               </div>
             </div>
           )}
 
-          <div className="card shadow-sm">
-            <div className="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-              <span className="fw-bold">Resumen de la caja</span>
-              <div className="d-flex gap-2">
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-danger"
-                  onClick={() => abrirPdf(getCierreCajaPdfUrl(cierre?._id), "cierre-caja.pdf", "Cierre de Caja")}
-                >
-                  Generar PDF
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-danger"
-                  onClick={() => abrirPdf(getCierreCajaPdfUrl(cierre?._id), "cierre-caja.pdf", "Cierre de Caja")}
-                  disabled={!cerrada}
-                  title={!cerrada ? 'Disponible cuando la caja esté cerrada' : ''}
-                >
-                  Imprimir
-                </button>
+          {/* ---------- VISTA: REGISTROS DE CAJA ---------- */}
+          {vista === 'registros' && (
+            <div className="card shadow-sm">
+              <div className="card-header fw-bold py-2">Registros de caja</div>
+              <div className="card-body">
+                <div className="d-flex flex-wrap align-items-end gap-2 mb-3">
+                  <div className="gc-field">
+                    <label>Desde</label>
+                    <input
+                      type="date"
+                      className="form-control form-control-sm"
+                      value={rangoRegistros.desde}
+                      max={rangoRegistros.hasta || undefined}
+                      onChange={(e) => setRangoRegistros((r) => ({ ...r, desde: e.target.value }))}
+                    />
+                  </div>
+                  <div className="gc-field">
+                    <label>Hasta</label>
+                    <input
+                      type="date"
+                      className="form-control form-control-sm"
+                      value={rangoRegistros.hasta}
+                      min={rangoRegistros.desde || undefined}
+                      onChange={(e) => setRangoRegistros((r) => ({ ...r, hasta: e.target.value }))}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-primary"
+                    onClick={() => cargarRegistros()}
+                    disabled={cargandoRegistros}
+                  >
+                    {cargandoRegistros ? 'Buscando…' : 'Buscar'}
+                  </button>
+                </div>
+
+                {errorRegistros && <div className="alert alert-danger py-2">{errorRegistros}</div>}
+
+                <div className="gc-sec gc-sec--otros">
+                  <div className="gc-sec__body is-flush">
+                    <div className="table-responsive">
+                      <table className="table table-sm table-hover mb-0 align-middle">
+                        <thead>
+                          <tr>
+                            <th>Estado</th>
+                            <th>Apertura</th>
+                            <th>Cierre</th>
+                            <th>Responsable</th>
+                            <th className="text-end">Total Cobrado</th>
+                            <th className="text-end">Diferencia</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {!cerrada && cierre && (
+                            <tr
+                              className="table-success"
+                              style={{ cursor: 'pointer' }}
+                              onClick={verSesionActual}
+                            >
+                              <td><span className="badge bg-success">Activa</span></td>
+                              <td className="text-nowrap">{fechaHora(cierre.abiertaEn || cierre.fecha)}</td>
+                              <td className="text-muted">En curso</td>
+                              <td>{cierre.capturadoPor || '—'}</td>
+                              <td className="text-end">{formatMoney(totalesActual?.totalCobrado)}</td>
+                              <td className={`text-end fw-bold ${(totalesActual?.diferencia ?? 0) >= 0 ? 'text-success' : 'text-danger'}`}>
+                                {formatMoney(totalesActual?.diferencia)}
+                              </td>
+                              <td className="text-end">
+                                <span className="btn btn-sm btn-link p-0">Abrir</span>
+                              </td>
+                            </tr>
+                          )}
+
+                          {cargandoRegistros && (
+                            <tr>
+                              <td colSpan={7} className="text-center text-muted">Cargando…</td>
+                            </tr>
+                          )}
+
+                          {!cargandoRegistros && (registros || []).length === 0 && (
+                            <tr>
+                              <td colSpan={7} className="text-center text-muted">
+                                Sin sesiones de caja cerradas en el período seleccionado.
+                              </td>
+                            </tr>
+                          )}
+
+                          {!cargandoRegistros && (registros || []).map((c) => (
+                            <tr
+                              key={c._id}
+                              style={{ cursor: 'pointer' }}
+                              onClick={() => verSesionHistorica(c._id)}
+                            >
+                              <td><span className="badge bg-secondary">Cerrada</span></td>
+                              <td className="text-nowrap">{fechaHora(c.abiertaEn || c.fecha)}</td>
+                              <td className="text-nowrap">{fechaHora(c.cerradoEn)}</td>
+                              <td>{c.cerradoPor || c.capturadoPor || '—'}</td>
+                              <td className="text-end">{formatMoney(c.totalCobrado)}</td>
+                              <td className={`text-end fw-bold ${c.diferencia >= 0 ? 'text-success' : 'text-danger'}`}>
+                                {formatMoney(c.diferencia)}
+                              </td>
+                              <td className="text-end">
+                                <span className="btn btn-sm btn-link p-0">
+                                  {cargandoSesion ? '…' : 'Ver detalle'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="gc-note mt-2">
+                  Toca una sesión para ver su detalle completo en «Lo que hay en caja». La sesión
+                  <strong> Activa</strong> es la que sigue abierta; el resto ya están cerradas.
+                </div>
               </div>
             </div>
-            <div className="card-body">
-              <CierreCajaResumen cierre={cierre} accionesCierre={accionesCierre} />
-            </div>
-          </div>
+          )}
         </>
       )}
 
@@ -561,6 +843,12 @@ export default function GestionCaja() {
         show={mostrarModalVale}
         onClose={() => setMostrarModalVale(false)}
         onAdd={agregarValeDesdeModal}
+      />
+      <CajaModalCancelarCaptura
+        show={!!capturaACancelar}
+        captura={capturaACancelar}
+        onClose={() => setCapturaACancelar(null)}
+        onConfirm={confirmarCancelarCaptura}
       />
       {pdfModal}
     </div>
