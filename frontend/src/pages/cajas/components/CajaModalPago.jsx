@@ -56,6 +56,8 @@ const FORMAS_PAGO = [
 const MONTOS_COMBINADO_INICIAL = { EFECTIVO: "", EFECTIVO_USD: "", CREDITO: "", DEBITO: "", CHEQUE: "", TRANSFERENCIA: "" };
 const MONTOS_COMBINADO_PESOS = ["EFECTIVO", "CREDITO", "DEBITO", "CHEQUE", "TRANSFERENCIA"];
 
+const MSG_MONTO_REQUERIDO = "Captura una cantidad en pesos, en dólares, o de saldo a favor, mayor a 0.";
+
 const TOTAL_PASOS = 3;
 const TITULOS_PASO = ["", "Tipo de pago", "Forma de pago y montos", "Vale de salida (opcional)"];
 
@@ -235,6 +237,22 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setMontoDolares("");
     setMontoSaldoAplicado("");
   }, [esRemisionCredito]);
+
+  // La validación del Paso 2 solo corre al pulsar "Siguiente" y el aviso no se
+  // limpia solo, así que "Captura una cantidad…" se quedaba en pantalla aunque
+  // ya se hubiera capturado un importe válido. Se retira en cuanto hay algún
+  // monto > 0 (pesos, dólares, saldo a favor, combinado o recibos de anticipo).
+  useEffect(() => {
+    const hayMonto =
+      Number(montoPesos || 0) > 0 ||
+      Number(montoDolares || 0) > 0 ||
+      Number(montoSaldoAplicado || 0) > 0 ||
+      Object.values(montosCombinado).some((v) => Number(v) > 0) ||
+      Object.values(anticiposSel).some((v) => Number(v) > 0);
+    if (hayMonto) {
+      setError((prev) => (prev === MSG_MONTO_REQUERIDO ? "" : prev));
+    }
+  }, [montoPesos, montoDolares, montoSaldoAplicado, montosCombinado, anticiposSel]);
 
   // El Estatus del vale se sugiere solo cuando el comprobante (Nota/Remisión)
   // se paga Contado o Credito; el usuario puede sobrescribirlo libremente.
@@ -630,7 +648,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     }
     if (n === 2) {
       if (!esRemisionCredito && totalConSaldo <= 0) {
-        setError("Captura una cantidad en pesos, en dólares, o de saldo a favor, mayor a 0.");
+        setError(MSG_MONTO_REQUERIDO);
         return false;
       }
       if (

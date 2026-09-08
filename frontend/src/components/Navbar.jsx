@@ -245,6 +245,12 @@ useEffect(() => {
                 >
                   <span className="label">Grupos</span>
                 </NavLink>
+                <NavLink
+                  to="/admin/actividad"
+                  className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+                >
+                  <span className="label">Registro de Actividad</span>
+                </NavLink>
               </div>
 
             </div>
