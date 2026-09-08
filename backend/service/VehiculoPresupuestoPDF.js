@@ -314,7 +314,7 @@ ${WATERMARK_CSS}
   </style>
 </head>
 <body>
-  ${watermarkHtml(orden)}
+  ${watermarkHtml(orden, { defaultLabel: 'PRESUPUESTO' })}
   <div class="top">
     <div class="qr"></div>
     <div class="brand">
