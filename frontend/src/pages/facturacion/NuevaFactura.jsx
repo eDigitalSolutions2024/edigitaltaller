@@ -604,11 +604,12 @@ export default function NuevaFactura() {
       setMetodoPago("PUE");
       setFormaPago("15");
     } else if (t.value === "facturaGlobal") {
-      // Público en general: uso S01, IVA fijo 8%. La forma de pago se elige a
-      // mano (arranca vacía y bloquea hasta que se seleccione).
+      // Público en general: uso S01, IVA fijo 8%. La forma de pago la fija sola
+      // la regla SAT (nota de mayor monto); el método de pago se elige a mano
+      // (arranca vacío y bloquea hasta elegirlo).
       setUsoCfdi("S01");
-      setMetodoPago("PUE");
-      setFormaPago("");
+      setMetodoPago("");
+      setFormaPago("01");
       setIvaRate(0.08);
     } else {
       setUsoCfdi("CP01");
@@ -1340,9 +1341,14 @@ export default function NuevaFactura() {
     if (formaPago === "99" && metodoPago !== "PPD") setMetodoPago("PPD");
   }, [formaPago, metodoPago]);
 
-  /* Factura global: la forma de pago se elige a mano (arranca vacía y bloquea
-     hasta seleccionarla). Solo se muestra como sugerencia la de la nota de
-     mayor monto (ver el hint del select), no se auto-asigna. */
+  /* Factura global: la forma de pago la fija sola la nota de venta de mayor
+     monto (regla SAT). El select queda bloqueado y se sincroniza aquí. El
+     método de pago (PUE/PPD) sí se elige a mano (ver el select). */
+  useEffect(() => {
+    if (!esFacturaGlobal) return;
+    const fp = notaMayorGlobal?.formaPagoSat;
+    if (fp && fp !== formaPago) setFormaPago(fp);
+  }, [esFacturaGlobal, notaMayorGlobal, formaPago]);
 
   /* El nombre de facturación (F3) arranca en la razón social del receptor;
      se re-sincroniza cuando cambia el receptor (otra orden / otro cliente). */
@@ -1482,8 +1488,8 @@ export default function NuevaFactura() {
     if (conceptos.length === 0) return false;
     if (moneda === "USD" && !Number(tipoCambio || 0)) return false;
 
-    // Factura global: la forma de pago se elige a mano.
-    if (esFacturaGlobal && !formaPago) return false;
+    // Factura global: el método de pago (PUE/PPD) se elige a mano.
+    if (esFacturaGlobal && !metodoPago) return false;
 
     // Nota de crédito: CfdiRelacionados exige el UUID real de cada factura
     // acreditada; sin él el XML quedaría inválido para el SAT.
@@ -1515,6 +1521,7 @@ export default function NuevaFactura() {
     tipoRelacion,
     esFacturaGlobal,
     formaPago,
+    metodoPago,
   ]);
 
   /* ==========
@@ -1826,7 +1833,7 @@ export default function NuevaFactura() {
     }
     if (n === 4) {
       if (moneda === "USD" && !(Number(tipoCambio || 0) > 0)) return false;
-      if (esFacturaGlobal && !formaPago) return false;
+      if (esFacturaGlobal && !metodoPago) return false;
       return true;
     }
     return true;
@@ -3359,29 +3366,26 @@ export default function NuevaFactura() {
 
                 {/* Forma de pago va antes que método: cuando es "99 - Por definir"
                     el método se fuerza a PPD (ver efecto arriba). En factura
-                    global se elige a mano (arranca en "Selecciona"). */}
+                    global la fija la nota de mayor monto (regla SAT). */}
                 <div className="col-12 col-md-4">
                   <label className="form-label">Forma de pago</label>
                   <Dropdown
-                    className={`form-select${esFacturaGlobal && !formaPago ? " is-invalid border-danger" : ""}`}
+                    className="form-select"
                     value={formaPago}
-                    disabled={disabledSteps}
+                    disabled={disabledSteps || esFacturaGlobal}
                     onChange={(e) => setFormaPago(e.target.value)}
                   >
-                    {esFacturaGlobal && <Dropdown.Option value="">— Selecciona —</Dropdown.Option>}
                     {FORMA_PAGO.map((x) => (
                       <Dropdown.Option key={x.value} value={x.value}>
                         {x.label}
                       </Dropdown.Option>
                     ))}
                   </Dropdown>
-                  {esFacturaGlobal && !formaPago && (
-                    <small className="text-danger d-block">Elige la forma de pago para continuar.</small>
-                  )}
                   {esFacturaGlobal && notaMayorGlobal && (
                     <small className="text-muted">
-                      Sugerencia: la nota de mayor monto (#{notaMayorGlobal.numero} · {money(notaMayorGlobal.monto)}
-                      {notaMayorGlobal.formaPagoLabel ? ` · ${notaMayorGlobal.formaPagoLabel}` : ""}) usó esa forma de pago.
+                      Regla SAT: forma de pago de la nota de mayor monto (#
+                      {notaMayorGlobal.numero} · {money(notaMayorGlobal.monto)}
+                      {notaMayorGlobal.formaPagoLabel ? ` · ${notaMayorGlobal.formaPagoLabel}` : ""}).
                     </small>
                   )}
                 </div>
@@ -3389,17 +3393,21 @@ export default function NuevaFactura() {
                 <div className="col-12 col-md-4">
                   <label className="form-label">Método de pago</label>
                   <Dropdown
-                    className="form-select"
+                    className={`form-select${esFacturaGlobal && !metodoPago ? " is-invalid border-danger" : ""}`}
                     value={metodoPago}
                     disabled={disabledSteps || formaPago === "99"}
                     onChange={(e) => setMetodoPago(e.target.value)}
                   >
+                    {esFacturaGlobal && <Dropdown.Option value="">— Selecciona —</Dropdown.Option>}
                     {METODO_PAGO.map((x) => (
                       <Dropdown.Option key={x.value} value={x.value}>
                         {x.label}
                       </Dropdown.Option>
                     ))}
                   </Dropdown>
+                  {esFacturaGlobal && !metodoPago && (
+                    <small className="text-danger d-block">Elige el método de pago para continuar.</small>
+                  )}
                   {formaPago === "99" && (
                     <small className="text-muted">
                       Con forma de pago “Por definir” el método es PPD.

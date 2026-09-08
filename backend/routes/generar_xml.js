@@ -749,11 +749,12 @@ router.post("/xml", async (req, res) => {
       });
     }
 
-    // En la factura global la forma de pago se elige a mano; no se cae a "99".
-    if (esFacturaGlobal && !String(cfdi?.formaPago || "").trim()) {
+    // En la factura global el método de pago (PUE/PPD) se elige a mano; no se
+    // cae a "PUE". La forma de pago sí la fija sola la regla SAT.
+    if (esFacturaGlobal && !String(cfdi?.metodoPago || "").trim()) {
       return res.status(400).json({
         ok: false,
-        error: "Selecciona la forma de pago de la factura global.",
+        error: "Selecciona el método de pago de la factura global.",
       });
     }
 
