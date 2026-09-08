@@ -88,6 +88,184 @@ function fechaHora(d) {
   }
 }
 
+// ─── Descripción legible de cada fila ────────────────────────────────────────
+// Normaliza "/api/vehiculos/6aa0.../presupuesto-venta?x=1"
+//        -> "/vehiculos/:id/presupuesto-venta"
+function rutaNorm(ruta) {
+  const limpia = String(ruta || "").split("?")[0].replace(/^\/api/, "");
+  return (
+    "/" +
+    limpia
+      .split("/")
+      .filter(Boolean)
+      .map((s) =>
+        /^[a-f\d]{24}$/i.test(s)
+          ? ":id"
+          : /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+          ? ":uuid"
+          : /^\d+$/.test(s)
+          ? ":n"
+          : /^(OS|OC|VS|CP|NV|RM)[-\w]*$/i.test(s)
+          ? ":folio"
+          : s
+      )
+      .join("/")
+  );
+}
+
+const VERBO = {
+  CREAR: "Creó",
+  MODIFICAR: "Modificó",
+  ELIMINAR: "Eliminó",
+  CANCELAR: "Canceló",
+  ACTIVAR: "Activó",
+  DESACTIVAR: "Desactivó",
+};
+
+// [RegExp sobre "<METODO> <rutaNorm>", texto]. Gana la primera que coincide.
+const REGLAS_DESC = [
+  // ── Órdenes / Vehículos ──
+  [/^POST \/vehiculos$/, "Creó una orden de servicio"],
+  [/^PUT \/vehiculos\/:id\/servicio$/, "Editó el servicio / reparación de la orden"],
+  [/^PUT \/vehiculos\/:id\/requisicion-diagnostico$/, "Editó la requisición de diagnóstico de la orden"],
+  [/^PUT \/vehiculos\/:id\/omitir-refacciones$/, "Cambió la opción de omitir refacciones de la orden"],
+  [/^PUT \/vehiculos\/:id\/presupuesto-venta$/, "Editó el presupuesto de venta de la orden"],
+  [/^PUT \/vehiculos\/:id\/firma-operativo$/, "Registró la firma del operativo en la orden"],
+  [/^PUT \/vehiculos\/:id\/datos$/, "Editó los datos generales de la orden"],
+  [/^POST \/vehiculos\/:id\/imagenes$/, "Agregó fotos a la orden"],
+  [/^DELETE \/vehiculos\/:id\/imagenes\/:id$/, "Eliminó una foto de la orden"],
+  [/^POST \/vehiculos\/imagenes\/temp\/:uuid$/, "Subió una foto a una orden nueva (aún sin guardar)"],
+  [/^DELETE \/vehiculos\/imagenes\/temp\/:uuid\/.+$/, "Eliminó una foto de una orden nueva (aún sin guardar)"],
+  [/^DELETE \/vehiculos\/imagenes\/temp\/:uuid$/, "Descartó las fotos de una orden nueva (aún sin guardar)"],
+  [/^PUT \/vehiculos\/:id\/cerrar$/, "Cerró la orden"],
+  [/^PUT \/vehiculos\/:id\/restablecer$/, "Reabrió una orden cerrada"],
+  [/^PUT \/vehiculos\/:id\/cambiar-asesor$/, "Cambió el asesor asignado a la orden"],
+  [/^PUT \/vehiculos\/:id\/cambiar-cliente$/, "Cambió el cliente de la orden"],
+  [/^PUT \/vehiculos\/:id\/surtir$/, "Marcó refacciones como surtidas en la orden"],
+  [/^POST \/vehiculos\/backfill-creado-por-id$/, "Ejecutó un ajuste masivo de órdenes (backfill)"],
+  // ── Cajas ──
+  [/^POST \/cajas\/:id\/pagos$/, "Registró un pago en caja"],
+  [/^POST \/cajas\/:id\/pagos\/:id\/cancelar$/, "Canceló un pago de caja"],
+  [/^POST \/cajas\/:id\/pagos\/:id\/deshacer-cancelacion$/, "Revirtió la cancelación de un pago de caja"],
+  [/^POST \/cajas\/:id\/descuentos$/, "Aplicó un descuento en caja"],
+  [/^PUT \/cajas\/:id\/descuentos\/:id$/, "Editó un descuento en caja"],
+  [/^DELETE \/cajas\/:id\/descuentos\/:id$/, "Quitó un descuento en caja"],
+  [/^PATCH \/cajas\/:id\/pendiente-factura$/, "Cambió la marca de 'pendiente de factura' de la orden"],
+  // ── Anticipos ──
+  [/^POST \/anticipos$/, "Registró un anticipo de cliente"],
+  [/^POST \/anticipos\/:id\/cancelar$/, "Canceló un anticipo de cliente"],
+  // ── Cierre de caja ──
+  [/^POST \/reportes\/cierre-caja$/, "Guardó una captura de cierre de caja"],
+  [/^POST \/reportes\/cierre-caja\/cerrar$/, "Cerró la caja del día"],
+  [/^POST \/reportes\/cierre-caja\/restablecer$/, "Reabrió un cierre de caja ya cerrado"],
+  [/^POST \/reportes\/cierre-caja\/captura\/:id\/cancelar$/, "Canceló una captura de cierre de caja"],
+  // ── Clientes ──
+  [/^POST \/clientes$/, "Dio de alta un cliente"],
+  [/^PUT \/clientes\/:id\/codigos-servicio$/, "Editó los códigos de servicio del cliente"],
+  [/^PUT \/clientes\/:id$/, "Editó los datos de un cliente"],
+  [/^DELETE \/clientes\/:id$/, "Eliminó un cliente"],
+  // ── Facturación ──
+  [/^POST \/facturacion\/preview$/, "Generó una vista previa de factura"],
+  [/^POST \/facturacion\/facturas\/export-zip$/, "Exportó facturas en ZIP"],
+  [/^POST \/generar-xml\/xml$/, "Timbró / generó el XML de una factura"],
+  // ── Grupos ──
+  [/^POST \/grupos$/, "Creó un grupo de trabajo"],
+  [/^PUT \/grupos\/:id$/, "Editó un grupo de trabajo"],
+  [/^PATCH \/grupos\/:id\/status$/, "Activó o desactivó un grupo de trabajo"],
+  // ── Usuarios / Personal ──
+  [/^POST \/users$/, "Creó un usuario del sistema"],
+  [/^PUT \/users\/:id$/, "Editó un usuario del sistema"],
+  [/^PATCH \/users\/:id\/password$/, "Cambió la contraseña de un usuario"],
+  [/^PATCH \/users\/:id\/status$/, "Activó o desactivó un usuario"],
+  [/^POST \/empleados$/, "Dio de alta personal del taller"],
+  [/^(PUT|PATCH) \/empleados\/:id$/, "Editó personal del taller"],
+  // ── Inventario / Refaccionaria ──
+  [/^POST \/devoluciones\/dinero$/, "Registró una devolución de dinero"],
+  [/^POST \/devoluciones\/refaccion$/, "Registró una devolución de refacción"],
+  [/^POST \/entradas$/, "Creó una entrada de inventario"],
+  [/^POST \/entradas\/:id\/captura$/, "Capturó renglones en una entrada de inventario"],
+  [/^PATCH \/entradas\/:id\/finalizar$/, "Finalizó una entrada de inventario"],
+  [/^PATCH \/entradas\/:id\/foto$/, "Adjuntó la foto de una entrada de inventario"],
+  [/^PUT \/entradas\/:id$/, "Editó una entrada de inventario"],
+  [/^DELETE \/entradas\/:id$/, "Eliminó una entrada de inventario"],
+  [/^POST \/salidas$/, "Registró una salida de inventario"],
+  [/^POST \/inventario\/ajuste$/, "Hizo un ajuste de inventario"],
+  // ── Vales ──
+  [/^POST \/vales$/, "Creó un vale de salida"],
+  [/^PUT \/vales\/:id$/, "Editó un vale de salida"],
+  // ── Garantías ──
+  [/^PUT \/garantias\/:id\/resolver$/, "Resolvió una solicitud de garantía"],
+  [/^PUT \/garantias\/:id\/cancelar$/, "Canceló una solicitud de garantía"],
+  [/^PUT \/garantias\/:id$/, "Editó una solicitud de garantía"],
+  // ── Soporte ──
+  [/^POST \/tickets$/, "Creó un ticket de soporte"],
+  [/^PUT \/tickets\/:id\/estado$/, "Cambió el estado de un ticket de soporte"],
+  [/^PUT \/tickets\/:id\/resolver-cambio-asesor$/, "Atendió un ticket de cambio de asesor"],
+  [/^PUT \/tickets\/:id\/resolver-restablecer-caja$/, "Atendió un ticket para reabrir caja"],
+  [/^PUT \/tickets\/:id\/resolver-garantia$/, "Atendió un ticket de garantía"],
+  // ── Configuración ──
+  [/^POST \/configuracion\/tipo-cambio$/, "Registró un tipo de cambio"],
+  [/^POST \/configuracion\/unidades-medida$/, "Agregó una unidad de medida"],
+  [/^PATCH \/configuracion\/unidades-medida\/:id\/status$/, "Activó o desactivó una unidad de medida"],
+  [/^PUT \/configuracion\/.+-contador$/, "Ajustó un folio consecutivo"],
+  [/^PUT \/configuracion\/fondo-caja$/, "Cambió el fondo de caja"],
+  [/^POST \/configuracion\/mecanicos$/, "Dio de alta un mecánico"],
+  [/^PATCH \/configuracion\/mecanicos\/:id\/status$/, "Activó o desactivó un mecánico"],
+  [/^PUT \/configuracion\/contrato-orden-servicio$/, "Editó el texto del contrato de orden de servicio"],
+  // ── Proveedores ──
+  [/^POST \/proveedores$/, "Dio de alta un proveedor"],
+  [/^PUT \/proveedores\/:id$/, "Editó un proveedor"],
+  [/^DELETE \/proveedores\/:id$/, "Eliminó un proveedor"],
+  // ── Órdenes de compra ──
+  [/^POST \/ordenes-compra/, "Creó una orden de compra"],
+  // ── Catálogos ──
+  [/^POST \/conceptos-preset$/, "Creó un concepto predefinido"],
+  [/^PUT \/conceptos-preset\/:id$/, "Editó un concepto predefinido"],
+  [/^DELETE \/conceptos-preset\/:id$/, "Eliminó un concepto predefinido"],
+  [/^POST \/claves-unidad$/, "Creó una clave de unidad (SAT)"],
+  [/^PUT \/claves-unidad\/:id$/, "Editó una clave de unidad (SAT)"],
+  [/^DELETE \/claves-unidad\/:id$/, "Eliminó una clave de unidad (SAT)"],
+  [/^POST \/servicios-catalogo$/, "Creó un paquete de servicio"],
+  [/^PUT \/servicios-catalogo\/:id$/, "Editó un paquete de servicio"],
+  [/^DELETE \/servicios-catalogo\/:id$/, "Eliminó un paquete de servicio"],
+  [/^POST \/codigos$/, "Creó un código en la BD de códigos"],
+  [/^PUT \/codigos\/:id$/, "Editó un código de la BD de códigos"],
+  [/^DELETE \/codigos\/:id$/, "Eliminó un código de la BD de códigos"],
+  // ── Config. fiscal ──
+  [/^POST \/fiscal-config$/, "Guardó la configuración fiscal"],
+  [/^POST \/fiscal-config\/cert$/, "Cargó el certificado (.cer) del sello digital"],
+  [/^POST \/fiscal-config\/key$/, "Cargó la llave (.key) del sello digital"],
+  // ── Garaje ──
+  [/^POST \/garage$/, "Agregó un vehículo al garaje"],
+  [/^POST \/garage\/importar-cerradas$/, "Importó órdenes cerradas al garaje"],
+];
+
+function describir(row) {
+  const a = row.accion || "";
+  // Sesión
+  if (a === "SESION_INICIAR") {
+    const m = row.detalle?.motivo;
+    return row.ok === false
+      ? `Intento de inicio de sesión fallido${m ? ` — ${m}` : ""}`
+      : "Inició sesión";
+  }
+  if (a === "SESION_CERRAR") return "Cerró sesión";
+  // Eventos de dominio (órdenes) ya traen un código propio y legible
+  if (!VERBO[a]) return accionLabel(a);
+
+  const clave = `${(row.metodo || "").toUpperCase()} ${rutaNorm(row.ruta)}`;
+  for (const [rx, texto] of REGLAS_DESC) {
+    if (rx.test(clave)) return texto;
+  }
+  // Genérico: verbo + recurso + los tramos de ruta que no son ids
+  const extra = rutaNorm(row.ruta)
+    .split("/")
+    .filter((s) => s && ![":id", ":uuid", ":n", ":folio"].includes(s))
+    .slice(1)
+    .join(" / ");
+  return `${VERBO[a]} en ${recursoLabel(row.entidad)}${extra ? `: ${extra}` : ""}`;
+}
+
 const emptyFiltros = {
   q: "",
   usuario: "",
@@ -397,6 +575,7 @@ export default function RegistroActividad() {
                                 : "rechazado"}
                             </span>
                           )}
+                          <div className="reg-desc">{describir(r)}</div>
                         </td>
                         <td>{recursoLabel(r.entidad)}</td>
                         <td className="text-break">{r.referencia || "—"}</td>
@@ -484,7 +663,7 @@ export default function RegistroActividad() {
       <div className="reg-paginacion mt-3">
         <span className="text-muted small">
           {total.toLocaleString("es-MX")} registro{total === 1 ? "" : "s"} · página{" "}
-          {page} de {pages}
+          {page} de {pages} · se conservan {retencionDias} días
         </span>
         <div className="btn-group">
           <button
