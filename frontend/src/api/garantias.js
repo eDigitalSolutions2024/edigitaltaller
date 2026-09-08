@@ -4,6 +4,11 @@ import http from "./http";
 // Listar solicitudes de garantía (params: estado, searchOs, page, limit)
 export const listGarantias = (params) => http.get("/garantias", { params });
 
+// Cuántas órdenes de garantía están bloqueadas esperando autorización del admin
+// (para el badge del menú "Solicitudes de Garantías")
+export const getGarantiasPendientesCount = () =>
+  http.get("/garantias/pendientes-count");
+
 // Editar motivo / autorización mientras está PENDIENTE
 export const updateGarantia = (id, payload) => http.put(`/garantias/${id}`, payload);
 

@@ -535,6 +535,44 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
     setVentaRows(nuevasVentas);
 
+    // ===== GARANTÍA PENDIENTE: no avanza sola, pide autorización al admin =====
+    // Se guardan las partidas de Venta al Cliente (para que el admin las vea)
+    // pero la orden NO cambia de estado: se abre un ticket GARANTIA_AUTORIZACION
+    // y la orden queda bloqueada hasta que un admin la autorice o niegue desde
+    // Solicitudes de Garantías (ver PUT /api/garantias/:id/resolver).
+    if (orden?.garantia && orden.garantia.estado === "PENDIENTE") {
+      try {
+        const res = await savePresupuestoVenta(
+          orden._id,
+          buildPayload({ presupuesto: presRows, ventaCliente: nuevasVentas })
+        );
+        if (onSaved) onSaved(res.data.vehiculo);
+
+        await createTicket({
+          tipoProblema: "GARANTIA_AUTORIZACION",
+          detalle:
+            `Solicitud de autorización de garantía (envío a Venta al Cliente) ` +
+            `sobre la orden anterior ${orden.garantia.ordenAnteriorFolio || "—"}.` +
+            (orden.garantia.motivo ? ` Motivo: ${orden.garantia.motivo}` : ""),
+          ordenServicio: orden._id,
+          folioOrdenServicio: orden.ordenServicio || "",
+        });
+
+        alert(
+          "Se envió la solicitud de autorización de garantía al administrador. " +
+          "La orden queda bloqueada hasta que sea autorizada o negada."
+        );
+
+        // Refresca para reflejar de inmediato el bloqueo (garantia.ticketPendiente)
+        const res2 = await getVehiculoById(orden._id);
+        if (onSaved) onSaved(res2.data.vehiculo);
+      } catch (err) {
+        console.error(err);
+        alert(err.response?.data?.msg || "Error al solicitar la autorización de la garantía.");
+      }
+      return;
+    }
+
     // guarda, verifica inventario y cambia estado
     try {
       const res = await savePresupuestoVenta(
@@ -1316,9 +1354,15 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                 type="button"
                 className="btn btn-success btn-sm"
                 onClick={handleEnviarAVenta}
-                title="Envía las partidas marcadas con ✓ a Venta al Cliente"
+                title={
+                  orden?.garantia && orden.garantia.estado === "PENDIENTE"
+                    ? "Envía la solicitud de garantía a autorización del administrador (la orden queda bloqueada hasta que la resuelva)"
+                    : "Envía las partidas marcadas con ✓ a Venta al Cliente"
+                }
               >
-                Enviar a Venta ✓
+                {orden?.garantia && orden.garantia.estado === "PENDIENTE"
+                  ? "Enviar a Venta (autorización) ✓"
+                  : "Enviar a Venta ✓"}
               </button>
             </>
           )}

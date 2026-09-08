@@ -387,6 +387,35 @@ export default function SolicitudesGarantia() {
     }
   };
 
+  const handleNegar = async (v) => {
+    const e = edits[v._id] || {};
+
+    if (!String(e.motivo || "").trim()) {
+      alert("Para negar la garantía es obligatorio capturar el motivo.");
+      return;
+    }
+
+    const ok = window.confirm(
+      `¿Negar la garantía de la orden ${v.ordenServicio}? La orden se cancelará automáticamente.`
+    );
+    if (!ok) return;
+
+    try {
+      setProcesando(v._id);
+      const res = await resolverGarantia(v._id, {
+        accion: "NEGAR",
+        motivo: e.motivo.trim(),
+      });
+      if (res.data?.vehiculo) reemplazarSolicitud(res.data.vehiculo);
+      alert("Garantía negada. La orden fue cancelada.");
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.msg || "Error al negar la garantía.");
+    } finally {
+      setProcesando(null);
+    }
+  };
+
   const handleNoAplica = async (v) => {
     const e = edits[v._id] || {};
 
@@ -563,6 +592,11 @@ export default function SolicitudesGarantia() {
                               <span className="badge bg-warning text-dark ms-1">Notificada</span>
                             )}
                           </div>
+                          {g.autorizacionSolicitada && pendiente && (
+                            <div>
+                              <span className="badge bg-danger">Esperando autorización</span>
+                            </div>
+                          )}
                           <small className="text-muted">
                             {(v.estadoOrden || "").replaceAll("_", " ")}
                           </small>
@@ -614,6 +648,15 @@ export default function SolicitudesGarantia() {
                                   onClick={() => handleAutorizar(v)}
                                 >
                                   Autorizar
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-danger btn-sm py-0"
+                                  style={{ fontSize: 12 }}
+                                  disabled={procesando === v._id}
+                                  onClick={() => handleNegar(v)}
+                                >
+                                  Negar
                                 </button>
                                 <button
                                   type="button"

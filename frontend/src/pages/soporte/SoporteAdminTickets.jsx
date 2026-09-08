@@ -280,6 +280,8 @@ export default function SoporteAdminTickets() {
                         No aplica
                       </button>
                     </div>
+                  ) : t.tipoProblema === 'GARANTIA_AUTORIZACION' && t.estado !== 'FINALIZADO' ? (
+                    <small className="text-muted">Se resuelve en Solicitudes de Garantías</small>
                   ) : t.estado === 'PENDIENTE' ? (
                     <button
                       type="button"
