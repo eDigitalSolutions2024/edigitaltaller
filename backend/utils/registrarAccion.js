@@ -18,7 +18,20 @@ function ipDe(req) {
 //   });
 function registrarAccion(
   req,
-  { accion, entidad = 'Vehiculo', entidadId = null, referencia = '', ok = true, detalle = {} } = {}
+  {
+    accion,
+    entidad = 'Vehiculo',
+    entidadId = null,
+    referencia = '',
+    ok = true,
+    detalle = {},
+    origen = 'manual',
+    // Overrides para cuando no hay req.user (p. ej. un intento de login fallido:
+    // se pasa el usuario tecleado a mano).
+    usuario,
+    usuarioId,
+    rol,
+  } = {}
 ) {
   try {
     if (!accion) return;
@@ -28,13 +41,14 @@ function registrarAccion(
       entidad,
       entidadId: entidadId || null,
       referencia: referencia || '',
-      usuario: (u && (u.name || u.username || u.email)) || '',
-      usuarioId: (u && u._id) || null,
-      rol: (u && u.role) || '',
+      usuario: usuario != null ? usuario : (u && (u.name || u.username || u.email)) || '',
+      usuarioId: usuarioId != null ? usuarioId : (u && u._id) || null,
+      rol: rol != null ? rol : (u && u.role) || '',
       ip: ipDe(req),
       metodo: (req && req.method) || '',
       ruta: (req && (req.originalUrl || req.url)) || '',
       ok,
+      origen,
       detalle: detalle || {},
     }).catch((err) => console.error('registrarAccion (no crítico):', err.message));
   } catch (err) {

@@ -3,6 +3,22 @@ const crypto = require('crypto');
 const User         = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
 const { encrypt }  = require('../utils/encryption');
+const { registrarAccion } = require('../utils/registrarAccion');
+
+// Deja una fila en el log de actividad para eventos de sesión. `motivo` solo se
+// usa cuando ok:false (por qué se rechazó el login).
+function logSesion(req, { accion, ok, usuario = '', usuarioId = null, rol = '', motivo = '' }) {
+  registrarAccion(req, {
+    accion,
+    entidad: 'sesion',
+    origen: 'manual',
+    ok,
+    usuario,
+    usuarioId,
+    rol,
+    detalle: motivo ? { motivo } : {},
+  });
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -90,6 +106,7 @@ exports.login = async (req, res) => {
     const identifier = login || username || email;
 
     if (!identifier || !password) {
+      logSesion(req, { accion: 'SESION_INICIAR', ok: false, usuario: String(identifier || ''), motivo: 'Faltan usuario o contraseña' });
       return res.status(400).json({ message: 'Usuario/correo y contraseña son obligatorios' });
     }
 
@@ -100,10 +117,12 @@ exports.login = async (req, res) => {
     });
 
     if (!user) {
+      logSesion(req, { accion: 'SESION_INICIAR', ok: false, usuario: normalized, motivo: 'Usuario no encontrado' });
       return res.status(401).json({ message: 'Credenciales inválidas' });
     }
 
     if (!user.isActive) {
+      logSesion(req, { accion: 'SESION_INICIAR', ok: false, usuario: user.username, usuarioId: user._id, rol: user.role, motivo: 'Usuario inactivo' });
       return res.status(403).json({ message: 'Usuario inactivo. Contacta al administrador.' });
     }
 
@@ -112,11 +131,13 @@ exports.login = async (req, res) => {
       user.workshopName &&
       user.workshopName.toLowerCase() !== workshopName.toLowerCase()
     ) {
+      logSesion(req, { accion: 'SESION_INICIAR', ok: false, usuario: user.username, usuarioId: user._id, rol: user.role, motivo: 'Taller incorrecto' });
       return res.status(401).json({ message: 'Taller incorrecto' });
     }
 
     const ok = await user.matchPassword(password);
     if (!ok) {
+      logSesion(req, { accion: 'SESION_INICIAR', ok: false, usuario: user.username, usuarioId: user._id, rol: user.role, motivo: 'Contraseña incorrecta' });
       return res.status(401).json({ message: 'Credenciales inválidas' });
     }
 
@@ -144,9 +165,18 @@ exports.login = async (req, res) => {
 
     res.cookie('refreshToken', refreshTokenValue, cookieOpts);
 
+    logSesion(req, {
+      accion: 'SESION_INICIAR',
+      ok: true,
+      usuario: user.name || user.username,
+      usuarioId: user._id,
+      rol: user.role,
+    });
+
     res.json({ accessToken, user: userPayload(user) });
   } catch (e) {
     console.error('❌ Error en login:', e);
+    logSesion(req, { accion: 'SESION_INICIAR', ok: false, motivo: `Error del servidor: ${e.message}` });
     res.status(500).json({ message: 'Error al iniciar sesión', error: e.message });
   }
 };
@@ -209,6 +239,21 @@ exports.logout = async (req, res) => {
       secure:   process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
     });
+
+    // La ruta no pasa por `proteger`; recuperamos quién cierra sesión del
+    // access token que el front sigue mandando en el header.
+    let quien = { usuario: '', usuarioId: null, rol: '' };
+    try {
+      const h = req.headers.authorization || '';
+      const tok = h.startsWith('Bearer ') ? h.slice(7) : null;
+      if (tok) {
+        const p = jwt.verify(tok, process.env.JWT_SECRET);
+        quien = { usuario: p.username || '', usuarioId: p.id || null, rol: p.role || '' };
+      }
+    } catch (_) {
+      /* token vencido: se registra sin usuario */
+    }
+    logSesion(req, { accion: 'SESION_CERRAR', ok: true, ...quien });
 
     res.json({ message: 'Sesión cerrada correctamente' });
   } catch (e) {

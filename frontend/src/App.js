@@ -56,6 +56,7 @@ import OrdenesCompraNueva from "./pages/OrdenesCompraNueva";
 import Usuarios from "./pages/admin/Usuarios";
 import Personal from "./pages/admin/Personal";
 import Grupos from "./pages/admin/Grupos";
+import RegistroActividad from "./pages/admin/RegistroActividad";
 
 //Configuracion
 import Configuracion from "./pages/configuration/Configuracion";
@@ -294,6 +295,16 @@ export default function App() {
 
           {/* Grupos de trabajo */}
           <Route path="admin/grupos" element={<Grupos />} />
+
+          {/* Registro de actividad (log del sistema, solo admin) */}
+          <Route
+            path="admin/actividad"
+            element={
+              <RolesRoute roles={['admin']}>
+                <RegistroActividad />
+              </RolesRoute>
+            }
+          />
 
           {/* Órdenes de compra */}
           <Route path="ordenes-compra" element={<OrdenesCompraList />} />

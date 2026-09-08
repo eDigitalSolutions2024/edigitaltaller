@@ -58,6 +58,128 @@ function formaPagoNotaVentaTexto(nv = {}) {
   return banco;
 }
 
+// ===== Sello "PAGADO" =====
+// La Nota de Venta se re-imprime con un sello a media hoja / lado derecho
+// (fecha, hora + usuario y la cantidad con su forma de pago, desglosada por
+// método si fue combinado) cuando la orden quedó liquidada. Dos casos:
+//   1. Se liquidó con la opción "Liquidar" de Cajas (pago SIN_COMPROBANTE no
+//      cancelado): se muestran los datos de esa liquidación.
+//   2. La propia Nota de Venta se hizo a Contado y cubrió el total exacto:
+//      se muestran los datos de la Nota de Venta.
+const TOLERANCIA_SELLO = 0.01;
+
+const FORMA_PAGO_LABEL = {
+  EFECTIVO: 'Efectivo',
+  CREDITO: 'T. Crédito',
+  DEBITO: 'T. Débito',
+  CHEQUE: 'Cheque',
+  TRANSFERENCIA: 'Transferencia',
+};
+
+const SELLO_PAGADO_CSS = `
+  .sello-pagado {
+    position: fixed;
+    top: 58%;
+    right: 5%;
+    width: 200px;
+    padding: 9px 13px 10px;
+    border: 3px double #1a7a34;
+    border-radius: 6px;
+    color: #1a7a34;
+    transform: rotate(-7deg);
+    font-family: Helvetica, Arial, sans-serif;
+    opacity: 0.92;
+    z-index: 9999;
+    pointer-events: none;
+  }
+  .sello-pagado .sello-titulo {
+    text-align: center;
+    font-size: 25px;
+    font-weight: 900;
+    letter-spacing: 3px;
+    border-bottom: 2px solid #1a7a34;
+    padding-bottom: 3px;
+    margin-bottom: 8px;
+  }
+  /* Cada renglón lleva un único font-weight: al rotar la caja, Chromium
+     compone dos pesos distintos de la misma línea con ángulos ligeramente
+     diferentes y el texto se ve "escalonado". */
+  .sello-pagado .sello-fila { font-size: 10.5px; line-height: 1.75; font-weight: 700; white-space: nowrap; }
+  .sello-pagado .sello-pago {
+    margin-top: 7px;
+    border-top: 1px dashed #1a7a34;
+    padding-top: 5px;
+    font-size: 10.5px;
+    line-height: 1.6;
+    font-weight: 700;
+  }
+  .sello-pagado .sello-pago .linea { display: block; }
+`;
+
+// Renglones "cantidad — cómo se pagó" de un cobro. `cobro` es pago.liquidacion
+// (opción "Liquidar") o pago.notaVenta (Nota de Venta a Contado): ambos traen
+// { formaPago, chequeNumero, combinado }. Un solo renglón para un método
+// simple; un renglón por método cuando fue COMBINADO. Los dólares y el saldo a
+// favor aplicado van en su propio renglón para que la suma sea el total.
+function desgloseCobro(pago, cobro = {}) {
+  const partes = [];
+
+  if (cobro.formaPago === 'COMBINADO') {
+    const c = cobro.combinado || {};
+    if (Number(c.efectivo) > 0) partes.push(`Efectivo: ${money(c.efectivo)}`);
+    if (Number(c.efectivoDolares) > 0) partes.push(`Efectivo: $${Number(c.efectivoDolares).toFixed(2)} USD`);
+    if (Number(c.credito) > 0) partes.push(`T. Crédito: ${money(c.credito)}`);
+    if (Number(c.debito) > 0) partes.push(`T. Débito: ${money(c.debito)}`);
+    if (Number(c.cheque) > 0) partes.push(`Cheque${cobro.chequeNumero ? ` No. ${cobro.chequeNumero}` : ''}: ${money(c.cheque)}`);
+    if (Number(c.transferencia) > 0) partes.push(`Transferencia: ${money(c.transferencia)}`);
+  } else {
+    const label = FORMA_PAGO_LABEL[cobro.formaPago] || 'Efectivo';
+    const chequeNo = cobro.formaPago === 'CHEQUE' && cobro.chequeNumero ? ` No. ${cobro.chequeNumero}` : '';
+    if (Number(pago?.montoPesos) > 0) partes.push(`${money(pago.montoPesos)} — ${label}${chequeNo}`);
+    if (Number(pago?.montoDolares) > 0) partes.push(`$${Number(pago.montoDolares).toFixed(2)} USD`);
+  }
+
+  if (Number(pago?.saldoAplicado?.monto) > 0) {
+    partes.push(`Saldo a favor: ${money(pago.saldoAplicado.monto)}`);
+  }
+
+  return partes.length ? partes : [money(pago?.monto)];
+}
+
+function selloPagadoHtml(pago, cobro) {
+  if (!pago) return '';
+  const fecha = dayjsFecha(pago.fecha || new Date()).locale('es');
+  const diaMes = fecha.format('D [de] MMMM');
+  const horaUsuario = [fecha.format('HH:mm'), pago.registradoPor].filter(Boolean).join(' — ');
+  const lineasPago = desgloseCobro(pago, cobro)
+    .map((l) => `<span class="linea">${escapeHtml(l)}</span>`)
+    .join('');
+  return `
+  <div class="sello-pagado">
+    <div class="sello-titulo">PAGADO</div>
+    <div class="sello-fila">Fecha: ${escapeHtml(diaMes)}</div>
+    <div class="sello-fila">Hora: ${escapeHtml(horaUsuario)}</div>
+    <div class="sello-pago">${lineasPago}</div>
+  </div>`;
+}
+
+// Decide si la Nota de Venta lleva sello "PAGADO" y con qué cobro se llena.
+// `pagoNota` es el pago cuya Nota de Venta se está imprimiendo; `totales` los
+// de calcularTotalesOrden(orden). Devuelve { pago, cobro } o null.
+function selloPagadoParaNota(orden, pagoNota, totales) {
+  if (totales.saldoPendiente > TOLERANCIA_SELLO) return null;
+
+  const liquidacion = [...(orden?.pagos || [])]
+    .filter((p) => p.comprobante === 'SIN_COMPROBANTE' && !p.cancelado)
+    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))[0];
+  if (liquidacion) return { pago: liquidacion, cobro: liquidacion.liquidacion || {} };
+
+  if (pagoNota?.notaVenta?.tipo === 'Contado' && !pagoNota?.cancelado) {
+    return { pago: pagoNota, cobro: pagoNota.notaVenta || {} };
+  }
+  return null;
+}
+
 const nombreCliente = (orden) => {
   const c = orden.cliente || {};
   if (c.tipoCliente === 'Particular') {
@@ -118,6 +240,10 @@ exports.generarComprobanteCajaPDF = async (res, orden, pago, tipo) => {
 
     // IVA aplicado dentro del precio de cada partida, sin mostrarse desglosado.
     const totales = calcularTotalesOrden(orden);
+
+    // Sello "PAGADO": solo en la Nota de Venta y solo si la orden quedó
+    // liquidada (por "Liquidar" o por la propia Nota de Venta a Contado).
+    const sello = esNota ? selloPagadoParaNota(orden, pago, totales) : null;
     const ivaRate = totales.ivaPct / 100;
     const descuentosActivos = (orden.descuentos || []).filter((d) => d.activo !== false);
 
@@ -243,10 +369,12 @@ exports.generarComprobanteCajaPDF = async (res, orden, pago, tipo) => {
     .cierre .fila { margin-bottom: 26px; font-size: 15px; }
     .cierre .valor { font-family: Helvetica, Arial, sans-serif; font-size: 13.5px; margin-left: 18px; }
 ${WATERMARK_CSS}
+${SELLO_PAGADO_CSS}
   </style>
 </head>
 <body>
   ${watermarkHtmlPago(pago)}
+  ${sello ? selloPagadoHtml(sello.pago, sello.cobro) : ''}
   <div class="header">
     ${logoSrc ? `<img src="${logoSrc}" class="logo" />` : `<div class="brand-fallback">Servi<span>compactos</span></div>`}
     <div class="folio label">${tituloFolio}<span class="num">${escapeHtml(folio ?? '')}</span></div>

@@ -27,6 +27,10 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use( '/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Auditoría: deja rastro de toda creación/modificación/cancelación por HTTP.
+// Debe ir DESPUÉS de express.json() y ANTES de montar las rutas de /api.
+app.use('/api', require('./middleware/auditoria'));
+
 
 const empleadosRoutes = require('./routes/empleados');
 const ordenesCompraRoutes = require('./routes/ordenesCompra');
@@ -94,6 +98,8 @@ app.use('/api/cajas', require('./routes/cajas'));
 app.use('/api/anticipos', require('./routes/anticipos'));
 
 app.use('/api/tickets', require('./routes/tickets'));
+
+app.use('/api/auditoria', require('./routes/auditoria'));
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`🚀 Server en http://localhost:${PORT}`));
