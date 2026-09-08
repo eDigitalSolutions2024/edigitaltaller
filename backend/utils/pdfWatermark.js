@@ -46,14 +46,25 @@ const WATERMARK_CSS = `
     --wm-chars: 8;
     color: rgba(234, 179, 8, 0.55);
   }
+  .watermark-default {
+    color: rgba(107, 114, 128, 0.35);
+  }
 `;
 
-function watermarkHtml(orden) {
+// `defaultLabel` es el texto que se muestra cuando la orden no está cancelada
+// ni es de garantía (esos dos casos siguen teniendo prioridad porque son más
+// relevantes que la etiqueta genérica del documento). Por ejemplo, la hoja de
+// presupuesto pasa defaultLabel: 'PRESUPUESTO' para marcar de fondo cualquier
+// presupuesto normal.
+function watermarkHtml(orden, { defaultLabel } = {}) {
   if (esOrdenCancelada(orden)) {
     return '<div class="watermark-marca-agua watermark-cancelada">CANCELADA</div>';
   }
   if (esOrdenGarantia(orden)) {
     return '<div class="watermark-marca-agua watermark-garantia">GARANTIA</div>';
+  }
+  if (defaultLabel) {
+    return `<div class="watermark-marca-agua watermark-default" style="--wm-chars: ${defaultLabel.length};">${defaultLabel}</div>`;
   }
   return '';
 }
