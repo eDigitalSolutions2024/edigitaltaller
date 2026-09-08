@@ -138,6 +138,9 @@ router.post('/', async (req, res) => {
     if (!noValeSolicitado) {
       return res.status(400).json({ ok: false, msg: 'noVale es obligatorio' });
     }
+    if (!String(body.quienEntrega || '').trim()) {
+      return res.status(400).json({ ok: false, msg: 'quienEntrega es obligatorio' });
+    }
 
     // ¿El número venía del contador automático (doble click) o se escribió a mano?
     const autoNumero = !!body.autoNumero;
@@ -193,7 +196,7 @@ router.post('/', async (req, res) => {
       noOrden: body.noOrden,
       noVale,
       dig,
-      quienEntrega: body.quienEntrega || '',
+      quienEntrega: String(body.quienEntrega || '').trim(),
       cajero: body.cajero || '',
       estatus: body.estatus || 'Contado',
       observaciones: body.observaciones || '',

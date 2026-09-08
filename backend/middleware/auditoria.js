@@ -20,13 +20,16 @@
 // Solo el rol 'admin' puede leer estas filas (GET /api/auditoria/registro).
 
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const RegistroAccion = require('../models/RegistroAccion');
 const User = require('../models/User');
 
 const METODOS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-// Primer segmento tras /api que no interesa auditar.
-const RECURSOS_IGNORADOS = new Set(['auth', 'auditoria', 'reportes']);
+// Primer segmento tras /api que no interesa auditar. `reportes` NO está: sus
+// rutas son de solo lectura (no llegarían aquí de todos modos) y bajo
+// /api/reportes/cierre-caja viven movimientos reales de caja que sí se auditan.
+const RECURSOS_IGNORADOS = new Set(['auth', 'auditoria']);
 
 // Fragmentos de ruta = generación de documentos / side-effects sin interés.
 const RUTA_IGNORADA = /(^|\/)(pdf|xml|imprimir|print|preview|recibo-pdf|ticket-pdf|password-reveal|verify-admin-password)(\/|$|-)/i;
@@ -111,9 +114,30 @@ async function datosUsuario(id, fallback) {
 
 const RE_OBJECTID = /^[a-f\d]{24}$/i;
 const RE_FOLIO = /^(OS|OC|VS|CP|A|F)[-\d]/i;
+const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Cache corta _id de orden -> folio OS-... legible.
+const cacheFolios = new Map();
+async function folioVehiculo(id) {
+  if (!id) return '';
+  const clave = String(id);
+  const hit = cacheFolios.get(clave);
+  if (hit && Date.now() - hit.t < CACHE_TTL) return hit.v;
+  try {
+    const V = mongoose.models.Vehiculo || require('../models/Vehiculo');
+    const doc = await V.findById(id).select('ordenServicio').lean();
+    const v = (doc && doc.ordenServicio) || '';
+    cacheFolios.set(clave, { t: Date.now(), v });
+    return v;
+  } catch (_) {
+    return '';
+  }
+}
 
 function derivarAccion(req) {
-  const segs = req.path.split('/').filter(Boolean);
+  let segs = req.path.split('/').filter(Boolean);
+  // /api/reportes/cierre-caja/... -> el recurso real es "cierre-caja".
+  if (segs[0] === 'reportes' && segs[1]) segs = segs.slice(1);
   const recurso = (segs[0] || '').toLowerCase();
   const p = req.path.toLowerCase();
   const m = req.method;
@@ -134,15 +158,22 @@ function derivarAccion(req) {
     accion = m;
   }
 
+  // referencia = primer id/folio/uuid del path; entidadId = ese id si es Mongo.
   let referencia = '';
+  let entidadId = null;
   for (const s of segs.slice(1)) {
-    if (RE_OBJECTID.test(s) || RE_FOLIO.test(s)) {
+    if (RE_OBJECTID.test(s)) {
+      referencia = s;
+      entidadId = s;
+      break;
+    }
+    if (RE_FOLIO.test(s) || RE_UUID.test(s)) {
       referencia = s;
       break;
     }
   }
 
-  return { recurso, accion, referencia };
+  return { recurso, accion, referencia, entidadId };
 }
 
 function ipDe(req) {
@@ -154,9 +185,8 @@ module.exports = function auditoria(req, res, next) {
   try {
     if (!METODOS.has(req.method)) return next();
 
-    const segs = req.path.split('/').filter(Boolean);
-    const recurso = (segs[0] || '').toLowerCase();
-    if (!recurso || RECURSOS_IGNORADOS.has(recurso)) return next();
+    const seg0 = (req.path.split('/').filter(Boolean)[0] || '').toLowerCase();
+    if (!seg0 || RECURSOS_IGNORADOS.has(seg0)) return next();
     if (RUTA_IGNORADA.test(req.path)) return next();
 
     const header = req.headers.authorization || '';
@@ -174,12 +204,13 @@ module.exports = function auditoria(req, res, next) {
     // Snapshot SÍNCRONO del body antes de que el handler lo mute.
     const bodySnap = acotarJson(sanitizar(req.body));
     const querySnap = acotarJson(sanitizar(req.query));
-    const { accion, referencia } = derivarAccion(req);
+    const { recurso, accion, referencia, entidadId } = derivarAccion(req);
     const inicio = Date.now();
     const meta = {
       accion,
       entidad: recurso,
       referencia,
+      entidadId,
       usuarioId: payload.id,
       rolTok: payload.role || '',
       userTok: payload.username || '',
@@ -215,6 +246,18 @@ module.exports = function auditoria(req, res, next) {
           username: meta.userTok,
           role: meta.rolTok,
         });
+
+        // Para órdenes, mostrar el folio OS-... en lugar del _id hexadecimal.
+        let referencia = meta.referencia;
+        if (
+          meta.entidadId &&
+          (meta.entidad === 'vehiculos' || meta.entidad === 'garage') &&
+          RE_OBJECTID.test(String(meta.referencia))
+        ) {
+          const folio = await folioVehiculo(meta.entidadId);
+          if (folio) referencia = folio;
+        }
+
         const detalle = {
           status: code,
           ok: okFlag,
@@ -228,7 +271,8 @@ module.exports = function auditoria(req, res, next) {
         await RegistroAccion.create({
           accion: meta.accion,
           entidad: meta.entidad,
-          referencia: meta.referencia,
+          entidadId: meta.entidadId || null,
+          referencia,
           usuario: u.name || u.username || meta.userTok || '',
           usuarioId: meta.usuarioId,
           rol: u.role || meta.rolTok || '',

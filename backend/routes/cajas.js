@@ -245,9 +245,9 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       // (T. Crédito / T. Débito). El Combinado trae la suya en combinado.banco;
       // la Nota de Venta, en `banco`.
       terminal = '',
-      // Solo para comprobante === 'REMISION': fecha con la que se registra la
-      // remisión (a veces se captura un día después). Sin valor = hoy. No se
-      // permiten fechas futuras (ver validación abajo).
+      // Solo para comprobante 'REMISION' / 'NOTA_VENTA': fecha con la que se
+      // registra el comprobante (a veces se captura un día después). Sin valor
+      // = hoy. No se permiten fechas futuras (ver validación abajo).
       fecha: fechaBody = '',
       // Cuando la orden ya tiene una Remisión activa y se va a generar un nuevo
       // comprobante (Nota de Venta / Remisión): motivo con el que se cancela esa
@@ -428,28 +428,32 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'El monto del pago debe ser mayor a 0.' });
     }
 
-    // Fecha del pago: normalmente el instante actual. Una Remisión puede
-    // registrarse con fecha anterior (se captura un día después); nunca a
-    // futuro. Los demás comprobantes siempre usan la fecha actual.
-    // El front manda 'YYYY-MM-DD'; se ancla al mediodía LOCAL de ese día para
-    // que caiga sin ambigüedad en su día calendario en los reportes y el
-    // Cierre de Caja (el servidor corre en la zona horaria del taller).
+    // Fecha del pago: normalmente el instante actual. Una Nota de Venta o una
+    // Remisión pueden registrarse con fecha anterior (se capturan un día
+    // después); nunca a futuro. El front manda 'YYYY-MM-DD'; solo si es un día
+    // ANTERIOR a hoy se ancla al mediodía LOCAL de ese día (así cae sin
+    // ambigüedad en su día calendario en reportes y Cierre de Caja). Si el día
+    // elegido es hoy, se conserva el instante real (la hora sale en el sello
+    // "PAGADO" y en los recibos).
     let fechaPago = new Date();
-    if (comprobante === 'REMISION' && String(fechaBody || '').trim()) {
+    if (['REMISION', 'NOTA_VENTA'].includes(comprobante) && String(fechaBody || '').trim()) {
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(fechaBody).trim());
       if (!m) {
-        return res.status(400).json({ ok: false, msg: 'La fecha de la remisión no es válida.' });
+        return res.status(400).json({ ok: false, msg: 'La fecha del comprobante no es válida.' });
       }
       const f = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
       if (isNaN(f.getTime())) {
-        return res.status(400).json({ ok: false, msg: 'La fecha de la remisión no es válida.' });
+        return res.status(400).json({ ok: false, msg: 'La fecha del comprobante no es válida.' });
       }
-      const finDeHoy = new Date();
-      finDeHoy.setHours(23, 59, 59, 999);
-      if (f > finDeHoy) {
-        return res.status(400).json({ ok: false, msg: 'La fecha de la remisión no puede ser futura.' });
+      const ahora = new Date();
+      const esHoy =
+        f.getFullYear() === ahora.getFullYear() &&
+        f.getMonth() === ahora.getMonth() &&
+        f.getDate() === ahora.getDate();
+      if (f > ahora && !esHoy) {
+        return res.status(400).json({ ok: false, msg: 'La fecha del comprobante no puede ser futura.' });
       }
-      fechaPago = f;
+      if (!esHoy) fechaPago = f;
     }
 
     // Id pre-generado del pago: si se aplica saldo, el movimiento del ledger
@@ -972,6 +976,64 @@ router.post('/:id/pagos/:pagoId/deshacer-cancelacion', proteger, requiereRol('ad
     return res.json({ ok: true, vehiculo: vehiculoActualizado, totales: calcularTotalesOrden(vehiculoActualizado) });
   } catch (err) {
     console.error('Error deshaciendo cancelación:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// PATCH /api/cajas/:id/pagos/:pagoId/fecha -> corrige la fecha de un pago ya
+// registrado (se capturó con la fecha equivocada). Exige un motivo, que queda
+// guardado en el pago (motivoCambioFecha / fechaEditadaPor / fechaOriginal). El
+// comprobante impreso y los reportes diarios usan pago.fecha, así que cambiarla
+// aquí los alinea. La fecha se ancla al mediodía LOCAL del día elegido; no se
+// permite a futuro. Si el pago mueve dinero por terminal, sus movimientos del
+// Cierre de Caja se pasan del día viejo al nuevo (un día ya CERRADO no se toca:
+// registrarMovimientoTerminal lo ignora). No aplica a pagos cancelados (sus
+// movimientos ya se revirtieron).
+router.patch('/:id/pagos/:pagoId/fecha', proteger, requiereRol('admin', 'cajas'), async (req, res) => {
+  try {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(req.body?.fecha || '').trim());
+    if (!m) return res.status(400).json({ ok: false, msg: 'Captura una fecha válida (YYYY-MM-DD).' });
+    const motivo = String(req.body?.motivo || '').trim();
+    if (!motivo) return res.status(400).json({ ok: false, msg: 'Captura el motivo del cambio de fecha.' });
+    const nueva = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
+    if (isNaN(nueva.getTime())) return res.status(400).json({ ok: false, msg: 'La fecha no es válida.' });
+    const finDeHoy = new Date();
+    finDeHoy.setHours(23, 59, 59, 999);
+    if (nueva > finDeHoy) return res.status(400).json({ ok: false, msg: 'La fecha no puede ser futura.' });
+
+    const vehiculo = await Vehiculo.findById(req.params.id);
+    if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    const pago = (vehiculo.pagos || []).id(req.params.pagoId);
+    if (!pago) return res.status(404).json({ ok: false, msg: 'Pago no encontrado' });
+
+    const fechaAnterior = pago.fecha;
+
+    const setFecha = {
+      'pagos.$.fecha': nueva,
+      'pagos.$.fechaEditadaEn': new Date(),
+      'pagos.$.fechaEditadaPor': req.user?.name || req.user?.username || '',
+      'pagos.$.motivoCambioFecha': motivo,
+    };
+    // La fecha original solo se guarda en la PRIMERA corrección.
+    if (!pago.fechaOriginal) setFecha['pagos.$.fechaOriginal'] = fechaAnterior;
+
+    const upd = await Vehiculo.updateOne(
+      { _id: vehiculo._id, 'pagos._id': pago._id },
+      { $set: setFecha }
+    );
+    if (!upd.matchedCount) return res.status(404).json({ ok: false, msg: 'Pago no encontrado' });
+
+    // Mueve los movimientos de terminal del día viejo al nuevo (best-effort).
+    if (!pago.cancelado) {
+      const datos = datosMovimientosTerminal(pago);
+      await moverTerminalesDePago({ ...datos, fecha: fechaAnterior }, -1);
+      await moverTerminalesDePago({ ...datos, fecha: nueva }, 1);
+    }
+
+    const actualizado = await Vehiculo.findById(vehiculo._id).populate('cliente', POPULATE_CLIENTE);
+    return res.json({ ok: true, vehiculo: actualizado, totales: calcularTotalesOrden(actualizado) });
+  } catch (err) {
+    console.error('Error editando la fecha del pago:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });

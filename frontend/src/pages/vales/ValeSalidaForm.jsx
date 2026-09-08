@@ -205,6 +205,7 @@ export default function ValeSalidaForm() {
   const validar = () => {
     if (!form.noOrden.trim()) return 'Captura el número de orden.';
     if (!noVale) return 'Captura o genera el número de vale.';
+    if (!form.quienEntrega.trim()) return 'Captura quién entrega.';
     return null;
   };
 
@@ -233,12 +234,16 @@ export default function ValeSalidaForm() {
     }
   };
 
-  const handleImprimir = () => {
-    if (!valeGuardadoId) {
-      setMensaje({ tipo: 'warning', texto: 'Guarda el vale antes de imprimir.' });
-      return;
+  const handleImprimir = async () => {
+    // Si el vale todavía no se ha guardado, se guarda automáticamente antes de
+    // abrir el PDF. handleGuardar valida y devuelve el _id (o null si falla, en
+    // cuyo caso ya dejó el mensaje de error correspondiente).
+    let id = valeGuardadoId;
+    if (!id) {
+      id = await handleGuardar();
+      if (!id) return;
     }
-    abrirPdf(getValePdfUrl(valeGuardadoId), 'vale.pdf', 'Vale de Salida');
+    abrirPdf(getValePdfUrl(id), 'vale.pdf', 'Vale de Salida');
   };
 
   return (
@@ -312,7 +317,7 @@ export default function ValeSalidaForm() {
             </div>
 
             <div className="col-md-4">
-              <label className="form-label small fw-semibold">Quien entrega</label>
+              <label className="form-label small fw-semibold">Quien entrega<span className="text-danger">*</span></label>
               <input
                 type="text"
                 className="form-control"
@@ -360,7 +365,7 @@ export default function ValeSalidaForm() {
             <button type="button" className="btn btn-primary" onClick={handleGuardar} disabled={guardando}>
               {guardando ? 'Guardando…' : 'Guardar'}
             </button>
-            <button type="button" className="btn btn-outline-danger" onClick={handleImprimir}>
+            <button type="button" className="btn btn-outline-danger" onClick={handleImprimir} disabled={guardando}>
               Imprimir
             </button>
             {valeGuardadoId && (

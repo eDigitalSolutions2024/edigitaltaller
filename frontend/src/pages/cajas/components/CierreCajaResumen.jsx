@@ -142,7 +142,7 @@ export default function CierreCajaResumen({ cierre, accionesCierre }) {
           <div className="card-body py-2">
             <div className="d-flex justify-content-between">
               <span className="fw-bold">Total Reportes</span>
-              <span className="text-muted small">Ingresos del día registrados en el sistema</span>
+              <span className="text-muted small">Ingresos registrados desde que abrió la caja</span>
             </div>
             <div className="text-end">{formatMoney(cierre.totalReportes)}</div>
           </div>

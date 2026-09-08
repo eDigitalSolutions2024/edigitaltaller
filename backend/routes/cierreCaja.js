@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 
 const CierreCaja = require('../models/CierreCaja');
@@ -6,10 +7,16 @@ const { DENOMINACIONES_BILLETES, DENOMINACIONES_MONEDAS } = CierreCaja;
 const Contador = require('../models/Contador');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { calcularTotalesCierre, TERMINALES_KEYS } = require('../utils/cierreCajaTotales');
-const { calcularTotalIngresosDia } = require('../utils/totalIngresosDia');
-const { listarComprobantesDia, listarValesSalidaDia } = require('../utils/comprobantesDia');
-const { restablecerCierreCajaDia } = require('../utils/restablecerCierreCajaDia');
+const { calcularTotalIngresosRango } = require('../utils/totalIngresosDia');
+const { listarComprobantesRango, listarValesSalidaRango } = require('../utils/comprobantesDia');
+const { restablecerSesionCaja } = require('../utils/restablecerCierreCajaDia');
+const { sesionCajaAbierta, inicioSesionActual, fechaSoloDia } = require('../utils/cierreCajaTerminales');
 const { streamCierreCajaPdf } = require('../service/cierreCajaPdf');
+
+// Fin del período que cubre una sesión: su cierre, o "ahora" si sigue abierta.
+function finSesion(sesion) {
+  return sesion?.cerradoEn ? new Date(sesion.cerradoEn) : new Date();
+}
 
 // Debe coincidir con FONDO_CAJA_CONTADOR en routes/configuracion.js
 const FONDO_CAJA_CONTADOR = 'fondoCaja';
@@ -77,9 +84,10 @@ function normalizarVales(vales = []) {
   }));
 }
 
-function cierreVacio(fecha) {
+function cierreVacio(abiertaEn) {
   return {
-    fecha,
+    fecha: fechaSoloDia(abiertaEn || new Date()),
+    abiertaEn: abiertaEn || new Date(),
     billetes: conteoVacio(DENOMINACIONES_BILLETES),
     monedas: conteoVacio(DENOMINACIONES_MONEDAS),
     terminales: normalizarTerminales(),
@@ -251,14 +259,21 @@ function capturasParaLectura(cierre) {
   return arr;
 }
 
-// GET /api/reportes/cierre-caja?fecha=YYYY-MM-DD
+// GET /api/reportes/cierre-caja           -> la sesión de caja ABIERTA actual
+// GET /api/reportes/cierre-caja?id=<id>   -> una sesión concreta (historial/detalle)
 router.get('/', proteger, async (req, res) => {
   try {
-    const fecha = normalizarFecha(req.query.fecha);
-    if (!fecha) return res.status(400).json({ ok: false, msg: 'Parámetro fecha requerido (YYYY-MM-DD).' });
-
-    const cierre = await CierreCaja.findOne({ fecha }).lean();
-    const base = cierre || cierreVacio(fecha);
+    let cierre = null;
+    let base;
+    if (req.query.id && mongoose.isValidObjectId(req.query.id)) {
+      cierre = await CierreCaja.findById(req.query.id).lean();
+      if (!cierre) return res.status(404).json({ ok: false, msg: 'No se encontró esa sesión de caja.' });
+      base = cierre;
+    } else {
+      const sesion = await sesionCajaAbierta();
+      cierre = sesion ? sesion.toObject() : null;
+      base = cierre || cierreVacio(await inicioSesionActual());
+    }
 
     // Se normaliza siempre (exista o no el doc): un doc creado solo por la
     // suma automática de terminales puede traer billetes/monedas/vales vacíos.
@@ -272,23 +287,27 @@ router.get('/', proteger, async (req, res) => {
       estado: base.estado || 'ABIERTA',
     };
 
-    // Mientras el día siga abierto, "Total Reportes" y "Fondo de Caja" no se
-    // capturan a mano: se toman en vivo (pagos del día / Configuración). Un
-    // día ya CERRADA conserva los valores congelados al momento del cierre.
+    const desdeSesion = new Date(base.abiertaEn || base.fecha);
+    const hastaSesion = finSesion(base);
+
+    // Mientras la sesión siga abierta, "Total Reportes" y "Fondo de Caja" no se
+    // capturan a mano: se toman en vivo (todo lo cobrado desde que abrió la
+    // sesión / Configuración). Una sesión CERRADA conserva los valores
+    // congelados al momento del cierre.
     if (data.estado !== 'CERRADA') {
       [data.totalReportes, data.fondoCaja] = await Promise.all([
-        calcularTotalIngresosDia(fecha),
+        calcularTotalIngresosRango(desdeSesion, hastaSesion),
         obtenerFondoCajaConfig(),
       ]);
     }
 
-    // Listado (no solo total) de lo que se generó ese día, para que el
+    // Listado (no solo total) de lo que se generó en la sesión, para que el
     // resumen de Gestión de Caja / Cierre de Caja muestre abajo cada Nota de
     // Venta, Remisión, Recibo Provisional y Vale de Salida — siempre en vivo,
     // no se congela al cerrar (es informativo, no afecta los totales).
     [data.comprobantes, data.valesSalida] = await Promise.all([
-      listarComprobantesDia(fecha),
-      listarValesSalidaDia(fecha),
+      listarComprobantesRango(desdeSesion, hastaSesion),
+      listarValesSalidaRango(desdeSesion, hastaSesion),
     ]);
 
     return res.json({ ok: true, data, totales: calcularTotalesCierre(data), guardado: !!cierre });
@@ -299,6 +318,7 @@ router.get('/', proteger, async (req, res) => {
 });
 
 // GET /api/reportes/cierre-caja/historial?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+// Una fila por SESIÓN cerrada; el rango filtra por la fecha de cierre.
 router.get('/historial', proteger, async (req, res) => {
   try {
     const desde = normalizarFecha(req.query.desde);
@@ -306,13 +326,26 @@ router.get('/historial', proteger, async (req, res) => {
     if (!desde || !hasta) {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos (YYYY-MM-DD).' });
     }
+    // Los límites llegan como medianoche UTC del día local; el fin abarca todo
+    // ese último día.
+    const finRango = new Date(hasta.getTime() + 24 * 60 * 60 * 1000 - 1);
 
-    const cierres = await CierreCaja.find({ fecha: { $gte: desde, $lte: hasta }, estado: 'CERRADA' })
-      .sort({ fecha: -1 })
+    const cierres = await CierreCaja.find({
+      estado: 'CERRADA',
+      $or: [
+        { cerradoEn: { $gte: desde, $lte: finRango } },
+        { cerradoEn: null, fecha: { $gte: desde, $lte: hasta } }, // docs viejos
+      ],
+    })
+      .sort({ cerradoEn: -1, fecha: -1 })
       .lean();
 
     const data = cierres.map((c) => ({
+      _id: String(c._id),
       fecha: c.fecha,
+      abiertaEn: c.abiertaEn || c.fecha,
+      cerradoEn: c.cerradoEn || null,
+      cerradoPor: c.cerradoPor || '',
       capturadoPor: c.capturadoPor,
       totalReportes: Number(c.totalReportes || 0),
       ...calcularTotalesCierre(c),
@@ -325,61 +358,40 @@ router.get('/historial', proteger, async (req, res) => {
   }
 });
 
-// POST /api/reportes/cierre-caja -> registra una ronda de Captura del día
+// POST /api/reportes/cierre-caja -> registra una ronda de Captura en la sesión
+// de caja ABIERTA (la crea si aún no existe).
 router.post('/', proteger, async (req, res) => {
   try {
-    const fecha = normalizarFecha(req.body?.fecha);
-    if (!fecha) return res.status(400).json({ ok: false, msg: 'Parámetro fecha requerido (YYYY-MM-DD).' });
-
-    // La captura del día ya no es un solo agregado acumulado: cada "Guardar"
-    // se registra como una captura propia en `cierre.capturas` y los campos
-    // agregados se recalculan como suma de las NO canceladas. Así el admin
-    // puede cancelar una captura con monto equivocado desde el historial.
+    // Cada "Guardar" se registra como una captura propia en `cierre.capturas`
+    // y los campos agregados se recalculan como suma de las NO canceladas. Así
+    // el admin puede cancelar una captura con monto equivocado desde el historial.
     const captura = capturaDesdeBody(req.body, req.user);
     if (capturaEstaVacia(captura)) {
       return res.status(400).json({ ok: false, msg: 'No capturaste ningún monto en esta ronda.' });
     }
 
+    const cierre = await sesionCajaAbierta({ crear: true });
+    if (cierre.estado === 'CERRADA') {
+      return res.status(400).json({ ok: false, msg: 'La caja ya está cerrada.' });
+    }
+
+    const desdeSesion = new Date(cierre.abiertaEn || cierre.fecha);
     // totalReportes y fondoCaja no se aceptan del cliente: siempre se
-    // recalculan server-side (pagos del día / Configuración).
+    // recalculan server-side (todo lo cobrado en la sesión / Configuración).
     const [totalReportes, fondoCaja] = await Promise.all([
-      calcularTotalIngresosDia(fecha),
+      calcularTotalIngresosRango(desdeSesion, new Date()),
       obtenerFondoCajaConfig(),
     ]);
 
-    // Se relee/crea el doc y se le anexa la captura. Si dos "Guardar" casi
-    // simultáneos intentan crear el doc del día a la vez, el segundo choca con
-    // el índice único de `fecha` (11000): se reintenta una vez releyendo.
-    let cierre;
-    for (let intento = 0; intento < 2; intento += 1) {
-      cierre = await CierreCaja.findOne({ fecha });
-      if (cierre?.estado === 'CERRADA') {
-        return res.status(400).json({ ok: false, msg: 'La caja de este día ya está cerrada.' });
-      }
-      if (!cierre) {
-        cierre = new CierreCaja({
-          fecha,
-          billetes: conteoVacio(DENOMINACIONES_BILLETES),
-          monedas: conteoVacio(DENOMINACIONES_MONEDAS),
-          terminales: normalizarTerminales(),
-        });
-      }
-      // Días guardados antes de este historial: materializa lo ya acumulado
-      // como un movimiento inicial antes de sumarle la ronda nueva.
-      asegurarCapturaBaseline(cierre);
-      cierre.capturas.push(captura);
-      rebuildAgregadosCaptura(cierre);
-      cierre.totalReportes = totalReportes;
-      cierre.fondoCaja = fondoCaja;
-      cierre.capturadoPor = nombreUsuario(req.user);
-      try {
-        await cierre.save();
-        break;
-      } catch (errSave) {
-        if (errSave?.code === 11000 && intento === 0) continue;
-        throw errSave;
-      }
-    }
+    // Docs traídos solo por la suma automática de terminales: materializa lo ya
+    // acumulado como un movimiento inicial antes de sumarle la ronda nueva.
+    asegurarCapturaBaseline(cierre);
+    cierre.capturas.push(captura);
+    rebuildAgregadosCaptura(cierre);
+    cierre.totalReportes = totalReportes;
+    cierre.fondoCaja = fondoCaja;
+    cierre.capturadoPor = nombreUsuario(req.user);
+    await cierre.save();
 
     const data = cierre.toObject();
     return res.json({ ok: true, data, totales: calcularTotalesCierre(data) });
@@ -390,21 +402,17 @@ router.post('/', proteger, async (req, res) => {
 });
 
 // POST /api/reportes/cierre-caja/captura/:capturaId/cancelar -> cancela una
-// captura mal hecha (monto equivocado) y recompone el corte del día. Solo
-// admin, y solo mientras la caja siga ABIERTA (si ya cerró, primero se
-// Restablece). `capturaId` puede ser 'baseline' para el movimiento inicial de
-// un día viejo que aún no se había materializado.
+// captura mal hecha (monto equivocado) y recompone el corte. Solo admin, y solo
+// mientras la caja siga ABIERTA (si ya cerró, primero se Restablece).
+// `capturaId` puede ser 'baseline' para el movimiento inicial de una sesión
+// que aún no se había materializado.
 router.post('/captura/:capturaId/cancelar', proteger, requiereRol('admin'), async (req, res) => {
   try {
-    const fecha = normalizarFecha(req.body?.fecha);
-    if (!fecha) return res.status(400).json({ ok: false, msg: 'Parámetro fecha requerido (YYYY-MM-DD).' });
-
-    const cierre = await CierreCaja.findOne({ fecha });
-    if (!cierre) return res.status(404).json({ ok: false, msg: 'No hay una caja guardada para esta fecha.' });
-    if (cierre.estado === 'CERRADA') {
+    const cierre = await CierreCaja.findOne({ estado: 'ABIERTA' }).sort({ abiertaEn: -1 });
+    if (!cierre) {
       return res.status(400).json({
         ok: false,
-        msg: 'La caja de este día ya está cerrada. Restablécela para poder cancelar una captura.',
+        msg: 'No hay una caja abierta. Restablece la sesión para poder cancelar una captura.',
       });
     }
 
@@ -453,38 +461,35 @@ router.get('/vale-siguiente-folio', proteger, async (req, res) => {
   }
 });
 
-// POST /api/reportes/cierre-caja/cerrar -> congela el cierre del día: ya no
-// se puede editar desde Gestión de Caja ni sumar terminales automáticamente,
-// y a partir de aquí aparece en el historial de Reportes > Cajas.
+// POST /api/reportes/cierre-caja/cerrar -> congela la sesión de caja abierta:
+// ya no se puede editar ni sumar terminales, y aparece en el historial de
+// Reportes > Cajas. La siguiente actividad abre una sesión nueva.
 router.post('/cerrar', proteger, async (req, res) => {
   try {
-    const fecha = normalizarFecha(req.body?.fecha);
-    if (!fecha) return res.status(400).json({ ok: false, msg: 'Parámetro fecha requerido (YYYY-MM-DD).' });
-
-    const existente = await CierreCaja.findOne({ fecha });
-    if (existente?.estado === 'CERRADA') {
-      return res.status(400).json({ ok: false, msg: 'La caja de este día ya está cerrada.' });
+    const cierre = await sesionCajaAbierta({ crear: false });
+    if (!cierre) {
+      return res.status(400).json({ ok: false, msg: 'No hay una caja abierta para cerrar.' });
     }
 
+    const desdeSesion = new Date(cierre.abiertaEn || cierre.fecha);
     const [totalReportes, fondoCaja] = await Promise.all([
-      calcularTotalIngresosDia(fecha),
+      calcularTotalIngresosRango(desdeSesion, new Date()),
       obtenerFondoCajaConfig(),
     ]);
-    const base = existente ? existente.toObject() : cierreVacio(fecha);
+    const base = cierre.toObject();
 
-    // Congela también el historial de capturas del día. Un día viejo sin
-    // capturas se cierra con su movimiento inicial ya materializado.
+    // Congela también el historial de capturas. Una sesión sin capturas se
+    // cierra con su movimiento inicial ya materializado.
     let capturasCierre = base.capturas || [];
     if (capturasCierre.length === 0) {
       const baseline = baselineDesdeAgregados(base);
       if (!capturaEstaVacia(baseline)) capturasCierre = [baseline];
     }
 
-    const cierre = await CierreCaja.findOneAndUpdate(
-      { fecha },
+    const cerrado = await CierreCaja.findByIdAndUpdate(
+      cierre._id,
       {
         $set: {
-          fecha,
           billetes: normalizarConteo(DENOMINACIONES_BILLETES, base.billetes),
           monedas: normalizarConteo(DENOMINACIONES_MONEDAS, base.monedas),
           terminales: normalizarTerminales(base.terminales),
@@ -501,26 +506,27 @@ router.post('/cerrar', proteger, async (req, res) => {
           cerradoPor: req.user?.name || req.user?.username || '',
         },
       },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
+      { new: true }
     ).lean();
 
-    return res.json({ ok: true, data: cierre, totales: calcularTotalesCierre(cierre) });
+    return res.json({ ok: true, data: cerrado, totales: calcularTotalesCierre(cerrado) });
   } catch (err) {
     console.error('Error cerrando caja:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });
 
-// POST /api/reportes/cierre-caja/restablecer -> reabre un día ya cerrado
-// (solo admin). El rol cajas no puede llamar esto directo: debe solicitarlo
-// vía ticket RESTABLECER_CAJA (ver PUT /tickets/:id/resolver-restablecer-caja),
-// que internamente usa el mismo helper cuando el admin aprueba.
+// POST /api/reportes/cierre-caja/restablecer -> reabre una sesión ya cerrada
+// (solo admin, y solo si no hay otra abierta). El rol cajas no puede llamar
+// esto directo: debe solicitarlo vía ticket RESTABLECER_CAJA (ver
+// PUT /tickets/:id/resolver-restablecer-caja).
 router.post('/restablecer', proteger, requiereRol('admin'), async (req, res) => {
   try {
-    const fecha = normalizarFecha(req.body?.fecha);
-    if (!fecha) return res.status(400).json({ ok: false, msg: 'Parámetro fecha requerido (YYYY-MM-DD).' });
-
-    const cierre = await restablecerCierreCajaDia(fecha, req.user?.name || req.user?.username || '');
+    const id = req.body?.id;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ ok: false, msg: 'Selecciona la sesión de caja a restablecer.' });
+    }
+    const cierre = await restablecerSesionCaja(id, req.user?.name || req.user?.username || '');
     return res.json({ ok: true, data: cierre.toObject(), totales: calcularTotalesCierre(cierre) });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ ok: false, msg: err.message });
@@ -529,17 +535,25 @@ router.post('/restablecer', proteger, requiereRol('admin'), async (req, res) => 
   }
 });
 
-// GET /api/reportes/cierre-caja/pdf?fecha=YYYY-MM-DD
+// GET /api/reportes/cierre-caja/pdf?id=<id>   (compat: ?fecha=YYYY-MM-DD)
 // Sin `proteger`: se abre vía window.open() y ese request no puede llevar el
 // header Authorization, igual que el resto de los PDFs de Cajas.
 router.get('/pdf', async (req, res) => {
   try {
-    const fecha = normalizarFecha(req.query.fecha);
-    if (!fecha) return res.status(400).json({ ok: false, msg: 'Parámetro fecha requerido (YYYY-MM-DD).' });
-
-    const cierre = await CierreCaja.findOne({ fecha }).lean();
+    let cierre = null;
+    if (req.query.id && mongoose.isValidObjectId(req.query.id)) {
+      cierre = await CierreCaja.findById(req.query.id).lean();
+    } else if (req.query.fecha) {
+      const fecha = normalizarFecha(req.query.fecha);
+      if (fecha) {
+        cierre = await CierreCaja.findOne({ fecha }).sort({ cerradoEn: -1 }).lean();
+      }
+    } else {
+      // Sin parámetros: la sesión abierta actual.
+      cierre = await CierreCaja.findOne({ estado: 'ABIERTA' }).sort({ abiertaEn: -1 }).lean();
+    }
     if (!cierre) {
-      return res.status(404).json({ ok: false, msg: 'No hay un cierre de caja guardado para esta fecha.' });
+      return res.status(404).json({ ok: false, msg: 'No se encontró esa sesión de caja.' });
     }
 
     await streamCierreCajaPdf(res, cierre);

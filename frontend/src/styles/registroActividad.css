@@ -47,6 +47,13 @@
   letter-spacing: 0.02em;
 }
 
+.reg-actividad .reg-desc {
+  margin-top: 3px;
+  font-size: 0.82rem;
+  color: #222;
+  max-width: 42ch;
+}
+
 .reg-actividad .reg-btn-detalle {
   padding: 0.05rem 0.45rem;
   font-size: 0.78rem;

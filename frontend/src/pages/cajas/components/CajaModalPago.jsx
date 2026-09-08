@@ -102,9 +102,9 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   // no se captura aquí: la marca el backend cuando la orden se queda sin saldo
   // pendiente (ver POST /api/cajas/:id/pagos).
   const [tipoRemision, setTipoRemision] = useState("Contado");
-  // Fecha de la remisión: por defecto hoy, editable (a veces se captura un día
-  // después). El backend no acepta fechas futuras.
-  const [fechaRemision, setFechaRemision] = useState(hoyISO());
+  // Fecha del comprobante (Nota de Venta / Remisión): por defecto hoy, editable
+  // (a veces se captura un día después). El backend no acepta fechas futuras.
+  const [fechaComprobante, setFechaComprobante] = useState(hoyISO());
   // Motivo con el que se cancela la Remisión activa de la orden cuando se elige
   // generar otro comprobante (Nota de Venta / Remisión) encima de ella.
   const [cancelarRemisionMotivo, setCancelarRemisionMotivo] = useState("");
@@ -278,7 +278,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setComprobanteInvalido(false);
     setTipoNota("Contado");
     setTipoRemision("Contado");
-    setFechaRemision(hoyISO());
+    setFechaComprobante(hoyISO());
     setCancelarRemisionMotivo("");
     setCancelarRemisionMotivoInvalido(false);
     setFormaPago("EFECTIVO");
@@ -763,10 +763,11 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
               chequeNumero,
               terminal: terminalSimple,
               tipoNota,
+              fecha: fechaComprobante,
               ...(formaPago === "COMBINADO" ? { combinado: combinadoAplicado() } : {}),
             }
           : comprobante === "REMISION"
-          ? { tipoRemision, fecha: fechaRemision }
+          ? { tipoRemision, fecha: fechaComprobante }
           : comprobante === "SIN_COMPROBANTE"
           ? {
               formaPago,
@@ -1352,9 +1353,9 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
       k: "Comprobante",
       v:
         tipoPago === "COMPLETO" && comprobante === "NOTA_VENTA"
-          ? `Nota de Venta · ${tipoNota}`
+          ? `Nota de Venta · ${tipoNota} · ${fechaComprobante.split("-").reverse().join("/")}`
           : tipoPago === "COMPLETO" && comprobante === "REMISION"
-          ? `Remisión · ${tipoRemision} · ${fechaRemision.split("-").reverse().join("/")}`
+          ? `Remisión · ${tipoRemision} · ${fechaComprobante.split("-").reverse().join("/")}`
           : comprobante === "SIN_COMPROBANTE"
           ? "Sin comprobante"
           : "Recibo Provisional",
@@ -1512,6 +1513,25 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                       </div>
                     )}
 
+                    {(comprobante === "NOTA_VENTA" || comprobante === "REMISION") && (
+                      <div className="mb-3">
+                        <label className="form-label mb-0">
+                          Fecha de la {comprobante === "REMISION" ? "remisión" : "nota de venta"}
+                        </label>
+                        <input
+                          type="date"
+                          className="form-control"
+                          value={fechaComprobante}
+                          max={hoyISO()}
+                          onChange={(e) => setFechaComprobante(e.target.value)}
+                          data-no-uppercase
+                        />
+                        <small className="text-muted">
+                          Por defecto hoy; cámbiala si el comprobante es de otro día (no se permiten fechas futuras).
+                        </small>
+                      </div>
+                    )}
+
                     {comprobante === "NOTA_VENTA" && (
                       <div className="mb-3">
                         <label className="form-label mb-0">Tipo de Nota</label>
@@ -1531,17 +1551,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                             <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
                           ))}
                         </Dropdown>
-                        <label className="form-label mb-0 mt-2">Fecha de la remisión</label>
-                        <input
-                          type="date"
-                          className="form-control"
-                          value={fechaRemision}
-                          max={hoyISO()}
-                          onChange={(e) => setFechaRemision(e.target.value)}
-                          data-no-uppercase
-                        />
                         <small className="text-muted">
-                          Por defecto hoy; cámbiala si la remisión es de otro día (no se permiten fechas futuras).
                           La Fecha de Pagada se registra sola cuando la orden queda sin saldo pendiente.
                         </small>
                       </div>

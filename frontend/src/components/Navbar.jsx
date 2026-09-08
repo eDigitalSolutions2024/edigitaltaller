@@ -191,7 +191,7 @@ useEffect(() => {
                 to="/soporte/mis-tickets"
                 className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
               >
-                <span className="label">Reportar Ticket</span>
+                <span className="label">Reportar Problema</span>
               </NavLink>
             )}
 

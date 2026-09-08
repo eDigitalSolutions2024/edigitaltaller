@@ -688,6 +688,14 @@ pendienteCierre: { type: Boolean, default: false },
         notas: { type: String, default: '' },
         registradoPor: { type: String, default: '' },
 
+        // Corrección de la fecha del pago desde el Historial de Pagos
+        // (PATCH /api/cajas/:id/pagos/:pagoId/fecha), siempre con un motivo.
+        // `fechaOriginal` guarda la fecha previa a la PRIMERA corrección.
+        fechaOriginal: { type: Date, default: null },
+        fechaEditadaEn: { type: Date, default: null },
+        fechaEditadaPor: { type: String, default: '' },
+        motivoCambioFecha: { type: String, default: '' },
+
         // Cancelación del pago (p. ej. se cancela el anticipo o la remisión de
         // la orden para poder facturarla). Un pago cancelado deja de contar
         // como abonado en calcularTotalesOrden y libera a la orden de la

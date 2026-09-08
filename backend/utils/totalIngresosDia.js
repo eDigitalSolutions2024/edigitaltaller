@@ -25,12 +25,21 @@ function limitesDiaLocal(fecha) {
 // (backend/routes/reportes.js), pero cruzando los 3 tipos de comprobante.
 async function calcularTotalIngresosDia(fecha) {
   const { desde, hasta } = limitesDiaLocal(fecha);
+  return calcularTotalIngresosRango(desde, hasta);
+}
+
+// Suma lo cobrado (pagos no cancelados de los 3 comprobantes) en un rango de
+// instantes cualquiera — lo usa el Cierre de Caja por SESIÓN, que arranca en
+// el último cierre y puede cruzar varios días.
+async function calcularTotalIngresosRango(desde, hasta) {
+  const d = new Date(desde);
+  const h = new Date(hasta);
 
   const ordenes = await Vehiculo.find({
     pagos: {
       $elemMatch: {
         comprobante: { $in: COMPROBANTES_INGRESO },
-        fecha: { $gte: desde, $lte: hasta },
+        fecha: { $gte: d, $lte: h },
       },
     },
   })
@@ -43,11 +52,11 @@ async function calcularTotalIngresosDia(fecha) {
       if (pago.cancelado) continue;
       if (!COMPROBANTES_INGRESO.includes(pago.comprobante)) continue;
       const f = new Date(pago.fecha);
-      if (f < desde || f > hasta) continue;
+      if (f < d || f > h) continue;
       total += pago.monto || 0;
     }
   }
   return total;
 }
 
-module.exports = { calcularTotalIngresosDia, limitesDiaLocal };
+module.exports = { calcularTotalIngresosDia, calcularTotalIngresosRango, limitesDiaLocal };
