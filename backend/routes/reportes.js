@@ -999,9 +999,10 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
   const anticiposCancelados = [];
   // Factura a la que pasó cada anticipo/remisión cancelado, para cruzar con
   // Facturas/Factura general más abajo (marca la nota de cancelado previo y
-  // el desglose de PUBLICO GENERAL). El tipo (ANTICIPO/REMISION) decide la
-  // redacción: solo los anticipos quedan listados arriba en "Anticipos
-  // cancelados", así que solo ellos pueden decir "ANTES MENCIONADO".
+  // el desglose de PUBLICO GENERAL). La remisión cancelada NO se lista en
+  // este reporte (ni banda propia ni nota): esa historia vive solo en el
+  // Reporte de Remisiones ("SE CANCELA REMISIÓN Y PASA A FACTURA ..."), este
+  // cruce solo sirve para no repetirla aquí como texto suelto.
   const cruceAnticipoPorOrdenFactura = new Map(); // `${facturaId}_${vehiculoId}` -> { tipo, monto }
 
   if (candidatosCancelados.length) {
@@ -1066,9 +1067,9 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         monto: p.monto,
       });
 
-      // Esta banda solo lista anticipos cancelados: una remisión cancelada
-      // no es un anticipo (nunca sumó a totalAnticipo en la sección de
-      // Anticipos vigentes), solo sirve arriba para el cruce con Facturas.
+      // Esta banda solo lista anticipos cancelados: una remisión cancelada no
+      // es un anticipo (nunca sumó a totalAnticipo), y su cancelación ya
+      // queda documentada en el Reporte de Remisiones, no aquí.
       if (esRemision) continue;
 
       // Notas del anticipo cancelado: "TIPO DE PAGO  FECHA  NOMBRE CLIENTE"
@@ -1177,9 +1178,11 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       const cruce = cruceAnticipoPorOrdenFactura.get(`${facturaIdStr}_${String(o.vehiculoId)}`);
       if (cruce) tipos.add(cruce.tipo);
     }
-    if (!tipos.size) return '';
     if (tipos.has('ANTICIPO')) return 'CON ANTICIPO CANCELADO ANTES MENCIONADO';
-    return 'CON REMISIÓN CANCELADA';
+    // Una remisión cancelada NO se menciona en este reporte (esa historia
+    // vive solo en el Reporte de Remisiones): las Notas de esta fila quedan
+    // libres para mostrar solo el método de pago real (ver más abajo).
+    return '';
   }
 
   for (const f of facturaDocs) {
