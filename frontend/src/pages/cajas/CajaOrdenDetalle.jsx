@@ -28,6 +28,8 @@ import CajaModalDescuento from "./components/CajaModalDescuento";
 import CajaModalCancelarPago from "./components/CajaModalCancelarPago";
 import CajaModalEditarFechaPago from "./components/CajaModalEditarFechaPago";
 import CajaModalValeGarantia from "./components/CajaModalValeGarantia";
+import CajaModalDetalleFactura from "./components/CajaModalDetalleFactura";
+import CajaModalDetallePago from "./components/CajaModalDetallePago";
 
 function formatMoney(n) {
   return new Intl.NumberFormat("es-MX", {
@@ -61,6 +63,8 @@ export default function CajaOrdenDetalle() {
   const [pagoAEditarFecha, setPagoAEditarFecha] = useState(null);
   const [showModalValeGarantia, setShowModalValeGarantia] = useState(false);
   const [anticiposDisponibles, setAnticiposDisponibles] = useState([]);
+  const [facturaAVer, setFacturaAVer] = useState(null);
+  const [pagoAVer, setPagoAVer] = useState(null);
 
   const cargar = async () => {
     try {
@@ -481,6 +485,8 @@ export default function CajaOrdenDetalle() {
           esAdmin={esAdmin}
           onDeshacerCancelacion={handleDeshacerCancelacion}
           onEditarFecha={esAdmin || esCajas ? setPagoAEditarFecha : undefined}
+          onVerFactura={setFacturaAVer}
+          onVerPago={setPagoAVer}
         />
       </div>
 
@@ -524,6 +530,14 @@ export default function CajaOrdenDetalle() {
         onClose={() => setShowModalValeGarantia(false)}
         onGuardado={handleValeGarantiaGuardado}
       />
+      <CajaModalDetalleFactura
+        show={!!facturaAVer}
+        factura={facturaAVer}
+        pagos={orden.pagos || []}
+        vehiculoId={orden._id}
+        onClose={() => setFacturaAVer(null)}
+      />
+      <CajaModalDetallePago show={!!pagoAVer} pago={pagoAVer} onClose={() => setPagoAVer(null)} />
       {pdfModal}
     </div>
   );

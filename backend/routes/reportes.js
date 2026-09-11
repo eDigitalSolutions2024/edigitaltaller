@@ -1336,6 +1336,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       .lean();
     const metodoPorNotaGlobal = new Map(); // `${facturaGlobalId}_${notaVentaNumero}` -> abreviatura
     const transferenciaPorFacturaGlobal = new Map(); // facturaGlobalId -> monto pagado por transferencia
+    const dolaresPorNotaGlobal = new Map(); // `${facturaGlobalId}_${notaVentaNumero}` -> { montoDolares, reciboNumero }
     for (const v of vehiculosNotasGlobal) {
       for (const p of v.pagos || []) {
         if (!p.facturaGlobalId || p.comprobante !== 'NOTA_VENTA' || p.cancelado) continue;
@@ -1353,6 +1354,16 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
           const key = String(p.facturaGlobalId);
           transferenciaPorFacturaGlobal.set(key, (transferenciaPorFacturaGlobal.get(key) || 0) + montoTransf);
         }
+
+        // Si parte del pago entró en dólares en efectivo, el desglose de
+        // PUBLICO GENERAL debe decirlo junto con el folio del Recibo de
+        // Dólares que se generó para esa nota (ver POST /cajas/:id/pagos).
+        if (Number(p.montoDolares) > 0) {
+          dolaresPorNotaGlobal.set(`${String(p.facturaGlobalId)}_${num}`, {
+            montoDolares: Number(p.montoDolares),
+            reciboNumero: p.reciboDolares?.numero ?? null,
+          });
+        }
       }
     }
 
@@ -1360,7 +1371,14 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     for (const f of facturasGlobalDocs) {
-      const total = f.totales?.total || 0;
+      // "Venta del día" debe cuadrar centavo a centavo con el desglose que
+      // se muestra junto a ella (columna Cliente): la suma de lo realmente
+      // cobrado por cada Nota de Venta agrupada. f.totales.total es el total
+      // fiscal del CFDI (calculado aparte a partir de conceptos/IVA) y puede
+      // diferir por un centavo de redondeo de ese cálculo; se usa solo como
+      // respaldo si la factura global no trae notasVenta (dato viejo).
+      const totalNotasVenta = (f.notasVenta || []).reduce((s, n) => s + (Number(n.monto) || 0), 0);
+      const total = (f.notasVenta || []).length ? totalNotasVenta : f.totales?.total || 0;
       const esPue = (f.cfdi?.metodoPago || 'PUE') !== 'PPD';
       totalVentaDia += total;
 
@@ -1380,11 +1398,18 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       }
 
       const partes = (f.notasVenta || []).map((n) => {
-        const metodo = metodoPorNotaGlobal.get(`${String(f._id)}_${n.numero}`);
+        const clave = `${String(f._id)}_${n.numero}`;
+        const metodo = metodoPorNotaGlobal.get(clave);
         const folio = n.numero != null ? `P${n.numero}` : 'S/N';
+        const dolares = dolaresPorNotaGlobal.get(clave);
+        const textoDolares = dolares
+          ? ` Y $${fmtMonto(dolares.montoDolares)} USD${
+              dolares.reciboNumero != null ? ` REC.DLS#${dolares.reciboNumero}` : ''
+            }`
+          : '';
         return metodo
-          ? `(${folio} $${fmtMonto(n.monto)} CON ${metodo})`
-          : `(${folio} $${fmtMonto(n.monto)})`;
+          ? `(${folio} $${fmtMonto(n.monto)} CON ${metodo}${textoDolares})`
+          : `(${folio} $${fmtMonto(n.monto)}${textoDolares})`;
       });
 
       facturaGlobal.push({

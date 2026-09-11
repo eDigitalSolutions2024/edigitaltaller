@@ -61,6 +61,8 @@ export default function CajaHistorialPagos({
   esAdmin = false,
   onDeshacerCancelacion,
   onEditarFecha,
+  onVerFactura,
+  onVerPago,
 }) {
   const [filtro, setFiltro] = useState("TODOS");
 
@@ -103,7 +105,7 @@ export default function CajaHistorialPagos({
       </div>
 
       <div className="table-responsive mb-3">
-        <table className="table table-sm table-bordered align-middle">
+        <table className="table table-sm table-bordered align-middle table-hover">
           <thead className="table-light text-center">
             <tr>
               <th>Fecha</th>
@@ -130,7 +132,13 @@ export default function CajaHistorialPagos({
               if (p._esFactura) {
                 const cancelada = p.estatus === "cancelada";
                 return (
-                  <tr key={p._id || idx} className={cancelada ? "table-secondary text-decoration-line-through" : ""}>
+                  <tr
+                    key={p._id || idx}
+                    className={cancelada ? "table-secondary text-decoration-line-through" : ""}
+                    style={onVerFactura ? { cursor: "pointer" } : undefined}
+                    onClick={() => onVerFactura?.(p)}
+                    title={onVerFactura ? "Ver detalle de la factura" : undefined}
+                  >
                     <td className="text-center text-nowrap">{formatFecha(p.fecha)}</td>
                     <td className="text-center">{TIPO_FACTURA_LABEL[p.tipoFactura] || "Factura"}</td>
                     <td className="text-center">
@@ -147,18 +155,27 @@ export default function CajaHistorialPagos({
                     <td className="text-end fw-bold">{formatMoney(p.totales?.total)}</td>
                     <td>{p.notaFacturacion}</td>
                     <td>{p.generadoPor}</td>
-                    <td className="text-center"></td>
+                    <td className="text-center" onClick={(e) => e.stopPropagation()}></td>
                   </tr>
                 );
               }
               return (
-              <tr key={p._id || idx} className={p.cancelado ? "table-secondary text-decoration-line-through" : ""}>
+              <tr
+                key={p._id || idx}
+                className={p.cancelado ? "table-secondary text-decoration-line-through" : ""}
+                style={onVerPago ? { cursor: "pointer" } : undefined}
+                onClick={() => onVerPago?.(p)}
+                title={onVerPago ? "Ver detalle de este pago" : undefined}
+              >
                 <td className="text-center text-nowrap">
                   {onEditarFecha && !p.cancelado ? (
                     <button
                       className="btn btn-link btn-sm p-0 text-decoration-none"
                       title="Corregir la fecha de este pago"
-                      onClick={() => onEditarFecha(p)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEditarFecha(p);
+                      }}
                     >
                       {formatFecha(p.fecha)} <FaRegCalendarAlt className="ms-1" />
                     </button>
@@ -207,7 +224,7 @@ export default function CajaHistorialPagos({
                 </td>
                 <td>{p.observaciones}</td>
                 <td>{p.registradoPor}</td>
-                <td className="text-center">
+                <td className="text-center" onClick={(e) => e.stopPropagation()}>
                   <div className="d-flex gap-1 justify-content-center">
                     {(p.comprobante === "NOTA_VENTA" || p.comprobante === "REMISION") && (
                       <button
