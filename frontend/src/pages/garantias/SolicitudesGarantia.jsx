@@ -1,5 +1,5 @@
 // src/pages/garantias/SolicitudesGarantia.jsx
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Dropdown from "../../components/Dropdown";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { listGarantias, resolverGarantia, cancelarOrdenGarantia } from "../../api/garantias";
@@ -8,15 +8,9 @@ import http from "../../api/http";
 import { TARIFA_HORA, calcImporteHoras } from "../../utils/manoObra";
 import { formatFecha as formatFechaBase } from "../../utils/fechas";
 import ModalCancelarGarantia from "./ModalCancelarGarantia";
+import "../../styles/garantias.css";
 
 const LIMIT = 10;
-
-const ESTADO_BADGE = {
-  PENDIENTE: "bg-warning text-dark",
-  APROBADA: "bg-success",
-  NEGADA: "bg-danger",
-  NO_APLICA: "bg-secondary",
-};
 
 // En pantalla la garantía se maneja como Pendiente / Autorizada / Negada /
 // No aplica (en la base de datos se conserva APROBADA).
@@ -92,6 +86,14 @@ function nombreCliente(c) {
     c.gobierno?.nombreGobierno ||
     [c.nombre, c.apellidoPaterno, c.apellidoMaterno].filter(Boolean).join(" ") ||
     "Sin nombre"
+  );
+}
+
+function EstadoPill({ estado }) {
+  return (
+    <span className={`gar-pill gar-pill--${estado || "NO_APLICA"}`}>
+      {ESTADO_LABEL[estado] || estado}
+    </span>
   );
 }
 
@@ -204,6 +206,107 @@ function TablaManoObra({ manoObra, nombreManoObra }) {
   );
 }
 
+// Detalle expandible: orden original + nueva orden, con su venta al cliente y
+// mano de obra. Se reutiliza en la sección de pendientes y en el historial.
+function DetalleOrdenes({ v, g, nombreManoObra }) {
+  const ordenAnterior =
+    g.ordenAnterior && typeof g.ordenAnterior === "object" ? g.ordenAnterior : null;
+
+  return (
+    <div className="row g-3">
+      {/* Orden original */}
+      <div className="col-12 col-lg-6">
+        <div className="card h-100">
+          <div className="card-header fw-bold">
+            Orden Original — {g.ordenAnteriorFolio || "—"}
+          </div>
+          <div className="card-body">
+            {ordenAnterior ? (
+              <>
+                <p className="mb-1 small">
+                  <strong>Estatus:</strong>{" "}
+                  {(ordenAnterior.estadoOrden || "").replaceAll("_", " ")}
+                  {" · "}
+                  <strong>Recepción:</strong>{" "}
+                  {formatFecha(ordenAnterior.fechaRecepcion)}
+                  {" · "}
+                  <strong>Cierre:</strong>{" "}
+                  {formatFecha(ordenAnterior.fechaCierre)}
+                </p>
+                <p className="mb-2 small">
+                  <strong>Vehículo:</strong>{" "}
+                  {[ordenAnterior.marca, ordenAnterior.modelo, ordenAnterior.anio]
+                    .filter(Boolean)
+                    .join(" ") || "—"}
+                  {ordenAnterior.placas ? ` · Placas: ${ordenAnterior.placas}` : ""}
+                  {ordenAnterior.creadoPor ? ` · Asesor: ${ordenAnterior.creadoPor}` : ""}
+                </p>
+                <div className="fw-semibold small mb-1">Venta al Cliente:</div>
+                <TablaVenta
+                  ventaCliente={ordenAnterior.ventaCliente}
+                  iva={ordenAnterior.ivaVenta}
+                />
+                <div className="fw-semibold small mb-1 mt-3">Mano de Obra:</div>
+                <TablaManoObra
+                  manoObra={ordenAnterior.manoObra}
+                  nombreManoObra={nombreManoObra}
+                />
+                <div className="mt-2">
+                  <Link
+                    to={`/vehiculo/orden/${ordenAnterior._id}?tab=general`}
+                    className="btn btn-sm btn-outline-primary"
+                  >
+                    Ver orden original
+                  </Link>
+                </div>
+              </>
+            ) : (
+              <p className="text-muted mb-0">
+                No se encontró la información de la orden original.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Nueva orden */}
+      <div className="col-12 col-lg-6">
+        <div className="card h-100">
+          <div className="card-header fw-bold">Nueva Orden — {v.ordenServicio}</div>
+          <div className="card-body">
+            <p className="mb-1 small">
+              <strong>Estatus actual:</strong>{" "}
+              {(v.estadoOrden || "").replaceAll("_", " ")}
+              {" · "}
+              <strong>Recepción:</strong> {formatFecha(v.fechaRecepcion)}
+            </p>
+            <p className="mb-2 small">
+              <strong>Vehículo:</strong>{" "}
+              {[v.marca, v.modelo, v.anio].filter(Boolean).join(" ") || "—"}
+              {v.placas ? ` · Placas: ${v.placas}` : ""}
+              {" · "}
+              <strong>Fecha devolución solicitud:</strong>{" "}
+              {formatFecha(g.fechaResolucion)}
+            </p>
+            <div className="fw-semibold small mb-1">Venta al Cliente:</div>
+            <TablaVenta ventaCliente={v.ventaCliente} iva={v.ivaVenta} />
+            <div className="fw-semibold small mb-1 mt-3">Mano de Obra:</div>
+            <TablaManoObra manoObra={v.manoObra} nombreManoObra={nombreManoObra} />
+            <div className="mt-2">
+              <Link
+                to={`/vehiculo/orden/${v._id}?tab=general`}
+                className="btn btn-sm btn-outline-primary"
+              >
+                Ver nueva orden
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SolicitudesGarantia() {
   const user = getUser();
   const puedeResolver = ["admin", "jefe"].includes(user?.role);
@@ -218,21 +321,23 @@ export default function SolicitudesGarantia() {
   const osParam = searchParams.get("os") || "";
   const autoExpandRef = useRef(!!osParam);
 
-  // _id recibido al llegar desde la notificación "Garantía no aplica" (ver
-  // Soporte/SoporteFlotante → /garantias?highlight=<id>): expande y resalta
-  // esa fila para que el admin la revise (autorizar, marcar "No aplica" y
-  // cancelar, o dejarla como está).
+  // _id recibido al llegar desde la notificación de un ticket de garantía (ver
+  // Soporte/SoporteFlotante → /garantias?highlight=<id>): expande y resalta esa
+  // solicitud para que el admin la revise.
   const highlightParam = searchParams.get("highlight") || "";
   const [highlightedId, setHighlightedId] = useState(highlightParam);
   const highlightRef = useRef(null);
 
-  const [solicitudes, setSolicitudes] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  // Sección 1: pendientes de autorización. Sección 2: historial (resueltas /
+  // canceladas), este último paginado y con filtro por estado.
+  const [pendientes, setPendientes] = useState([]);
+  const [historial, setHistorial] = useState([]);
+  const [histTotal, setHistTotal] = useState(0);
+  const [histPage, setHistPage] = useState(1);
+  const [histFiltro, setHistFiltro] = useState(""); // "" = todas las resueltas
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const [filtroEstado, setFiltroEstado] = useState("");
   const [searchOs, setSearchOs] = useState(osParam);
   const [searchDebounced, setSearchDebounced] = useState(osParam.trim());
 
@@ -241,7 +346,7 @@ export default function SolicitudesGarantia() {
     return () => clearTimeout(t);
   }, [searchOs]);
 
-  // Edición local por solicitud: { [id]: { motivo, autorizaCarreon } }
+  // Edición local por solicitud pendiente: { [id]: { motivo, autorizaCarreon } }
   const [edits, setEdits] = useState({});
   const [expandida, setExpandida] = useState(null);
   const [procesando, setProcesando] = useState(null);
@@ -279,20 +384,31 @@ export default function SolicitudesGarantia() {
     try {
       setLoading(true);
       setError("");
-      const res = await listGarantias({
-        estado: filtroEstado,
-        searchOs: searchDebounced,
-        page,
-        limit: LIMIT,
-      });
-      const data = Array.isArray(res.data?.data) ? res.data.data : [];
-      setSolicitudes(data);
-      setTotal(res.data?.total || 0);
+      const [resPend, resHist] = await Promise.all([
+        listGarantias({
+          estado: "PENDIENTE",
+          searchOs: searchDebounced,
+          page: 1,
+          limit: 100,
+        }),
+        listGarantias({
+          estado: histFiltro || "RESUELTAS",
+          searchOs: searchDebounced,
+          page: histPage,
+          limit: LIMIT,
+        }),
+      ]);
 
-      // Sincroniza el estado editable con lo que llegó del servidor
+      const pend = Array.isArray(resPend.data?.data) ? resPend.data.data : [];
+      const hist = Array.isArray(resHist.data?.data) ? resHist.data.data : [];
+      setPendientes(pend);
+      setHistorial(hist);
+      setHistTotal(resHist.data?.total || 0);
+
+      // Solo las pendientes son editables (motivo + casilla Autorizar)
       setEdits((prev) => {
         const next = { ...prev };
-        for (const v of data) {
+        for (const v of pend) {
           next[v._id] = {
             motivo: v.garantia?.motivo || "",
             autorizaCarreon: !!v.garantia?.autorizaCarreon,
@@ -301,9 +417,11 @@ export default function SolicitudesGarantia() {
         return next;
       });
 
+      const todos = [...pend, ...hist];
+
       // Expande la solicitud cuando se llegó desde la consulta de garantías
       if (autoExpandRef.current && osParam) {
-        const match = data.find(
+        const match = todos.find(
           (v) =>
             String(v.ordenServicio || "").toUpperCase() ===
             osParam.trim().toUpperCase()
@@ -312,8 +430,8 @@ export default function SolicitudesGarantia() {
         autoExpandRef.current = false;
       }
 
-      // Expande la solicitud notificada por un asesor ("Garantía no aplica")
-      if (highlightParam && data.some((v) => v._id === highlightParam)) {
+      // Expande la solicitud notificada por un ticket de garantía
+      if (highlightParam && todos.some((v) => v._id === highlightParam)) {
         setExpandida(highlightParam);
       }
     } catch (err) {
@@ -322,34 +440,40 @@ export default function SolicitudesGarantia() {
     } finally {
       setLoading(false);
     }
-  }, [filtroEstado, searchDebounced, page, osParam, highlightParam]);
+  }, [searchDebounced, histPage, histFiltro, osParam, highlightParam]);
 
   useEffect(() => {
     cargar();
   }, [cargar]);
 
-  // Lleva la vista hasta la fila resaltada una vez que se renderiza.
+  // Lleva la vista hasta la solicitud resaltada una vez que se renderiza.
   useEffect(() => {
     if (!highlightedId || loading) return;
     highlightRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [highlightedId, loading, solicitudes]);
+  }, [highlightedId, loading, pendientes, historial]);
 
-  const totalPages = Math.max(1, Math.ceil(total / LIMIT));
+  const histTotalPages = Math.max(1, Math.ceil(histTotal / LIMIT));
+
+  // Las que ya pidieron autorización (asesor pulsó "Enviar a Venta") van primero.
+  const pendientesOrdenadas = useMemo(() => {
+    return [...pendientes].sort(
+      (a, b) =>
+        (b.garantia?.autorizacionSolicitada ? 1 : 0) -
+        (a.garantia?.autorizacionSolicitada ? 1 : 0)
+    );
+  }, [pendientes]);
+
+  const esperandoCount = useMemo(
+    () => pendientes.filter((v) => v.garantia?.autorizacionSolicitada).length,
+    [pendientes]
+  );
 
   const setEdit = (id, field, value) =>
     setEdits((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
 
-  const reemplazarSolicitud = (vehiculoActualizado) => {
-    setSolicitudes((prev) =>
-      prev.map((v) => (v._id === vehiculoActualizado._id ? vehiculoActualizado : v))
-    );
-    setEdits((prev) => ({
-      ...prev,
-      [vehiculoActualizado._id]: {
-        motivo: vehiculoActualizado.garantia?.motivo || "",
-        autorizaCarreon: !!vehiculoActualizado.garantia?.autorizaCarreon,
-      },
-    }));
+  const toggleExpand = (id) => {
+    setExpandida((prev) => (prev === id ? null : id));
+    if (highlightedId === id) setHighlightedId("");
   };
 
   const handleAutorizar = async (v) => {
@@ -372,12 +496,12 @@ export default function SolicitudesGarantia() {
 
     try {
       setProcesando(v._id);
-      const res = await resolverGarantia(v._id, {
+      await resolverGarantia(v._id, {
         accion: "APROBAR",
         motivo: e.motivo.trim(),
         autorizaCarreon: true,
       });
-      if (res.data?.vehiculo) reemplazarSolicitud(res.data.vehiculo);
+      await cargar();
       alert("Garantía autorizada.");
     } catch (err) {
       console.error(err);
@@ -402,11 +526,11 @@ export default function SolicitudesGarantia() {
 
     try {
       setProcesando(v._id);
-      const res = await resolverGarantia(v._id, {
+      await resolverGarantia(v._id, {
         accion: "NEGAR",
         motivo: e.motivo.trim(),
       });
-      if (res.data?.vehiculo) reemplazarSolicitud(res.data.vehiculo);
+      await cargar();
       alert("Garantía negada. La orden fue cancelada.");
     } catch (err) {
       console.error(err);
@@ -425,17 +549,17 @@ export default function SolicitudesGarantia() {
     }
 
     const ok = window.confirm(
-      `¿Marcar como "No aplica" la garantía de la orden ${v.ordenServicio}? Después podrás cancelar esa orden desde este mismo menú.`
+      `¿Marcar como "No aplica" la garantía de la orden ${v.ordenServicio}? Después podrás cancelar esa orden desde la sección de resueltas.`
     );
     if (!ok) return;
 
     try {
       setProcesando(v._id);
-      const res = await resolverGarantia(v._id, {
+      await resolverGarantia(v._id, {
         accion: "NO_APLICA",
         motivo: e.motivo.trim(),
       });
-      if (res.data?.vehiculo) reemplazarSolicitud(res.data.vehiculo);
+      await cargar();
     } catch (err) {
       console.error(err);
       alert(err.response?.data?.msg || 'Error al marcar la garantía como "No aplica".');
@@ -450,13 +574,13 @@ export default function SolicitudesGarantia() {
       setCancelando(true);
       const res = await cancelarOrdenGarantia(cancelObjetivo._id);
       const vehiculoActualizado = res.data?.vehiculo;
-      if (vehiculoActualizado) reemplazarSolicitud(vehiculoActualizado);
 
+      const objetivo = cancelObjetivo;
       setCancelObjetivo(null);
       navigate("/vehiculo/entrada", {
         state: {
           prefillGarantiaNoAplica: buildPrefillNoAplica(
-            vehiculoActualizado || cancelObjetivo,
+            vehiculoActualizado || objetivo,
             asesor,
             nuevaOrdenServicio
           ),
@@ -470,395 +594,355 @@ export default function SolicitudesGarantia() {
     }
   };
 
-  return (
-    <div className="container-fluid">
-      <h2 className="text-center fw-bold my-3" style={{ letterSpacing: "2px" }}>
-        SOLICITUDES DE GARANTÍA
-      </h2>
+  // ===== RENDER =====
+  const renderPendiente = (v) => {
+    const g = v.garantia || {};
+    const e = edits[v._id] || {};
+    const editable = puedeResolver && !loading;
+    const abierta = expandida === v._id;
+    const resaltada = highlightedId === v._id;
+    const esperando = !!g.autorizacionSolicitada;
 
-      {/* Filtros */}
-      <div className="card shadow-sm mb-3">
-        <div className="card-body py-2">
-          <div className="row g-2 align-items-end">
-            <div className="col-12 col-md-3">
-              <label className="form-label mb-1 fw-semibold">Estado</label>
-              <Dropdown
-                className="form-select-sm"
-                value={filtroEstado}
-                onChange={(e) => {
-                  setFiltroEstado(e.target.value);
-                  setPage(1);
-                }}
-              >
-                <Dropdown.Option value="">Todas</Dropdown.Option>
-                <Dropdown.Option value="PENDIENTE">Pendientes</Dropdown.Option>
-                <Dropdown.Option value="APROBADA">Autorizadas</Dropdown.Option>
-                <Dropdown.Option value="NEGADA">Negadas</Dropdown.Option>
-                <Dropdown.Option value="NO_APLICA">No aplica</Dropdown.Option>
-              </Dropdown>
+    return (
+      <article
+        key={v._id}
+        ref={resaltada ? highlightRef : undefined}
+        className={`gar-card ${esperando ? "gar-card--wait" : ""}`}
+        style={resaltada ? { boxShadow: "0 0 0 3px #fde68a" } : undefined}
+      >
+        <header className="gar-card__head">
+          <div>
+            <div className="gar-folio">{v.ordenServicio || "Sin folio"}</div>
+            <div className="d-flex align-items-center gap-1 flex-wrap mt-1">
+              <span className="gar-tag">
+                {(v.estadoOrden || "").replaceAll("_", " ") || "—"}
+              </span>
+              {esperando && (
+                <span className="badge bg-danger">Esperando autorización</span>
+              )}
+              {resaltada && (
+                <span className="badge bg-warning text-dark">Notificada</span>
+              )}
             </div>
-            <div className="col-12 col-md-4">
-              <label className="form-label mb-1 fw-semibold">
-                Buscar por orden (nueva o anterior)
-              </label>
-              <input
-                type="text"
-                className="form-control form-control-sm"
-                placeholder="Ej. P-123"
-                value={searchOs}
-                onChange={(e) => {
-                  setSearchOs(e.target.value);
-                  setPage(1);
-                }}
-              />
+          </div>
+          <div className="gar-meta">
+            <div>
+              <span className="gar-meta__k">Garantía sobre</span>{" "}
+              <strong>{g.ordenAnteriorFolio || "—"}</strong>
             </div>
-            <div className="col-12 col-md-2">
+            <div>
+              <span className="gar-meta__k">Solicitada</span>{" "}
+              {formatFecha(g.fechaSolicitud)}
+            </div>
+          </div>
+        </header>
+
+        <div className="gar-card__body">
+          <div className="gar-grid">
+            <div>
+              <span className="gar-field__label">Cliente</span>
+              <div>
+                {nombreCliente(v.cliente)}
+                {v.cliente?.esEmpleado && (
+                  <span className="badge bg-warning text-dark ms-1">Empleado</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <span className="gar-field__label">Asesor</span>
+              <div>{v.creadoPor || "—"}</div>
+            </div>
+            <div>
+              <span className="gar-field__label">Vehículo</span>
+              <div>
+                {[v.marca, v.modelo, v.anio].filter(Boolean).join(" ") || "—"}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <label className="gar-field__label" htmlFor={`motivo-${v._id}`}>
+              Motivo de la garantía
+            </label>
+            <textarea
+              id={`motivo-${v._id}`}
+              className="form-control form-control-sm"
+              rows={2}
+              placeholder="¿Por qué se abrió esta orden como garantía?"
+              value={e.motivo ?? ""}
+              readOnly={!editable}
+              onChange={(ev) => setEdit(v._id, "motivo", ev.target.value)}
+            />
+          </div>
+
+          <div className="form-check mt-2">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              id={`aut-${v._id}`}
+              checked={!!e.autorizaCarreon}
+              disabled={!editable}
+              onChange={(ev) => setEdit(v._id, "autorizaCarreon", ev.target.checked)}
+            />
+            <label className="form-check-label" htmlFor={`aut-${v._id}`}>
+              Confirmo que esta orden es una garantía (obligatorio para autorizar)
+            </label>
+          </div>
+        </div>
+
+        <footer className="gar-card__foot">
+          {puedeResolver ? (
+            <div className="d-flex gap-2 flex-wrap">
               <button
                 type="button"
-                className="btn btn-outline-primary btn-sm w-100"
-                onClick={cargar}
-                disabled={loading}
+                className="btn btn-success btn-sm"
+                disabled={procesando === v._id}
+                onClick={() => handleAutorizar(v)}
               >
-                {loading ? "Cargando..." : "Actualizar"}
+                Autorizar
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                disabled={procesando === v._id}
+                onClick={() => handleNegar(v)}
+              >
+                Negar y cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline-danger btn-sm"
+                disabled={procesando === v._id}
+                onClick={() => handleNoAplica(v)}
+              >
+                No aplica
               </button>
             </div>
+          ) : (
+            <small className="text-muted">
+              Pendiente de autorización por un administrador.
+            </small>
+          )}
+          <button
+            type="button"
+            className="btn btn-link btn-sm ms-auto text-decoration-none"
+            onClick={() => toggleExpand(v._id)}
+          >
+            {abierta ? "Ocultar detalle ▲" : "Ver detalle ▼"}
+          </button>
+        </footer>
+
+        {abierta && (
+          <div className="gar-detail">
+            <DetalleOrdenes v={v} g={g} nombreManoObra={nombreManoObra} />
+          </div>
+        )}
+      </article>
+    );
+  };
+
+  const renderHistorial = (v) => {
+    const g = v.garantia || {};
+    const abierta = expandida === v._id;
+    const resaltada = highlightedId === v._id;
+    const cancelada = v.estadoOrden === "CANCELADA";
+    const pendienteCancelar = g.estado === "NO_APLICA" && !cancelada;
+
+    return (
+      <div
+        key={v._id}
+        ref={resaltada ? highlightRef : undefined}
+        className={`gar-hist-item ${cancelada ? "gar-hist-item--cancel" : ""}`}
+        style={resaltada ? { boxShadow: "0 0 0 3px #fde68a" } : undefined}
+      >
+        <div className="gar-hist-row">
+          <EstadoPill estado={g.estado} />
+          <div className="gar-hist__main">
+            <strong>{v.ordenServicio || "Sin folio"}</strong>
+            <span className="text-muted">
+              {" "}· garantía sobre {g.ordenAnteriorFolio || "—"}
+            </span>
+            <div className="small text-muted">
+              {nombreCliente(v.cliente)}
+              {v.cliente?.esEmpleado && (
+                <span className="badge bg-warning text-dark ms-1">Empleado</span>
+              )}
+            </div>
+          </div>
+          <div className="gar-hist__meta small text-muted">
+            <div>Resuelta: {formatFecha(g.fechaResolucion)}</div>
+            {g.resueltoPor && <div>por {g.resueltoPor}</div>}
+            {cancelada && (
+              <div>
+                <span className="badge bg-danger">Orden cancelada</span>
+              </div>
+            )}
+          </div>
+          <div className="gar-hist__act">
+            {pendienteCancelar &&
+              (puedeCancelarOrden ? (
+                <button
+                  type="button"
+                  className="btn btn-danger btn-sm"
+                  onClick={() => setCancelObjetivo(v)}
+                >
+                  Cancelar orden
+                </button>
+              ) : (
+                <small className="text-muted">Pendiente de cancelar</small>
+              ))}
+            <button
+              type="button"
+              className="btn btn-link btn-sm text-decoration-none"
+              onClick={() => toggleExpand(v._id)}
+            >
+              {abierta ? "Ocultar ▲" : "Detalle ▼"}
+            </button>
+          </div>
+        </div>
+
+        {abierta && (
+          <div className="gar-hist-detail">
+            <DetalleOrdenes v={v} g={g} nombreManoObra={nombreManoObra} />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="container-fluid gar">
+      <h2 className="text-center fw-bold gar-title">SOLICITUDES DE GARANTÍA</h2>
+      <p className="gar-lead">
+        Autoriza o rechaza las garantías que el taller envía a venta. Al autorizar
+        se confirma la garantía para el Reporte de Garantías (auditoría).
+      </p>
+
+      {/* KPIs */}
+      <div className="gar-kpis">
+        <div className="gar-kpi gar-kpi--pend">
+          <div className="gar-kpi__num">{pendientes.length}</div>
+          <div className="gar-kpi__label">Pendientes de autorización</div>
+        </div>
+        <div className="gar-kpi gar-kpi--wait">
+          <div className="gar-kpi__num">{esperandoCount}</div>
+          <div className="gar-kpi__label">Bloqueadas esperando autorización</div>
+        </div>
+        <div className="gar-kpi">
+          <div className="gar-kpi__num">{histTotal}</div>
+          <div className="gar-kpi__label">Resueltas / canceladas</div>
+        </div>
+      </div>
+
+      {/* Filtros */}
+      <div className="gar-filtros">
+        <div className="row g-2 align-items-end">
+          <div className="col-12 col-md-5">
+            <label className="form-label mb-1 fw-semibold">
+              Buscar por orden (nueva o anterior)
+            </label>
+            <input
+              type="text"
+              className="form-control form-control-sm"
+              placeholder="Ej. P-123"
+              value={searchOs}
+              onChange={(e) => {
+                setSearchOs(e.target.value);
+                setHistPage(1);
+              }}
+            />
+          </div>
+          <div className="col-12 col-md-2">
+            <button
+              type="button"
+              className="btn btn-outline-primary btn-sm w-100"
+              onClick={cargar}
+              disabled={loading}
+            >
+              {loading ? "Cargando..." : "Actualizar"}
+            </button>
           </div>
         </div>
       </div>
 
       {error && <p className="text-danger">{error}</p>}
 
-      <div className="card shadow-sm">
-        <div className="card-body">
-          <div className="table-responsive">
-            <table className="table table-bordered table-sm align-middle">
-              <thead className="table-light text-center">
-                <tr>
-                  <th style={{ width: 40 }}></th>
-                  <th>Nueva Orden</th>
-                  <th>Orden Anterior</th>
-                  <th>Cliente</th>
-                  <th>Fecha Solicitud</th>
-                  <th>Estado</th>
-                  <th style={{ minWidth: 220 }}>Motivo</th>
-                  <th style={{ width: 110 }}>Autorizar</th>
-                  <th style={{ width: 210 }}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {!loading && solicitudes.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="text-center text-muted py-4">
-                      No hay solicitudes de garantía.
-                    </td>
-                  </tr>
-                )}
+      {/* ===== SECCIÓN 1 — PENDIENTES ===== */}
+      <div className="gar-sec-head">
+        <h5>Pendientes de autorización</h5>
+        <span
+          className={`gar-count ${esperandoCount > 0 ? "gar-count--wait" : ""}`}
+        >
+          {pendientes.length}
+        </span>
+      </div>
 
-                {solicitudes.map((v) => {
-                  const g = v.garantia || {};
-                  const e = edits[v._id] || {};
-                  const pendiente = g.estado === "PENDIENTE";
-                  const editable = pendiente && !loading;
-                  const abierta = expandida === v._id;
-                  const resaltada = highlightedId === v._id;
-                  const ordenAnterior =
-                    g.ordenAnterior && typeof g.ordenAnterior === "object"
-                      ? g.ordenAnterior
-                      : null;
+      {loading && pendientes.length === 0 ? (
+        <div className="gar-empty">Cargando solicitudes…</div>
+      ) : pendientes.length === 0 ? (
+        <div className="gar-empty">
+          No hay solicitudes de garantía pendientes de autorización.
+        </div>
+      ) : (
+        pendientesOrdenadas.map(renderPendiente)
+      )}
 
-                  return (
-                    <React.Fragment key={v._id}>
-                      <tr
-                        ref={resaltada ? highlightRef : undefined}
-                        className={resaltada ? "table-warning" : undefined}
-                      >
-                        <td className="text-center">
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-outline-secondary"
-                            title="Ver detalle de las órdenes"
-                            onClick={() => {
-                              setExpandida(abierta ? null : v._id);
-                              if (resaltada) setHighlightedId("");
-                            }}
-                          >
-                            {abierta ? "▾" : "▸"}
-                          </button>
-                        </td>
-                        <td className="text-center">
-                          <div className="fw-bold">
-                            {v.ordenServicio}
-                            {resaltada && (
-                              <span className="badge bg-warning text-dark ms-1">Notificada</span>
-                            )}
-                          </div>
-                          {g.autorizacionSolicitada && pendiente && (
-                            <div>
-                              <span className="badge bg-danger">Esperando autorización</span>
-                            </div>
-                          )}
-                          <small className="text-muted">
-                            {(v.estadoOrden || "").replaceAll("_", " ")}
-                          </small>
-                        </td>
-                        <td className="text-center fw-semibold">
-                          {g.ordenAnteriorFolio || "—"}
-                        </td>
-                        <td>
-                          {nombreCliente(v.cliente)}
-                          {v.cliente?.esEmpleado && (
-                            <div><span className="badge bg-warning text-dark">Empleado</span></div>
-                          )}
-                        </td>
-                        <td className="text-center">{formatFecha(g.fechaSolicitud)}</td>
-                        <td className="text-center">
-                          <span className={`badge ${ESTADO_BADGE[g.estado] || "bg-secondary"}`}>
-                            {ESTADO_LABEL[g.estado] || g.estado}
-                          </span>
-                        </td>
-                        <td>
-                          <input
-                            type="text"
-                            className="form-control form-control-sm"
-                            value={e.motivo ?? ""}
-                            readOnly={!editable}
-                            onChange={(ev) => setEdit(v._id, "motivo", ev.target.value)}
-                          />
-                        </td>
-                        <td className="text-center">
-                          <input
-                            type="checkbox"
-                            className="form-check-input"
-                            checked={!!e.autorizaCarreon}
-                            disabled={!editable}
-                            onChange={(ev) =>
-                              setEdit(v._id, "autorizaCarreon", ev.target.checked)
-                            }
-                          />
-                        </td>
-                        <td className="text-center">
-                          {pendiente ? (
-                            puedeResolver ? (
-                              <div className="d-flex flex-column gap-1">
-                                <button
-                                  type="button"
-                                  className="btn btn-success btn-sm py-0"
-                                  style={{ fontSize: 12 }}
-                                  disabled={procesando === v._id}
-                                  onClick={() => handleAutorizar(v)}
-                                >
-                                  Autorizar
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn-danger btn-sm py-0"
-                                  style={{ fontSize: 12 }}
-                                  disabled={procesando === v._id}
-                                  onClick={() => handleNegar(v)}
-                                >
-                                  Negar
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn-outline-danger btn-sm py-0"
-                                  style={{ fontSize: 12 }}
-                                  disabled={procesando === v._id}
-                                  onClick={() => handleNoAplica(v)}
-                                >
-                                  No aplica
-                                </button>
-                              </div>
-                            ) : (
-                              <small className="text-muted">Pendiente de autorizar</small>
-                            )
-                          ) : g.estado === "NO_APLICA" && v.estadoOrden !== "CANCELADA" ? (
-                            puedeCancelarOrden ? (
-                              <button
-                                type="button"
-                                className="btn btn-danger btn-sm py-0"
-                                style={{ fontSize: 12 }}
-                                onClick={() => setCancelObjetivo(v)}
-                              >
-                                Cancelar
-                              </button>
-                            ) : (
-                              <small className="text-muted">No aplica · pendiente de cancelar</small>
-                            )
-                          ) : (
-                            <small className="text-muted">
-                              {formatFecha(g.fechaResolucion)}
-                              {g.resueltoPor ? ` · ${g.resueltoPor}` : ""}
-                              {v.estadoOrden === "CANCELADA" && (
-                                <>
-                                  <br />
-                                  <span className="badge bg-danger">Orden cancelada</span>
-                                </>
-                              )}
-                            </small>
-                          )}
-                        </td>
-                      </tr>
+      {/* ===== SECCIÓN 2 — HISTORIAL ===== */}
+      <div className="gar-sec-head">
+        <h5>Resueltas y canceladas</h5>
+        <span className="gar-count">{histTotal}</span>
+        <div className="ms-auto" style={{ minWidth: 180 }}>
+          <Dropdown
+            className="form-select-sm"
+            value={histFiltro}
+            onChange={(e) => {
+              setHistFiltro(e.target.value);
+              setHistPage(1);
+            }}
+          >
+            <Dropdown.Option value="">Todas las resueltas</Dropdown.Option>
+            <Dropdown.Option value="APROBADA">Autorizadas</Dropdown.Option>
+            <Dropdown.Option value="NEGADA">Negadas</Dropdown.Option>
+            <Dropdown.Option value="NO_APLICA">No aplica</Dropdown.Option>
+          </Dropdown>
+        </div>
+      </div>
 
-                      {abierta && (
-                        <tr>
-                          <td colSpan={9} className="bg-light">
-                            <div className="row g-3 p-2">
-                              {/* Orden original */}
-                              <div className="col-12 col-lg-6">
-                                <div className="card h-100">
-                                  <div className="card-header fw-bold">
-                                    Orden Original — {g.ordenAnteriorFolio || "—"}
-                                  </div>
-                                  <div className="card-body">
-                                    {ordenAnterior ? (
-                                      <>
-                                        <p className="mb-1 small">
-                                          <strong>Estatus:</strong>{" "}
-                                          {(ordenAnterior.estadoOrden || "").replaceAll("_", " ")}
-                                          {" · "}
-                                          <strong>Recepción:</strong>{" "}
-                                          {formatFecha(ordenAnterior.fechaRecepcion)}
-                                          {" · "}
-                                          <strong>Cierre:</strong>{" "}
-                                          {formatFecha(ordenAnterior.fechaCierre)}
-                                        </p>
-                                        <p className="mb-2 small">
-                                          <strong>Vehículo:</strong>{" "}
-                                          {[
-                                            ordenAnterior.marca,
-                                            ordenAnterior.modelo,
-                                            ordenAnterior.anio,
-                                          ]
-                                            .filter(Boolean)
-                                            .join(" ") || "—"}
-                                          {ordenAnterior.placas
-                                            ? ` · Placas: ${ordenAnterior.placas}`
-                                            : ""}
-                                          {ordenAnterior.creadoPor
-                                            ? ` · Asesor: ${ordenAnterior.creadoPor}`
-                                            : ""}
-                                        </p>
-                                        <div className="fw-semibold small mb-1">
-                                          Venta al Cliente:
-                                        </div>
-                                        <TablaVenta
-                                          ventaCliente={ordenAnterior.ventaCliente}
-                                          iva={ordenAnterior.ivaVenta}
-                                        />
-                                        <div className="fw-semibold small mb-1 mt-3">
-                                          Mano de Obra:
-                                        </div>
-                                        <TablaManoObra
-                                          manoObra={ordenAnterior.manoObra}
-                                          nombreManoObra={nombreManoObra}
-                                        />
-                                        <div className="mt-2">
-                                          <Link
-                                            to={`/vehiculo/orden/${ordenAnterior._id}?tab=general`}
-                                            className="btn btn-sm btn-outline-primary"
-                                          >
-                                            Ver orden original
-                                          </Link>
-                                        </div>
-                                      </>
-                                    ) : (
-                                      <p className="text-muted mb-0">
-                                        No se encontró la información de la orden original.
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Nueva orden */}
-                              <div className="col-12 col-lg-6">
-                                <div className="card h-100">
-                                  <div className="card-header fw-bold">
-                                    Nueva Orden — {v.ordenServicio}
-                                  </div>
-                                  <div className="card-body">
-                                    <p className="mb-1 small">
-                                      <strong>Estatus actual:</strong>{" "}
-                                      {(v.estadoOrden || "").replaceAll("_", " ")}
-                                      {" · "}
-                                      <strong>Recepción:</strong>{" "}
-                                      {formatFecha(v.fechaRecepcion)}
-                                    </p>
-                                    <p className="mb-2 small">
-                                      <strong>Vehículo:</strong>{" "}
-                                      {[v.marca, v.modelo, v.anio].filter(Boolean).join(" ") || "—"}
-                                      {v.placas ? ` · Placas: ${v.placas}` : ""}
-                                      {" · "}
-                                      <strong>Fecha devolución solicitud:</strong>{" "}
-                                      {formatFecha(g.fechaResolucion)}
-                                    </p>
-                                    <div className="fw-semibold small mb-1">
-                                      Venta al Cliente:
-                                    </div>
-                                    <TablaVenta ventaCliente={v.ventaCliente} iva={v.ivaVenta} />
-                                    <div className="fw-semibold small mb-1 mt-3">
-                                      Mano de Obra:
-                                    </div>
-                                    <TablaManoObra
-                                      manoObra={v.manoObra}
-                                      nombreManoObra={nombreManoObra}
-                                    />
-                                    <div className="mt-2">
-                                      <Link
-                                        to={`/vehiculo/orden/${v._id}?tab=general`}
-                                        className="btn btn-sm btn-outline-primary"
-                                      >
-                                        Ver nueva orden
-                                      </Link>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Paginación */}
-          <div className="d-flex justify-content-between align-items-center">
+      {loading && historial.length === 0 ? (
+        <div className="gar-empty">Cargando historial…</div>
+      ) : historial.length === 0 ? (
+        <div className="gar-empty">Aún no hay garantías resueltas ni canceladas.</div>
+      ) : (
+        <>
+          {historial.map(renderHistorial)}
+          <div className="gar-pager">
             <small className="text-muted">
-              {total} solicitud{total !== 1 ? "es" : ""}
+              {histTotal} registro{histTotal !== 1 ? "s" : ""}
             </small>
             <div className="btn-group">
               <button
                 type="button"
                 className="btn btn-sm btn-outline-secondary"
-                disabled={page <= 1 || loading}
-                onClick={() => setPage((p) => p - 1)}
+                disabled={histPage <= 1 || loading}
+                onClick={() => setHistPage((p) => p - 1)}
               >
                 Anterior
               </button>
               <span className="btn btn-sm btn-outline-secondary disabled">
-                {page} / {totalPages}
+                {histPage} / {histTotalPages}
               </span>
               <button
                 type="button"
                 className="btn btn-sm btn-outline-secondary"
-                disabled={page >= totalPages || loading}
-                onClick={() => setPage((p) => p + 1)}
+                disabled={histPage >= histTotalPages || loading}
+                onClick={() => setHistPage((p) => p + 1)}
               >
                 Siguiente
               </button>
             </div>
           </div>
-
-          <p className="mt-2 text-muted mb-0" style={{ fontSize: 12 }}>
-            * La información es solo de consulta. Al autorizar se confirma que la orden fue
-            una garantía y se toma en cuenta para el Reporte de Garantías (auditoría).
-          </p>
-        </div>
-      </div>
+        </>
+      )}
 
       {cancelObjetivo && (
         <ModalCancelarGarantia

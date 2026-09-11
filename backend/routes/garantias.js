@@ -34,17 +34,32 @@ const POPULATE_ORDEN_ANTERIOR =
 const POPULATE_GRUPO = { path: 'grupoId', select: 'nombre miembros', populate: { path: 'miembros', select: 'name' } };
 
 const ESTADOS_GARANTIA = ['PENDIENTE', 'APROBADA', 'NEGADA', 'NO_APLICA'];
+// Estados "cerrados" para la sección de historial de Solicitudes de Garantía
+// (todo lo que ya no está pendiente de autorizar).
+const ESTADOS_RESUELTOS = ['APROBADA', 'NEGADA', 'NO_APLICA'];
 
 // GET /api/garantias?estado=&searchOs=&page=1&limit=10
+// estado admite además 'RESUELTAS' (= APROBADA + NEGADA + NO_APLICA).
 router.get('/', proteger, async (req, res) => {
   try {
     const { estado = '', searchOs = '', page = 1, limit = 10 } = req.query;
 
-    const q = {
-      'garantia.estado': ESTADOS_GARANTIA.includes(estado)
-        ? estado
-        : { $in: ESTADOS_GARANTIA },
-    };
+    let estadoFiltro;
+    if (estado === 'RESUELTAS') {
+      estadoFiltro = { $in: ESTADOS_RESUELTOS };
+    } else if (ESTADOS_GARANTIA.includes(estado)) {
+      estadoFiltro = estado;
+    } else {
+      estadoFiltro = { $in: ESTADOS_GARANTIA };
+    }
+
+    const q = { 'garantia.estado': estadoFiltro };
+    // El historial (RESUELTAS o un estado ya cerrado) se ordena por cuándo se
+    // resolvió; pendientes y la vista "todas" por cuándo se solicitó.
+    const esHistorial = estado === 'RESUELTAS' || ESTADOS_RESUELTOS.includes(estado);
+    const sort = esHistorial
+      ? { 'garantia.fechaResolucion': -1, 'garantia.fechaSolicitud': -1 }
+      : { 'garantia.fechaSolicitud': -1 };
 
     // Las solicitudes solo son visibles cuando la nueva orden ya llegó al
     // menos a Presupuesto (tiene partidas cotizadas) o a Venta al Cliente
@@ -68,7 +83,7 @@ router.get('/', proteger, async (req, res) => {
 
     const [data, total] = await Promise.all([
       Vehiculo.find(q)
-        .sort({ 'garantia.fechaSolicitud': -1 })
+        .sort(sort)
         .skip(skip)
         .limit(limitNum)
         .populate('cliente', POPULATE_CLIENTE)
