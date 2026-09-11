@@ -5,6 +5,7 @@ import '../styles/Navbar.css';
 import { canSeeModule } from '../utils/roles';
 import http from '../api/http';
 import { getRefaccionariaAlerts } from '../api/vehiculos';
+import { getGarantiasPendientesCount } from '../api/garantias';
 import { resetAppNavStack } from '../utils/appNavStack';
 
 export default function Navbar({ collapsed, onToggle }) {
@@ -102,6 +103,22 @@ useEffect(() => {
   const id = setInterval(fetch, 30_000);
   return () => clearInterval(id);
 }, [user?.role, user?.name]);
+
+// === GARANTÍAS: solicitudes bloqueadas esperando autorización del admin ===
+const [garantiasPendientes, setGarantiasPendientes] = useState(0);
+
+useEffect(() => {
+  if (user?.role !== 'admin') return;
+  const fetch = async () => {
+    try {
+      const { data } = await getGarantiasPendientesCount();
+      setGarantiasPendientes(data?.count || 0);
+    } catch (_) {}
+  };
+  fetch();
+  const id = setInterval(fetch, 30_000);
+  return () => clearInterval(id);
+}, [user?.role]);
 
 // === ADMINISTRACIÓN ===
 const [adminOpen, setAdminOpen] = useState(
@@ -417,6 +434,9 @@ useEffect(() => {
           >
             <span className="emoji">🚗</span>
             <span className="label">Vehículo</span>
+            {garantiasPendientes > 0 && (
+              <span className="nav-badge">{garantiasPendientes}</span>
+            )}
             {!collapsed && <span className="chev" aria-hidden>▾</span>}
           </button>
 
@@ -465,8 +485,11 @@ useEffect(() => {
               <NavLink
                 to="/garantias"
                 className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
-              > 
+              >
                 <span className="label">Solicitudes de Garantías</span>
+                {garantiasPendientes > 0 && (
+                  <span className="nav-badge">{garantiasPendientes}</span>
+                )}
               </NavLink>
             )}
 

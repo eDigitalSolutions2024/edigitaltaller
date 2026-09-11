@@ -1,0 +1,225 @@
+/* src/styles/garantias.css
+   Solicitudes de Garantía: pantalla dividida en dos secciones
+   - "Pendientes de autorización" (tarjetas grandes con acciones)
+   - "Resueltas y canceladas" (historial compacto)
+   Todo va scopeado bajo `.gar`. Diseño claro, sin modo oscuro (igual que el
+   resto de la app). */
+
+.gar {
+  --gar-radius: 10px;
+  --gar-border: #e5e7eb;
+  --gar-muted: #6b7280;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.gar h2.gar-title {
+  letter-spacing: 2px;
+  margin: 1rem 0 0.25rem;
+}
+.gar .gar-lead {
+  text-align: center;
+  color: var(--gar-muted);
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+/* ---- KPIs ---- */
+.gar .gar-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+.gar .gar-kpi {
+  flex: 1 1 150px;
+  background: #fff;
+  border: 1px solid var(--gar-border);
+  border-radius: var(--gar-radius);
+  padding: 0.6rem 0.9rem;
+}
+.gar .gar-kpi--wait { border-color: #fca5a5; background: #fef2f2; }
+.gar .gar-kpi--pend { border-color: #fcd34d; background: #fffbeb; }
+.gar .gar-kpi__num { font-size: 1.5rem; font-weight: 700; line-height: 1; }
+.gar .gar-kpi__label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gar-muted);
+  margin-top: 0.15rem;
+}
+
+/* ---- Barra de filtros ---- */
+.gar .gar-filtros {
+  background: #fff;
+  border: 1px solid var(--gar-border);
+  border-radius: var(--gar-radius);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+}
+
+/* ---- Encabezado de sección ---- */
+.gar .gar-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 1.5rem 0 0.75rem;
+}
+.gar .gar-sec-head h5 {
+  margin: 0;
+  font-weight: 700;
+}
+.gar .gar-sec-head .gar-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: #e5e7eb;
+  color: #374151;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.gar .gar-sec-head .gar-count--wait { background: #dc2626; color: #fff; }
+
+/* ---- Tarjeta de solicitud pendiente ---- */
+.gar .gar-card {
+  background: #fff;
+  border: 1px solid var(--gar-border);
+  border-left: 4px solid #f59e0b;
+  border-radius: var(--gar-radius);
+  margin-bottom: 0.85rem;
+  overflow: hidden;
+}
+.gar .gar-card--wait { border-left-color: #dc2626; }
+
+.gar .gar-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: #f9fafb;
+  border-bottom: 1px solid #f1f5f9;
+}
+.gar .gar-folio { font-size: 1.05rem; font-weight: 700; }
+.gar .gar-tag {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #475569;
+  background: #e2e8f0;
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+}
+.gar .gar-meta { font-size: 0.82rem; color: #374151; white-space: nowrap; }
+.gar .gar-meta__k { color: var(--gar-muted); }
+
+.gar .gar-card__body { padding: 0.85rem 1rem; }
+.gar .gar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem 1.25rem;
+}
+.gar .gar-field__label {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gar-muted);
+  margin-bottom: 0.15rem;
+}
+
+.gar .gar-card__foot {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.65rem 1rem;
+  border-top: 1px solid #f1f5f9;
+  background: #fdfdfd;
+}
+
+.gar .gar-detail {
+  padding: 0.5rem 1rem 1rem;
+  background: #f8fafc;
+  border-top: 1px dashed var(--gar-border);
+}
+
+/* ---- Historial compacto ---- */
+.gar .gar-hist-item {
+  border: 1px solid var(--gar-border);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  overflow: hidden;
+  background: #fff;
+}
+.gar .gar-hist-item--cancel { background: #fef2f2; border-color: #fecaca; }
+
+.gar .gar-hist-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  padding: 0.55rem 0.9rem;
+}
+.gar .gar-hist__main { flex: 1 1 240px; min-width: 0; }
+.gar .gar-hist__meta { flex: 0 0 auto; text-align: right; }
+.gar .gar-hist__act {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+.gar .gar-hist-detail {
+  padding: 0.5rem 0.9rem 0.9rem;
+  border-top: 1px dashed var(--gar-border);
+  background: #f8fafc;
+}
+
+/* ---- Pill de estado ---- */
+.gar .gar-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  white-space: nowrap;
+}
+.gar .gar-pill--PENDIENTE { background: #fef3c7; color: #92400e; }
+.gar .gar-pill--APROBADA { background: #dcfce7; color: #166534; }
+.gar .gar-pill--NEGADA { background: #fee2e2; color: #991b1b; }
+.gar .gar-pill--NO_APLICA { background: #e5e7eb; color: #374151; }
+
+/* ---- Estado vacío ---- */
+.gar .gar-empty {
+  border: 1px dashed var(--gar-border);
+  border-radius: var(--gar-radius);
+  padding: 1.5rem 1rem;
+  text-align: center;
+  color: var(--gar-muted);
+  background: #fff;
+}
+
+/* ---- Paginación ---- */
+.gar .gar-pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 640px) {
+  .gar .gar-card__head { flex-direction: column; }
+  .gar .gar-meta { white-space: normal; }
+  .gar .gar-hist__meta { text-align: left; }
+  .gar .gar-hist__act { margin-left: 0; }
+}

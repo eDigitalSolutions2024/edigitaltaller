@@ -198,7 +198,7 @@ export default function SoporteForm() {
             <div className="col-md-4">
               <label className="form-label small fw-semibold">Tipo de problema</label>
               <Dropdown className="form-select" value={form.tipoProblema} onChange={handleChange('tipoProblema')}>
-                {TIPOS_PROBLEMA_OPCIONES.filter((op) => op.value !== 'GARANTIA_NO_APLICA').map((op) => (
+                {TIPOS_PROBLEMA_OPCIONES.filter((op) => !['GARANTIA_NO_APLICA', 'GARANTIA_AUTORIZACION'].includes(op.value)).map((op) => (
                   <Dropdown.Option key={op.value} value={op.value}>{op.label}</Dropdown.Option>
                 ))}
               </Dropdown>

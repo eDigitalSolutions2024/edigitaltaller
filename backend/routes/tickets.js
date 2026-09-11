@@ -105,6 +105,30 @@ router.post('/', proteger, async (req, res) => {
       }
     }
 
+    // Solicitar autorización de garantía desde "Enviar a Venta"
+    // (VehiculoPresupuestoVenta): solo sobre una solicitud de garantía todavía
+    // PENDIENTE, que ya tenga partidas enviadas a Venta al Cliente, y sin otro
+    // ticket de garantía abierto. Deja la orden bloqueada hasta que un admin la
+    // resuelva desde Solicitudes de Garantía (PUT /api/garantias/:id/resolver).
+    if (tipoProblema === 'GARANTIA_AUTORIZACION') {
+      if (!ordenServicio) {
+        return res.status(400).json({ ok: false, msg: 'Falta la orden de garantía a autorizar.' });
+      }
+      const ordenGa = await Vehiculo.findById(ordenServicio).select('garantia ventaCliente');
+      if (!ordenGa || !ordenGa.garantia) {
+        return res.status(400).json({ ok: false, msg: 'Esta orden no es una solicitud de garantía.' });
+      }
+      if (ordenGa.garantia.estado !== 'PENDIENTE') {
+        return res.status(400).json({ ok: false, msg: 'Esta solicitud de garantía ya fue resuelta.' });
+      }
+      if (ordenGa.garantia.ticketPendiente) {
+        return res.status(409).json({ ok: false, msg: 'Ya hay un ticket de garantía pendiente sobre esta orden.' });
+      }
+      if (!(ordenGa.ventaCliente || []).length) {
+        return res.status(400).json({ ok: false, msg: 'Envía primero las partidas a Venta al Cliente.' });
+      }
+    }
+
     const contador = await Contador.findOneAndUpdate(
       { nombre: CONTADOR_TICKET },
       { $inc: { valor: 1 } },
@@ -127,6 +151,14 @@ router.post('/', proteger, async (req, res) => {
 
     if (tipoProblema === 'GARANTIA_NO_APLICA') {
       await Vehiculo.findByIdAndUpdate(ordenServicio, { 'garantia.ticketPendiente': ticket._id });
+    }
+
+    if (tipoProblema === 'GARANTIA_AUTORIZACION') {
+      await Vehiculo.findByIdAndUpdate(ordenServicio, {
+        'garantia.ticketPendiente': ticket._id,
+        'garantia.autorizacionSolicitada': true,
+        'garantia.fechaSolicitudAutorizacion': new Date(),
+      });
     }
 
     return res.status(201).json({ ok: true, data: ticket });

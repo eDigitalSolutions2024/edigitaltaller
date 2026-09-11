@@ -17,6 +17,12 @@ const TIPOS_PROBLEMA = [
   // TIPOS_PROBLEMA_OPCIONES/SoporteForm), se crea solo desde el modal de
   // cancelar orden (ver ModalCancelarOrden).
   'GARANTIA_NO_APLICA',
+  // El asesor pulsa "Enviar a Venta" en una orden de garantía todavía
+  // PENDIENTE: la orden queda bloqueada y este ticket avisa a los admins para
+  // que autoricen o nieguen la garantía desde Solicitudes de Garantía
+  // (PUT /api/garantias/:id/resolver). Tampoco es seleccionable desde el
+  // formulario de Soporte; se crea solo desde VehiculoPresupuestoVenta.
+  'GARANTIA_AUTORIZACION',
   'OTRO',
 ];
 

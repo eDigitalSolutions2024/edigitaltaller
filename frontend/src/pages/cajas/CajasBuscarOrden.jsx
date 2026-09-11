@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import Dropdown from "../../components/Dropdown";
+import { FaSearch, FaTimes } from "react-icons/fa";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { listOrdenesCaja } from "../../api/cajas";
 import { formatFecha } from "../../utils/fechas";
@@ -20,15 +21,19 @@ const ESTADO_LABELS = {
   CANCELADA: "Cancelada",
 };
 
-// Filtro de estado: mutuamente excluyente, se manda como "vista" al backend
-// (ver GET /api/cajas en backend/routes/cajas.js).
-const FILTROS_ESTADO = [
+// Filtro: mutuamente excluyente, se manda como "vista" al backend (ver
+// GET /api/cajas en backend/routes/cajas.js). Mezcla estatus de la orden
+// (Cerradas, Liquidadas...) con el tipo de comprobante que tiene (Remisión,
+// Nota de Venta), así que ya no se llama "Estado".
+const FILTROS_VISTA = [
   { value: "activas", label: "Todas" },
   { value: "cerradas", label: "Cerradas" },
   { value: "pendientes", label: "Pendientes de Pago" },
   { value: "liquidadas", label: "Liquidadas" },
   { value: "garantias", label: "Garantías" },
   { value: "pendientes_factura", label: "Pendientes de Factura" },
+  { value: "remision", label: "Remisión" },
+  { value: "nota_venta", label: "Nota de Venta" },
 ];
 
 const OPCIONES_ORDEN = [
@@ -47,7 +52,7 @@ export default function CajasBuscarOrden() {
   const [fechaDesde, setFechaDesde] = useState(() => searchParams.get("fechaDesde") || "");
   const [fechaHasta, setFechaHasta] = useState(() => searchParams.get("fechaHasta") || "");
   const [page, setPage] = useState(() => Number(searchParams.get("page")) || 1);
-  const [vista, setVista] = useState(() => searchParams.get("vista") || "activas"); // ver FILTROS_ESTADO
+  const [vista, setVista] = useState(() => searchParams.get("vista") || "activas"); // ver FILTROS_VISTA
   const [sort, setSort] = useState(() => searchParams.get("sort") || "recientes"); // ver OPCIONES_ORDEN
 
   const [rows, setRows] = useState([]);
@@ -153,18 +158,58 @@ export default function CajasBuscarOrden() {
 
       <div className="card mb-3">
         <div className="card-body">
-          <div className="row g-2 align-items-end mb-3">
-            <div className="col-md-6">
-              <label className="form-label mb-0">Orden de Servicio, Cliente o Número de Serie</label>
-              <input
-                type="text"
-                className="form-control"
-                placeholder="Escribe para buscar..."
-                value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
-              />
+          <div className="row g-2 align-items-end">
+            <div className="col-lg-5 col-md-12">
+              <label className="form-label mb-0">Búsqueda general</label>
+              <div className="input-group">
+                <span className="input-group-text bg-white text-muted">
+                  <FaSearch />
+                </span>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Orden, cliente, serie, placas, N° de remisión o de nota de venta…"
+                  value={busqueda}
+                  onChange={(e) => setBusqueda(e.target.value)}
+                />
+                {busqueda && (
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    title="Borrar búsqueda"
+                    onClick={() => setBusqueda("")}
+                  >
+                    <FaTimes />
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="col-md-3">
+            <div className="col-lg-3 col-md-6">
+              <label className="form-label mb-0">Filtro</label>
+              <Dropdown className="form-select" value={vista} onChange={(e) => setVista(e.target.value)}>
+                {FILTROS_VISTA.map((f) => (
+                  <Dropdown.Option key={f.value} value={f.value}>
+                    {f.label}
+                  </Dropdown.Option>
+                ))}
+              </Dropdown>
+            </div>
+            <div className="col-lg-4 col-md-6">
+              <label className="form-label mb-0">Ordenar por</label>
+              <Dropdown className="form-select" value={sort} onChange={(e) => setSort(e.target.value)}>
+                {OPCIONES_ORDEN.map((o) => (
+                  <Dropdown.Option key={o.value} value={o.value}>
+                    {o.label}
+                  </Dropdown.Option>
+                ))}
+              </Dropdown>
+            </div>
+          </div>
+
+          <hr className="my-3" />
+
+          <div className="row g-2 align-items-end">
+            <div className="col-md-4 col-sm-6">
               <label className="form-label mb-0">Fecha Desde</label>
               <input
                 type="date"
@@ -173,7 +218,7 @@ export default function CajasBuscarOrden() {
                 onChange={(e) => setFechaDesde(e.target.value)}
               />
             </div>
-            <div className="col-md-3">
+            <div className="col-md-4 col-sm-6">
               <label className="form-label mb-0">Fecha Hasta</label>
               <input
                 type="date"
@@ -182,45 +227,14 @@ export default function CajasBuscarOrden() {
                 onChange={(e) => setFechaHasta(e.target.value)}
               />
             </div>
-          </div>
-
-          <div className="row g-2 align-items-end">
-            <div className="col-md-6">
-              <label className="form-label mb-1 d-block">Estado</label>
-              <div className="btn-group flex-wrap" role="group" aria-label="Filtro de estado">
-                {FILTROS_ESTADO.map((f) => (
-                  <button
-                    key={f.value}
-                    type="button"
-                    className={`btn btn-sm ${vista === f.value ? "btn-primary" : "btn-outline-primary"}`}
-                    onClick={() => setVista(f.value)}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="col-md-3">
-              <label className="form-label mb-0">Ordenar por</label>
-              <Dropdown
-                className="form-select"
-                value={sort}
-                onChange={(e) => setSort(e.target.value)}
-              >
-                {OPCIONES_ORDEN.map((o) => (
-                  <Dropdown.Option key={o.value} value={o.value}>
-                    {o.label}
-                  </Dropdown.Option>
-                ))}
-              </Dropdown>
-            </div>
-            <div className="col-md-3 text-md-end">
+            <div className="col-md-4 d-flex justify-content-md-end">
               <button
                 type="button"
                 className="btn btn-outline-danger btn-sm"
                 disabled={!hayFiltrosActivos}
                 onClick={limpiarFiltros}
               >
+                <FaTimes className="me-1" />
                 Borrar Filtro
               </button>
             </div>

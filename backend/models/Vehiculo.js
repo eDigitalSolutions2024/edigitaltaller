@@ -71,12 +71,20 @@ const garantiaSchema = new Schema(
     costoDiferencia: { type: Number, default: 0 },
     autorizaCarreon: { type: Boolean, default: false },
     resueltoPor: { type: String, default: '' },
-    // Ticket GARANTIA_NO_APLICA abierto por el asesor al intentar cancelar
-    // esta orden (ver ModalCancelarOrden / POST /api/tickets). Mientras esté
-    // seteado, la orden queda de solo lectura (ver soloLectura en
-    // VehiculoOrdenDetalle.jsx) hasta que un admin resuelva el ticket
-    // (PUT /api/tickets/:id/resolver-garantia).
+    // Ticket GARANTIA_NO_APLICA (asesor al intentar cancelar la orden) o
+    // GARANTIA_AUTORIZACION (asesor pulsa "Enviar a Venta") abierto sobre esta
+    // orden. Mientras esté seteado, la orden queda de solo lectura (ver
+    // soloLectura en VehiculoOrdenDetalle.jsx) hasta que un admin resuelva:
+    // el ticket de Soporte (PUT /api/tickets/:id/resolver-garantia) o la
+    // solicitud de garantía (PUT /api/garantias/:id/resolver) respectivamente.
     ticketPendiente: { type: Schema.Types.ObjectId, ref: 'Ticket', default: null },
+    // true entre que el asesor pulsa "Enviar a Venta" en una orden de garantía
+    // todavía PENDIENTE y que un admin la autoriza/niega/marca "no aplica".
+    // Distingue el bloqueo por autorización de garantía del de GARANTIA_NO_APLICA
+    // (ambos usan ticketPendiente) y alimenta el contador del menú
+    // "Solicitudes de Garantías" (GET /api/garantias/pendientes-count).
+    autorizacionSolicitada: { type: Boolean, default: false },
+    fechaSolicitudAutorizacion: { type: Date, default: null },
   },
   { _id: false }
 );

@@ -5,8 +5,25 @@ const mongoose = require('mongoose');
 const router = express.Router();
 
 const Vehiculo = require('../models/Vehiculo');
+const Ticket = require('../models/Ticket');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { regexBusquedaOS } = require('../utils/ordenServicio');
+
+// Al pulsar "Enviar a Venta" en una orden de garantía todavía PENDIENTE se
+// abre un ticket GARANTIA_AUTORIZACION y la orden queda bloqueada
+// (garantia.ticketPendiente + garantia.autorizacionSolicitada). Cuando el
+// admin resuelve la garantía aquí, ese ticket se cierra automáticamente.
+async function cerrarTicketAutorizacion(ticketId, resultado, actualizadoPor) {
+  if (!ticketId) return;
+  const ticket = await Ticket.findById(ticketId);
+  if (!ticket || ticket.tipoProblema !== 'GARANTIA_AUTORIZACION') return;
+  if (ticket.estado === 'FINALIZADO') return;
+  ticket.estado = 'FINALIZADO';
+  ticket.resultado = resultado;
+  ticket.fechaCambioEstado = new Date();
+  ticket.actualizadoPor = actualizadoPor || '';
+  await ticket.save();
+}
 
 const POPULATE_CLIENTE =
   'nombre apellidoPaterno apellidoMaterno tipoCliente empresa gobierno telefonos celulares emails rfc direccion asesorResponsable esEmpleado';
@@ -17,17 +34,32 @@ const POPULATE_ORDEN_ANTERIOR =
 const POPULATE_GRUPO = { path: 'grupoId', select: 'nombre miembros', populate: { path: 'miembros', select: 'name' } };
 
 const ESTADOS_GARANTIA = ['PENDIENTE', 'APROBADA', 'NEGADA', 'NO_APLICA'];
+// Estados "cerrados" para la sección de historial de Solicitudes de Garantía
+// (todo lo que ya no está pendiente de autorizar).
+const ESTADOS_RESUELTOS = ['APROBADA', 'NEGADA', 'NO_APLICA'];
 
 // GET /api/garantias?estado=&searchOs=&page=1&limit=10
+// estado admite además 'RESUELTAS' (= APROBADA + NEGADA + NO_APLICA).
 router.get('/', proteger, async (req, res) => {
   try {
     const { estado = '', searchOs = '', page = 1, limit = 10 } = req.query;
 
-    const q = {
-      'garantia.estado': ESTADOS_GARANTIA.includes(estado)
-        ? estado
-        : { $in: ESTADOS_GARANTIA },
-    };
+    let estadoFiltro;
+    if (estado === 'RESUELTAS') {
+      estadoFiltro = { $in: ESTADOS_RESUELTOS };
+    } else if (ESTADOS_GARANTIA.includes(estado)) {
+      estadoFiltro = estado;
+    } else {
+      estadoFiltro = { $in: ESTADOS_GARANTIA };
+    }
+
+    const q = { 'garantia.estado': estadoFiltro };
+    // El historial (RESUELTAS o un estado ya cerrado) se ordena por cuándo se
+    // resolvió; pendientes y la vista "todas" por cuándo se solicitó.
+    const esHistorial = estado === 'RESUELTAS' || ESTADOS_RESUELTOS.includes(estado);
+    const sort = esHistorial
+      ? { 'garantia.fechaResolucion': -1, 'garantia.fechaSolicitud': -1 }
+      : { 'garantia.fechaSolicitud': -1 };
 
     // Las solicitudes solo son visibles cuando la nueva orden ya llegó al
     // menos a Presupuesto (tiene partidas cotizadas) o a Venta al Cliente
@@ -51,7 +83,7 @@ router.get('/', proteger, async (req, res) => {
 
     const [data, total] = await Promise.all([
       Vehiculo.find(q)
-        .sort({ 'garantia.fechaSolicitud': -1 })
+        .sort(sort)
         .skip(skip)
         .limit(limitNum)
         .populate('cliente', POPULATE_CLIENTE)
@@ -94,6 +126,22 @@ router.get('/usadas', proteger, async (req, res) => {
     return res.json({ ok: true, usadas });
   } catch (err) {
     console.error('Error consultando garantías usadas:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// GET /api/garantias/pendientes-count — cuántas órdenes de garantía están
+// bloqueadas esperando que un admin autorice/niegue la garantía (el asesor ya
+// pulsó "Enviar a Venta"). Alimenta el badge del menú "Solicitudes de Garantías".
+router.get('/pendientes-count', proteger, requiereRol('admin'), async (_req, res) => {
+  try {
+    const count = await Vehiculo.countDocuments({
+      'garantia.estado': 'PENDIENTE',
+      'garantia.autorizacionSolicitada': true,
+    });
+    return res.json({ ok: true, count });
+  } catch (err) {
+    console.error('Error contando garantías pendientes:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });
@@ -147,6 +195,22 @@ router.put('/:id/resolver', proteger, requiereRol('admin', 'jefe'), async (req, 
       });
     }
 
+    // Si el bloqueo viene de un ticket GARANTIA_NO_APLICA (asesor pidió
+    // cancelar la orden), ese ticket se resuelve desde Soporte, no aquí.
+    if (vehiculo.garantia.ticketPendiente) {
+      const ticketBloqueo = await Ticket.findById(vehiculo.garantia.ticketPendiente).select('tipoProblema estado folio');
+      if (
+        ticketBloqueo &&
+        ticketBloqueo.tipoProblema === 'GARANTIA_NO_APLICA' &&
+        ticketBloqueo.estado !== 'FINALIZADO'
+      ) {
+        return res.status(409).json({
+          ok: false,
+          msg: `Hay un ticket de Soporte pendiente (${ticketBloqueo.folio}) sobre esta orden; resuélvelo desde Soporte antes de autorizar o negar la garantía.`,
+        });
+      }
+    }
+
     const resueltoPor = req.user.name || req.user.username || req.user.email || '';
 
     if (accion === 'NEGAR') {
@@ -159,6 +223,16 @@ router.put('/:id/resolver', proteger, requiereRol('admin', 'jefe'), async (req, 
       }
       // Defensivo: nunca debe existir fila garantía sin aprobación
       vehiculo.ventaCliente = (vehiculo.ventaCliente || []).filter((r) => !r.esGarantia);
+      // Garantía negada => la orden nueva no procede: se cancela (mismo efecto
+      // que el flujo "No aplica" + PUT /:id/cancelar, sin crear reemplazo).
+      if (vehiculo.estadoOrden !== 'CANCELADA') {
+        vehiculo.estadoAnterior = vehiculo.estadoOrden;
+        vehiculo.estadoOrden = 'CANCELADA';
+        vehiculo.motivoCancelacion =
+          (typeof motivo === 'string' && motivo.trim()) || vehiculo.garantia.motivo || 'Garantía negada';
+        vehiculo.canceladoPor = resueltoPor;
+        vehiculo.fechaCancelacion = new Date();
+      }
     } else if (accion === 'NO_APLICA') {
       // "No aplica": la orden nueva no correspondía a una garantía. Requiere
       // motivo (queda documentado) y habilita el botón Cancelar en el menú
@@ -205,7 +279,21 @@ router.put('/:id/resolver', proteger, requiereRol('admin', 'jefe'), async (req, 
       vehiculo.ventaCliente = (vehiculo.ventaCliente || []).filter((r) => !r.esGarantia);
     }
 
+    // Resuelta la garantía, se levanta el bloqueo por autorización.
+    const ticketAutorizacionId = vehiculo.garantia.autorizacionSolicitada
+      ? vehiculo.garantia.ticketPendiente
+      : null;
+    vehiculo.garantia.ticketPendiente = null;
+    vehiculo.garantia.autorizacionSolicitada = false;
+    vehiculo.garantia.fechaSolicitudAutorizacion = null;
+
     await vehiculo.save();
+
+    await cerrarTicketAutorizacion(
+      ticketAutorizacionId,
+      accion === 'APROBAR' ? 'APROBADO' : 'RECHAZADO',
+      resueltoPor
+    );
 
     const actualizado = await Vehiculo.findById(vehiculo._id)
       .populate('cliente', POPULATE_CLIENTE)

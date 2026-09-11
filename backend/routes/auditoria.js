@@ -2,7 +2,7 @@
 //
 // Lectura del log de actividad del sistema (RegistroAccion). SOLO rol 'admin'.
 // Lo alimentan middleware/auditoria.js (origen 'auto') y utils/registrarAccion.js
-// (origen 'manual'). Retención 15 días vía índice TTL del modelo; además aquí se
+// (origen 'manual'). Retención 30 días vía índice TTL del modelo; además aquí se
 // filtra por createdAt para no devolver nada fuera de esa ventana.
 
 const express = require('express');
@@ -10,7 +10,7 @@ const router = express.Router();
 const RegistroAccion = require('../models/RegistroAccion');
 const { proteger, requiereRol } = require('../middleware/auth');
 
-const RETENCION_DIAS = RegistroAccion.RETENCION_DIAS || 15;
+const RETENCION_DIAS = RegistroAccion.RETENCION_DIAS || 30;
 const RETENCION_MS = RETENCION_DIAS * 24 * 60 * 60 * 1000;
 
 const ventanaMin = () => new Date(Date.now() - RETENCION_MS);

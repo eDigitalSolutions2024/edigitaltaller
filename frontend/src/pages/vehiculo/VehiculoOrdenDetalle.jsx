@@ -391,7 +391,10 @@ export default function VehiculoOrdenDetalle() {
       {/* Banner solo lectura mientras un ticket de garantía está pendiente */}
       {bloqueadaPorGarantia && (
         <div className="alert alert-warning text-center py-2 mb-3">
-          <strong>Orden bloqueada.</strong> Hay un ticket de soporte pendiente sobre si la garantía aplica; no se pueden realizar modificaciones hasta que un administrador lo resuelva.
+          <strong>Orden bloqueada.</strong>{" "}
+          {orden?.garantia?.autorizacionSolicitada
+            ? "Se solicitó la autorización de la garantía; no se pueden realizar modificaciones hasta que un administrador la autorice o niegue desde Solicitudes de Garantías."
+            : "Hay un ticket de soporte pendiente sobre si la garantía aplica; no se pueden realizar modificaciones hasta que un administrador lo resuelva."}
         </div>
       )}
 

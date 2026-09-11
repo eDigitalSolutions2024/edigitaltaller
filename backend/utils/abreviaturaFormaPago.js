@@ -8,8 +8,9 @@
  * Reglas (acordadas con el cliente):
  *   - Tarjeta: <abrev. terminal>-<C|D>      ej. "BanRegio Crédito" -> "BR-C"
  *   - Efectivo / Cheque / Transferencia: texto completo
- *   - Combinado: cada componente presente, separado por un espacio (solo
- *     texto, sin símbolos)   ej. "EFECTIVO BR-C"
+ *   - Combinado: cada componente presente, separado por "Y" (o comas si son
+ *     más de dos), para que se lea claro que fue un pago combinado
+ *     ej. "EFECTIVO Y BR-C", "EFECTIVO, BR-C Y TRANSFERENCIA"
  *
  * Recibe el sub-objeto `pago.notaVenta` o `pago.reciboProvisional` (comparten
  * forma: { formaPago, banco, combinado }). Devuelve "" si no hay datos
@@ -43,6 +44,14 @@ function abrevTarjeta(formaPago, banco) {
   return term || 'TARJETA';
 }
 
+// Une los métodos de un pago combinado como lista en español: "A Y B" para
+// dos, "A, B Y C" para tres o más.
+function joinMetodos(partes) {
+  if (partes.length <= 1) return partes.join('');
+  if (partes.length === 2) return partes.join(' Y ');
+  return `${partes.slice(0, -1).join(', ')} Y ${partes[partes.length - 1]}`;
+}
+
 function abreviaturaCombinado(combinado) {
   const c = combinado || {};
   const n = (v) => Number(v) || 0;
@@ -52,7 +61,7 @@ function abreviaturaCombinado(combinado) {
   if (n(c.debito)) partes.push(abrevTarjeta('DEBITO', c.banco));
   if (n(c.cheque)) partes.push('CHEQUE');
   if (n(c.transferencia)) partes.push('TRANSFERENCIA');
-  return partes.join(' ');
+  return joinMetodos(partes);
 }
 
 function abreviaturaFormaPago(desc) {
