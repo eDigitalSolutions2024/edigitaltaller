@@ -53,6 +53,7 @@ export default function CajaOrdenDetalle() {
   const { pdfModal, abrirPdf } = usePdfModal();
 
   const [orden, setOrden] = useState(null);
+  const [facturas, setFacturas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModalDescuento, setShowModalDescuento] = useState(false);
   const [showModalPago, setShowModalPago] = useState(false);
@@ -66,6 +67,7 @@ export default function CajaOrdenDetalle() {
       setLoading(true);
       const res = await getOrdenCaja(id);
       setOrden(res.data.vehiculo);
+      setFacturas(res.data.facturas || []);
     } catch (err) {
       console.error("Error cargando orden (cajas):", err);
     } finally {
@@ -470,6 +472,7 @@ export default function CajaOrdenDetalle() {
         <h5 className="fw-semibold mb-2">Historial de Pagos / Abonos</h5>
         <CajaHistorialPagos
           pagos={orden.pagos || []}
+          facturas={facturas}
           onImprimir={handleImprimirPago}
           onImprimirReciboProvisional={handleImprimirReciboProvisional}
           onImprimirReciboDolares={handleImprimirReciboDolares}

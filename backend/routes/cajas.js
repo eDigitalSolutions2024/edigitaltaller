@@ -101,10 +101,22 @@ router.get('/', proteger, async (req, res) => {
     const q = { estadoOrden: { $ne: 'CANCELADA' } };
     const andConditions = [];
 
+    // Filtro por tipo de comprobante ("Con Remisión" / "Con Nota de Venta"):
+    // el campo de folio (remision.numero / notaVenta.numero) donde, si la
+    // búsqueda trae un número, se exige coincidencia EXACTA más abajo (en vez
+    // de la búsqueda general por texto, que traería "1", "11", "21"...).
+    const COMPROBANTE_POR_VISTA = { remision: 'REMISION', nota_venta: 'NOTA_VENTA' };
+    const CAMPO_NUMERO_POR_VISTA = { remision: 'remision.numero', nota_venta: 'notaVenta.numero' };
+    const comprobanteVista = COMPROBANTE_POR_VISTA[vista] || null;
+
     if (vista === 'garantias') {
       q.garantia = { $ne: null };
     } else if (vista === 'pendientes_factura') {
       q.pendienteFactura = true;
+    } else if (comprobanteVista) {
+      // Órdenes con ese comprobante vigente (no cancelado), sin importar su
+      // estatus; se afina con el folio exacto abajo si hay búsqueda numérica.
+      q.pagos = { $elemMatch: { comprobante: comprobanteVista, cancelado: { $ne: true } } };
     } else if (VISTAS_SOLO_CERRADA.includes(vista)) {
       q.estadoOrden = 'CERRADA';
     }
@@ -112,27 +124,54 @@ router.get('/', proteger, async (req, res) => {
     if (search) {
       const rxSearch = { $regex: search, $options: 'i' };
       const rxOS = regexBusquedaOS(search);
-      const clientesMatch = await Cliente.find({
-        $or: [
-          { nombre: rxSearch },
-          { apellidoPaterno: rxSearch },
-          { apellidoMaterno: rxSearch },
-          { 'empresa.razonSocial': rxSearch },
-          { 'gobierno.nombreGobierno': rxSearch },
-        ],
-      }).select('_id');
-      const clienteIdsMatch = clientesMatch.map((c) => c._id);
+      // Búsqueda general: si el término trae dígitos (p. ej. "26", "R-26",
+      // "Nota 26"), también busca ese número como folio de Remisión o Nota de
+      // Venta (Vehiculo.pagos[].remision.numero / notaVenta.numero).
+      const numMatch = String(search).match(/(\d+)/);
+      const numeroBusqueda = numMatch ? Number(numMatch[1]) : null;
 
-      andConditions.push({
-        $or: [
-          { serie: rxSearch },
-          { placas: rxSearch },
-          { marca: rxSearch },
-          { modelo: rxSearch },
-          ...(rxOS ? [{ ordenServicio: rxOS }] : []),
-          ...(clienteIdsMatch.length ? [{ cliente: { $in: clienteIdsMatch } }] : []),
-        ],
-      });
+      if (comprobanteVista && numeroBusqueda != null) {
+        // Con un Filtro de comprobante activo, un número en la búsqueda es el
+        // folio exacto de ESE comprobante — no la búsqueda general por texto
+        // (si no, buscar "1" traería también folios "11", "21", etc.).
+        q.pagos = {
+          $elemMatch: {
+            comprobante: comprobanteVista,
+            cancelado: { $ne: true },
+            [CAMPO_NUMERO_POR_VISTA[vista]]: numeroBusqueda,
+          },
+        };
+      } else {
+        const clientesMatch = await Cliente.find({
+          $or: [
+            { nombre: rxSearch },
+            { apellidoPaterno: rxSearch },
+            { apellidoMaterno: rxSearch },
+            { 'empresa.razonSocial': rxSearch },
+            { 'gobierno.nombreGobierno': rxSearch },
+          ],
+        }).select('_id');
+        const clienteIdsMatch = clientesMatch.map((c) => c._id);
+
+        andConditions.push({
+          $or: [
+            { serie: rxSearch },
+            { placas: rxSearch },
+            { marca: rxSearch },
+            { modelo: rxSearch },
+            ...(rxOS ? [{ ordenServicio: rxOS }] : []),
+            ...(clienteIdsMatch.length ? [{ cliente: { $in: clienteIdsMatch } }] : []),
+            // Sin un Filtro de comprobante activo, el número escrito puede ser
+            // cualquiera de los dos folios (la búsqueda general de ambos).
+            ...(numeroBusqueda != null && !comprobanteVista
+              ? [
+                  { 'pagos.remision.numero': numeroBusqueda },
+                  { 'pagos.notaVenta.numero': numeroBusqueda },
+                ]
+              : []),
+          ],
+        });
+      }
     }
 
     if (fechaDesde || fechaHasta) {
@@ -158,7 +197,9 @@ router.get('/', proteger, async (req, res) => {
     const conTotales = ordenes.map((orden) => ({ orden, totales: calcularTotalesOrden(orden) }));
 
     const filtradas = conTotales.filter(({ orden, totales }) => {
-      if (vista === 'garantias' || vista === 'cerradas' || vista === 'pendientes_factura') return true;
+      if (['garantias', 'cerradas', 'pendientes_factura', 'remision', 'nota_venta'].includes(vista)) {
+        return true;
+      }
       const liquidada = orden.estadoOrden === 'CERRADA' && totales.saldoPendiente <= 0;
       if (vista === 'liquidadas') return liquidada;
       if (vista === 'pendientes') return !liquidada;
@@ -201,7 +242,21 @@ router.get('/:id', proteger, async (req, res) => {
       console.error('Error sincronizando anticipos aplicados:', errAnticipo);
     }
 
-    return res.json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo) });
+    // Facturas (CFDI) ya generadas para esta orden (factura, nota de crédito,
+    // complemento de pago o factura global que la incluya), para mostrarlas en
+    // el Historial de Pagos / Abonos de Cajas aunque no vengan de un `pago`.
+    const facturas = await FacturaCfdi.find({
+      $or: [
+        { 'orden.vehiculoId': vehiculo._id },
+        { 'ordenes.vehiculoId': vehiculo._id },
+        { 'notasVenta.vehiculoId': vehiculo._id },
+      ],
+    })
+      .select('tipoFactura serie folio fecha totales estatus generadoPor notaFacturacion')
+      .sort({ fecha: 1 })
+      .lean();
+
+    return res.json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo), facturas });
   } catch (err) {
     console.error('Error obteniendo orden (cajas):', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });

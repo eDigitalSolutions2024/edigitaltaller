@@ -32,14 +32,15 @@ function fmtFechaCorta(iso) {
   return dayjsFecha(iso).format('DD/MM/YYYY');
 }
 
-// Siempre 2 decimales, truncados (no redondeados): se limpia el ruido de
-// flotantes más allá de la millonésima y luego se corta en el 2do decimal
-// sin ajustar el dígito de más (2099.9952 -> 2099.99, no 2100.00).
+// Siempre 2 decimales, redondeados igual que las tablas en pantalla
+// (Intl.NumberFormat con style "currency"), para que el PDF nunca muestre
+// un total distinto al que el usuario ya vio en la tabla.
 function fmtMoney(n) {
-  const v = Math.round((Number(n) || 0) * 1e6) / 1e6;
-  const [intPart, decPart = ''] = Math.abs(v).toFixed(6).split('.');
-  const decimals = decPart.slice(0, 2);
-  const abs = `${new Intl.NumberFormat('es-MX').format(Number(intPart))}.${decimals}`;
+  const v = Number(n) || 0;
+  const abs = new Intl.NumberFormat('es-MX', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Math.abs(v));
   return v < 0 ? `(${abs})` : abs;
 }
 

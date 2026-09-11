@@ -37,8 +37,22 @@ function badgeCancelacion(p) {
   return { texto: "Cancelado", clase: "bg-danger" };
 }
 
+// Facturas (CFDI) ya generadas para la orden: se muestran como filas de solo
+// lectura en el mismo historial (sin botón de cancelar por ahora).
+const TIPO_FACTURA_LABEL = {
+  factura: "Factura",
+  notaCredito: "Nota de Crédito",
+  complementoPago: "Complemento de Pago",
+  facturaGlobal: "Factura Global",
+};
+
+function facturaFolioLabel(f) {
+  return [f.serie, f.folio].filter(Boolean).join("-") || "-";
+}
+
 export default function CajaHistorialPagos({
   pagos = [],
+  facturas = [],
   onImprimir,
   onImprimirReciboProvisional,
   onImprimirReciboDolares,
@@ -56,7 +70,20 @@ export default function CajaHistorialPagos({
     if (!!a.cancelado !== !!b.cancelado) return a.cancelado ? 1 : -1;
     return new Date(b.fecha) - new Date(a.fecha);
   });
-  const visibles = filtro === "TODOS" ? ordenados : ordenados.filter((p) => p.comprobante === filtro);
+  const pagosVisibles = filtro === "TODOS" ? ordenados : ordenados.filter((p) => p.comprobante === filtro);
+
+  // Las facturas son un tipo de comprobante aparte (no un `pago`): siempre se
+  // muestran, sin importar el filtro de comprobantes de arriba.
+  const filasFacturas = facturas.map((f) => ({ ...f, _esFactura: true }));
+
+  // Igual que los pagos: las canceladas se van al final; el resto, más
+  // reciente primero.
+  const visibles = [...pagosVisibles, ...filasFacturas].sort((a, b) => {
+    const aCancelado = a._esFactura ? a.estatus === "cancelada" : !!a.cancelado;
+    const bCancelado = b._esFactura ? b.estatus === "cancelada" : !!b.cancelado;
+    if (aCancelado !== bCancelado) return aCancelado ? 1 : -1;
+    return new Date(b.fecha) - new Date(a.fecha);
+  });
 
   return (
     <div>
@@ -99,7 +126,32 @@ export default function CajaHistorialPagos({
                 </td>
               </tr>
             )}
-            {visibles.map((p, idx) => (
+            {visibles.map((p, idx) => {
+              if (p._esFactura) {
+                const cancelada = p.estatus === "cancelada";
+                return (
+                  <tr key={p._id || idx} className={cancelada ? "table-secondary text-decoration-line-through" : ""}>
+                    <td className="text-center text-nowrap">{formatFecha(p.fecha)}</td>
+                    <td className="text-center">{TIPO_FACTURA_LABEL[p.tipoFactura] || "Factura"}</td>
+                    <td className="text-center">
+                      {facturaFolioLabel(p)}
+                      {cancelada && (
+                        <span className="badge ms-1 bg-danger" title="Factura cancelada">
+                          Cancelada
+                        </span>
+                      )}
+                    </td>
+                    <td className="text-end">{formatMoney(p.totales?.total)}</td>
+                    <td className="text-end">-</td>
+                    <td className="text-end">-</td>
+                    <td className="text-end fw-bold">{formatMoney(p.totales?.total)}</td>
+                    <td>{p.notaFacturacion}</td>
+                    <td>{p.generadoPor}</td>
+                    <td className="text-center"></td>
+                  </tr>
+                );
+              }
+              return (
               <tr key={p._id || idx} className={p.cancelado ? "table-secondary text-decoration-line-through" : ""}>
                 <td className="text-center text-nowrap">
                   {onEditarFecha && !p.cancelado ? (
@@ -208,7 +260,8 @@ export default function CajaHistorialPagos({
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
