@@ -252,7 +252,10 @@ router.get('/:id', proteger, async (req, res) => {
         { 'notasVenta.vehiculoId': vehiculo._id },
       ],
     })
-      .select('tipoFactura serie folio fecha totales estatus generadoPor notaFacturacion')
+      .select(
+        'tipoFactura serie folio fecha totales estatus generadoPor notaFacturacion ' +
+          'cliente.nombre cfdi.formaPago cfdi.metodoPago pago relacionadas notasVenta'
+      )
       .sort({ fecha: 1 })
       .lean();
 
