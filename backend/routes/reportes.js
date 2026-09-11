@@ -850,6 +850,19 @@ function sumarDepositoNotaVenta(sumarDeposito, pago) {
   sumarDeposito(bucket, pago.monto);
 }
 
+// Cuánto de un pago NOTA_VENTA entró por transferencia (0 si nada). Se usa en
+// el Reporte de Facturas para NO contar ese monto como Ingreso de Contado:
+// a diferencia de efectivo/tarjeta, una transferencia no se confirma en el
+// acto, así que se reporta en Cuentas por Cobrar hasta que se concilie.
+function montoTransferenciaNotaVenta(pago) {
+  const nv = pago.notaVenta || {};
+  if (nv.formaPago === 'COMBINADO' && nv.combinado) {
+    return Number(nv.combinado.transferencia) || 0;
+  }
+  const bucket = formaPagoProvisionalADeposito(nv.formaPago) || bancoADeposito(nv.banco);
+  return bucket === 'transferencias' ? Number(pago.monto) || 0 : 0;
+}
+
 function sumarDepositoReciboProvisional(sumarDeposito, pago) {
   const rp = pago.reciboProvisional || {};
   if (rp.formaPago === 'COMBINADO' && rp.combinado) {
@@ -1202,6 +1215,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       esPue,
       total,
       metodos: new Set(),
+      montoTransferencia: 0,
     });
     for (const o of ordenes) if (o.vehiculoId) vehiculoIdsFacturas.push(String(o.vehiculoId));
   }
@@ -1230,6 +1244,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         for (const p of pagos) {
           if (p.comprobante !== 'NOTA_VENTA' || p.tipoPago !== 'COMPLETO' || p.cancelado) continue;
           sumarDepositoNotaVenta(sumarDeposito, p);
+          entry.montoTransferencia += montoTransferenciaNotaVenta(p);
           const abrevNota = abreviaturaFormaPago(p.notaVenta);
           if (abrevNota) metodos.add(abrevNota);
           if (ordenes.length <= 1) continue;
@@ -1262,7 +1277,8 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
   //   - Depósito: si la factura es de contado (PUE) y NO tuvo pago de Cajas que
   //     ya alimentó la tabla, se aporta su total al bucket según cfdi.formaPago
   //     (una factura fiscal normal se cobra en el mismo acto, sin Nota de Venta).
-  for (const { fila, cfdiFormaPago, esPue, total, metodos } of facturasConOrdenes) {
+  for (const entry of facturasConOrdenes) {
+    const { fila, cfdiFormaPago, esPue, total, metodos, montoTransferencia } = entry;
     if (!/PUBLICO GENERAL/.test(fila.notas || '')) {
       const abrev = metodos.size
         ? [...metodos].join(' ')
@@ -1271,6 +1287,26 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     }
     if (esPue && metodos.size === 0) {
       sumarDeposito(SAT_FORMA_PAGO_A_DEPOSITO[cfdiFormaPago], total);
+    }
+
+    // Una factura de contado (PUE) cobrada por transferencia no cuenta como
+    // Ingreso de Contado: el dinero no se confirma en el acto como efectivo o
+    // tarjeta, así que ese monto pasa a Cuentas por Cobrar hasta conciliarse
+    // (igual que una factura a crédito). Si no hubo pago de Cajas cruzado, se
+    // usa la forma de pago del propio CFDI.
+    if (esPue) {
+      const montoTransf = metodos.size
+        ? montoTransferencia
+        : SAT_FORMA_PAGO_A_DEPOSITO[cfdiFormaPago] === 'transferencias'
+          ? total
+          : 0;
+      if (montoTransf > 0) {
+        const restante = total - montoTransf;
+        fila.ingresoContado = restante > 0 ? restante : undefined;
+        fila.cuentasPorCobrar = montoTransf;
+        totalContado -= montoTransf;
+        totalPorCobrar += montoTransf;
+      }
     }
   }
 
@@ -1296,12 +1332,24 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       .select('pagos')
       .lean();
     const metodoPorNotaGlobal = new Map(); // `${facturaGlobalId}_${notaVentaNumero}` -> abreviatura
+    const transferenciaPorFacturaGlobal = new Map(); // facturaGlobalId -> monto pagado por transferencia
     for (const v of vehiculosNotasGlobal) {
       for (const p of v.pagos || []) {
-        if (!p.facturaGlobalId || p.comprobante !== 'NOTA_VENTA') continue;
+        if (!p.facturaGlobalId || p.comprobante !== 'NOTA_VENTA' || p.cancelado) continue;
         const num = p.notaVenta?.numero;
         if (num == null) continue;
         metodoPorNotaGlobal.set(`${String(p.facturaGlobalId)}_${num}`, abreviaturaFormaPago(p.notaVenta));
+        // Estas notas de venta (público en general) también son dinero real
+        // cobrado en Cajas: igual que en las facturas normales (banda 5),
+        // deben alimentar la tabla Depósito con la forma real de cobro
+        // (tarjeta, transferencia, etc.), no solo aparecer en el desglose.
+        sumarDepositoNotaVenta(sumarDeposito, p);
+
+        const montoTransf = montoTransferenciaNotaVenta(p);
+        if (montoTransf > 0) {
+          const key = String(p.facturaGlobalId);
+          transferenciaPorFacturaGlobal.set(key, (transferenciaPorFacturaGlobal.get(key) || 0) + montoTransf);
+        }
       }
     }
 
@@ -1312,8 +1360,21 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       const total = f.totales?.total || 0;
       const esPue = (f.cfdi?.metodoPago || 'PUE') !== 'PPD';
       totalVentaDia += total;
-      if (esPue) totalContado += total;
-      else totalPorCobrar += total;
+
+      // Igual que en las facturas normales (banda 5): lo cobrado por
+      // transferencia no cuenta como Ingreso de Contado, pasa a Cuentas por
+      // Cobrar hasta conciliarse.
+      const montoTransf = esPue ? transferenciaPorFacturaGlobal.get(String(f._id)) || 0 : 0;
+      const restante = total - montoTransf;
+      const ingresoContado = esPue ? (restante > 0 ? restante : undefined) : undefined;
+      const cuentasPorCobrar = esPue ? (montoTransf > 0 ? montoTransf : undefined) : total;
+
+      if (esPue) {
+        totalContado += restante;
+        totalPorCobrar += montoTransf;
+      } else {
+        totalPorCobrar += total;
+      }
 
       const partes = (f.notasVenta || []).map((n) => {
         const metodo = metodoPorNotaGlobal.get(`${String(f._id)}_${n.numero}`);
@@ -1329,8 +1390,8 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         cliente: `PUBLICO GENERAL.=${partes.join('--')}`,
         fecha: f.fecha,
         ventaDia: total,
-        ingresoContado: esPue ? total : undefined,
-        cuentasPorCobrar: esPue ? undefined : total,
+        ingresoContado,
+        cuentasPorCobrar,
         notas: '',
       });
     }
