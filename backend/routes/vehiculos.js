@@ -556,6 +556,7 @@ router.get('/ordenes', proteger, async (req, res) => {
       cliente = '',
       lineaNegocio = '',
       soloMisOrdenes = '',
+      excluirFacturadas = '',
       page = 1,
       limit = 10,
     } = req.query;
@@ -564,6 +565,26 @@ router.get('/ordenes', proteger, async (req, res) => {
     // Las condiciones que usan $or se acumulan aquí (en vez de sobreescribir
     // q.$or directamente) para poder combinar varias sin que choquen entre sí.
     const andConditions = [];
+
+    // Nueva Factura (búsqueda de orden a facturar): una orden que ya tiene una
+    // factura de ingreso vigente no debe ni aparecer en los resultados, para
+    // no dejar que el usuario la elija y se tope con el rechazo hasta el paso
+    // final (ver también la validación dura en POST /api/generar-xml/xml).
+    if (excluirFacturadas === 'true') {
+      const facturadas = await FacturaCfdi.find({ tipoFactura: 'factura', estatus: 'generada' })
+        .select('orden.vehiculoId ordenes.vehiculoId')
+        .lean();
+      const vehiculoIdsFacturados = new Set();
+      for (const f of facturadas) {
+        if (f.orden?.vehiculoId) vehiculoIdsFacturados.add(String(f.orden.vehiculoId));
+        for (const o of f.ordenes || []) {
+          if (o.vehiculoId) vehiculoIdsFacturados.add(String(o.vehiculoId));
+        }
+      }
+      if (vehiculoIdsFacturados.size) {
+        q._id = { $nin: [...vehiculoIdsFacturados] };
+      }
+    }
 
     // Para facturar varias órdenes juntas, todas deben ser del mismo cliente.
     if (cliente && mongoose.isValidObjectId(cliente)) {

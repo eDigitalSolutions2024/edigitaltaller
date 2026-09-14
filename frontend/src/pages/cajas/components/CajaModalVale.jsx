@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { getValeCajaSiguienteFolio } from "../../../api/reportes";
+import { getValeCajaSiguienteFolio, confirmarValeCajaFolio } from "../../../api/reportes";
 
 const FORM_VACIO = { motivo: "", monto: "" };
 
@@ -16,11 +16,14 @@ function sanitizeMonto(value) {
 
 // Modal para capturar un vale de la Caja del día (sustituye a los inputs en
 // línea que había antes en la tabla de Vales, ver GestionCaja.jsx). El folio
-// es automático: se genera del contador 'valeCaja' (ver Configuración) al
-// abrir el modal, no se captura a mano.
+// es automático (contador 'valeCaja', ver Configuración): al abrir el modal
+// sólo se muestra una vista previa (no consume el contador); el folio real
+// se reclama hasta dar clic en "Agregar Vale", para no perder/saltar folios
+// si el usuario abre el modal y lo cierra sin capturar nada.
 export default function CajaModalVale({ show, onClose, onAdd }) {
   const [folio, setFolio] = useState(null);
   const [cargandoFolio, setCargandoFolio] = useState(false);
+  const [guardando, setGuardando] = useState(false);
   const [form, setForm] = useState(FORM_VACIO);
   const [error, setError] = useState("");
 
@@ -47,7 +50,14 @@ export default function CajaModalVale({ show, onClose, onAdd }) {
       setError("Captura un monto mayor a 0.");
       return;
     }
-    onAdd({ folio: String(folio), motivo: form.motivo.trim(), monto: Number(form.monto) });
+    setError("");
+    setGuardando(true);
+    confirmarValeCajaFolio()
+      .then((res) => {
+        onAdd({ folio: String(res.data.folio), motivo: form.motivo.trim(), monto: Number(form.monto) });
+      })
+      .catch(() => setError("No se pudo generar el folio del vale."))
+      .finally(() => setGuardando(false));
   };
 
   return (
@@ -108,7 +118,7 @@ export default function CajaModalVale({ show, onClose, onAdd }) {
               type="button"
               className="btn btn-danger fw-semibold"
               onClick={handleGuardar}
-              disabled={cargandoFolio}
+              disabled={cargandoFolio || guardando}
             >
               Agregar Vale
             </button>

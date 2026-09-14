@@ -7,6 +7,7 @@ import { listConceptosPreset } from "../../api/conceptosPreset";
 import { listClavesUnidad } from "../../api/clavesUnidad";
 import { listFacturasCfdi, getFacturaCfdiPdf } from "../../api/facturasCfdi";
 import { generarVistaPreviaPDF, getNotasVentaPendientes } from "../../api/facturacion";
+import { getReciboDolaresPdfUrl } from "../../api/cajas";
 import api from "../../api/http";
 import usePdfModal from "../../hooks/usePdfModal";
 import CajaModalCancelarPago from "../cajas/components/CajaModalCancelarPago";
@@ -49,6 +50,42 @@ const TIPOS_FACTURA = [
     desc: "CFDI de Ingreso al público en general que agrupa las notas de venta del día.",
   },
 ];
+
+// Catálogo de Cajas (no el SAT: ver FORMA_PAGO más abajo) para la captura de
+// "Liquidar" de una orden sin comprobante — mismos catálogos que
+// frontend/src/pages/cajas/components/CajaModalPago.jsx / backend/routes/cajas.js.
+const FORMAS_PAGO_CAJA = [
+  { value: "EFECTIVO", label: "Efectivo" },
+  { value: "CREDITO", label: "T. Crédito" },
+  { value: "DEBITO", label: "T. Débito" },
+  { value: "CHEQUE", label: "Cheque No." },
+  { value: "TRANSFERENCIA", label: "Transferencia" },
+  { value: "COMBINADO", label: "Combinado" },
+];
+const TERMINALES_CAJA = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER"];
+// Mismos nombres de campo que backend/routes/cajas.js espera en `combinado`
+// (pago.liquidacion.combinado): efectivo/efectivoDolares/credito/debito/
+// cheque/transferencia/banco (terminal de la parte con tarjeta).
+const MONTOS_COMBINADO_INICIAL = {
+  efectivo: "",
+  efectivoDolares: "",
+  credito: "",
+  debito: "",
+  cheque: "",
+  transferencia: "",
+  banco: "",
+};
+const MONTOS_COMBINADO_PESOS = ["efectivo", "credito", "debito", "cheque", "transferencia"];
+const PAGO_LIQUIDAR_VACIO = {
+  formaPago: "EFECTIVO",
+  chequeNumero: "",
+  terminal: "",
+  combinado: null,
+  // Solo aplica con formaPago EFECTIVO: parte del pago recibida en dólares en
+  // efectivo (igual que el Combinado, pero sin obligar a cambiar de modo por
+  // un pago simple que solo mezcla pesos y dólares, no métodos distintos).
+  montoDolares: "",
+};
 
 /* Receptor genérico "público en general" de la factura global (el CP fiscal lo
    completa el backend con el del emisor). */
@@ -218,6 +255,20 @@ function hoyISO() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// Clave de día local (YYYY-MM-DD) de una fecha cualquiera, mismo formato que
+// hoyISO() pero para la fecha real de una nota de venta. Se usa para agrupar
+// las notas pendientes de Factura Global por día y no dejar mezclar días.
+function diaISO(d) {
+  const x = new Date(d);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
+}
+
+function fechaLargaEsGlobal(diaKey) {
+  const [y, m, d] = diaKey.split("-").map(Number);
+  return `${d} ${MESES_ES[m - 1]} ${y}`;
+}
+
 /* Select reutilizable de clave de unidad. Si el concepto trae una clave que no
    está en el catálogo (capturada antes o importada, o el catálogo aún no la
    tiene dada de alta), se agrega como opción para no perderla al editar. */
@@ -341,6 +392,15 @@ export default function NuevaFactura() {
   const [showOrdenes, setShowOrdenes] = useState(false);
   const [ordenes, setOrdenes] = useState([]);
   const [cliente, setCliente] = useState(null);
+  // Monto (totalOrden, con IVA y descuentos ya aplicados) de cada orden agregada,
+  // capturado al momento de agregarla — lo usa la captura de "Liquidar" de abajo.
+  const [montoPorOrden, setMontoPorOrden] = useState({});
+  // Forma de pago (Caja) para órdenes SIN ningún anticipo/remisión vigente: al
+  // facturar, el backend crea con esto un pago "Liquidar (sin comprobante)" ligado
+  // a la factura, para que Cajas y el Cierre de Caja queden al día (ver
+  // ordenesSinComprobante más abajo). { [vehiculoId]: { formaPago, chequeNumero,
+  // terminal, combinado } }
+  const [pagosLiquidar, setPagosLiquidar] = useState({});
 
   const [fiscalDraft, setFiscalDraft] = useState(FISCAL_DRAFT_VACIO);
   const [guardandoFiscal, setGuardandoFiscal] = useState(false);
@@ -352,12 +412,42 @@ export default function NuevaFactura() {
   ========== */
   const [notasPend, setNotasPend] = useState([]);
   const [loadingNotas, setLoadingNotas] = useState(false);
-  // Set de pagoId seleccionados (todas por defecto al cargar).
+  // Set de pagoId seleccionados (todas las del día activo por defecto al cargar).
   const [notasSelKeys, setNotasSelKeys] = useState(() => new Set());
+  // Día (YYYY-MM-DD) que se está facturando. Una Factura Global no puede
+  // mezclar notas de venta de distintos días: si se mezclaran, el Reporte de
+  // Facturas la reportaría completa bajo el día del timbrado, aunque parte
+  // del dinero se haya cobrado otro día. Ver validación igual en el backend
+  // (generar_xml.js) por si esta pantalla se salta.
+  const [diaGlobalSel, setDiaGlobalSel] = useState("");
   const [descuentoGlobal, setDescuentoGlobal] = useState("");
   // Concepto de la factura global: se genera solo, pero es editable. null = usar
   // el texto automático (descripcionGlobal); string = texto capturado a mano.
   const [descripcionGlobalManual, setDescripcionGlobalManual] = useState(null);
+
+  // Notas pendientes agrupadas por día (más antiguo primero), para no dejar
+  // mezclar días en una misma Factura Global.
+  const gruposGlobalPorDia = useMemo(() => {
+    const map = new Map();
+    for (const n of notasPend) {
+      const dia = diaISO(n.fecha);
+      if (!map.has(dia)) map.set(dia, []);
+      map.get(dia).push(n);
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [notasPend]);
+
+  // Solo las notas del día activo son seleccionables/visibles en la tabla.
+  const notasDelDiaGlobal = useMemo(
+    () => notasPend.filter((n) => diaISO(n.fecha) === diaGlobalSel),
+    [notasPend, diaGlobalSel]
+  );
+
+  const cambiarDiaGlobal = (dia) => {
+    setDiaGlobalSel(dia);
+    const notasDia = notasPend.filter((n) => diaISO(n.fecha) === dia);
+    setNotasSelKeys(new Set(notasDia.map((n) => n.pagoId)));
+  };
 
   const notasSel = useMemo(
     () => notasPend.filter((n) => notasSelKeys.has(n.pagoId)),
@@ -383,8 +473,10 @@ export default function NuevaFactura() {
   }, [notasSel]);
   const descripcionGlobal = useMemo(() => {
     if (!notasSel.length) return "";
-    const [y, m, d] = hoyISO().split("-").map(Number);
-    const fechaTxt = `${d} ${MESES_ES[m - 1]} ${y}`;
+    // El texto dice el día de las notas seleccionadas (todas del mismo día,
+    // por la restricción de arriba), no necesariamente "hoy": puede ser una
+    // Factura Global generada hoy para notas pendientes de ayer.
+    const fechaTxt = fechaLargaEsGlobal(diaGlobalSel || hoyISO());
     // Folios seleccionados, ordenados y sin repetir.
     const folios = [...new Set(notasSel.map((n) => Number(n.numero)))].sort(
       (a, b) => a - b
@@ -407,7 +499,7 @@ export default function NuevaFactura() {
             .map((v) => `#${v}`)
             .join(", ")} Y #${folios[folios.length - 1]}`;
     return `VENTA DEL DIA ${fechaTxt} CON NOTA DE VENTA ${listaFolios}`;
-  }, [notasSel, folioMinGlobal, folioMaxGlobal]);
+  }, [notasSel, folioMinGlobal, folioMaxGlobal, diaGlobalSel]);
 
   // Texto final del concepto: el capturado a mano si lo hay, si no el automático.
   const descripcionGlobalFinal = descripcionGlobalManual ?? descripcionGlobal;
@@ -419,10 +511,12 @@ export default function NuevaFactura() {
       return next;
     });
   };
+  // Solo selecciona/quita las notas del día activo: nunca las de otro día.
   const toggleTodasNotasGlobal = () => {
-    setNotasSelKeys((prev) =>
-      prev.size === notasPend.length ? new Set() : new Set(notasPend.map((n) => n.pagoId))
-    );
+    setNotasSelKeys((prev) => {
+      const todasSel = notasDelDiaGlobal.length > 0 && notasDelDiaGlobal.every((n) => prev.has(n.pagoId));
+      return todasSel ? new Set() : new Set(notasDelDiaGlobal.map((n) => n.pagoId));
+    });
   };
 
   /* ==========
@@ -567,6 +661,7 @@ export default function NuevaFactura() {
 
     setNotasPend([]);
     setNotasSelKeys(new Set());
+    setDiaGlobalSel("");
     setDescuentoGlobal("");
     setDescripcionGlobalManual(null);
 
@@ -579,6 +674,7 @@ export default function NuevaFactura() {
     setCadenaOriginal("");
     setSello("");
     setFacturaGeneradaId(null);
+    setRecibosDolaresGenerados([]);
 
     // Se acaba de vaciar todo lo capturado: ningún paso más allá de donde
     // estás parado puede seguir mostrándose como "completo" (ver pasoMaximo).
@@ -653,6 +749,10 @@ export default function NuevaFactura() {
           // Ya con una orden agregada, las siguientes deben ser del mismo
           // cliente: una factura no puede mezclar receptores.
           ...(cliente?._id ? { cliente: cliente._id } : {}),
+          // Una orden que ya tiene una factura de ingreso no debe poder
+          // elegirse de nuevo (ver también la validación en el backend al
+          // generar el XML).
+          excluirFacturadas: "true",
           limit: 15,
         });
         const yaAgregadas = new Set(ordenes.map((o) => o._id));
@@ -714,7 +814,8 @@ export default function NuevaFactura() {
   }, [qFactura, esNotaCredito, esComplementoPago, facturasNC, facturasPago]); // eslint-disable-line
 
   /* Factura global: carga TODAS las notas de venta de Caja pendientes de
-     facturar globalmente y las deja todas seleccionadas. */
+     facturar globalmente, agrupadas por día, y deja seleccionadas las del
+     día pendiente más antiguo (para vaciar el rezago primero). */
   useEffect(() => {
     if (!esFacturaGlobal) return;
 
@@ -726,10 +827,16 @@ export default function NuevaFactura() {
         if (cancelado) return;
         const lista = res.data?.notas || [];
         setNotasPend(lista);
-        setNotasSelKeys(new Set(lista.map((n) => n.pagoId)));
+        const dias = [...new Set(lista.map((n) => diaISO(n.fecha)))].sort();
+        const primerDia = dias[0] || "";
+        setDiaGlobalSel(primerDia);
+        setNotasSelKeys(
+          new Set(lista.filter((n) => diaISO(n.fecha) === primerDia).map((n) => n.pagoId))
+        );
       } catch (e) {
         if (cancelado) return;
         setNotasPend([]);
+        setDiaGlobalSel("");
         setNotasSelKeys(new Set());
       } finally {
         if (!cancelado) setLoadingNotas(false);
@@ -826,7 +933,12 @@ export default function NuevaFactura() {
       // Se convierte a su equivalente pre-IVA y se reparte proporcional entre
       // los conceptos bajando su valorUnitario, para que el total del CFDI
       // coincida con lo que Cajas le cobró al cliente (totalOrden).
-      const { descuentoMonto, ivaPct } = calcularTotalesOrden(v);
+      const { descuentoMonto, ivaPct, totalOrden } = calcularTotalesOrden(v);
+      // "La cantidad actual" de esta orden (con IVA y descuentos ya aplicados,
+      // el mismo monto que usaría una Nota de Venta/Remisión real) — la usa la
+      // captura de "Liquidar" cuando la orden no tiene ningún comprobante
+      // vigente (ver ordenesSinComprobante más abajo).
+      setMontoPorOrden((prev) => ({ ...prev, [v._id]: totalOrden }));
       if (descuentoMonto > 0 && conceptosOrden.length) {
         const baseConceptos = conceptosOrden.reduce(
           (s, c) => s + c.cantidad * c.valorUnitario,
@@ -883,6 +995,14 @@ export default function NuevaFactura() {
       setCliente(null);
       setFiscalDraft(FISCAL_DRAFT_VACIO);
     }
+    setMontoPorOrden((prev) => {
+      const { [id]: _quitado, ...resto } = prev;
+      return resto;
+    });
+    setPagosLiquidar((prev) => {
+      const { [id]: _quitado, ...resto } = prev;
+      return resto;
+    });
 
     // Se retiran también los conceptos que se auto-cargaron desde esta orden.
     const conceptosRestantes = conceptos.filter((c) => c._origenOrdenId !== id);
@@ -1447,6 +1567,101 @@ export default function NuevaFactura() {
 
   const accionDe = (pagoId) => accionesComprobantes[pagoId] || "INCLUIR";
 
+  // Órdenes de esta factura que NO van a quedar cubiertas por ningún anticipo
+  // o remisión vigente que pase a ella (ni lo hay, o el usuario eligió
+  // OTRA_FACTURA/VIGENTE para el único que había): para esas se necesita
+  // capturar la forma de pago (Caja) de abajo — al generar la factura, el
+  // backend crea con esos datos un pago "Liquidar (sin comprobante)" ligado a
+  // ella, para que quede registrada en Cajas y en el Cierre de Caja. Solo
+  // aplica a la factura de ingreso normal (no notaCredito/complementoPago/
+  // facturaGlobal, que no representan el cobro nuevo de una orden).
+  const ordenesSinComprobante = useMemo(() => {
+    if (!esFactura) return [];
+    return ordenes.filter(
+      (o) =>
+        !(o.pagos || []).some(
+          (p) =>
+            (p.tipoPago === "ANTICIPO" || p.comprobante === "REMISION") &&
+            !p.cancelado &&
+            accionDe(p._id) === "INCLUIR"
+        )
+    );
+  }, [ordenes, esFactura, accionesComprobantes]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pagoLiquidarDe = (vehiculoId) => pagosLiquidar[vehiculoId] || PAGO_LIQUIDAR_VACIO;
+
+  const setCampoPagoLiquidar = (vehiculoId, campo, valor) =>
+    setPagosLiquidar((prev) => ({
+      ...prev,
+      [vehiculoId]: { ...pagoLiquidarDe(vehiculoId), [campo]: valor },
+    }));
+
+  const setCombinadoPagoLiquidar = (vehiculoId, campo, valor) =>
+    setPagosLiquidar((prev) => {
+      const actual = pagoLiquidarDe(vehiculoId);
+      return {
+        ...prev,
+        [vehiculoId]: {
+          ...actual,
+          combinado: { ...MONTOS_COMBINADO_INICIAL, ...actual.combinado, [campo]: valor },
+        },
+      };
+    });
+
+  // Tipo de cambio del día (Configuración) para convertir a pesos el Efectivo
+  // en Dólares del desglose Combinado — mismo dato y mismo criterio de
+  // solo-lectura que usa CajaModalPago.jsx (nunca se captura a mano aquí).
+  const tipoCambioLiquidar = Number(tipoCambioConfig) || 0;
+
+  // Cuánto suma, en pesos, lo capturado hasta ahora para una orden: en un
+  // Combinado, la suma de los 5 métodos en pesos + el Efectivo en Dólares
+  // convertido; en una forma simple, se asume el monto completo de la orden
+  // (no hay desglose que capturar aparte).
+  const totalCapturadoLiquidar = (vehiculoId) => {
+    const p = pagoLiquidarDe(vehiculoId);
+    if (p.formaPago !== "COMBINADO") return montoPorOrden[vehiculoId] || 0;
+    const c = p.combinado || {};
+    const pesos = MONTOS_COMBINADO_PESOS.reduce((s, k) => s + (Number(c[k]) || 0), 0);
+    const dolares = (Number(c.efectivoDolares) || 0) * tipoCambioLiquidar;
+    return pesos + dolares;
+  };
+
+  const TOLERANCIA_LIQUIDAR = 0.01;
+  const diferenciaLiquidar = (vehiculoId) =>
+    Math.round((totalCapturadoLiquidar(vehiculoId) - (montoPorOrden[vehiculoId] || 0)) * 100) / 100;
+
+  // Un pago Liquidar está completo cuando: la forma de pago requiere terminal
+  // y la tiene (tarjeta simple, o combinado con parte de tarjeta), el cheque
+  // trae número si aplica, y —si es combinado— lo capturado cuadra EXACTO con
+  // el monto de la orden (ni falta ni sobra) y, si incluye dólares, hay tipo
+  // de cambio configurado. Mismo criterio que valida backend/routes/cajas.js
+  // al dar de alta un pago SIN_COMPROBANTE.
+  const pagoLiquidarCompleto = (vehiculoId) => {
+    const p = pagoLiquidarDe(vehiculoId);
+    if (!FORMAS_PAGO_CAJA.some((f) => f.value === p.formaPago)) return false;
+    if (["CREDITO", "DEBITO"].includes(p.formaPago) && !TERMINALES_CAJA.includes(p.terminal)) return false;
+    if (p.formaPago === "CHEQUE" && !String(p.chequeNumero || "").trim()) return false;
+    // Efectivo con parte en dólares: necesita tipo de cambio y los dólares
+    // convertidos no pueden pasarse del total de la orden (el resto en pesos
+    // se deriva solo, nunca puede quedar negativo).
+    if (p.formaPago === "EFECTIVO" && Number(p.montoDolares) > 0) {
+      if (!(tipoCambioLiquidar > 0)) return false;
+      const dolaresConvertidos = Number(p.montoDolares) * tipoCambioLiquidar;
+      if (dolaresConvertidos - (montoPorOrden[vehiculoId] || 0) > TOLERANCIA_LIQUIDAR) return false;
+    }
+    if (p.formaPago === "COMBINADO") {
+      const c = p.combinado || {};
+      const totalTarjeta = (Number(c.credito) || 0) + (Number(c.debito) || 0);
+      if (totalTarjeta > 0 && !TERMINALES_CAJA.includes(c.banco)) return false;
+      if ((Number(c.efectivoDolares) || 0) > 0 && !(tipoCambioLiquidar > 0)) return false;
+      if (Math.abs(diferenciaLiquidar(vehiculoId)) > TOLERANCIA_LIQUIDAR) return false;
+    }
+    return true;
+  };
+
+  const faltaCapturarLiquidar =
+    esFactura && ordenesSinComprobante.some((o) => !pagoLiquidarCompleto(o._id));
+
   // Reemplaza los pagos de una orden con los que devuelve el backend tras
   // cancelar hacia otra factura, para que la tabla se vea al día sin recargar.
   const reemplazarPagosOrden = (vehiculo) =>
@@ -1504,6 +1719,10 @@ export default function NuevaFactura() {
       if (!relacionadasExtra.every((r) => UUID_RE.test((r.uuid || "").trim()))) return false;
     }
 
+    // Factura: toda orden sin comprobante vigente en Cajas necesita su forma
+    // de pago (Liquidar) capturada antes de poder generar/timbrar.
+    if (esFactura && faltaCapturarLiquidar) return false;
+
     return true;
   }, [
     pasoBaseOk,
@@ -1522,6 +1741,7 @@ export default function NuevaFactura() {
     esFacturaGlobal,
     formaPago,
     metodoPago,
+    faltaCapturarLiquidar,
   ]);
 
   /* ==========
@@ -1607,10 +1827,32 @@ export default function NuevaFactura() {
           }))
       : [];
 
+    // Órdenes sin comprobante vigente en Cajas: el backend crea, con esta
+    // captura, un pago "Liquidar (sin comprobante)" ligado a la factura. El
+    // tipo de cambio va aparte (no vive en `combinado`) para que el backend
+    // pueda convertir el Efectivo USD del desglose y separar montoPesos /
+    // montoDolares, igual que arma el pago un "Liquidar" hecho en Cajas.
+    const pagosSinComprobantePayload = esFactura
+      ? ordenesSinComprobante.map((o) => {
+          const p = pagoLiquidarDe(o._id);
+          return {
+            vehiculoId: o._id,
+            monto: montoPorOrden[o._id] || 0,
+            formaPago: p.formaPago,
+            chequeNumero: p.formaPago === "CHEQUE" ? p.chequeNumero : "",
+            terminal: ["CREDITO", "DEBITO"].includes(p.formaPago) ? p.terminal : "",
+            combinado: p.formaPago === "COMBINADO" ? p.combinado : null,
+            montoDolares: p.formaPago === "EFECTIVO" ? Number(p.montoDolares) || 0 : 0,
+            tipoCambio: tipoCambioLiquidar,
+          };
+        })
+      : [];
+
     return {
       tipoFactura,
       cliente: clientePayload,
       comprobantesCajas: comprobantesCajasPayload,
+      pagosSinComprobante: pagosSinComprobantePayload,
       // `orden` (singular) se conserva para el historial y los reportes que ya
       // lo leían; `ordenes` lleva la lista completa.
       orden: ordenesPayload[0] || null,
@@ -1704,6 +1946,10 @@ export default function NuevaFactura() {
   // volver a generar sobre la misma captura) y se cambia por "Ver Factura",
   // que abre el PDF real ya guardado (folio asignado, sin los "—" de antes).
   const [facturaGeneradaId, setFacturaGeneradaId] = useState(null);
+  // Recibo(s) de Dólares generados al liquidar en efectivo con parte en USD
+  // (ver crearPagosSinComprobante en generar_xml.js): [{ vehiculoId, pagoId,
+  // numero, ordenServicio }].
+  const [recibosDolaresGenerados, setRecibosDolaresGenerados] = useState([]);
   const [pdfGeneradaLoading, setPdfGeneradaLoading] = useState(false);
 
   const onGenerarXML = async () => {
@@ -1731,6 +1977,9 @@ export default function NuevaFactura() {
         alert("✅ XML generado y guardado en el sistema.");
         if (data.persistWarning) alert(data.persistWarning);
         if (data.facturaId) setFacturaGeneradaId(data.facturaId);
+        if (Array.isArray(data.recibosDolares) && data.recibosDolares.length) {
+          setRecibosDolaresGenerados(data.recibosDolares);
+        }
       } else {
         alert("XML generado, pero no llegó el xmlSigned.");
       }
@@ -1829,7 +2078,7 @@ export default function NuevaFactura() {
         return !!fechaPago && facturasPago.length > 0 && facturasPago.every((f) => Number(f.importePagado) > 0);
       }
       if (esFacturaGlobal) return sumaSinIvaGlobal > 0 && !!descripcionGlobalFinal.trim();
-      return conceptos.length > 0;
+      return conceptos.length > 0 && !faltaCapturarLiquidar;
     }
     if (n === 4) {
       if (moneda === "USD" && !(Number(tipoCambio || 0) > 0)) return false;
@@ -2168,12 +2417,36 @@ export default function NuevaFactura() {
                   </div>
                 ) : (
                   <div>
+                    {gruposGlobalPorDia.length > 1 && (
+                      <div className="alert alert-warning py-2 mb-2">
+                        Hay notas de venta pendientes de <b>{gruposGlobalPorDia.length} días distintos</b>.
+                        Una Factura Global no puede mezclar días: genera una factura por cada uno para
+                        que el Reporte de Facturas quede correcto.
+                      </div>
+                    )}
+
+                    <div className="btn-group mb-2 flex-wrap" role="group">
+                      {gruposGlobalPorDia.map(([dia, notas]) => (
+                        <button
+                          key={dia}
+                          type="button"
+                          className={`btn btn-sm ${dia === diaGlobalSel ? "btn-primary" : "btn-outline-secondary"}`}
+                          onClick={() => cambiarDiaGlobal(dia)}
+                        >
+                          {fechaLargaEsGlobal(dia)} ({notas.length})
+                        </button>
+                      ))}
+                    </div>
+
                     <div className="d-flex justify-content-between align-items-center mb-2">
                       <h6 className="mb-0">
-                        {notasSel.length} de {notasPend.length} nota(s) seleccionada(s)
+                        {notasSel.length} de {notasDelDiaGlobal.length} nota(s) seleccionada(s) —{" "}
+                        {fechaLargaEsGlobal(diaGlobalSel)}
                       </h6>
                       <button className="btn btn-link btn-sm" onClick={toggleTodasNotasGlobal}>
-                        {notasSelKeys.size === notasPend.length ? "Quitar todas" : "Seleccionar todas"}
+                        {notasDelDiaGlobal.length > 0 && notasDelDiaGlobal.every((n) => notasSelKeys.has(n.pagoId))
+                          ? "Quitar todas"
+                          : "Seleccionar todas"}
                       </button>
                     </div>
 
@@ -2191,7 +2464,7 @@ export default function NuevaFactura() {
                           </tr>
                         </thead>
                         <tbody>
-                          {notasPend.map((n) => (
+                          {notasDelDiaGlobal.map((n) => (
                             <tr
                               key={n.pagoId}
                               className={notasSelKeys.has(n.pagoId) ? "" : "text-muted"}
@@ -2500,6 +2773,267 @@ export default function NuevaFactura() {
                       </tbody>
                     </table>
                   </div>
+                </div>
+              )}
+
+              {/* Órdenes sin ningún comprobante de Cajas vigente: para que quede
+                  registrada la forma de pago, al generar la factura el backend
+                  crea con esta captura un pago "Liquidar (sin comprobante)"
+                  ligado a ella (ver Paso 5 del backend). */}
+              {ordenesSinComprobante.length > 0 && (
+                <div className="alert alert-warning mt-3 mb-0">
+                  <div className="fw-semibold mb-2">
+                    💳 Esta{ordenesSinComprobante.length > 1 ? "s" : ""} orden
+                    {ordenesSinComprobante.length > 1 ? "es no tienen" : " no tiene"} ningún
+                    comprobante en Cajas
+                  </div>
+                  <div className="small mb-3">
+                    Captura cómo pagó el cliente para que quede registrado en Cajas (Cierre de
+                    Caja) al generar la factura.
+                  </div>
+
+                  {ordenesSinComprobante.map((o) => {
+                    const p = pagoLiquidarDe(o._id);
+                    const completo = pagoLiquidarCompleto(o._id);
+                    return (
+                      <div
+                        key={o._id}
+                        className={`border rounded p-3 mb-2 bg-white ${completo ? "border-success" : ""}`}
+                      >
+                        <div className="d-flex justify-content-between align-items-center mb-2">
+                          <span className="fw-semibold">Orden {o.ordenServicio}</span>
+                          <span className="d-flex align-items-center gap-2">
+                            <span className="text-muted">{money(montoPorOrden[o._id])}</span>
+                            <span className={`badge ${completo ? "bg-success" : "bg-secondary"}`}>
+                              {completo ? "✓ Completo" : "Falta capturar"}
+                            </span>
+                          </span>
+                        </div>
+                        <div className="row g-2">
+                          <div className="col-12 col-sm-6">
+                            <label className="form-label mb-0 small text-muted">Forma de pago</label>
+                            <Dropdown
+                              className="form-select form-select-sm"
+                              value={p.formaPago}
+                              onChange={(e) => setCampoPagoLiquidar(o._id, "formaPago", e.target.value)}
+                            >
+                              {FORMAS_PAGO_CAJA.map((f) => (
+                                <Dropdown.Option key={f.value} value={f.value}>{f.label}</Dropdown.Option>
+                              ))}
+                            </Dropdown>
+                          </div>
+
+                          {p.formaPago === "CHEQUE" && (
+                            <div className="col-12 col-sm-6">
+                              <label className="form-label mb-0 small text-muted">No. de Cheque</label>
+                              <input
+                                type="text"
+                                className="form-control form-control-sm"
+                                value={p.chequeNumero}
+                                onChange={(e) => setCampoPagoLiquidar(o._id, "chequeNumero", e.target.value)}
+                              />
+                            </div>
+                          )}
+
+                          {["CREDITO", "DEBITO"].includes(p.formaPago) && (
+                            <div className="col-12 col-sm-6">
+                              <label className="form-label mb-0 small text-muted">Terminal</label>
+                              <Dropdown
+                                className="form-select form-select-sm"
+                                value={p.terminal}
+                                onChange={(e) => setCampoPagoLiquidar(o._id, "terminal", e.target.value)}
+                              >
+                                <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                                {TERMINALES_CAJA.map((t) => (
+                                  <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+                                ))}
+                              </Dropdown>
+                              <small className="text-muted">
+                                Obligatoria: en qué terminal se cobró (para el Cierre de Caja).
+                              </small>
+                            </div>
+                          )}
+                        </div>
+
+                        {p.formaPago === "EFECTIVO" && (
+                          <div className="row g-2 mt-1">
+                            <div className="col-6 col-md-4">
+                              <label className="form-label mb-0 small">Dólares (opcional)</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="form-control form-control-sm"
+                                value={p.montoDolares ?? ""}
+                                onChange={(e) => setCampoPagoLiquidar(o._id, "montoDolares", e.target.value)}
+                              />
+                            </div>
+                            {Number(p.montoDolares) > 0 && (
+                              <div className="col-6 col-md-4">
+                                <label className="form-label mb-0 small">Tipo de Cambio</label>
+                                <input
+                                  type="number"
+                                  className="form-control form-control-sm"
+                                  value={tipoCambioLiquidar || ""}
+                                  disabled
+                                  readOnly
+                                  title="Se toma del tipo de cambio definido en Configuración"
+                                />
+                                {tipoCambioLiquidar > 0 ? (
+                                  <small className="text-muted d-block">
+                                    ≈ {money(Number(p.montoDolares) * tipoCambioLiquidar)} MXN
+                                  </small>
+                                ) : (
+                                  <small className="text-danger d-block">
+                                    Sin tipo de cambio en Configuración.
+                                  </small>
+                                )}
+                              </div>
+                            )}
+                            {Number(p.montoDolares) > 0 && tipoCambioLiquidar > 0 && (
+                              <div className="col-12 col-md-4 d-flex align-items-end">
+                                <small className="text-muted">
+                                  Resto en efectivo (pesos):{" "}
+                                  <strong>
+                                    {money(
+                                      Math.max(
+                                        0,
+                                        (montoPorOrden[o._id] || 0) - Number(p.montoDolares) * tipoCambioLiquidar
+                                      )
+                                    )}
+                                  </strong>
+                                </small>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {p.formaPago === "COMBINADO" && (
+                          <div className="row g-2 mt-1">
+                            <div className="col-6 col-md-3">
+                              <label className="form-label mb-0 small">Efectivo (Pesos)</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="form-control form-control-sm"
+                                value={p.combinado?.efectivo ?? ""}
+                                onChange={(e) => setCombinadoPagoLiquidar(o._id, "efectivo", e.target.value)}
+                              />
+                            </div>
+                            <div className="col-6 col-md-3">
+                              <label className="form-label mb-0 small">Efectivo (Dólares)</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="form-control form-control-sm"
+                                value={p.combinado?.efectivoDolares ?? ""}
+                                onChange={(e) => setCombinadoPagoLiquidar(o._id, "efectivoDolares", e.target.value)}
+                              />
+                              {Number(p.combinado?.efectivoDolares) > 0 &&
+                                (tipoCambioLiquidar > 0 ? (
+                                  <small className="text-muted d-block">
+                                    ≈ {money(Number(p.combinado.efectivoDolares) * tipoCambioLiquidar)} MXN
+                                    (T.C. {tipoCambioLiquidar})
+                                  </small>
+                                ) : (
+                                  <small className="text-danger d-block">
+                                    Sin tipo de cambio en Configuración.
+                                  </small>
+                                ))}
+                            </div>
+                            <div className="col-6 col-md-3">
+                              <label className="form-label mb-0 small">T. Crédito</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="form-control form-control-sm"
+                                value={p.combinado?.credito ?? ""}
+                                onChange={(e) => setCombinadoPagoLiquidar(o._id, "credito", e.target.value)}
+                              />
+                            </div>
+                            <div className="col-6 col-md-3">
+                              <label className="form-label mb-0 small">T. Débito</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="form-control form-control-sm"
+                                value={p.combinado?.debito ?? ""}
+                                onChange={(e) => setCombinadoPagoLiquidar(o._id, "debito", e.target.value)}
+                              />
+                            </div>
+                            <div className="col-6 col-md-3">
+                              <label className="form-label mb-0 small">Cheque</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="form-control form-control-sm"
+                                value={p.combinado?.cheque ?? ""}
+                                onChange={(e) => setCombinadoPagoLiquidar(o._id, "cheque", e.target.value)}
+                              />
+                            </div>
+                            <div className="col-6 col-md-3">
+                              <label className="form-label mb-0 small">Transferencia</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="form-control form-control-sm"
+                                value={p.combinado?.transferencia ?? ""}
+                                onChange={(e) => setCombinadoPagoLiquidar(o._id, "transferencia", e.target.value)}
+                              />
+                            </div>
+                            {((Number(p.combinado?.credito) || 0) > 0 || (Number(p.combinado?.debito) || 0) > 0) && (
+                              <div className="col-12 col-md-3">
+                                <label className="form-label mb-0 small">Terminal</label>
+                                <Dropdown
+                                  className="form-select form-select-sm"
+                                  value={p.combinado?.banco || ""}
+                                  onChange={(e) => setCombinadoPagoLiquidar(o._id, "banco", e.target.value)}
+                                >
+                                  <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                                  {TERMINALES_CAJA.map((t) => (
+                                    <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+                                  ))}
+                                </Dropdown>
+                              </div>
+                            )}
+
+                            {/* Total capturado en vivo vs. el monto de la orden: no deja
+                                avanzar si falta o si se pasa (ver pagoLiquidarCompleto). */}
+                            <div className="col-12">
+                              {(() => {
+                                const diferencia = diferenciaLiquidar(o._id);
+                                const cuadra = Math.abs(diferencia) <= TOLERANCIA_LIQUIDAR;
+                                return (
+                                  <div
+                                    className={`d-flex justify-content-between align-items-center mt-1 pt-2 border-top small ${
+                                      cuadra ? "text-success" : "text-danger"
+                                    }`}
+                                  >
+                                    <span>
+                                      Capturado: <strong>{money(totalCapturadoLiquidar(o._id))}</strong> de{" "}
+                                      {money(montoPorOrden[o._id])}
+                                    </span>
+                                    <span className="fw-semibold">
+                                      {cuadra
+                                        ? "✓ Cuadra exacto"
+                                        : diferencia > 0
+                                        ? `Sobran ${money(diferencia)}`
+                                        : `Faltan ${money(-diferencia)}`}
+                                    </span>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        )}
+
+                        {!completo && p.formaPago !== "COMBINADO" && (
+                          <div className="small text-danger mt-2">
+                            Falta completar la forma de pago de esta orden.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -3743,15 +4277,32 @@ export default function NuevaFactura() {
             </div>
           </div>
 
-          <div className="mt-3 d-flex gap-2 justify-content-end">
+          <div className="mt-3 d-flex gap-2 justify-content-end flex-wrap">
             {facturaGeneradaId ? (
-              <button
-                className="btn btn-success fw-semibold"
-                onClick={verFacturaGenerada}
-                disabled={pdfGeneradaLoading}
-              >
-                {pdfGeneradaLoading ? "Abriendo..." : "Ver Factura"}
-              </button>
+              <>
+                <button
+                  className="btn btn-success fw-semibold"
+                  onClick={verFacturaGenerada}
+                  disabled={pdfGeneradaLoading}
+                >
+                  {pdfGeneradaLoading ? "Abriendo..." : "Ver Factura"}
+                </button>
+                {recibosDolaresGenerados.map((r) => (
+                  <button
+                    key={r.pagoId}
+                    className="btn btn-outline-primary fw-semibold"
+                    onClick={() =>
+                      abrirPdf(
+                        getReciboDolaresPdfUrl(r.vehiculoId, r.pagoId),
+                        "recibo-dolares.pdf",
+                        `Recibo de Dólares N°${r.numero}`
+                      )
+                    }
+                  >
+                    Ver Recibo de Dólares N°{r.numero}
+                  </button>
+                ))}
+              </>
             ) : (
               <>
                 <button

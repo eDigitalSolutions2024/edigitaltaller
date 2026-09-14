@@ -1,6 +1,10 @@
 const Vehiculo = require('../models/Vehiculo');
 
-const COMPROBANTES_INGRESO = ['NOTA_VENTA', 'REMISION', 'RECIBO_PROVISIONAL'];
+// SIN_COMPROBANTE (opción "Liquidar" de Cajas) también es dinero real cobrado
+// en el momento (efectivo, tarjeta o combinado) aunque no genere Nota de
+// Venta/Remisión/Recibo: si se deja fuera, el Total Reportes del Cierre de
+// Caja queda por debajo de lo que en verdad entró y la Diferencia sale mal.
+const COMPROBANTES_INGRESO = ['NOTA_VENTA', 'REMISION', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'];
 
 // `fecha` llega como medianoche UTC que etiqueta un día calendario LOCAL
 // (convención de normalizarFecha en cierreCaja.js). pago.fecha en cambio es

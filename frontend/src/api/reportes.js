@@ -105,8 +105,13 @@ export const cerrarCierreCaja = () =>
 export const restablecerCierreCaja = (id) =>
   http.post('/reportes/cierre-caja/restablecer', { id });
 
+// Sólo consulta (no consume) el próximo folio, para mostrarlo al abrir el modal.
 export const getValeCajaSiguienteFolio = () =>
   http.get('/reportes/cierre-caja/vale-siguiente-folio');
+
+// Reclama el folio real; se llama al agregar el vale, no al abrir el modal.
+export const confirmarValeCajaFolio = () =>
+  http.post('/reportes/cierre-caja/vale-siguiente-folio', {});
 
 // Sin argumento -> PDF de la sesión abierta; con id -> PDF de esa sesión.
 export const getCierreCajaPdfUrl = (id) =>
