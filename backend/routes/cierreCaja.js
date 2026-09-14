@@ -444,10 +444,25 @@ router.post('/captura/:capturaId/cancelar', proteger, requiereRol('admin'), asyn
   }
 });
 
-// GET /api/reportes/cierre-caja/vale-siguiente-folio -> folio automático y
-// consecutivo para un nuevo vale de caja, se consume al abrir el modal
-// "Generar Vale" en Gestión de Caja (ver CajaModalVale.jsx).
+// GET /api/reportes/cierre-caja/vale-siguiente-folio -> sólo consulta (no
+// consume) cuál sería el próximo folio de vale de caja, para mostrarlo al
+// abrir el modal "Generar Vale" en Gestión de Caja (ver CajaModalVale.jsx).
+// El folio real se reclama hasta que el vale se agrega (POST, abajo), para
+// no perder/saltar folios cuando el usuario abre el modal y lo cierra sin
+// capturar nada.
 router.get('/vale-siguiente-folio', proteger, async (req, res) => {
+  try {
+    const contador = await Contador.findOne({ nombre: VALE_CAJA_CONTADOR });
+    return res.json({ ok: true, folio: (contador?.valor || 0) + 1 });
+  } catch (err) {
+    console.error('Error consultando folio de vale de caja:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// POST /api/reportes/cierre-caja/vale-siguiente-folio -> reclama y consume
+// el folio, se llama al dar clic en "Agregar Vale" (no al abrir el modal).
+router.post('/vale-siguiente-folio', proteger, async (req, res) => {
   try {
     const contador = await Contador.findOneAndUpdate(
       { nombre: VALE_CAJA_CONTADOR },

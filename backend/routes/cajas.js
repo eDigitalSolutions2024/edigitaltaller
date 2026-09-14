@@ -62,7 +62,9 @@ function puedePasarAFactura(pago) {
 // importar su estadoOrden, porque un cobro puede llegar en cualquier etapa;
 // solo se ocultan las canceladas y las que ya quedaron liquidadas.
 // vista=activas (default) -> todo excepto CANCELADA y ya liquidadas (incluye
-//                              órdenes abiertas y cerradas con saldo pendiente)
+//                              órdenes abiertas y cerradas con saldo pendiente);
+//                              si hay "search" no oculta liquidadas, porque el
+//                              usuario está buscando una orden puntual
 // vista=cerradas           -> solo CERRADA, sin importar el saldo
 // vista=liquidadas         -> solo CERRADA con saldo pendiente <= 0
 // vista=pendientes         -> solo CERRADA con saldo pendiente > 0
@@ -203,6 +205,12 @@ router.get('/', proteger, async (req, res) => {
       const liquidada = orden.estadoOrden === 'CERRADA' && totales.saldoPendiente <= 0;
       if (vista === 'liquidadas') return liquidada;
       if (vista === 'pendientes') return !liquidada;
+      // activas ("Todas"): oculta liquidadas SOLO quien navega sin buscar nada
+      // en particular; si hay un término de búsqueda, el usuario está
+      // buscando una orden puntual y "Todas" debe mostrarla aunque ya esté
+      // liquidada (si no, aparece como "no encontrada" y solo sale filtrando
+      // por "Cerradas").
+      if (search) return true;
       return !liquidada; // activas
     });
 

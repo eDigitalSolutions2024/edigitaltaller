@@ -11,11 +11,47 @@ const FacturaCfdi = require("../models/FacturaCfdi");
 const Vehiculo = require("../models/Vehiculo");
 const Cliente = require("../models/Cliente");
 const AnticipoCliente = require("../models/AnticipoCliente");
+const Contador = require("../models/Contador");
+const { proteger } = require("../middleware/auth");
 const { sincronizarFechaPagadaRemisiones } = require("../utils/cajaTotales");
 const { datosMovimientosTerminal, moverTerminalesDePago } = require("../utils/movimientosTerminalPago");
 const { cancelarDeposito, revertirUso, SaldoInsuficienteError } = require("../utils/anticiposCliente");
+const { dayjsFecha } = require("../utils/fechas");
+const { registrarMovimientoTerminal } = require("../utils/cierreCajaTerminales");
 
 const router = express.Router();
+
+// Mismo contador que backend/routes/cajas.js usa para numerar el Recibo de
+// Dólares (folio compartido, sin importar si el pago se dio de alta desde
+// Cajas o desde el menú Factura).
+const CONTADOR_RECIBO_DOLARES = "reciboDolares";
+
+// Mismos catálogos que backend/routes/cajas.js usa para validar un pago
+// SIN_COMPROBANTE ("Liquidar") dado de alta desde Cajas.
+const FORMAS_PAGO_CAJA = ["EFECTIVO", "CREDITO", "DEBITO", "CHEQUE", "TRANSFERENCIA", "COMBINADO"];
+const TERMINALES_TARJETA = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER"];
+
+// Valida una entrada de `pagosSinComprobante` (una orden de la factura que no
+// tiene ningún anticipo/remisión vigente): mismas reglas que cajas.js aplica
+// al dar de alta un pago SIN_COMPROBANTE. Devuelve un mensaje de error, o
+// null si es válida.
+function errorPagoSinComprobante(p) {
+  if (!p || !p.vehiculoId) return "Falta la orden del pago sin comprobante.";
+  if (!FORMAS_PAGO_CAJA.includes(p.formaPago)) {
+    return "Selecciona la forma de pago de la orden sin comprobante en Cajas.";
+  }
+  if (["CREDITO", "DEBITO"].includes(p.formaPago) && !TERMINALES_TARJETA.includes(p.terminal)) {
+    return "Selecciona la terminal donde se cobró la tarjeta de la orden sin comprobante en Cajas.";
+  }
+  if (p.formaPago === "COMBINADO") {
+    const c = p.combinado || {};
+    const totalTarjeta = (Number(c.credito) || 0) + (Number(c.debito) || 0);
+    if (totalTarjeta > 0 && !TERMINALES_TARJETA.includes(c.banco)) {
+      return "Selecciona la terminal de la parte con tarjeta del pago combinado (orden sin comprobante en Cajas).";
+    }
+  }
+  return null;
+}
 
 /* =========================
    HELPERS
@@ -660,6 +696,102 @@ async function cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc, decis
   return avisos;
 }
 
+// Crea, para cada orden de `pagosSinComprobante` (una orden de esta factura
+// sin ningún anticipo/remisión vigente que pase a ella), un pago "Liquidar
+// (sin comprobante)" en Cajas ligado a la factura recién generada — mismos
+// campos y misma mecánica de terminal que backend/routes/cajas.js usa al dar
+// de alta un pago SIN_COMPROBANTE a mano, para que el Cierre de Caja cuadre
+// igual. A diferencia de cancelarAnticiposYRemisionesPorFactura, este pago NO
+// se marca cancelado: es dinero real que debe seguir contando como abonado
+// (ver backend/utils/cajaTotales.js totalAbonado).
+// Devuelve un arreglo con los Recibos de Dólares que se generaron (uno por
+// cada pago que incluyó dólares), para que el asistente de Nueva Factura
+// pueda ofrecer abrirlos/imprimirlos igual que ya hace con la factura misma.
+async function crearPagosSinComprobante(pagosSinComprobante, facturaDoc, user = null) {
+  const recibosDolares = [];
+  for (const entrada of Array.isArray(pagosSinComprobante) ? pagosSinComprobante : []) {
+    if (!entrada?.vehiculoId) continue;
+    const vehiculo = await Vehiculo.findById(entrada.vehiculoId);
+    if (!vehiculo) continue;
+
+    const formaPago = entrada.formaPago;
+    const terminal = entrada.terminal || "";
+    const combinado = entrada.combinado || null;
+    const monto = Number(entrada.monto) || 0;
+    // Dólares en efectivo: vienen del desglose Combinado (efectivoDolares), o
+    // directo en `entrada.montoDolares` cuando la forma de pago es EFECTIVO
+    // simple (ver NuevaFactura.jsx). montoPesos es lo que resta después de
+    // convertirlos, igual que arma el pago un "Liquidar" de Cajas.
+    const montoDolares =
+      formaPago === "COMBINADO"
+        ? Number(combinado?.efectivoDolares) || 0
+        : formaPago === "EFECTIVO"
+          ? Number(entrada.montoDolares) || 0
+          : 0;
+    const tipoCambio = montoDolares > 0 ? Number(entrada.tipoCambio) || 0 : 0;
+    const montoPesos = Math.round((monto - montoDolares * tipoCambio) * 100) / 100;
+    const fecha = new Date();
+
+    const pago = {
+      fecha,
+      tipoPago: "ABONO", // misma convención que "Liquidar" desde Cajas
+      comprobante: "SIN_COMPROBANTE",
+      montoPesos,
+      montoDolares,
+      tipoCambio,
+      monto,
+      registradoPor: user?.name || user?.username || "",
+      liquidacion: {
+        formaPago,
+        chequeNumero: formaPago === "CHEQUE" ? entrada.chequeNumero || "" : "",
+        banco: ["CREDITO", "DEBITO"].includes(formaPago) ? terminal : "",
+        ...(combinado ? { combinado } : {}),
+      },
+      facturaId: facturaDoc._id,
+    };
+
+    // Recibo de Dólares: automático siempre que el pago incluya dólares,
+    // igual que backend/routes/cajas.js al dar de alta un pago a mano.
+    if (montoDolares > 0) {
+      const contadorDolares = await Contador.findOneAndUpdate(
+        { nombre: CONTADOR_RECIBO_DOLARES },
+        { $inc: { valor: 1 } },
+        { new: true, upsert: true }
+      );
+      pago.reciboDolares = { numero: contadorDolares.valor };
+    }
+
+    vehiculo.pagos.push(pago);
+    const pagoSub = vehiculo.pagos[vehiculo.pagos.length - 1];
+    await vehiculo.save();
+
+    if (montoDolares > 0) {
+      recibosDolares.push({
+        vehiculoId: String(vehiculo._id),
+        pagoId: String(pagoSub._id),
+        numero: pago.reciboDolares.numero,
+        ordenServicio: vehiculo.ordenServicio || "",
+      });
+    }
+
+    // Igual que cajas.js: solo los cobros con tarjeta física pasan por
+    // registrarMovimientoTerminal (efectivo/cheque/transferencia se
+    // concilian a mano en Gestión de Caja). Nunca debe tumbar la generación
+    // de la factura si falla.
+    try {
+      const montoTarjetaCombinado = (Number(combinado?.credito) || 0) + (Number(combinado?.debito) || 0);
+      if (formaPago === "COMBINADO" && montoTarjetaCombinado > 0 && combinado?.banco) {
+        await registrarMovimientoTerminal(combinado.banco, montoTarjetaCombinado, fecha);
+      } else if (["CREDITO", "DEBITO"].includes(formaPago) && terminal) {
+        await registrarMovimientoTerminal(terminal, monto, fecha);
+      }
+    } catch (errTerminal) {
+      console.error("Error actualizando terminal del cierre de caja (factura sin comprobante):", errTerminal);
+    }
+  }
+  return recibosDolares;
+}
+
 // Al generar la factura global, cada Nota de Venta que quedó agrupada se marca
 // con `pago.facturaGlobalId` para que no pueda entrar en otra factura global.
 // El pago NO se cancela: sigue contando como cobro de la orden. Se limpiaría al
@@ -692,7 +824,13 @@ async function marcarNotasVentaFacturadas(notasVenta, facturaId) {
    ENDPOINT
    POST /api/generar-xml/xml
 ========================= */
-router.post("/xml", async (req, res) => {
+// `proteger` faltaba en esta ruta: sin ella req.user siempre venía undefined
+// (aunque el resto del handler ya lo usaba, p. ej. crearPagosSinComprobante y
+// cancelarAnticiposYRemisionesPorFactura), así que "Registrado por"/"Canceló"
+// quedaban en blanco para todo lo que se genera al facturar. El frontend ya
+// manda el Bearer token en cada request (ver frontend/src/api/http.js), así
+// que esto no requiere ningún cambio del lado del cliente.
+router.post("/xml", proteger, async (req, res) => {
   try {
     const {
       cliente,
@@ -709,6 +847,12 @@ router.post("/xml", async (req, res) => {
       // [{ vehiculoId, pagoId, accion: 'INCLUIR' | 'OTRA_FACTURA' | 'VIGENTE' }].
       // Sin entrada para un pago = 'INCLUIR' (se cancela y pasa a esta factura).
       comprobantesCajas = [],
+      // Órdenes de esta factura SIN ningún anticipo/remisión vigente: la forma
+      // de pago (Caja) capturada en el wizard para cada una. Al generar la
+      // factura se crea con esto un pago "Liquidar (sin comprobante)" ligado a
+      // ella, para que Cajas y el Cierre de Caja queden al día (ver más abajo).
+      // [{ vehiculoId, monto, formaPago, chequeNumero, terminal, combinado }]
+      pagosSinComprobante = [],
     } = req.body;
 
     const esNotaCredito = tipoFactura === "notaCredito";
@@ -741,12 +885,96 @@ router.post("/xml", async (req, res) => {
       return res.status(400).json({ ok: false, error: "Falta la orden de servicio." });
     }
 
+    // Una orden ya facturada (factura de ingreso vigente) no puede volver a
+    // facturarse: la pantalla de Nueva Factura ya la excluye de la búsqueda
+    // (ver GET /api/vehiculos/ordenes?excluirFacturadas=true), esto es el
+    // respaldo en el servidor por si se llega aquí de otra forma.
+    if (tipoFactura === "factura" && ordenes.length) {
+      const vehiculoIds = ordenes.map((o) => o._id).filter(Boolean);
+      const yaFacturadas = await FacturaCfdi.find({
+        tipoFactura: "factura",
+        estatus: "generada",
+        $or: [
+          { "orden.vehiculoId": { $in: vehiculoIds } },
+          { "ordenes.vehiculoId": { $in: vehiculoIds } },
+        ],
+      })
+        .select("serie folio orden.vehiculoId ordenes.vehiculoId")
+        .lean();
+      if (yaFacturadas.length) {
+        const vehiculoIdsStr = new Set(vehiculoIds.map(String));
+        const conflictos = [];
+        for (const f of yaFacturadas) {
+          const folioCfdi = `${f.serie || ""}${f.folio || ""}`;
+          const vids = [f.orden?.vehiculoId, ...(f.ordenes || []).map((x) => x.vehiculoId)];
+          for (const vid of vids) {
+            if (vid && vehiculoIdsStr.has(String(vid))) {
+              const orden = ordenes.find((o) => String(o._id) === String(vid));
+              conflictos.push(`${orden?.ordenServicio || String(vid)} (factura ${folioCfdi})`);
+            }
+          }
+        }
+        return res.status(400).json({
+          ok: false,
+          error: `Ya existe una factura para: ${[...new Set(conflictos)].join(", ")}. No se puede generar otra.`,
+        });
+      }
+    }
+
+    if (tipoFactura === "factura" && Array.isArray(pagosSinComprobante) && pagosSinComprobante.length) {
+      for (const p of pagosSinComprobante) {
+        const err = errorPagoSinComprobante(p);
+        if (err) return res.status(400).json({ ok: false, error: err });
+      }
+    }
+
     // La factura global agrupa notas de venta de Caja, no órdenes.
     if (esFacturaGlobal && (!Array.isArray(notasVenta) || notasVenta.length === 0)) {
       return res.status(400).json({
         ok: false,
         error: "La factura global requiere al menos una nota de venta.",
       });
+    }
+
+    // Una factura global no puede mezclar notas de venta de distintos días:
+    // el CFDI se timbra con la fecha/hora real de este momento, así que si
+    // agrupara notas de ayer y de hoy, el Reporte de Facturas la reportaría
+    // completa bajo el día del timbrado aunque parte del dinero se haya
+    // cobrado otro día. Se valida contra la fecha real del pago en Cajas
+    // (nunca la que mande el cliente) para que no se pueda saltar desde el
+    // navegador. La pantalla de Nueva Factura ya agrupa por día para evitar
+    // esto; esto es el respaldo en el servidor.
+    if (esFacturaGlobal) {
+      const vehiculoIdsNotas = [
+        ...new Set(notasVenta.map((n) => String(n.vehiculoId || "")).filter(Boolean)),
+      ];
+      const vehiculosDeNotas = await Vehiculo.find({ _id: { $in: vehiculoIdsNotas } })
+        .select("pagos")
+        .lean();
+      const pagoPorId = new Map();
+      for (const v of vehiculosDeNotas) {
+        for (const p of v.pagos || []) pagoPorId.set(String(p._id), p);
+      }
+      const diasDistintos = new Set();
+      for (const n of notasVenta) {
+        const pago = pagoPorId.get(String(n.pagoId || ""));
+        if (!pago) {
+          return res.status(400).json({
+            ok: false,
+            error: `La nota de venta P${n.numero ?? ""} ya no existe o cambió; vuelve a cargar la lista de pendientes.`,
+          });
+        }
+        diasDistintos.add(dayjsFecha(pago.fecha).format("YYYY-MM-DD"));
+      }
+      if (diasDistintos.size > 1) {
+        return res.status(400).json({
+          ok: false,
+          error:
+            `Las notas de venta seleccionadas son de días distintos (${[...diasDistintos]
+              .sort()
+              .join(", ")}). Genera una factura global por cada día para que el Reporte de Facturas quede correcto.`,
+        });
+      }
     }
 
     // En la factura global el método de pago (PUE/PPD) se elige a mano; no se
@@ -1037,6 +1265,7 @@ router.post("/xml", async (req, res) => {
     // historial, no debe perderse el XML que el usuario ya tiene derecho a descargar.
     let facturaId = null;
     let persistWarning = "";
+    let recibosDolares = [];
     try {
       await FiscalConfig.findByIdAndUpdate(cfg._id, { folioInterno: String(folioAsignado) });
 
@@ -1155,6 +1384,8 @@ router.post("/xml", async (req, res) => {
         if (avisos.length) {
           persistWarning = (persistWarning ? persistWarning + " " : "") + avisos.join(" ");
         }
+
+        recibosDolares = await crearPagosSinComprobante(pagosSinComprobante, facturaDoc, req.user);
       }
 
       if (esFacturaGlobal) {
@@ -1172,6 +1403,7 @@ router.post("/xml", async (req, res) => {
         pemPathUsed: pemPath, // 👈 para debug
         facturaId,
         persistWarning,
+        recibosDolares,
         cfdi: {
           folio: cfdiFinal.folio,
           serie: cfdiFinal.serie,

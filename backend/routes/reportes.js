@@ -872,6 +872,19 @@ function sumarDepositoReciboProvisional(sumarDeposito, pago) {
   sumarDeposito(formaPagoProvisionalADeposito(rp.formaPago), pago.monto);
 }
 
+// Pago "Liquidar (sin comprobante)": misma forma que reciboProvisional
+// (formaPago + combinado), solo que en `pago.liquidacion`. Se usa cuando una
+// orden se facturó directo, sin Nota de Venta/Remisión previa (ver
+// crearPagosSinComprobante en backend/routes/generar_xml.js).
+function sumarDepositoLiquidacion(sumarDeposito, pago) {
+  const l = pago.liquidacion || {};
+  if (l.formaPago === 'COMBINADO' && l.combinado) {
+    sumarDepositoCombinado(sumarDeposito, l.combinado, pago.tipoCambio);
+    return;
+  }
+  sumarDeposito(formaPagoProvisionalADeposito(l.formaPago), pago.monto);
+}
+
 async function buildReporteFacturasDiario({ desde, hasta }) {
   const d = new Date(desde);
   const h = new Date(hasta);
@@ -1245,6 +1258,18 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         const cruce = cruceAnticipoPorOrdenFactura.get(`${facturaIdStr}_${vehiculoIdStr}`);
 
         for (const p of pagos) {
+          // Pago "Liquidar" creado al facturar esta orden directo, sin Nota de
+          // Venta/Remisión previa (ver crearPagosSinComprobante en
+          // generar_xml.js). Se liga por facturaId (no solo por vehiculoId):
+          // un mismo vehículo puede tener más de una factura en fechas
+          // distintas, cada una con su propio Liquidar.
+          if (p.comprobante === 'SIN_COMPROBANTE' && !p.cancelado && String(p.facturaId || '') === facturaIdStr) {
+            sumarDepositoLiquidacion(sumarDeposito, p);
+            const abrevLiq = abreviaturaFormaPago(p.liquidacion);
+            if (abrevLiq) metodos.add(abrevLiq);
+            continue;
+          }
+
           if (p.comprobante !== 'NOTA_VENTA' || p.tipoPago !== 'COMPLETO' || p.cancelado) continue;
           sumarDepositoNotaVenta(sumarDeposito, p);
           entry.montoTransferencia += montoTransferenciaNotaVenta(p);
@@ -1317,75 +1342,92 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
   // Última banda del reporte. En la columna Cliente lleva el desglose de sus
   // notas de venta: "PUBLICO GENERAL.=(P<folio> $<monto> CON <método>)", y si
   // agrupó varias notas, separadas por "--".
-  const facturasGlobalDocs = await FacturaCfdi.find({
-    tipoFactura: 'facturaGlobal',
-    estatus: 'generada',
-    fecha: { $gte: d, $lte: h },
+  //
+  // La banda se arma por la fecha REAL de cada Nota de Venta (pago.fecha en
+  // Cajas), no por la fecha de timbrado del CFDI: una Factura Global puede
+  // generarse cualquier día y agrupar "lo pendiente" de días anteriores (ver
+  // /api/facturacion/notas-venta-pendientes), así que timbrarla hoy no
+  // significa que el dinero se cobró hoy. generar_xml.js ya NO permite crear
+  // una factura global que mezcle notas de más de un día, pero facturas
+  // globales viejas (de antes de esa validación) sí pudieron mezclar días:
+  // para esas, cada reporte diario muestra solo la porción de notas de ese
+  // día (con su propio total), para no duplicar el ingreso en dos reportes.
+  const vehiculosNotasGlobalDia = await Vehiculo.find({
+    pagos: {
+      $elemMatch: {
+        comprobante: 'NOTA_VENTA',
+        facturaGlobalId: { $ne: null },
+        cancelado: { $ne: true },
+        fecha: { $gte: d, $lte: h },
+      },
+    },
   })
-    .select('serie folio fecha totales notasVenta cfdi')
+    .select('pagos')
     .lean();
 
-  if (facturasGlobalDocs.length) {
-    // Cruce con Cajas: el método de pago de cada nota de venta agrupada vive en
-    // el pago NOTA_VENTA cuyo facturaGlobalId apunta a este CFDI.
-    const globalIds = facturasGlobalDocs.map((f) => f._id);
-    const vehiculosNotasGlobal = await Vehiculo.find({
-      'pagos.facturaGlobalId': { $in: globalIds },
-    })
-      .select('pagos')
-      .lean();
-    const metodoPorNotaGlobal = new Map(); // `${facturaGlobalId}_${notaVentaNumero}` -> abreviatura
-    const transferenciaPorFacturaGlobal = new Map(); // facturaGlobalId -> monto pagado por transferencia
-    const dolaresPorNotaGlobal = new Map(); // `${facturaGlobalId}_${notaVentaNumero}` -> { montoDolares, reciboNumero }
-    for (const v of vehiculosNotasGlobal) {
-      for (const p of v.pagos || []) {
-        if (!p.facturaGlobalId || p.comprobante !== 'NOTA_VENTA' || p.cancelado) continue;
-        const num = p.notaVenta?.numero;
-        if (num == null) continue;
-        metodoPorNotaGlobal.set(`${String(p.facturaGlobalId)}_${num}`, abreviaturaFormaPago(p.notaVenta));
-        // Estas notas de venta (público en general) también son dinero real
-        // cobrado en Cajas: igual que en las facturas normales (banda 5),
-        // deben alimentar la tabla Depósito con la forma real de cobro
-        // (tarjeta, transferencia, etc.), no solo aparecer en el desglose.
-        sumarDepositoNotaVenta(sumarDeposito, p);
+  // notasDelDiaPorFacturaGlobal: facturaGlobalId -> Map(notaVentaNumero -> info)
+  const notasDelDiaPorFacturaGlobal = new Map();
+  for (const v of vehiculosNotasGlobalDia) {
+    for (const p of v.pagos || []) {
+      if (p.comprobante !== 'NOTA_VENTA' || !p.facturaGlobalId || p.cancelado) continue;
+      const fechaPago = new Date(p.fecha);
+      if (fechaPago < d || fechaPago > h) continue;
+      const num = p.notaVenta?.numero;
+      if (num == null) continue;
 
-        const montoTransf = montoTransferenciaNotaVenta(p);
-        if (montoTransf > 0) {
-          const key = String(p.facturaGlobalId);
-          transferenciaPorFacturaGlobal.set(key, (transferenciaPorFacturaGlobal.get(key) || 0) + montoTransf);
-        }
+      // Estas notas de venta (público en general) también son dinero real
+      // cobrado en Cajas: igual que en las facturas normales (banda 5),
+      // deben alimentar la tabla Depósito con la forma real de cobro
+      // (tarjeta, transferencia, etc.), no solo aparecer en el desglose.
+      sumarDepositoNotaVenta(sumarDeposito, p);
 
+      const key = String(p.facturaGlobalId);
+      if (!notasDelDiaPorFacturaGlobal.has(key)) notasDelDiaPorFacturaGlobal.set(key, new Map());
+      notasDelDiaPorFacturaGlobal.get(key).set(num, {
+        fecha: p.fecha,
+        metodo: abreviaturaFormaPago(p.notaVenta),
+        montoTransferencia: montoTransferenciaNotaVenta(p),
         // Si parte del pago entró en dólares en efectivo, el desglose de
         // PUBLICO GENERAL debe decirlo junto con el folio del Recibo de
         // Dólares que se generó para esa nota (ver POST /cajas/:id/pagos).
-        if (Number(p.montoDolares) > 0) {
-          dolaresPorNotaGlobal.set(`${String(p.facturaGlobalId)}_${num}`, {
-            montoDolares: Number(p.montoDolares),
-            reciboNumero: p.reciboDolares?.numero ?? null,
-          });
-        }
-      }
+        montoDolares: Number(p.montoDolares) > 0 ? Number(p.montoDolares) : 0,
+        reciboDolaresNumero: p.reciboDolares?.numero ?? null,
+      });
     }
+  }
+
+  if (notasDelDiaPorFacturaGlobal.size) {
+    const facturasGlobalDocs = await FacturaCfdi.find({
+      _id: { $in: [...notasDelDiaPorFacturaGlobal.keys()] },
+      tipoFactura: 'facturaGlobal',
+      estatus: 'generada',
+    })
+      .select('serie folio notasVenta cfdi')
+      .lean();
 
     const fmtMonto = (n) =>
       Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     for (const f of facturasGlobalDocs) {
+      const infoPorNota = notasDelDiaPorFacturaGlobal.get(String(f._id));
+      // Solo las notas de ESTE día: f.notasVenta puede traer más si el CFDI
+      // agrupó varios días (dato viejo, de antes de la validación).
+      const notasDia = (f.notasVenta || []).filter((n) => infoPorNota?.has(n.numero));
+      if (!notasDia.length) continue;
+
       // "Venta del día" debe cuadrar centavo a centavo con el desglose que
       // se muestra junto a ella (columna Cliente): la suma de lo realmente
-      // cobrado por cada Nota de Venta agrupada. f.totales.total es el total
-      // fiscal del CFDI (calculado aparte a partir de conceptos/IVA) y puede
-      // diferir por un centavo de redondeo de ese cálculo; se usa solo como
-      // respaldo si la factura global no trae notasVenta (dato viejo).
-      const totalNotasVenta = (f.notasVenta || []).reduce((s, n) => s + (Number(n.monto) || 0), 0);
-      const total = (f.notasVenta || []).length ? totalNotasVenta : f.totales?.total || 0;
+      // cobrado por las notas de venta de este día.
+      const total = notasDia.reduce((s, n) => s + (Number(n.monto) || 0), 0);
       const esPue = (f.cfdi?.metodoPago || 'PUE') !== 'PPD';
       totalVentaDia += total;
 
       // Igual que en las facturas normales (banda 5): lo cobrado por
       // transferencia no cuenta como Ingreso de Contado, pasa a Cuentas por
       // Cobrar hasta conciliarse.
-      const montoTransf = esPue ? transferenciaPorFacturaGlobal.get(String(f._id)) || 0 : 0;
+      const montoTransf = esPue
+        ? notasDia.reduce((s, n) => s + (infoPorNota.get(n.numero)?.montoTransferencia || 0), 0)
+        : 0;
       const restante = total - montoTransf;
       const ingresoContado = esPue ? (restante > 0 ? restante : undefined) : undefined;
       const cuentasPorCobrar = esPue ? (montoTransf > 0 ? montoTransf : undefined) : total;
@@ -1397,26 +1439,26 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         totalPorCobrar += total;
       }
 
-      const partes = (f.notasVenta || []).map((n) => {
-        const clave = `${String(f._id)}_${n.numero}`;
-        const metodo = metodoPorNotaGlobal.get(clave);
+      const partes = notasDia.map((n) => {
+        const info = infoPorNota.get(n.numero);
         const folio = n.numero != null ? `P${n.numero}` : 'S/N';
-        const dolares = dolaresPorNotaGlobal.get(clave);
-        const textoDolares = dolares
-          ? ` Y $${fmtMonto(dolares.montoDolares)} USD${
-              dolares.reciboNumero != null ? ` REC.DLS#${dolares.reciboNumero}` : ''
+        const textoDolares = info?.montoDolares
+          ? ` / $${fmtMonto(info.montoDolares)} USD${
+              info.reciboDolaresNumero != null ? ` REC.DLS#${info.reciboDolaresNumero}` : ''
             }`
           : '';
-        return metodo
-          ? `(${folio} $${fmtMonto(n.monto)} CON ${metodo}${textoDolares})`
+        return info?.metodo
+          ? `(${folio} $${fmtMonto(n.monto)} CON ${info.metodo}${textoDolares})`
           : `(${folio} $${fmtMonto(n.monto)}${textoDolares})`;
       });
 
       facturaGlobal.push({
         folio: `${f.serie || ''}${f.folio || ''}`,
-        ordenServicio: (f.notasVenta || []).map((n) => n.ordenServicio).filter(Boolean).join(', '),
+        ordenServicio: notasDia.map((n) => n.ordenServicio).filter(Boolean).join(', '),
         cliente: `PUBLICO GENERAL.=${partes.join('--')}`,
-        fecha: f.fecha,
+        fecha: notasDia
+          .map((n) => infoPorNota.get(n.numero)?.fecha)
+          .sort((a, b) => new Date(a) - new Date(b))[0],
         ventaDia: total,
         ingresoContado,
         cuentasPorCobrar,

@@ -23,6 +23,12 @@ const TIPO_PAGO_LABELS = { COMPLETO: "Pago Completo", ABONO: "Abono", ANTICIPO: 
 function tipoPagoLabel(p) {
   if (!p) return "";
   if (p.comprobante === "REMISION" && p.remision?.tipo === "Credito") return "Crédito";
+  // "Liquidar" creado desde el menú Factura (pago.facturaId, ver
+  // crearPagosSinComprobante en generar_xml.js) siempre cubre el saldo
+  // COMPLETO de la orden; tipoPago se guarda como ABONO solo porque es el
+  // único valor válido para SIN_COMPROBANTE (ver cajas.js), no porque haya
+  // quedado parcial.
+  if (p.comprobante === "SIN_COMPROBANTE" && p.facturaId) return "Liquidación";
   return TIPO_PAGO_LABELS[p.tipoPago] || p.tipoPago;
 }
 

@@ -22,6 +22,16 @@ const TIPO_PAGO_LABELS = {
   ANTICIPO: "Anticipo",
 };
 
+function tipoPagoLabel(p) {
+  // "Liquidar" creado desde el menú Factura (pago.facturaId, ver
+  // crearPagosSinComprobante en generar_xml.js) siempre cubre el saldo
+  // COMPLETO de la orden; tipoPago se guarda como ABONO solo porque es el
+  // único valor válido para SIN_COMPROBANTE (ver cajas.js), no porque haya
+  // quedado parcial.
+  if (p.comprobante === "SIN_COMPROBANTE" && p.facturaId) return "Liquidación";
+  return TIPO_PAGO_LABELS[p.tipoPago] || p.tipoPago || "";
+}
+
 // Descripción del comprobante de un pago con su folio (cada pago trae uno:
 // Nota de Venta, Remisión o Recibo Provisional; ver backend/routes/cajas.js).
 function comprobantePago(p) {
@@ -609,7 +619,7 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor, soloCo
             {pagos.map((p, idx) => (
               <tr key={p._id || idx} className={p.cancelado ? "table-danger" : ""}>
                 <td>{formatFecha(p.fecha)}</td>
-                <td>{TIPO_PAGO_LABELS[p.tipoPago] || p.tipoPago || ""}</td>
+                <td>{tipoPagoLabel(p)}</td>
                 <td>
                   {comprobantePago(p)}
                   {p.reciboDolares?.numero && (

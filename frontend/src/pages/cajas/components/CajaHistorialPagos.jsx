@@ -18,6 +18,13 @@ const TIPO_PAGO_LABELS = { COMPLETO: "Pago Completo", ABONO: "Abono", ANTICIPO: 
 // completa), pero no entró dinero: en el historial se lee como Crédito.
 function tipoPagoLabel(p) {
   if (p.comprobante === "REMISION" && p.remision?.tipo === "Credito") return "Crédito";
+  // "Liquidar" creado desde el menú Factura (pago.facturaId, ver
+  // crearPagosSinComprobante en generar_xml.js) siempre cubre el saldo
+  // COMPLETO de la orden: la pantalla de Nueva Factura no deja generarla si
+  // falta capturar algo. El campo tipoPago se guarda como ABONO porque es el
+  // único valor válido para SIN_COMPROBANTE (ver cajas.js), pero aquí no se
+  // lee como abono parcial.
+  if (p.comprobante === "SIN_COMPROBANTE" && p.facturaId) return "Liquidación";
   return TIPO_PAGO_LABELS[p.tipoPago] || p.tipoPago;
 }
 

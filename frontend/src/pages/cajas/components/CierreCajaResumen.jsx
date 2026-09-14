@@ -12,7 +12,9 @@ function formatMoney(n) {
 
 // Abre el PDF del comprobante (Nota de Venta / Remisión / Recibo Provisional)
 // al pulsar su fila en la tabla combinada — mismos endpoints que usa
-// CajaOrdenDetalle para imprimir el comprobante de un pago.
+// CajaOrdenDetalle para imprimir el comprobante de un pago. "Sin comprobante"
+// (Liquidar) no genera ningún documento, así que no es clickeable (ver
+// TIENE_PDF más abajo).
 function abrirComprobantePdf(c, abrirPdf) {
   if (!c.vehiculoId || !c.pagoId) return;
   if (c.tipo === 'NOTA_VENTA') abrirPdf(getNotaVentaPdfUrl(c.vehiculoId, c.pagoId), 'nota-venta.pdf', 'Nota de Venta');
@@ -20,11 +22,16 @@ function abrirComprobantePdf(c, abrirPdf) {
   else if (c.tipo === 'RECIBO_PROVISIONAL') abrirPdf(getReciboProvisionalPdfUrl(c.vehiculoId, c.pagoId), 'recibo-provisional.pdf', 'Recibo Provisional');
 }
 
+// Tipos de comprobante que sí generan un PDF para abrir al hacer clic.
+const TIENE_PDF = new Set(['NOTA_VENTA', 'REMISION', 'RECIBO_PROVISIONAL']);
+
 const TIPOS_FILTRO = [
   { value: '', label: 'Todos los tipos' },
   { value: 'NOTA_VENTA', label: 'Nota de Venta' },
   { value: 'REMISION', label: 'Remisión' },
   { value: 'RECIBO_PROVISIONAL', label: 'Recibo Provisional' },
+  { value: 'SIN_COMPROBANTE', label: 'Sin comprobante' },
+  { value: 'FACTURA', label: 'Factura' },
   { value: 'VALE_SALIDA', label: 'Vale de Salida' },
 ];
 
@@ -44,7 +51,7 @@ function combinarPorOrden(cierre, filtroTipo, abrirPdf) {
       estatus: '',
       registradoPor: c.registradoPor || '—',
       fecha: c.fecha,
-      clickable: !!(c.vehiculoId && c.pagoId),
+      clickable: TIENE_PDF.has(c.tipo) && !!(c.vehiculoId && c.pagoId),
       onClick: () => abrirComprobantePdf(c, abrirPdf),
     })),
     ...(cierre.valesSalida || []).map((v) => ({

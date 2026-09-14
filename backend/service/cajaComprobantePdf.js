@@ -59,11 +59,13 @@ function formaPagoNotaVentaTexto(nv = {}) {
 }
 
 // ===== Sello "PAGADO" =====
-// La Nota de Venta se re-imprime con un sello a media hoja / lado derecho
-// (fecha, hora + usuario y la cantidad con su forma de pago, desglosada por
-// método si fue combinado) cuando la orden quedó liquidada. Dos casos:
+// La Nota de Venta (y, si la orden se liquidó después, también la Remisión)
+// se re-imprime con un sello a media hoja / lado derecho (fecha, hora +
+// usuario y la cantidad con su forma de pago, desglosada por método si fue
+// combinado) cuando la orden quedó liquidada. Dos casos:
 //   1. Se liquidó con la opción "Liquidar" de Cajas (pago SIN_COMPROBANTE no
-//      cancelado): se muestran los datos de esa liquidación.
+//      cancelado): se muestran los datos de esa liquidación. Esto es lo que
+//      permite sellar una Remisión (a crédito) que se pagó después.
 //   2. La propia Nota de Venta se hizo a Contado y cubrió el total exacto:
 //      se muestran los datos de la Nota de Venta.
 const TOLERANCIA_SELLO = 0.01;
@@ -116,18 +118,32 @@ const SELLO_PAGADO_CSS = `
   .sello-pagado .sello-pago .linea { display: block; }
 `;
 
+// Texto " (T.C. 20.00 = $1,200.00)" con la conversión a pesos de un monto en
+// dólares, usando el tipo de cambio con el que se registró el pago
+// (pago.tipoCambio). Vacío si no hay dólares o no se capturó tipo de cambio.
+function textoConversionDolares(montoDolares, tipoCambio) {
+  const tc = Number(tipoCambio) || 0;
+  if (!tc || !(Number(montoDolares) > 0)) return '';
+  return ` (T.C. ${tc.toFixed(2)} = ${money(Number(montoDolares) * tc)})`;
+}
+
 // Renglones "cantidad — cómo se pagó" de un cobro. `cobro` es pago.liquidacion
 // (opción "Liquidar") o pago.notaVenta (Nota de Venta a Contado): ambos traen
 // { formaPago, chequeNumero, combinado }. Un solo renglón para un método
 // simple; un renglón por método cuando fue COMBINADO. Los dólares y el saldo a
-// favor aplicado van en su propio renglón para que la suma sea el total.
+// favor aplicado van en su propio renglón para que la suma sea el total. El
+// tipo de cambio (pago.tipoCambio) es un solo valor por pago, no por método.
 function desgloseCobro(pago, cobro = {}) {
   const partes = [];
 
   if (cobro.formaPago === 'COMBINADO') {
     const c = cobro.combinado || {};
     if (Number(c.efectivo) > 0) partes.push(`Efectivo: ${money(c.efectivo)}`);
-    if (Number(c.efectivoDolares) > 0) partes.push(`Efectivo: $${Number(c.efectivoDolares).toFixed(2)} USD`);
+    if (Number(c.efectivoDolares) > 0) {
+      partes.push(
+        `Efectivo: $${Number(c.efectivoDolares).toFixed(2)} USD${textoConversionDolares(c.efectivoDolares, pago?.tipoCambio)}`
+      );
+    }
     if (Number(c.credito) > 0) partes.push(`T. Crédito: ${money(c.credito)}`);
     if (Number(c.debito) > 0) partes.push(`T. Débito: ${money(c.debito)}`);
     if (Number(c.cheque) > 0) partes.push(`Cheque${cobro.chequeNumero ? ` No. ${cobro.chequeNumero}` : ''}: ${money(c.cheque)}`);
@@ -136,7 +152,9 @@ function desgloseCobro(pago, cobro = {}) {
     const label = FORMA_PAGO_LABEL[cobro.formaPago] || 'Efectivo';
     const chequeNo = cobro.formaPago === 'CHEQUE' && cobro.chequeNumero ? ` No. ${cobro.chequeNumero}` : '';
     if (Number(pago?.montoPesos) > 0) partes.push(`${money(pago.montoPesos)} — ${label}${chequeNo}`);
-    if (Number(pago?.montoDolares) > 0) partes.push(`$${Number(pago.montoDolares).toFixed(2)} USD`);
+    if (Number(pago?.montoDolares) > 0) {
+      partes.push(`$${Number(pago.montoDolares).toFixed(2)} USD${textoConversionDolares(pago.montoDolares, pago?.tipoCambio)}`);
+    }
   }
 
   if (Number(pago?.saldoAplicado?.monto) > 0) {
@@ -163,10 +181,11 @@ function selloPagadoHtml(pago, cobro) {
   </div>`;
 }
 
-// Decide si la Nota de Venta lleva sello "PAGADO" y con qué cobro se llena.
-// `pagoNota` es el pago cuya Nota de Venta se está imprimiendo; `totales` los
-// de calcularTotalesOrden(orden). Devuelve { pago, cobro } o null.
-function selloPagadoParaNota(orden, pagoNota, totales) {
+// Decide si el comprobante (Nota de Venta o Remisión) lleva sello "PAGADO" y
+// con qué cobro se llena. `pagoNota` es el pago cuyo comprobante se está
+// imprimiendo; `totales` los de calcularTotalesOrden(orden). Devuelve
+// { pago, cobro } o null.
+function selloPagadoParaComprobante(orden, pagoNota, totales) {
   if (totales.saldoPendiente > TOLERANCIA_SELLO) return null;
 
   const liquidacion = [...(orden?.pagos || [])]
@@ -241,9 +260,10 @@ exports.generarComprobanteCajaPDF = async (res, orden, pago, tipo) => {
     // IVA aplicado dentro del precio de cada partida, sin mostrarse desglosado.
     const totales = calcularTotalesOrden(orden);
 
-    // Sello "PAGADO": solo en la Nota de Venta y solo si la orden quedó
-    // liquidada (por "Liquidar" o por la propia Nota de Venta a Contado).
-    const sello = esNota ? selloPagadoParaNota(orden, pago, totales) : null;
+    // Sello "PAGADO" en Nota de Venta o Remisión, si la orden quedó liquidada
+    // (por "Liquidar" o, solo para la Nota de Venta, por ser ella misma a
+    // Contado — selloPagadoParaComprobante ya filtra ese segundo caso por tipo).
+    const sello = selloPagadoParaComprobante(orden, pago, totales);
     const ivaRate = totales.ivaPct / 100;
     const descuentosActivos = (orden.descuentos || []).filter((d) => d.activo !== false);
 

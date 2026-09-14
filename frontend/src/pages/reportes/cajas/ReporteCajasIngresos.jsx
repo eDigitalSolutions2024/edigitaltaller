@@ -434,7 +434,7 @@ function ReporteFacturas({ data }) {
         <span className="badge bg-primary fs-6">Total Ingreso: {formatMoney(totales.totalIngreso)}</span>
       </div>
 
-      <TablaDeposito deposito={deposito} />
+      <TablaDeposito deposito={deposito} totalIngreso={totales.totalIngreso} />
     </>
   );
 }
@@ -446,30 +446,48 @@ const DEPOSITO_LABELS = [
   ['efectivo', 'Efectivo'],
 ];
 
-function TablaDeposito({ deposito }) {
+function TablaDeposito({ deposito, totalIngreso }) {
+  // Depósito y Total Ingreso miden cosas distintas (Depósito es todo lo que
+  // físicamente entró a Cajas por cualquier forma de cobro; Total Ingreso
+  // excluye Cuentas por Cobrar) y por eso casi nunca coinciden exacto: por
+  // ejemplo una factura a crédito (PPD) que igual se cobró con tarjeta en el
+  // momento suma a Depósito pero no a Total Ingreso. Se deja la diferencia a
+  // la vista para no tener que restarla a mano.
+  const diferencia = (Number(deposito.total) || 0) - (Number(totalIngreso) || 0);
   return (
-    <div className="table-responsive" style={{ maxWidth: 420 }}>
-      <table className="table table-sm table-bordered align-middle mb-0">
-        <thead className="table-secondary">
-          <tr>
-            <th colSpan={2}>Depósito</th>
-          </tr>
-        </thead>
-        <tbody>
-          {DEPOSITO_LABELS.map(([key, label]) => (
-            <tr key={key}>
-              <td>{label}</td>
-              <td className="text-end">{fmtTotal(deposito[key])}</td>
+    <div className="d-flex align-items-center gap-4 flex-wrap">
+      <div className="table-responsive" style={{ maxWidth: 420 }}>
+        <table className="table table-sm table-bordered align-middle mb-0">
+          <thead className="table-secondary">
+            <tr>
+              <th colSpan={2}>Depósito</th>
             </tr>
-          ))}
-        </tbody>
-        <tfoot className="table-light">
-          <tr>
-            <td className="fw-bold">Total</td>
-            <td className="text-end fw-bold">{formatMoney(deposito.total)}</td>
-          </tr>
-        </tfoot>
-      </table>
+          </thead>
+          <tbody>
+            {DEPOSITO_LABELS.map(([key, label]) => (
+              <tr key={key}>
+                <td>{label}</td>
+                <td className="text-end">{fmtTotal(deposito[key])}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="table-light">
+            <tr>
+              <td className="fw-bold">Total</td>
+              <td className="text-end fw-bold">{formatMoney(deposito.total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {/* Como un sello: solo texto, sin contorno ni fondo, junto a Depósito. */}
+      <div
+        className="fw-bold text-center"
+        style={{ marginLeft: "5%", fontSize: "1.5rem", color: "#383636", opacity: 0.85 }}
+      >
+        DIFERENCIA
+        <br />
+        {formatMoney(diferencia)}
+      </div>
     </div>
   );
 }

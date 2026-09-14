@@ -133,6 +133,14 @@ function buildHtml(data, desde, hasta) {
       </tr>`
   ).join('');
 
+  // Depósito y Total Ingreso miden cosas distintas (Depósito es todo lo que
+  // físicamente entró a Cajas por cualquier forma de cobro; Total Ingreso
+  // excluye Cuentas por Cobrar) y por eso casi nunca coinciden exacto: por
+  // ejemplo una factura a crédito (PPD) que igual se cobró con tarjeta en el
+  // momento suma a Depósito pero no a Total Ingreso. Se deja la diferencia a
+  // la vista para no tener que restarla a mano.
+  const diferenciaDepositoIngreso = (Number(deposito.total) || 0) - (Number(totales.totalIngreso) || 0);
+
   const subtitulo = mismoDia(desde, hasta)
     ? fmtFechaLarga(desde)
     : `Del ${fmtFechaCorta(desde)} al ${fmtFechaCorta(hasta)}`;
@@ -201,7 +209,8 @@ function buildHtml(data, desde, hasta) {
     .fila-total-ingreso .ti-valor { font-weight: bold; font-size: 10pt; border: 2px solid #000; }
 
     /* ── DEPÓSITO ── */
-    .deposito { width: 45%; margin-top: 10px; }
+    .deposito-fila { display: flex; align-items: center; gap: 24px; margin-top: 10px; }
+    .deposito { width: 45%; }
     .deposito table.data thead td {
       background: #444;
       color: #fff;
@@ -217,6 +226,18 @@ function buildHtml(data, desde, hasta) {
       background: #eee;
     }
     .text-end { text-align: right; }
+
+    /* Como un sello: solo texto, sin contorno ni fondo, junto a Depósito. */
+    .sello-diferencia {
+      font-size: 20pt;
+      font-weight: bold;
+      color: #383636;
+      text-align: center;
+      line-height: 1.3;
+      //transform: rotate(-6deg);
+      opacity: 0.85;
+      margin-left: 130px;
+    }
 
     /* ── PIE ── */
     .pie {
@@ -279,12 +300,17 @@ function buildHtml(data, desde, hasta) {
 
   ${sinDatos ? '<p style="font-size:9pt; margin-top:6px;">No se encontraron movimientos de Facturas en el período seleccionado.</p>' : ''}
 
-  <div class="deposito">
-    <table class="data">
-      <thead><tr><td colspan="2">DEPÓSITO</td></tr></thead>
-      <tbody>${filasDeposito}</tbody>
-      <tfoot><tr><td>TOTAL</td><td class="text-end">${fmtMoney(deposito.total)}</td></tr></tfoot>
-    </table>
+  <div class="deposito-fila">
+    <div class="deposito">
+      <table class="data">
+        <thead><tr><td colspan="2">DEPÓSITO</td></tr></thead>
+        <tbody>${filasDeposito}</tbody>
+        <tfoot><tr><td>TOTAL</td><td class="text-end">${fmtMoney(deposito.total)}</td></tr></tfoot>
+      </table>
+    </div>
+    <div class="sello-diferencia">
+      DIFERENCIA<br>${fmtMoney(diferenciaDepositoIngreso)}
+    </div>
   </div>
 
   <div class="pie">
