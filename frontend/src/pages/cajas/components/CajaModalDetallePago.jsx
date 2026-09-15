@@ -119,8 +119,21 @@ export default function CajaModalDetallePago({ show, pago, onClose }) {
                 <h6 className="fw-semibold">Forma de pago</h6>
                 <div className="row g-2 small">
                   <Dato label="Método">{FORMA_PAGO_LABELS[fp.formaPago] || fp.formaPago}</Dato>
-                  {["CREDITO", "DEBITO"].includes(fp.formaPago) && <Dato label="Terminal">{fp.banco || "-"}</Dato>}
+                  {["CREDITO", "DEBITO"].includes(fp.formaPago) && (fp.tarjetas || []).length > 1 ? (
+                    <Dato label="Tarjetas">
+                      {fp.tarjetas.map((t) => `${formatMoney(t.monto)} ${t.terminal}`).join(" · ")}
+                    </Dato>
+                  ) : (
+                    ["CREDITO", "DEBITO"].includes(fp.formaPago) && <Dato label="Terminal">{fp.banco || "-"}</Dato>
+                  )}
                   {fp.formaPago === "CHEQUE" && <Dato label="N° de Cheque">{fp.chequeNumero || "-"}</Dato>}
+                  {fp.formaPago === "TRANSFERENCIA" && (
+                    <Dato label="Tipo / Banco">
+                      {fp.tipoTransferencia && fp.bancoTransferencia
+                        ? `${fp.tipoTransferencia} · ${fp.bancoTransferencia}`
+                        : "-"}
+                    </Dato>
+                  )}
                   {p.comprobante === "RECIBO_PROVISIONAL" && (
                     <>
                       <Dato label="Concepto">{p.reciboProvisional?.concepto}</Dato>
@@ -141,6 +154,7 @@ export default function CajaModalDetallePago({ show, pago, onClose }) {
                           <th>Cheque</th>
                           <th>Transferencia</th>
                           <th>Terminal</th>
+                          <th>Tipo / Banco Transf.</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -151,7 +165,18 @@ export default function CajaModalDetallePago({ show, pago, onClose }) {
                           <td>{formatMoney(combinado.debito)}</td>
                           <td>{formatMoney(combinado.cheque)}</td>
                           <td>{formatMoney(combinado.transferencia)}</td>
-                          <td>{combinado.banco || "-"}</td>
+                          <td>
+                            {[...(combinado.tarjetasCredito || []), ...(combinado.tarjetasDebito || [])].length > 1
+                              ? [...combinado.tarjetasCredito, ...combinado.tarjetasDebito]
+                                  .map((t) => `${formatMoney(t.monto)} ${t.terminal}`)
+                                  .join(" · ")
+                              : combinado.banco || "-"}
+                          </td>
+                          <td>
+                            {combinado.transferenciaTipo && combinado.transferenciaBanco
+                              ? `${combinado.transferenciaTipo} · ${combinado.transferenciaBanco}`
+                              : "-"}
+                          </td>
                         </tr>
                       </tbody>
                     </table>

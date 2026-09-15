@@ -6,58 +6,91 @@
 // la misma mecánica que POST /api/cajas/:id/pagos/:pagoId/cancelar.
 const { registrarMovimientoTerminal } = require('./cierreCajaTerminales');
 
-// Lee del pago (ANTES de escribir) lo necesario para revertir —o volver a
-// aplicar— sus movimientos de terminal del Cierre de Caja. `signo` = -1 al
-// cancelar, +1 al deshacer la cancelación.
+// [{monto,terminal}] -> movimientos limpios (descarta filas sin terminal o
+// con monto <= 0; puede pasar con filas a medio capturar en el front).
+function movimientosDeTarjetas(tarjetas) {
+  return (tarjetas || [])
+    .filter((t) => t?.terminal && Number(t.monto) > 0)
+    .map((t) => ({ terminal: t.terminal, monto: Number(t.monto) || 0 }));
+}
+
+// Lee del pago (ANTES de escribir) los movimientos de terminal que hay que
+// revertir —o volver a aplicar— en el Cierre de Caja: uno por cada tarjeta
+// física que participó en el cobro. Un pago puede combinar la parte de
+// tarjeta simple (formaPago CREDITO/DEBITO) o la de un Combinado, cada una ya
+// dividida en 1+ tarjetas (ver tarjetas/tarjetasCredito/tarjetasDebito en
+// models/Vehiculo.js). `signo` = -1 al cancelar, +1 al deshacer la cancelación.
 function datosMovimientosTerminal(pago) {
-  const combinado =
+  const sub =
     pago.comprobante === 'NOTA_VENTA'
-      ? pago.notaVenta?.combinado
+      ? pago.notaVenta
       : pago.comprobante === 'SIN_COMPROBANTE'
-      ? pago.liquidacion?.combinado
-      : pago.reciboProvisional?.combinado;
-  const montoTarjetaCombinado = combinado
-    ? (Number(combinado.credito) || 0) + (Number(combinado.debito) || 0)
-    : 0;
-  return {
-    comprobante: pago.comprobante,
-    bancoNota: pago.notaVenta?.banco,
-    monto: pago.monto,
-    fecha: pago.fecha,
-    saldoAplicado: pago.saldoAplicado?.monto > 0 ? Number(pago.saldoAplicado.monto) : 0,
-    montoTarjetaCombinado,
-    bancoCombinado: combinado?.banco,
-    reciboBanco: pago.reciboProvisional?.banco || pago.liquidacion?.banco || '',
-    montoPesos: Number(pago.montoPesos) || 0,
-  };
+      ? pago.liquidacion
+      : pago.comprobante === 'RECIBO_PROVISIONAL'
+      ? pago.reciboProvisional
+      : null;
+  const combinado = sub?.combinado;
+  const movimientos = [];
+
+  if (combinado) {
+    const montoTarjetaCombinado = (Number(combinado.credito) || 0) + (Number(combinado.debito) || 0);
+    if (montoTarjetaCombinado > 0) {
+      const desglose = [...(combinado.tarjetasCredito || []), ...(combinado.tarjetasDebito || [])];
+      const limpio = movimientosDeTarjetas(desglose);
+      if (limpio.length) {
+        movimientos.push(...limpio);
+      } else if (combinado.banco) {
+        // Compatibilidad con pagos viejos: una sola terminal para toda la
+        // parte de tarjeta del combinado.
+        movimientos.push({ terminal: combinado.banco, monto: montoTarjetaCombinado });
+      }
+    }
+  } else if (sub && ['CREDITO', 'DEBITO'].includes(sub.formaPago)) {
+    const limpio = movimientosDeTarjetas(sub.tarjetas);
+    if (limpio.length) {
+      movimientos.push(...limpio);
+    } else if (sub.banco) {
+      // Compatibilidad con pagos viejos: una sola terminal para todo el pago.
+      // La Nota de Venta descuenta el saldo a favor aplicado (no es dinero
+      // que entró hoy a la terminal); Recibo Provisional/Liquidar usan el
+      // monto en pesos tal cual, igual que al registrar el pago.
+      const montoLegacy =
+        pago.comprobante === 'NOTA_VENTA'
+          ? (Number(pago.monto) || 0) - (Number(pago.saldoAplicado?.monto) || 0)
+          : Number(pago.montoPesos) || 0;
+      if (montoLegacy > 0) movimientos.push({ terminal: sub.banco, monto: montoLegacy });
+    }
+  }
+
+  return { fecha: pago.fecha, movimientos };
 }
 
 // Aplica los movimientos de terminal de un pago con el signo dado (-1 revierte
 // al cancelar, +1 los vuelve a poner al deshacer). Best-effort: nunca debe
-// tumbar el flujo, cada llamada va en su try/catch como en el resto del archivo.
+// tumbar el flujo, cada movimiento va en su propio try/catch.
 async function moverTerminalesDePago(d, signo) {
   const s = signo < 0 ? -1 : 1;
-  if (d.comprobante === 'NOTA_VENTA' && d.montoTarjetaCombinado <= 0) {
+  for (const m of d.movimientos || []) {
     try {
-      await registrarMovimientoTerminal(d.bancoNota, s * (d.monto - d.saldoAplicado), d.fecha);
+      await registrarMovimientoTerminal(m.terminal, s * m.monto, d.fecha);
     } catch (e) {
-      console.error('Error moviendo terminal (nota de venta):', e);
-    }
-  }
-  if (['RECIBO_PROVISIONAL', 'NOTA_VENTA', 'SIN_COMPROBANTE'].includes(d.comprobante) && d.montoTarjetaCombinado > 0 && d.bancoCombinado) {
-    try {
-      await registrarMovimientoTerminal(d.bancoCombinado, s * d.montoTarjetaCombinado, d.fecha);
-    } catch (e) {
-      console.error('Error moviendo terminal (combinado):', e);
-    }
-  }
-  if (['RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(d.comprobante) && d.reciboBanco && d.montoPesos > 0) {
-    try {
-      await registrarMovimientoTerminal(d.reciboBanco, s * d.montoPesos, d.fecha);
-    } catch (e) {
-      console.error('Error moviendo terminal (recibo provisional / liquidar tarjeta):', e);
+      console.error('Error moviendo terminal:', e);
     }
   }
 }
 
-module.exports = { datosMovimientosTerminal, moverTerminalesDePago };
+// Registra en el Cierre de Caja las tarjetas de un cobro recién dado de alta
+// (ya limpias/validadas con limpiarYValidarTarjetas, ver utils/tarjetasCaja.js):
+// una llamada a registrarMovimientoTerminal por tarjeta. Best-effort, igual
+// que moverTerminalesDePago — nunca debe tumbar el alta del pago.
+async function registrarMovimientosTarjetas(tarjetas, fecha) {
+  for (const t of tarjetas || []) {
+    try {
+      await registrarMovimientoTerminal(t.terminal, t.monto, fecha);
+    } catch (e) {
+      console.error('Error actualizando terminal del cierre de caja (tarjeta):', e);
+    }
+  }
+}
+
+module.exports = { datosMovimientosTerminal, moverTerminalesDePago, registrarMovimientosTarjetas };

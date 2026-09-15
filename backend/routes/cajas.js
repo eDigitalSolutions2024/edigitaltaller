@@ -10,7 +10,8 @@ const { proteger, requiereRol } = require('../middleware/auth');
 const { regexBusquedaOS } = require('../utils/ordenServicio');
 const { calcularTotalesOrden, sincronizarFechaPagadaRemisiones } = require('../utils/cajaTotales');
 const { registrarMovimientoTerminal } = require('../utils/cierreCajaTerminales');
-const { datosMovimientosTerminal, moverTerminalesDePago } = require('../utils/movimientosTerminalPago');
+const { datosMovimientosTerminal, moverTerminalesDePago, registrarMovimientosTarjetas } = require('../utils/movimientosTerminalPago');
+const { limpiarYValidarTarjetas } = require('../utils/tarjetasCaja');
 const { generarComprobanteCajaPDF } = require('../service/cajaComprobantePdf');
 const { generarReciboProvisionalPDF, generarReciboDolaresPDF } = require('../service/cajaRecibosPdf');
 const { streamReporteFacturasDiarioPdf } = require('../service/reporteFacturasDiarioPdf');
@@ -38,6 +39,14 @@ function bancoNotaVenta(formaPago, terminal) {
   if (formaPago === 'CHEQUE') return 'CHEQUE';
   if (formaPago === 'TRANSFERENCIA') return 'TRANSFERENCIA';
   return '';
+}
+
+// Terminal "legacy" (campo `banco`) de un cobro con tarjeta dividido en 1+
+// tarjetas: la única terminal si hubo una sola, o '' si hubo más de una (no
+// hay una terminal representativa). Mantiene legible el `banco` de siempre
+// para reportes/PDFs viejos que solo conocen una terminal por pago.
+function terminalLegacyDeTarjetas(tarjetas) {
+  return tarjetas.length === 1 ? tarjetas[0].terminal : '';
 }
 
 // Solo estos pagos pueden pasar a una factura (los que el Reporte de Facturas
@@ -309,8 +318,17 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       combinado = null,
       // Terminal por la que se cobró un Recibo Provisional SIMPLE con tarjeta
       // (T. Crédito / T. Débito). El Combinado trae la suya en combinado.banco;
-      // la Nota de Venta, en `banco`.
+      // la Nota de Venta, en `banco`. Solo se usa cuando el pago se cobró con
+      // UNA tarjeta; para más de una, ver `tarjetas` abajo.
       terminal = '',
+      // Desglose [{monto, terminal}] cuando un pago SIMPLE con tarjeta
+      // (CREDITO/DEBITO) se cobró con más de una tarjeta física. El Combinado
+      // trae el suyo en combinado.tarjetasCredito/tarjetasDebito.
+      tarjetas = [],
+      // Tipo (SPEI/TEF) y banco de un pago SIMPLE por transferencia. El
+      // Combinado trae los suyos en combinado.transferenciaTipo/transferenciaBanco.
+      tipoTransferencia = '',
+      bancoTransferencia = '',
       // Solo para comprobante 'REMISION' / 'NOTA_VENTA': fecha con la que se
       // registra el comprobante (a veces se captura un día después). Sin valor
       // = hoy. No se permiten fechas futuras (ver validación abajo).
@@ -328,6 +346,7 @@ router.post('/:id/pagos', proteger, async (req, res) => {
     const tipoRemision = tipoRemisionRaw === 'Cancelada' ? 'Contado' : tipoRemisionRaw;
 
     const TERMINALES_TARJETA = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
+    const TIPOS_TRANSFERENCIA = ['SPEI', 'TEF'];
 
     if (!['COMPLETO', 'ABONO', 'ANTICIPO'].includes(tipoPago)) {
       return res.status(400).json({ ok: false, msg: 'Tipo de pago inválido.' });
@@ -361,18 +380,71 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Selecciona la forma de pago.' });
     }
     // Cualquier cobro con tarjeta en Cajas (Nota de Venta, Recibo Provisional o
-    // Liquidar) debe registrar en qué terminal se cobró, para que el Cierre de
-    // Caja del día cuadre por terminal.
-    if (['NOTA_VENTA', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) && ['CREDITO', 'DEBITO'].includes(formaPago) && !TERMINALES_TARJETA.includes(terminal)) {
-      return res.status(400).json({ ok: false, msg: 'Selecciona la terminal donde se cobró la tarjeta.' });
+    // Liquidar) debe registrar en qué terminal(es) se cobró, para que el
+    // Cierre de Caja del día cuadre por terminal. El front manda `tarjetas`
+    // (1+ filas, una por cada tarjeta física usada, ver limpiarYValidarTarjetas);
+    // `terminal` queda solo por compatibilidad con clientes viejos que no la mandan.
+    let tarjetasSimpleLimpias = [];
+    if (['NOTA_VENTA', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) && ['CREDITO', 'DEBITO'].includes(formaPago)) {
+      if (Array.isArray(tarjetas) && tarjetas.length) {
+        const r = limpiarYValidarTarjetas(tarjetas, montoPesos);
+        if (r.error) return res.status(400).json({ ok: false, msg: r.error });
+        tarjetasSimpleLimpias = r.tarjetas;
+      } else if (TERMINALES_TARJETA.includes(terminal)) {
+        tarjetasSimpleLimpias = [{ monto: Number(montoPesos) || 0, terminal }];
+      } else {
+        return res.status(400).json({ ok: false, msg: 'Selecciona la terminal donde se cobró la tarjeta.' });
+      }
+    }
+
+    // Mismo criterio para la parte de tarjeta (T. Crédito/T. Débito) de un
+    // pago Combinado: el front manda combinado.tarjetasCredito/tarjetasDebito
+    // cuando se dividió en más de una tarjeta; combinado.banco (una sola
+    // terminal para toda la parte de tarjeta) sigue siendo válido.
+    let tarjetasCreditoLimpias = [];
+    let tarjetasDebitoLimpias = [];
+    if (['NOTA_VENTA', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) && formaPago === 'COMBINADO') {
+      const totalCredito = Number(combinado?.credito) || 0;
+      const totalDebito = Number(combinado?.debito) || 0;
+      const hayDesglose =
+        (Array.isArray(combinado?.tarjetasCredito) && combinado.tarjetasCredito.length) ||
+        (Array.isArray(combinado?.tarjetasDebito) && combinado.tarjetasDebito.length);
+      if (totalCredito > 0 || totalDebito > 0) {
+        if (hayDesglose) {
+          if (totalCredito > 0) {
+            const r = limpiarYValidarTarjetas(combinado.tarjetasCredito, totalCredito);
+            if (r.error) return res.status(400).json({ ok: false, msg: r.error });
+            tarjetasCreditoLimpias = r.tarjetas;
+          }
+          if (totalDebito > 0) {
+            const r = limpiarYValidarTarjetas(combinado.tarjetasDebito, totalDebito);
+            if (r.error) return res.status(400).json({ ok: false, msg: r.error });
+            tarjetasDebitoLimpias = r.tarjetas;
+          }
+        } else if (TERMINALES_TARJETA.includes(combinado?.banco)) {
+          if (totalCredito > 0) tarjetasCreditoLimpias = [{ monto: totalCredito, terminal: combinado.banco }];
+          if (totalDebito > 0) tarjetasDebitoLimpias = [{ monto: totalDebito, terminal: combinado.banco }];
+        } else {
+          return res.status(400).json({ ok: false, msg: 'Selecciona la terminal donde se cobró la parte con tarjeta del pago combinado.' });
+        }
+      }
+    }
+    // Transferencia (simple o dentro de un combinado) requiere tipo (SPEI/TEF)
+    // y banco, igual que la tarjeta requiere terminal.
+    if (
+      ['NOTA_VENTA', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) &&
+      formaPago === 'TRANSFERENCIA' &&
+      (!TIPOS_TRANSFERENCIA.includes(tipoTransferencia) || !TERMINALES_TARJETA.includes(bancoTransferencia))
+    ) {
+      return res.status(400).json({ ok: false, msg: 'Selecciona el tipo de transferencia (SPEI o TEF) y el banco.' });
     }
     if (
       ['NOTA_VENTA', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) &&
       formaPago === 'COMBINADO' &&
-      ((Number(combinado?.credito) || 0) > 0 || (Number(combinado?.debito) || 0) > 0) &&
-      !TERMINALES_TARJETA.includes(combinado?.banco)
+      (Number(combinado?.transferencia) || 0) > 0 &&
+      (!TIPOS_TRANSFERENCIA.includes(combinado?.transferenciaTipo) || !TERMINALES_TARJETA.includes(combinado?.transferenciaBanco))
     ) {
-      return res.status(400).json({ ok: false, msg: 'Selecciona la terminal donde se cobró la parte con tarjeta del pago combinado.' });
+      return res.status(400).json({ ok: false, msg: 'Selecciona el tipo de transferencia (SPEI o TEF) y el banco de la parte por transferencia del pago combinado.' });
     }
     // Cheque en una Nota de Venta (simple o dentro de un combinado) necesita
     // su número. El Recibo Provisional ya lo valida en el front.
@@ -384,7 +456,12 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Captura el número de cheque.' });
     }
 
-    const ordenExistente = await Vehiculo.findById(req.params.id).select('cliente garantia pagos');
+    // ventaCliente/ivaVenta/descuentos se agregan al select solo para poder
+    // calcular el saldoPendiente ANTES de este pago (ver validación de
+    // "Liquidar" más abajo, con calcularTotalesOrden).
+    const ordenExistente = await Vehiculo.findById(req.params.id).select(
+      'cliente garantia pagos ventaCliente ivaVenta descuentos'
+    );
     if (!ordenExistente) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
     if (ordenExistente.garantia) {
       return res.status(400).json({ ok: false, msg: 'No se puede registrar un pago para una orden de garantía.' });
@@ -492,6 +569,22 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       : Number(montoPesos || 0) + Number(montoDolares || 0) * Number(tipoCambio || 0) + montoSaldo;
     if (monto <= 0 && !esRemisionCredito) {
       return res.status(400).json({ ok: false, msg: 'El monto del pago debe ser mayor a 0.' });
+    }
+    // "Liquidar" (SIN_COMPROBANTE) es, por definición, el pago que deja la
+    // orden en ceros — no un abono parcial (para eso está Recibo
+    // Provisional). Es fácil que se olviden los centavos al capturar, así que
+    // se exige que cubra el saldo pendiente completo (con tolerancia de 1
+    // centavo por redondeo). El front ya avisa antes de enviar; esto es el
+    // resguardo del lado del servidor.
+    if (comprobante === 'SIN_COMPROBANTE') {
+      const { saldoPendiente } = calcularTotalesOrden(ordenExistente);
+      const faltante = saldoPendiente - monto;
+      if (faltante > 0.01) {
+        return res.status(400).json({
+          ok: false,
+          msg: `Liquidar debe cubrir el saldo completo. Falta $${faltante.toFixed(2)}.`,
+        });
+      }
     }
 
     // Fecha del pago: normalmente el instante actual. Una Nota de Venta o una
@@ -652,16 +745,23 @@ router.post('/:id/pagos', proteger, async (req, res) => {
             debito: Number(combinado?.debito) || 0,
             cheque: Number(combinado?.cheque) || 0,
             transferencia: Number(combinado?.transferencia) || 0,
-            banco: combinado?.banco || '',
+            banco: terminalLegacyDeTarjetas([...tarjetasCreditoLimpias, ...tarjetasDebitoLimpias]) || combinado?.banco || '',
+            transferenciaTipo: combinado?.transferenciaTipo || '',
+            transferenciaBanco: combinado?.transferenciaBanco || '',
+            tarjetasCredito: tarjetasCreditoLimpias,
+            tarjetasDebito: tarjetasDebitoLimpias,
           }
         : null;
       pago.notaVenta = {
         numero: contador.valor,
         formaPago,
         // Ver bancoNotaVenta(): terminal si fue tarjeta, método si no, '' si combinado.
-        banco: bancoNotaVenta(formaPago, terminal),
+        banco: bancoNotaVenta(formaPago, terminalLegacyDeTarjetas(tarjetasSimpleLimpias) || terminal),
         chequeNumero: (formaPago === 'CHEQUE' || combinadoNota?.cheque > 0) ? chequeNumero : '',
         tipo: tipoNota,
+        tipoTransferencia: formaPago === 'TRANSFERENCIA' ? tipoTransferencia : '',
+        bancoTransferencia: formaPago === 'TRANSFERENCIA' ? bancoTransferencia : '',
+        tarjetas: tarjetasSimpleLimpias,
         ...(combinadoNota ? { combinado: combinadoNota } : {}),
       };
     } else if (comprobante === 'REMISION') {
@@ -684,9 +784,14 @@ router.post('/:id/pagos', proteger, async (req, res) => {
           debito: Number(combinado?.debito) || 0,
           cheque: Number(combinado?.cheque) || 0,
           transferencia: Number(combinado?.transferencia) || 0,
-          banco: combinado?.banco || '',
+          banco: terminalLegacyDeTarjetas([...tarjetasCreditoLimpias, ...tarjetasDebitoLimpias]) || combinado?.banco || '',
+          transferenciaTipo: combinado?.transferenciaTipo || '',
+          transferenciaBanco: combinado?.transferenciaBanco || '',
+          tarjetasCredito: tarjetasCreditoLimpias,
+          tarjetasDebito: tarjetasDebitoLimpias,
         }
       : null;
+    const terminalSimpleEfectiva = terminalLegacyDeTarjetas(tarjetasSimpleLimpias) || terminal;
 
     // Recibo Provisional: automático en cada abono/anticipo con este comprobante.
     if (['ABONO', 'ANTICIPO'].includes(tipoPago) && comprobante === 'RECIBO_PROVISIONAL') {
@@ -699,7 +804,10 @@ router.post('/:id/pagos', proteger, async (req, res) => {
         numero: contadorProvisional.valor,
         formaPago,
         chequeNumero: (formaPago === 'CHEQUE' || combinadoMontos?.cheque > 0) ? chequeNumero : '',
-        banco: ['CREDITO', 'DEBITO'].includes(formaPago) ? terminal : '',
+        banco: ['CREDITO', 'DEBITO'].includes(formaPago) ? terminalSimpleEfectiva : '',
+        tipoTransferencia: formaPago === 'TRANSFERENCIA' ? tipoTransferencia : '',
+        bancoTransferencia: formaPago === 'TRANSFERENCIA' ? bancoTransferencia : '',
+        tarjetas: tarjetasSimpleLimpias,
         concepto: reciboConcepto,
         recibio: reciboRecibio,
         ...(combinadoMontos ? { combinado: combinadoMontos } : {}),
@@ -712,7 +820,10 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       pago.liquidacion = {
         formaPago,
         chequeNumero: (formaPago === 'CHEQUE' || combinadoMontos?.cheque > 0) ? chequeNumero : '',
-        banco: ['CREDITO', 'DEBITO'].includes(formaPago) ? terminal : '',
+        banco: ['CREDITO', 'DEBITO'].includes(formaPago) ? terminalSimpleEfectiva : '',
+        tipoTransferencia: formaPago === 'TRANSFERENCIA' ? tipoTransferencia : '',
+        bancoTransferencia: formaPago === 'TRANSFERENCIA' ? bancoTransferencia : '',
+        tarjetas: tarjetasSimpleLimpias,
         ...(combinadoMontos ? { combinado: combinadoMontos } : {}),
       };
     }
@@ -736,45 +847,40 @@ router.post('/:id/pagos', proteger, async (req, res) => {
 
     await sincronizarFechaPagadaRemisiones(vehiculo, pago.fecha);
 
-    // Nota de Venta con forma de pago SIMPLE: solo la parte realmente cobrada
-    // hoy en esta terminal cuenta para el Cierre de Caja (el saldo aplicado no
-    // es dinero que entró hoy; efectivo/cheque/transferencia se concilian a
-    // mano y bancoNotaVenta() devuelve un valor que registrarMovimientoTerminal
+    // Nota de Venta con forma de pago SIMPLE con tarjeta: cada tarjeta usada
+    // (1+, ver tarjetasSimpleLimpias) suma su monto a su propia terminal en el
+    // Cierre de Caja. Efectivo/cheque/transferencia se concilian a mano
+    // (bancoNotaVenta() devuelve un valor que registrarMovimientoTerminal
     // ignora). El COMBINADO se cubre en el bloque de abajo.
     if (comprobante === 'NOTA_VENTA' && formaPago !== 'COMBINADO') {
-      try {
-        await registrarMovimientoTerminal(bancoNotaVenta(formaPago, terminal), pago.monto - montoSaldo, pago.fecha);
-      } catch (errTerminal) {
-        console.error('Error actualizando terminal del cierre de caja:', errTerminal);
+      if (['CREDITO', 'DEBITO'].includes(formaPago)) {
+        await registrarMovimientosTarjetas(tarjetasSimpleLimpias, pago.fecha);
+      } else {
+        try {
+          await registrarMovimientoTerminal(bancoNotaVenta(formaPago, terminal), pago.monto - montoSaldo, pago.fecha);
+        } catch (errTerminal) {
+          console.error('Error actualizando terminal del cierre de caja:', errTerminal);
+        }
       }
     }
 
     // La parte de T. Crédito/T. Débito de un pago Combinado (Nota de Venta,
-    // Recibo Provisional o Liquidar) también pasa por una terminal física y
-    // debe sumarse al Cierre de Caja.
+    // Recibo Provisional o Liquidar) también pasa por una o más terminales
+    // físicas y debe sumarse al Cierre de Caja.
     const montoTarjetaCombinado = (Number(combinado?.credito) || 0) + (Number(combinado?.debito) || 0);
     if (
       ['NOTA_VENTA', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) &&
       formaPago === 'COMBINADO' &&
-      montoTarjetaCombinado > 0 &&
-      combinado?.banco
+      montoTarjetaCombinado > 0
     ) {
-      try {
-        await registrarMovimientoTerminal(combinado.banco, montoTarjetaCombinado, pago.fecha);
-      } catch (errTerminal) {
-        console.error('Error actualizando terminal del cierre de caja (combinado):', errTerminal);
-      }
+      await registrarMovimientosTarjetas([...tarjetasCreditoLimpias, ...tarjetasDebitoLimpias], pago.fecha);
     }
 
     // Recibo Provisional o Liquidar SIMPLE con tarjeta (incluye un Anticipo
-    // cobrado con tarjeta): su monto en pesos también pasa por una terminal
+    // cobrado con tarjeta): cada tarjeta usada también pasa por una terminal
     // física y suma al Cierre de Caja, igual que la Nota de Venta.
-    if (['RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) && ['CREDITO', 'DEBITO'].includes(formaPago) && terminal) {
-      try {
-        await registrarMovimientoTerminal(terminal, Number(montoPesos) || 0, pago.fecha);
-      } catch (errTerminal) {
-        console.error('Error actualizando terminal del cierre de caja (recibo provisional tarjeta):', errTerminal);
-      }
+    if (['RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) && ['CREDITO', 'DEBITO'].includes(formaPago)) {
+      await registrarMovimientosTarjetas(tarjetasSimpleLimpias, pago.fecha);
     }
 
     return res.status(201).json({ ok: true, vehiculo, totales: calcularTotalesOrden(vehiculo) });

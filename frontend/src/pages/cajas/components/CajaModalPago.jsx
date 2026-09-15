@@ -21,8 +21,15 @@ import {
 } from "../../../api/vales";
 
 // Terminales físicas para cobros con tarjeta (mismo catálogo que
-// TERMINALES_TARJETA en backend/routes/cajas.js).
+// TERMINALES_TARJETA en backend/routes/cajas.js). También sirve como catálogo
+// de bancos para un pago por Transferencia.
 const TERMINALES = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER"];
+// Tipos de transferencia (mismo catálogo que TIPOS_TRANSFERENCIA_CAJA en
+// backend/models/Vehiculo.js).
+const TIPOS_TRANSFERENCIA = [
+  { value: "SPEI", label: "SPEI" },
+  { value: "TEF", label: "TEF" },
+];
 // Tipo de Nota de Venta / Remisión al registrar el cobro. "Cancelada" NO se
 // ofrece aquí: no es una opción de alta, es un ESTADO que fija el flujo de
 // cancelación (cancelar el comprobante desde Cajas o al facturar). Elegirlo al
@@ -119,11 +126,26 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   // Desglose por método cuando formaPago === "COMBINADO"; su suma reemplaza
   // a montoPesos (ver efecto más abajo).
   const [montosCombinado, setMontosCombinado] = useState(MONTOS_COMBINADO_INICIAL);
-  // Terminal con la que se cobró el T. Crédito/T. Débito del combinado.
+  // Terminal con la que se cobró el T. Crédito/T. Débito del combinado,
+  // cuando se cobró con UNA sola tarjeta (modo simple). En cuanto se agrega
+  // una tarjeta (ver tarjetasCombinado) este campo deja de usarse.
   const [terminalCombinado, setTerminalCombinado] = useState("");
-  // Terminal de un pago SIMPLE con tarjeta (formaPago CREDITO/DEBITO).
-  // Obligatoria para que el Cierre de Caja cuadre por terminal.
-  const [terminalSimple, setTerminalSimple] = useState("");
+  // Desglose de un pago SIMPLE con tarjeta (formaPago CREDITO/DEBITO) dividido
+  // en 1+ tarjetas físicas: cada una con su monto y terminal. Con una sola
+  // fila (el caso común) el monto no se captura aquí: se toma de "Cantidad en
+  // Pesos" (ver el efecto de sincronización más abajo). Obligatoria la
+  // terminal de cada una para que el Cierre de Caja cuadre.
+  const [tarjetasSimple, setTarjetasSimple] = useState([{ monto: "", terminal: "" }]);
+  // Desglose de la parte de tarjeta (T. Crédito + T. Débito) de un pago
+  // Combinado cuando se cobró con más de una tarjeta: [{tipo, monto, terminal}].
+  // Vacío = modo simple, una sola terminal en `terminalCombinado`.
+  const [tarjetasCombinado, setTarjetasCombinado] = useState([]);
+  // Tipo (SPEI/TEF) y banco de un pago SIMPLE por transferencia.
+  const [tipoTransferencia, setTipoTransferencia] = useState("");
+  const [bancoTransferencia, setBancoTransferencia] = useState("");
+  // Tipo y banco de la parte por transferencia de un pago Combinado.
+  const [transferenciaTipoCombinado, setTransferenciaTipoCombinado] = useState("");
+  const [transferenciaBancoCombinado, setTransferenciaBancoCombinado] = useState("");
 
   // Solo para tipoPago === "ANTICIPO": a qué reporte diario de Cajas se suma
   // (Facturas o Remisiones), ver pago.anticipoDestino en el backend.
@@ -179,6 +201,42 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   );
   const tieneRemisionActiva = !!remisionActiva;
 
+  // Estos derivados de Montos se calculan aquí arriba (antes de los efectos)
+  // porque el efecto de abajo que limpia el aviso de "Liquidar debe cubrir…"
+  // necesita faltanteLiquidar ya definido — un useEffect no puede ir después
+  // de un return condicional, así que no puede esperar a que este bloque se
+  // calculara más abajo (como estaba antes).
+  const dolaresConvertidos = Number(montoDolares || 0) * Number(tipoCambio || 0);
+  const totalPago = Number(montoPesos || 0) + dolaresConvertidos;
+
+  const saldoValido =
+    typeof saldoPendiente === "number" && !Number.isNaN(saldoPendiente) ? Math.max(saldoPendiente, 0) : undefined;
+
+  // Saldo a favor del cliente que se puede aplicar a este pago: no más de lo
+  // que el cliente tiene disponible, ni más de lo que falta por cubrir de la
+  // orden (cuando ese dato aplica). Es solo un tope de UX — el backend
+  // siempre vuelve a validar el saldo real al momento de guardar.
+  const maxSaldoAplicable = Math.max(
+    0,
+    Math.min(saldoClienteDisponible || 0, saldoValido !== undefined ? saldoValido : Infinity)
+  );
+  // Monto elegido recibo por recibo (topado al restante de cada recibo).
+  const montoAnticiposSel = (anticiposDisponibles || []).reduce((s, a) => {
+    const v = Number(anticiposSel[a.depositoId]) || 0;
+    return s + Math.max(0, Math.min(v, Number(a.restante) || 0));
+  }, 0);
+  const montoSaldoGenerico = Math.max(0, Number(montoSaldoAplicado) || 0);
+  const montoSaldo = Math.min(montoSaldoGenerico + montoAnticiposSel, maxSaldoAplicable);
+  const totalConSaldo = totalPago + montoSaldo;
+
+  // "Liquidar" (sin comprobante) es, por definición, el pago que deja la
+  // orden en ceros — no un abono parcial. Es fácil que se les olviden los
+  // centavos al capturar, así que se calcula lo que falta para poder
+  // bloquear el registro y avisar en pantalla (ver validarPaso y el resumen
+  // de Montos más abajo).
+  const faltanteLiquidar =
+    tipoPago === "LIQUIDAR" && saldoValido !== undefined ? Math.max(0, saldoValido - totalConSaldo) : 0;
+
   useEffect(() => {
     setTipoCambio(tipoCambioConfig ? String(tipoCambioConfig) : "");
   }, [tipoCambioConfig]);
@@ -194,6 +252,15 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     const totalDolares = Number(montosCombinado.EFECTIVO_USD) || 0;
     setMontoDolares(totalDolares > 0 ? String(totalDolares) : "");
   }, [formaPago, montosCombinado]);
+
+  // Con forma de pago CREDITO/DEBITO dividida en más de una tarjeta, "Cantidad
+  // en Pesos" deja de capturarse a mano: es la suma de lo que se capturó en
+  // cada tarjeta (ver bloqueFormaPago, que deshabilita el campo en ese caso).
+  useEffect(() => {
+    if (!["CREDITO", "DEBITO"].includes(formaPago) || tarjetasSimple.length <= 1) return;
+    const total = tarjetasSimple.reduce((acc, t) => acc + (Number(t.monto) || 0), 0);
+    setMontoPesos(total > 0 ? String(total) : "");
+  }, [formaPago, tarjetasSimple]);
 
   // Un Abono/Anticipo siempre se documenta con Recibo Provisional; "Liquidar"
   // no genera comprobante; un Liquida (COMPLETO) usa Nota de Venta o Remisión
@@ -239,9 +306,9 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   }, [esRemisionCredito]);
 
   // La validación del Paso 2 solo corre al pulsar "Siguiente" y el aviso no se
-  // limpia solo, así que "Captura una cantidad…" se quedaba en pantalla aunque
-  // ya se hubiera capturado un importe válido. Se retira en cuanto hay algún
-  // monto > 0 (pesos, dólares, saldo a favor, combinado o recibos de anticipo).
+  // limpia solo, así que "Captura una cantidad…" (o "Liquidar debe cubrir…")
+  // se quedaba en pantalla aunque ya se hubiera corregido el importe. Se
+  // retiran en cuanto dejan de aplicar.
   useEffect(() => {
     const hayMonto =
       Number(montoPesos || 0) > 0 ||
@@ -249,10 +316,12 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
       Number(montoSaldoAplicado || 0) > 0 ||
       Object.values(montosCombinado).some((v) => Number(v) > 0) ||
       Object.values(anticiposSel).some((v) => Number(v) > 0);
-    if (hayMonto) {
-      setError((prev) => (prev === MSG_MONTO_REQUERIDO ? "" : prev));
-    }
-  }, [montoPesos, montoDolares, montoSaldoAplicado, montosCombinado, anticiposSel]);
+    setError((prev) => {
+      if (hayMonto && prev === MSG_MONTO_REQUERIDO) return "";
+      if (faltanteLiquidar <= 0.005 && prev.startsWith("Liquidar debe cubrir el saldo completo.")) return "";
+      return prev;
+    });
+  }, [montoPesos, montoDolares, montoSaldoAplicado, montosCombinado, anticiposSel, faltanteLiquidar]);
 
   // El Estatus del vale se sugiere solo cuando el comprobante (Nota/Remisión)
   // se paga Contado o Credito; el usuario puede sobrescribirlo libremente.
@@ -285,7 +354,12 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setChequeNumero("");
     setMontosCombinado(MONTOS_COMBINADO_INICIAL);
     setTerminalCombinado("");
-    setTerminalSimple("");
+    setTarjetasSimple([{ monto: "", terminal: "" }]);
+    setTarjetasCombinado([]);
+    setTipoTransferencia("");
+    setBancoTransferencia("");
+    setTransferenciaTipoCombinado("");
+    setTransferenciaBancoCombinado("");
     setReciboConcepto(orden?.ordenServicio || "");
     setReciboRecibio(user?.name || user?.username || "");
     setAnticipoDestino("");
@@ -472,29 +546,6 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     );
   }
 
-  const dolaresConvertidos = Number(montoDolares || 0) * Number(tipoCambio || 0);
-  const totalPago = Number(montoPesos || 0) + dolaresConvertidos;
-
-  const saldoValido =
-    typeof saldoPendiente === "number" && !Number.isNaN(saldoPendiente) ? Math.max(saldoPendiente, 0) : undefined;
-
-  // Saldo a favor del cliente que se puede aplicar a este pago: no más de lo
-  // que el cliente tiene disponible, ni más de lo que falta por cubrir de la
-  // orden (cuando ese dato aplica). Es solo un tope de UX — el backend
-  // siempre vuelve a validar el saldo real al momento de guardar.
-  const maxSaldoAplicable = Math.max(
-    0,
-    Math.min(saldoClienteDisponible || 0, saldoValido !== undefined ? saldoValido : Infinity)
-  );
-  // Monto elegido recibo por recibo (topado al restante de cada recibo).
-  const montoAnticiposSel = (anticiposDisponibles || []).reduce((s, a) => {
-    const v = Number(anticiposSel[a.depositoId]) || 0;
-    return s + Math.max(0, Math.min(v, Number(a.restante) || 0));
-  }, 0);
-  const montoSaldoGenerico = Math.max(0, Number(montoSaldoAplicado) || 0);
-  const montoSaldo = Math.min(montoSaldoGenerico + montoAnticiposSel, maxSaldoAplicable);
-  const totalConSaldo = totalPago + montoSaldo;
-
   // El "cambio" (efectivo recibido de más) solo aplica a un Liquida (COMPLETO,
   // contra el total de la orden): hay un tope exacto que no debe rebasarse y
   // lo que sobre se regresa como cambio en vez de registrarse. Un Abono no
@@ -543,6 +594,22 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     return { pesos, dolares };
   };
 
+  // Helpers de las filas de "más de una tarjeta" (pago simple CREDITO/DEBITO).
+  const setTarjetaSimpleCampo = (idx, campo, valor) =>
+    setTarjetasSimple((prev) => prev.map((t, i) => (i === idx ? { ...t, [campo]: valor } : t)));
+  const agregarTarjetaSimple = () => setTarjetasSimple((prev) => [...prev, { monto: "", terminal: "" }]);
+  const quitarTarjetaSimple = (idx) =>
+    setTarjetasSimple((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
+
+  // Helpers de las filas de "más de una tarjeta" del pago Combinado. Una
+  // tarjeta trae su propio tipo (T. Crédito/T. Débito) porque una misma lista
+  // puede mezclar ambas.
+  const setTarjetaCombinadoCampo = (idx, campo, valor) =>
+    setTarjetasCombinado((prev) => prev.map((t, i) => (i === idx ? { ...t, [campo]: valor } : t)));
+  const agregarTarjetaCombinado = () =>
+    setTarjetasCombinado((prev) => [...prev, { tipo: "CREDITO", monto: "", terminal: "" }]);
+  const quitarTarjetaCombinado = (idx) => setTarjetasCombinado((prev) => prev.filter((_, i) => i !== idx));
+
   // Análogo a montosAplicados, pero para el desglose del pago Combinado: el
   // cambio se resta primero del Efectivo (pesos y luego dólares), que es lo
   // único que realmente se puede "regresar" a medio cobro — T. Crédito/T.
@@ -566,8 +633,24 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
       cheque: Number(montosCombinado.CHEQUE) || 0,
       transferencia: Number(montosCombinado.TRANSFERENCIA) || 0,
       banco: terminalCombinado,
+      transferenciaTipo: transferenciaTipoCombinado,
+      transferenciaBanco: transferenciaBancoCombinado,
+      tarjetasCredito: tarjetasCombinado
+        .filter((t) => t.tipo === "CREDITO")
+        .map((t) => ({ monto: Number(t.monto) || 0, terminal: t.terminal })),
+      tarjetasDebito: tarjetasCombinado
+        .filter((t) => t.tipo === "DEBITO")
+        .map((t) => ({ monto: Number(t.monto) || 0, terminal: t.terminal })),
     };
   };
+
+  // Desglose a enviar al backend para un pago SIMPLE con tarjeta: una fila
+  // (monto = el total en pesos capturado) si solo hubo una terminal, o las
+  // filas capturadas a mano si se dividió en más de una tarjeta.
+  const tarjetasSimpleAplicadas = () =>
+    tarjetasSimple.length > 1
+      ? tarjetasSimple.map((t) => ({ monto: Number(t.monto) || 0, terminal: t.terminal }))
+      : [{ monto: Number(montoPesos) || 0, terminal: tarjetasSimple[0]?.terminal || "" }];
 
   const handleDobleClickNoVale = async () => {
     try {
@@ -651,6 +734,10 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
         setError(MSG_MONTO_REQUERIDO);
         return false;
       }
+      if (faltanteLiquidar > 0.005) {
+        setError(`Liquidar debe cubrir el saldo completo. Falta ${formatMoney(faltanteLiquidar)}.`);
+        return false;
+      }
       if (
         usaFormaPago &&
         (formaPago === "CHEQUE" || (formaPago === "COMBINADO" && Number(montosCombinado.CHEQUE) > 0)) &&
@@ -659,17 +746,53 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
         setError("Captura el número de cheque.");
         return false;
       }
-      if (usaFormaPago && (formaPago === "CREDITO" || formaPago === "DEBITO") && !terminalSimple) {
-        setError("Selecciona la terminal donde se cobró la tarjeta.");
+      if (usaFormaPago && (formaPago === "CREDITO" || formaPago === "DEBITO")) {
+        if (tarjetasSimple.length > 1) {
+          if (tarjetasSimple.some((t) => !t.terminal || !(Number(t.monto) > 0))) {
+            setError("Captura el monto y la terminal de cada tarjeta.");
+            return false;
+          }
+        } else if (!tarjetasSimple[0]?.terminal) {
+          setError("Selecciona la terminal donde se cobró la tarjeta.");
+          return false;
+        }
+      }
+      if (usaFormaPago && formaPago === "TRANSFERENCIA" && (!tipoTransferencia || !bancoTransferencia)) {
+        setError("Selecciona el tipo de transferencia (SPEI o TEF) y el banco.");
         return false;
+      }
+      if (usaFormaPago && formaPago === "COMBINADO") {
+        const totalCredito = Number(montosCombinado.CREDITO) || 0;
+        const totalDebito = Number(montosCombinado.DEBITO) || 0;
+        if (totalCredito > 0 || totalDebito > 0) {
+          if (tarjetasCombinado.length > 0) {
+            if (tarjetasCombinado.some((t) => !t.terminal || !(Number(t.monto) > 0))) {
+              setError("Captura el monto y la terminal de cada tarjeta del pago combinado.");
+              return false;
+            }
+            const sumCredito = tarjetasCombinado
+              .filter((t) => t.tipo === "CREDITO")
+              .reduce((acc, t) => acc + (Number(t.monto) || 0), 0);
+            const sumDebito = tarjetasCombinado
+              .filter((t) => t.tipo === "DEBITO")
+              .reduce((acc, t) => acc + (Number(t.monto) || 0), 0);
+            if (Math.abs(sumCredito - totalCredito) > 0.01 || Math.abs(sumDebito - totalDebito) > 0.01) {
+              setError("La suma de las tarjetas no coincide con el T. Crédito / T. Débito capturado.");
+              return false;
+            }
+          } else if (!terminalCombinado) {
+            setError("Selecciona la terminal donde se cobró la parte con tarjeta del pago combinado.");
+            return false;
+          }
+        }
       }
       if (
         usaFormaPago &&
         formaPago === "COMBINADO" &&
-        (Number(montosCombinado.CREDITO) > 0 || Number(montosCombinado.DEBITO) > 0) &&
-        !terminalCombinado
+        Number(montosCombinado.TRANSFERENCIA) > 0 &&
+        (!transferenciaTipoCombinado || !transferenciaBancoCombinado)
       ) {
-        setError("Selecciona la terminal donde se cobró la parte con tarjeta del pago combinado.");
+        setError("Selecciona el tipo de transferencia (SPEI o TEF) y el banco de la parte por transferencia del pago combinado.");
         return false;
       }
       if (Number(montoDolares) > 0 && !Number(tipoCambio)) {
@@ -761,7 +884,10 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
           ? {
               formaPago,
               chequeNumero,
-              terminal: terminalSimple,
+              terminal: tarjetasSimple[0]?.terminal || "",
+              tarjetas: ["CREDITO", "DEBITO"].includes(formaPago) ? tarjetasSimpleAplicadas() : [],
+              tipoTransferencia,
+              bancoTransferencia,
               tipoNota,
               fecha: fechaComprobante,
               ...(formaPago === "COMBINADO" ? { combinado: combinadoAplicado() } : {}),
@@ -772,7 +898,10 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
           ? {
               formaPago,
               chequeNumero,
-              terminal: terminalSimple,
+              terminal: tarjetasSimple[0]?.terminal || "",
+              tarjetas: ["CREDITO", "DEBITO"].includes(formaPago) ? tarjetasSimpleAplicadas() : [],
+              tipoTransferencia,
+              bancoTransferencia,
               ...(formaPago === "COMBINADO" ? { combinado: combinadoAplicado() } : {}),
             }
           : {
@@ -780,7 +909,10 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
               chequeNumero,
               reciboConcepto,
               reciboRecibio,
-              terminal: terminalSimple,
+              terminal: tarjetasSimple[0]?.terminal || "",
+              tarjetas: ["CREDITO", "DEBITO"].includes(formaPago) ? tarjetasSimpleAplicadas() : [],
+              tipoTransferencia,
+              bancoTransferencia,
               ...(tipoPago === "ANTICIPO" ? { anticipoDestino } : {}),
               ...(formaPago === "COMBINADO" ? { combinado: combinadoAplicado() } : {}),
             }),
@@ -840,16 +972,76 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
 
       {(formaPago === "CREDITO" || formaPago === "DEBITO") && (
         <div className="mt-2">
-          <label className="form-label mb-0">Terminal</label>
-          <Dropdown className="form-select" value={terminalSimple} onChange={(e) => setTerminalSimple(e.target.value)}>
-            <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-            {TERMINALES.map((t) => (
-              <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
-            ))}
-          </Dropdown>
-          <small className="text-muted">
+          <label className="form-label mb-0">{tarjetasSimple.length > 1 ? "Tarjetas" : "Terminal"}</label>
+          {tarjetasSimple.map((t, idx) => (
+            <div className="row g-2 align-items-center mb-1" key={idx}>
+              {tarjetasSimple.length > 1 && (
+                <div className="col-5">
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="form-control"
+                    placeholder="Monto"
+                    value={t.monto}
+                    onChange={(e) => setTarjetaSimpleCampo(idx, "monto", e.target.value)}
+                  />
+                </div>
+              )}
+              <div className={tarjetasSimple.length > 1 ? "col-6" : "col-11"}>
+                <Dropdown
+                  className="form-select"
+                  value={t.terminal}
+                  onChange={(e) => setTarjetaSimpleCampo(idx, "terminal", e.target.value)}
+                >
+                  <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                  {TERMINALES.map((term) => (
+                    <Dropdown.Option key={term} value={term}>{term}</Dropdown.Option>
+                  ))}
+                </Dropdown>
+              </div>
+              {tarjetasSimple.length > 1 && (
+                <div className="col-1 px-0">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-danger"
+                    onClick={() => quitarTarjetaSimple(idx)}
+                    title="Quitar tarjeta"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          <button type="button" className="btn btn-sm btn-link px-0" onClick={agregarTarjetaSimple}>
+            + Cobrar con más de una tarjeta
+          </button>
+          <small className="text-muted d-block">
             Obligatoria: en qué terminal se cobró la tarjeta (para el Cierre de Caja).
           </small>
+        </div>
+      )}
+
+      {formaPago === "TRANSFERENCIA" && (
+        <div className="mt-2 row g-2">
+          <div className="col-sm-6">
+            <label className="form-label mb-0">Tipo de transferencia</label>
+            <Dropdown className="form-select" value={tipoTransferencia} onChange={(e) => setTipoTransferencia(e.target.value)}>
+              <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+              {TIPOS_TRANSFERENCIA.map((t) => (
+                <Dropdown.Option key={t.value} value={t.value}>{t.label}</Dropdown.Option>
+              ))}
+            </Dropdown>
+          </div>
+          <div className="col-sm-6">
+            <label className="form-label mb-0">Banco</label>
+            <Dropdown className="form-select" value={bancoTransferencia} onChange={(e) => setBancoTransferencia(e.target.value)}>
+              <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+              {TERMINALES.map((t) => (
+                <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+              ))}
+            </Dropdown>
+          </div>
         </div>
       )}
     </div>
@@ -905,19 +1097,87 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
           />
         </div>
         {(Number(montosCombinado.CREDITO) > 0 || Number(montosCombinado.DEBITO) > 0) && (
-          <div className="col-12 col-md-4">
-            <label className="form-label mb-0 small">Terminal</label>
-            <Dropdown
-              className="form-select form-select-sm"
-              value={terminalCombinado}
-              onChange={(e) => setTerminalCombinado(e.target.value)}
-            >
-              <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-              {TERMINALES.map((t) => (
-                <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
-              ))}
-            </Dropdown>
-            <small className="text-muted">Obligatoria: con qué terminal se cobró el T. Crédito/T. Débito.</small>
+          <div className="col-12">
+            {tarjetasCombinado.length === 0 ? (
+              <div className="row g-2 align-items-end">
+                <div className="col-12 col-md-4">
+                  <label className="form-label mb-0 small">Terminal</label>
+                  <Dropdown
+                    className="form-select form-select-sm"
+                    value={terminalCombinado}
+                    onChange={(e) => setTerminalCombinado(e.target.value)}
+                  >
+                    <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                    {TERMINALES.map((t) => (
+                      <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+                    ))}
+                  </Dropdown>
+                  <small className="text-muted">Obligatoria: con qué terminal se cobró el T. Crédito/T. Débito.</small>
+                </div>
+                <div className="col-12 col-md-4">
+                  <button type="button" className="btn btn-sm btn-link px-0" onClick={agregarTarjetaCombinado}>
+                    + Cobrar con más de una tarjeta
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label className="form-label mb-0 small fw-semibold d-block">Tarjetas</label>
+                {tarjetasCombinado.map((t, idx) => (
+                  <div className="row g-2 align-items-center mb-1" key={idx}>
+                    <div className="col-4 col-md-3">
+                      <Dropdown
+                        className="form-select form-select-sm"
+                        value={t.tipo}
+                        onChange={(e) => setTarjetaCombinadoCampo(idx, "tipo", e.target.value)}
+                      >
+                        <Dropdown.Option value="CREDITO">T. Crédito</Dropdown.Option>
+                        <Dropdown.Option value="DEBITO">T. Débito</Dropdown.Option>
+                      </Dropdown>
+                    </div>
+                    <div className="col-4 col-md-3">
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="form-control form-control-sm"
+                        placeholder="Monto"
+                        value={t.monto}
+                        onChange={(e) => setTarjetaCombinadoCampo(idx, "monto", e.target.value)}
+                      />
+                    </div>
+                    <div className="col-3 col-md-4">
+                      <Dropdown
+                        className="form-select form-select-sm"
+                        value={t.terminal}
+                        onChange={(e) => setTarjetaCombinadoCampo(idx, "terminal", e.target.value)}
+                      >
+                        <Dropdown.Option value="">Terminal...</Dropdown.Option>
+                        {TERMINALES.map((term) => (
+                          <Dropdown.Option key={term} value={term}>{term}</Dropdown.Option>
+                        ))}
+                      </Dropdown>
+                    </div>
+                    <div className="col-1 px-0">
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-danger"
+                        onClick={() => quitarTarjetaCombinado(idx)}
+                        title="Quitar tarjeta"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <button type="button" className="btn btn-sm btn-link px-0" onClick={agregarTarjetaCombinado}>
+                  + Agregar otra tarjeta
+                </button>
+                <small className="text-muted d-block">
+                  La suma de T. Crédito debe dar {formatMoney(montosCombinado.CREDITO || 0)} y la de T. Débito{" "}
+                  {formatMoney(montosCombinado.DEBITO || 0)}.
+                </small>
+              </div>
+            )}
           </div>
         )}
         <div className="col-6 col-md-4">
@@ -949,6 +1209,36 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
             onChange={(e) => setMontosCombinado((prev) => ({ ...prev, TRANSFERENCIA: e.target.value }))}
           />
         </div>
+        {Number(montosCombinado.TRANSFERENCIA) > 0 && (
+          <>
+            <div className="col-6 col-md-4">
+              <label className="form-label mb-0 small">Tipo de transferencia</label>
+              <Dropdown
+                className="form-select form-select-sm"
+                value={transferenciaTipoCombinado}
+                onChange={(e) => setTransferenciaTipoCombinado(e.target.value)}
+              >
+                <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                {TIPOS_TRANSFERENCIA.map((t) => (
+                  <Dropdown.Option key={t.value} value={t.value}>{t.label}</Dropdown.Option>
+                ))}
+              </Dropdown>
+            </div>
+            <div className="col-6 col-md-4">
+              <label className="form-label mb-0 small">Banco (Transferencia)</label>
+              <Dropdown
+                className="form-select form-select-sm"
+                value={transferenciaBancoCombinado}
+                onChange={(e) => setTransferenciaBancoCombinado(e.target.value)}
+              >
+                <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                {TERMINALES.map((t) => (
+                  <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+                ))}
+              </Dropdown>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -974,8 +1264,14 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
               className="form-control"
               value={montoPesos}
               onChange={(e) => setMontoPesos(e.target.value)}
-              readOnly={formaPago === "COMBINADO"}
-              title={formaPago === "COMBINADO" ? "Se calcula sola con la suma del desglose combinado" : undefined}
+              readOnly={formaPago === "COMBINADO" || (["CREDITO", "DEBITO"].includes(formaPago) && tarjetasSimple.length > 1)}
+              title={
+                formaPago === "COMBINADO"
+                  ? "Se calcula sola con la suma del desglose combinado"
+                  : ["CREDITO", "DEBITO"].includes(formaPago) && tarjetasSimple.length > 1
+                  ? "Se calcula sola con la suma de las tarjetas capturadas"
+                  : undefined
+              }
             />
           </div>
           <div className="col-6">
@@ -1254,6 +1550,12 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
           <span>Total {montoSaldo > 0 ? "(con saldo)" : "Recibido"}</span>
           <span>{formatMoney(totalConSaldo)}</span>
         </p>
+        {faltanteLiquidar > 0.005 && (
+          <p className="d-flex justify-content-between fw-bold text-danger mb-0 mt-1">
+            <span>Falta para liquidar</span>
+            <span>{formatMoney(faltanteLiquidar)}</span>
+          </p>
+        )}
         {cambio > 0 && (
           <>
             <p className="d-flex justify-content-between mb-1 mt-2">
@@ -1375,8 +1677,14 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   if (paso > 2) {
     if (usaFormaPago) {
       const term =
-        (formaPago === "CREDITO" || formaPago === "DEBITO") && terminalSimple
-          ? ` · ${terminalSimple}`
+        (formaPago === "CREDITO" || formaPago === "DEBITO") && tarjetasSimple.length > 1
+          ? ` · ${tarjetasSimple.length} tarjetas`
+          : (formaPago === "CREDITO" || formaPago === "DEBITO") && tarjetasSimple[0]?.terminal
+          ? ` · ${tarjetasSimple[0].terminal}`
+          : formaPago === "TRANSFERENCIA" && tipoTransferencia && bancoTransferencia
+          ? ` · ${tipoTransferencia}-${bancoTransferencia}`
+          : formaPago === "COMBINADO" && tarjetasCombinado.length > 0
+          ? ` · ${tarjetasCombinado.length} tarjetas`
           : formaPago === "COMBINADO" && terminalCombinado
           ? ` · ${terminalCombinado}`
           : "";
