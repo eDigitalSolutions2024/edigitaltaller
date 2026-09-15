@@ -14,10 +14,10 @@ const AnticipoCliente = require("../models/AnticipoCliente");
 const Contador = require("../models/Contador");
 const { proteger } = require("../middleware/auth");
 const { sincronizarFechaPagadaRemisiones } = require("../utils/cajaTotales");
-const { datosMovimientosTerminal, moverTerminalesDePago } = require("../utils/movimientosTerminalPago");
+const { datosMovimientosTerminal, moverTerminalesDePago, registrarMovimientosTarjetas } = require("../utils/movimientosTerminalPago");
 const { cancelarDeposito, revertirUso, SaldoInsuficienteError } = require("../utils/anticiposCliente");
 const { dayjsFecha } = require("../utils/fechas");
-const { registrarMovimientoTerminal } = require("../utils/cierreCajaTerminales");
+const { limpiarYValidarTarjetas } = require("../utils/tarjetasCaja");
 
 const router = express.Router();
 
@@ -41,8 +41,25 @@ function errorPagoSinComprobante(p) {
   if (!FORMAS_PAGO_CAJA.includes(p.formaPago)) {
     return "Selecciona la forma de pago de la orden sin comprobante en Cajas.";
   }
-  if (["CREDITO", "DEBITO"].includes(p.formaPago) && !TERMINALES_TARJETA.includes(p.terminal)) {
-    return "Selecciona la terminal donde se cobró la tarjeta de la orden sin comprobante en Cajas.";
+  // Mismo cálculo que crearPagosSinComprobante: el monto en pesos es el total
+  // de la orden menos la parte en dólares (si la hay), para validar contra
+  // eso la suma de tarjetas capturadas.
+  const montoDolaresP =
+    p.formaPago === "COMBINADO"
+      ? Number(p.combinado?.efectivoDolares) || 0
+      : p.formaPago === "EFECTIVO"
+      ? Number(p.montoDolares) || 0
+      : 0;
+  const tipoCambioP = montoDolaresP > 0 ? Number(p.tipoCambio) || 0 : 0;
+  const montoPesosP = Math.round(((Number(p.monto) || 0) - montoDolaresP * tipoCambioP) * 100) / 100;
+
+  if (["CREDITO", "DEBITO"].includes(p.formaPago)) {
+    if (Array.isArray(p.tarjetas) && p.tarjetas.length) {
+      const r = limpiarYValidarTarjetas(p.tarjetas, montoPesosP, "tarjeta");
+      if (r.error) return r.error;
+    } else if (!TERMINALES_TARJETA.includes(p.terminal)) {
+      return "Selecciona la terminal donde se cobró la tarjeta de la orden sin comprobante en Cajas.";
+    }
   }
   if (
     p.formaPago === "TRANSFERENCIA" &&
@@ -52,9 +69,25 @@ function errorPagoSinComprobante(p) {
   }
   if (p.formaPago === "COMBINADO") {
     const c = p.combinado || {};
-    const totalTarjeta = (Number(c.credito) || 0) + (Number(c.debito) || 0);
-    if (totalTarjeta > 0 && !TERMINALES_TARJETA.includes(c.banco)) {
-      return "Selecciona la terminal de la parte con tarjeta del pago combinado (orden sin comprobante en Cajas).";
+    const totalCredito = Number(c.credito) || 0;
+    const totalDebito = Number(c.debito) || 0;
+    const totalTarjeta = totalCredito + totalDebito;
+    const hayDesglose =
+      (Array.isArray(c.tarjetasCredito) && c.tarjetasCredito.length) ||
+      (Array.isArray(c.tarjetasDebito) && c.tarjetasDebito.length);
+    if (totalTarjeta > 0) {
+      if (hayDesglose) {
+        if (totalCredito > 0) {
+          const r = limpiarYValidarTarjetas(c.tarjetasCredito, totalCredito, "tarjeta");
+          if (r.error) return r.error;
+        }
+        if (totalDebito > 0) {
+          const r = limpiarYValidarTarjetas(c.tarjetasDebito, totalDebito, "tarjeta");
+          if (r.error) return r.error;
+        }
+      } else if (!TERMINALES_TARJETA.includes(c.banco)) {
+        return "Selecciona la terminal de la parte con tarjeta del pago combinado (orden sin comprobante en Cajas).";
+      }
     }
     if (
       (Number(c.transferencia) || 0) > 0 &&
@@ -720,6 +753,13 @@ async function cancelarAnticiposYRemisionesPorFactura(ordenes, facturaDoc, decis
 // Devuelve un arreglo con los Recibos de Dólares que se generaron (uno por
 // cada pago que incluyó dólares), para que el asistente de Nueva Factura
 // pueda ofrecer abrirlos/imprimirlos igual que ya hace con la factura misma.
+// Terminal "legacy" (campo `banco`) de un cobro con tarjeta dividido en 1+
+// tarjetas: la única terminal si hubo una sola, o '' si hubo más de una.
+// Mismo criterio que backend/routes/cajas.js.
+function terminalLegacyDeTarjetas(tarjetas) {
+  return tarjetas.length === 1 ? tarjetas[0].terminal : "";
+}
+
 async function crearPagosSinComprobante(pagosSinComprobante, facturaDoc, user = null) {
   const recibosDolares = [];
   for (const entrada of Array.isArray(pagosSinComprobante) ? pagosSinComprobante : []) {
@@ -745,6 +785,50 @@ async function crearPagosSinComprobante(pagosSinComprobante, facturaDoc, user = 
     const montoPesos = Math.round((monto - montoDolares * tipoCambio) * 100) / 100;
     const fecha = new Date();
 
+    // Desglose por tarjeta, ya validado por errorPagoSinComprobante: se
+    // vuelve a limpiar aquí (montos redondeados, filas vacías fuera) para
+    // guardarlo tal cual en el pago. Sin desglose, cae a la terminal única
+    // (compatibilidad con la captura simple de siempre).
+    const tarjetasSimple = Array.isArray(entrada.tarjetas) ? entrada.tarjetas : [];
+    const tarjetasSimpleLimpias = ["CREDITO", "DEBITO"].includes(formaPago)
+      ? tarjetasSimple.length
+        ? limpiarYValidarTarjetas(tarjetasSimple, montoPesos).tarjetas || []
+        : terminal
+        ? [{ monto: montoPesos, terminal }]
+        : []
+      : [];
+
+    const totalCredito = Number(combinado?.credito) || 0;
+    const totalDebito = Number(combinado?.debito) || 0;
+    const hayDesgloseCombinado =
+      (Array.isArray(combinado?.tarjetasCredito) && combinado.tarjetasCredito.length) ||
+      (Array.isArray(combinado?.tarjetasDebito) && combinado.tarjetasDebito.length);
+    const tarjetasCreditoLimpias =
+      formaPago === "COMBINADO" && totalCredito > 0
+        ? hayDesgloseCombinado
+          ? limpiarYValidarTarjetas(combinado.tarjetasCredito, totalCredito).tarjetas || []
+          : combinado?.banco
+          ? [{ monto: totalCredito, terminal: combinado.banco }]
+          : []
+        : [];
+    const tarjetasDebitoLimpias =
+      formaPago === "COMBINADO" && totalDebito > 0
+        ? hayDesgloseCombinado
+          ? limpiarYValidarTarjetas(combinado.tarjetasDebito, totalDebito).tarjetas || []
+          : combinado?.banco
+          ? [{ monto: totalDebito, terminal: combinado.banco }]
+          : []
+        : [];
+    const combinadoLimpio =
+      formaPago === "COMBINADO"
+        ? {
+            ...combinado,
+            banco: terminalLegacyDeTarjetas([...tarjetasCreditoLimpias, ...tarjetasDebitoLimpias]) || combinado?.banco || "",
+            tarjetasCredito: tarjetasCreditoLimpias,
+            tarjetasDebito: tarjetasDebitoLimpias,
+          }
+        : null;
+
     const pago = {
       fecha,
       tipoPago: "ABONO", // misma convención que "Liquidar" desde Cajas
@@ -757,10 +841,11 @@ async function crearPagosSinComprobante(pagosSinComprobante, facturaDoc, user = 
       liquidacion: {
         formaPago,
         chequeNumero: formaPago === "CHEQUE" ? entrada.chequeNumero || "" : "",
-        banco: ["CREDITO", "DEBITO"].includes(formaPago) ? terminal : "",
+        banco: ["CREDITO", "DEBITO"].includes(formaPago) ? terminalLegacyDeTarjetas(tarjetasSimpleLimpias) || terminal : "",
         tipoTransferencia: formaPago === "TRANSFERENCIA" ? entrada.tipoTransferencia || "" : "",
         bancoTransferencia: formaPago === "TRANSFERENCIA" ? entrada.bancoTransferencia || "" : "",
-        ...(combinado ? { combinado } : {}),
+        tarjetas: tarjetasSimpleLimpias,
+        ...(combinadoLimpio ? { combinado: combinadoLimpio } : {}),
       },
       facturaId: facturaDoc._id,
     };
@@ -789,16 +874,16 @@ async function crearPagosSinComprobante(pagosSinComprobante, facturaDoc, user = 
       });
     }
 
-    // Igual que cajas.js: solo los cobros con tarjeta física pasan por
-    // registrarMovimientoTerminal (efectivo/cheque/transferencia se
-    // concilian a mano en Gestión de Caja). Nunca debe tumbar la generación
-    // de la factura si falla.
+    // Igual que cajas.js: solo los cobros con tarjeta física pasan por el
+    // Cierre de Caja (efectivo/cheque/transferencia se concilian a mano en
+    // Gestión de Caja), una llamada por cada tarjeta usada. Best-effort
+    // (registrarMovimientosTarjetas ya captura sus propios errores): nunca
+    // debe tumbar la generación de la factura si falla.
     try {
-      const montoTarjetaCombinado = (Number(combinado?.credito) || 0) + (Number(combinado?.debito) || 0);
-      if (formaPago === "COMBINADO" && montoTarjetaCombinado > 0 && combinado?.banco) {
-        await registrarMovimientoTerminal(combinado.banco, montoTarjetaCombinado, fecha);
-      } else if (["CREDITO", "DEBITO"].includes(formaPago) && terminal) {
-        await registrarMovimientoTerminal(terminal, monto, fecha);
+      if (formaPago === "COMBINADO") {
+        await registrarMovimientosTarjetas([...tarjetasCreditoLimpias, ...tarjetasDebitoLimpias], fecha);
+      } else if (["CREDITO", "DEBITO"].includes(formaPago)) {
+        await registrarMovimientosTarjetas(tarjetasSimpleLimpias, fecha);
       }
     } catch (errTerminal) {
       console.error("Error actualizando terminal del cierre de caja (factura sin comprobante):", errTerminal);

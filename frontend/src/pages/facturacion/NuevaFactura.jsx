@@ -85,12 +85,20 @@ const MONTOS_COMBINADO_INICIAL = {
   banco: "",
   transferenciaTipo: "",
   transferenciaBanco: "",
+  // Desglose por terminal cuando la parte de tarjeta (T. Crédito y/o T.
+  // Débito) se cobró con más de una tarjeta física: [{tipo, monto, terminal}].
+  // Vacío = una sola terminal en `banco`. Se separa en tarjetasCredito/
+  // tarjetasDebito (lo que espera el backend) al armar el payload.
+  tarjetas: [],
 };
 const MONTOS_COMBINADO_PESOS = ["efectivo", "credito", "debito", "cheque", "transferencia"];
 const PAGO_LIQUIDAR_VACIO = {
   formaPago: "EFECTIVO",
   chequeNumero: "",
-  terminal: "",
+  // Desglose [{monto, terminal}] de un pago CREDITO/DEBITO: una fila (su
+  // monto no se captura, se toma del total de la orden) cuando fue una sola
+  // tarjeta, o varias si se dividió el cobro en más de una.
+  tarjetas: [{ monto: "", terminal: "" }],
   // Tipo (SPEI/TEF) y banco cuando formaPago === "TRANSFERENCIA".
   tipoTransferencia: "",
   bancoTransferencia: "",
@@ -1637,6 +1645,44 @@ export default function NuevaFactura() {
       };
     });
 
+  // Helpers del desglose "más de una tarjeta" de un pago SIMPLE (CREDITO/DEBITO).
+  const setTarjetaPagoLiquidar = (vehiculoId, idx, campo, valor) => {
+    const actuales = pagoLiquidarDe(vehiculoId).tarjetas || [];
+    setCampoPagoLiquidar(
+      vehiculoId,
+      "tarjetas",
+      actuales.map((t, i) => (i === idx ? { ...t, [campo]: valor } : t))
+    );
+  };
+  const agregarTarjetaPagoLiquidar = (vehiculoId) => {
+    const actuales = pagoLiquidarDe(vehiculoId).tarjetas || [];
+    setCampoPagoLiquidar(vehiculoId, "tarjetas", [...actuales, { monto: "", terminal: "" }]);
+  };
+  const quitarTarjetaPagoLiquidar = (vehiculoId, idx) => {
+    const actuales = pagoLiquidarDe(vehiculoId).tarjetas || [];
+    if (actuales.length <= 1) return;
+    setCampoPagoLiquidar(vehiculoId, "tarjetas", actuales.filter((_, i) => i !== idx));
+  };
+
+  // Helpers del desglose "más de una tarjeta" de la parte de tarjeta de un
+  // pago Combinado: cada fila trae su propio tipo (T. Crédito/T. Débito).
+  const setTarjetaCombinadoPagoLiquidar = (vehiculoId, idx, campo, valor) => {
+    const actuales = pagoLiquidarDe(vehiculoId).combinado?.tarjetas || [];
+    setCombinadoPagoLiquidar(
+      vehiculoId,
+      "tarjetas",
+      actuales.map((t, i) => (i === idx ? { ...t, [campo]: valor } : t))
+    );
+  };
+  const agregarTarjetaCombinadoPagoLiquidar = (vehiculoId) => {
+    const actuales = pagoLiquidarDe(vehiculoId).combinado?.tarjetas || [];
+    setCombinadoPagoLiquidar(vehiculoId, "tarjetas", [...actuales, { tipo: "CREDITO", monto: "", terminal: "" }]);
+  };
+  const quitarTarjetaCombinadoPagoLiquidar = (vehiculoId, idx) => {
+    const actuales = pagoLiquidarDe(vehiculoId).combinado?.tarjetas || [];
+    setCombinadoPagoLiquidar(vehiculoId, "tarjetas", actuales.filter((_, i) => i !== idx));
+  };
+
   // Tipo de cambio del día (Configuración) para convertir a pesos el Efectivo
   // en Dólares del desglose Combinado — mismo dato y mismo criterio de
   // solo-lectura que usa CajaModalPago.jsx (nunca se captura a mano aquí).
@@ -1667,7 +1713,16 @@ export default function NuevaFactura() {
   const pagoLiquidarCompleto = (vehiculoId) => {
     const p = pagoLiquidarDe(vehiculoId);
     if (!FORMAS_PAGO_CAJA.some((f) => f.value === p.formaPago)) return false;
-    if (["CREDITO", "DEBITO"].includes(p.formaPago) && !TERMINALES_CAJA.includes(p.terminal)) return false;
+    if (["CREDITO", "DEBITO"].includes(p.formaPago)) {
+      const tarjetas = p.tarjetas || [];
+      if (tarjetas.length > 1) {
+        if (tarjetas.some((t) => !t.terminal || !(Number(t.monto) > 0))) return false;
+        const sumTarjetas = tarjetas.reduce((a, t) => a + (Number(t.monto) || 0), 0);
+        if (Math.abs(sumTarjetas - (montoPorOrden[vehiculoId] || 0)) > TOLERANCIA_LIQUIDAR) return false;
+      } else if (!TERMINALES_CAJA.includes(tarjetas[0]?.terminal)) {
+        return false;
+      }
+    }
     if (p.formaPago === "CHEQUE" && !String(p.chequeNumero || "").trim()) return false;
     if (
       p.formaPago === "TRANSFERENCIA" &&
@@ -1685,8 +1740,20 @@ export default function NuevaFactura() {
     }
     if (p.formaPago === "COMBINADO") {
       const c = p.combinado || {};
-      const totalTarjeta = (Number(c.credito) || 0) + (Number(c.debito) || 0);
-      if (totalTarjeta > 0 && !TERMINALES_CAJA.includes(c.banco)) return false;
+      const totalCredito = Number(c.credito) || 0;
+      const totalDebito = Number(c.debito) || 0;
+      const totalTarjeta = totalCredito + totalDebito;
+      const tarjetas = c.tarjetas || [];
+      if (totalTarjeta > 0) {
+        if (tarjetas.length > 0) {
+          if (tarjetas.some((t) => !t.terminal || !(Number(t.monto) > 0))) return false;
+          const sumCredito = tarjetas.filter((t) => t.tipo === "CREDITO").reduce((a, t) => a + (Number(t.monto) || 0), 0);
+          const sumDebito = tarjetas.filter((t) => t.tipo === "DEBITO").reduce((a, t) => a + (Number(t.monto) || 0), 0);
+          if (Math.abs(sumCredito - totalCredito) > 0.01 || Math.abs(sumDebito - totalDebito) > 0.01) return false;
+        } else if (!TERMINALES_CAJA.includes(c.banco)) {
+          return false;
+        }
+      }
       if (
         (Number(c.transferencia) || 0) > 0 &&
         (!TIPOS_TRANSFERENCIA.some((t) => t.value === c.transferenciaTipo) || !TERMINALES_CAJA.includes(c.transferenciaBanco))
@@ -1875,15 +1942,39 @@ export default function NuevaFactura() {
     const pagosSinComprobantePayload = esFactura
       ? ordenesSinComprobante.map((o) => {
           const p = pagoLiquidarDe(o._id);
+          const montoOrden = montoPorOrden[o._id] || 0;
+          // Desglose de tarjetas de un pago SIMPLE: el monto de la única fila
+          // no se captura a mano (es el total de la orden) salvo que se haya
+          // dividido en más de una tarjeta, donde cada fila trae el suyo.
+          const tarjetasSimple = (p.tarjetas || []).length > 1
+            ? p.tarjetas.map((t) => ({ monto: Number(t.monto) || 0, terminal: t.terminal }))
+            : [{ monto: montoOrden, terminal: p.tarjetas?.[0]?.terminal || "" }];
+          // El backend espera el desglose de la parte de tarjeta del
+          // Combinado separado por tipo (tarjetasCredito/tarjetasDebito); en
+          // pantalla se captura como una sola lista con su propio tipo.
+          const combinadoPayload =
+            p.formaPago === "COMBINADO"
+              ? {
+                  ...p.combinado,
+                  tarjetasCredito: (p.combinado?.tarjetas || [])
+                    .filter((t) => t.tipo === "CREDITO")
+                    .map((t) => ({ monto: Number(t.monto) || 0, terminal: t.terminal })),
+                  tarjetasDebito: (p.combinado?.tarjetas || [])
+                    .filter((t) => t.tipo === "DEBITO")
+                    .map((t) => ({ monto: Number(t.monto) || 0, terminal: t.terminal })),
+                  tarjetas: undefined,
+                }
+              : null;
           return {
             vehiculoId: o._id,
-            monto: montoPorOrden[o._id] || 0,
+            monto: montoOrden,
             formaPago: p.formaPago,
             chequeNumero: p.formaPago === "CHEQUE" ? p.chequeNumero : "",
-            terminal: ["CREDITO", "DEBITO"].includes(p.formaPago) ? p.terminal : "",
+            terminal: ["CREDITO", "DEBITO"].includes(p.formaPago) ? p.tarjetas?.[0]?.terminal || "" : "",
+            tarjetas: ["CREDITO", "DEBITO"].includes(p.formaPago) ? tarjetasSimple : [],
             tipoTransferencia: p.formaPago === "TRANSFERENCIA" ? p.tipoTransferencia : "",
             bancoTransferencia: p.formaPago === "TRANSFERENCIA" ? p.bancoTransferencia : "",
-            combinado: p.formaPago === "COMBINADO" ? p.combinado : null,
+            combinado: combinadoPayload,
             montoDolares: p.formaPago === "EFECTIVO" ? Number(p.montoDolares) || 0 : 0,
             tipoCambio: tipoCambioLiquidar,
           };
@@ -2905,19 +2996,58 @@ export default function NuevaFactura() {
                           )}
 
                           {["CREDITO", "DEBITO"].includes(p.formaPago) && (
-                            <div className="col-12 col-sm-6">
-                              <label className="form-label mb-0 small text-muted">Terminal</label>
-                              <Dropdown
-                                className="form-select form-select-sm"
-                                value={p.terminal}
-                                onChange={(e) => setCampoPagoLiquidar(o._id, "terminal", e.target.value)}
+                            <div className="col-12">
+                              <label className="form-label mb-0 small text-muted">
+                                {p.tarjetas.length > 1 ? "Tarjetas" : "Terminal"}
+                              </label>
+                              {p.tarjetas.map((t, idx) => (
+                                <div className="row g-2 align-items-center mb-1" key={idx}>
+                                  {p.tarjetas.length > 1 && (
+                                    <div className="col-5">
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        className="form-control form-control-sm"
+                                        placeholder="Monto"
+                                        value={t.monto}
+                                        onChange={(e) => setTarjetaPagoLiquidar(o._id, idx, "monto", e.target.value)}
+                                      />
+                                    </div>
+                                  )}
+                                  <div className={p.tarjetas.length > 1 ? "col-6" : "col-11"}>
+                                    <Dropdown
+                                      className="form-select form-select-sm"
+                                      value={t.terminal}
+                                      onChange={(e) => setTarjetaPagoLiquidar(o._id, idx, "terminal", e.target.value)}
+                                    >
+                                      <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                                      {TERMINALES_CAJA.map((term) => (
+                                        <Dropdown.Option key={term} value={term}>{term}</Dropdown.Option>
+                                      ))}
+                                    </Dropdown>
+                                  </div>
+                                  {p.tarjetas.length > 1 && (
+                                    <div className="col-1 px-0">
+                                      <button
+                                        type="button"
+                                        className="btn btn-sm btn-outline-danger"
+                                        onClick={() => quitarTarjetaPagoLiquidar(o._id, idx)}
+                                        title="Quitar tarjeta"
+                                      >
+                                        ×
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-link px-0"
+                                onClick={() => agregarTarjetaPagoLiquidar(o._id)}
                               >
-                                <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-                                {TERMINALES_CAJA.map((t) => (
-                                  <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
-                                ))}
-                              </Dropdown>
-                              <small className="text-muted">
+                                + Cobrar con más de una tarjeta
+                              </button>
+                              <small className="text-muted d-block">
                                 Obligatoria: en qué terminal se cobró (para el Cierre de Caja).
                               </small>
                             </div>
@@ -3081,18 +3211,94 @@ export default function NuevaFactura() {
                               />
                             </div>
                             {((Number(p.combinado?.credito) || 0) > 0 || (Number(p.combinado?.debito) || 0) > 0) && (
-                              <div className="col-12 col-md-3">
-                                <label className="form-label mb-0 small">Terminal</label>
-                                <Dropdown
-                                  className="form-select form-select-sm"
-                                  value={p.combinado?.banco || ""}
-                                  onChange={(e) => setCombinadoPagoLiquidar(o._id, "banco", e.target.value)}
-                                >
-                                  <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-                                  {TERMINALES_CAJA.map((t) => (
-                                    <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
-                                  ))}
-                                </Dropdown>
+                              <div className="col-12">
+                                {!(p.combinado?.tarjetas || []).length ? (
+                                  <div className="row g-2 align-items-end">
+                                    <div className="col-12 col-md-4">
+                                      <label className="form-label mb-0 small">Terminal</label>
+                                      <Dropdown
+                                        className="form-select form-select-sm"
+                                        value={p.combinado?.banco || ""}
+                                        onChange={(e) => setCombinadoPagoLiquidar(o._id, "banco", e.target.value)}
+                                      >
+                                        <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                                        {TERMINALES_CAJA.map((t) => (
+                                          <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+                                        ))}
+                                      </Dropdown>
+                                    </div>
+                                    <div className="col-12 col-md-4">
+                                      <button
+                                        type="button"
+                                        className="btn btn-sm btn-link px-0"
+                                        onClick={() => agregarTarjetaCombinadoPagoLiquidar(o._id)}
+                                      >
+                                        + Cobrar con más de una tarjeta
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <label className="form-label mb-0 small fw-semibold d-block">Tarjetas</label>
+                                    {p.combinado.tarjetas.map((t, idx) => (
+                                      <div className="row g-2 align-items-center mb-1" key={idx}>
+                                        <div className="col-4 col-md-3">
+                                          <Dropdown
+                                            className="form-select form-select-sm"
+                                            value={t.tipo}
+                                            onChange={(e) => setTarjetaCombinadoPagoLiquidar(o._id, idx, "tipo", e.target.value)}
+                                          >
+                                            <Dropdown.Option value="CREDITO">T. Crédito</Dropdown.Option>
+                                            <Dropdown.Option value="DEBITO">T. Débito</Dropdown.Option>
+                                          </Dropdown>
+                                        </div>
+                                        <div className="col-4 col-md-3">
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            className="form-control form-control-sm"
+                                            placeholder="Monto"
+                                            value={t.monto}
+                                            onChange={(e) => setTarjetaCombinadoPagoLiquidar(o._id, idx, "monto", e.target.value)}
+                                          />
+                                        </div>
+                                        <div className="col-3 col-md-4">
+                                          <Dropdown
+                                            className="form-select form-select-sm"
+                                            value={t.terminal}
+                                            onChange={(e) => setTarjetaCombinadoPagoLiquidar(o._id, idx, "terminal", e.target.value)}
+                                          >
+                                            <Dropdown.Option value="">Terminal...</Dropdown.Option>
+                                            {TERMINALES_CAJA.map((term) => (
+                                              <Dropdown.Option key={term} value={term}>{term}</Dropdown.Option>
+                                            ))}
+                                          </Dropdown>
+                                        </div>
+                                        <div className="col-1 px-0">
+                                          <button
+                                            type="button"
+                                            className="btn btn-sm btn-outline-danger"
+                                            onClick={() => quitarTarjetaCombinadoPagoLiquidar(o._id, idx)}
+                                            title="Quitar tarjeta"
+                                          >
+                                            ×
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm btn-link px-0"
+                                      onClick={() => agregarTarjetaCombinadoPagoLiquidar(o._id)}
+                                    >
+                                      + Agregar otra tarjeta
+                                    </button>
+                                    <small className="text-muted d-block">
+                                      La suma de T. Crédito debe dar {money(p.combinado?.credito || 0)} y la de T. Débito{" "}
+                                      {money(p.combinado?.debito || 0)}.
+                                    </small>
+                                  </div>
+                                )}
                               </div>
                             )}
                             {(Number(p.combinado?.transferencia) || 0) > 0 && (

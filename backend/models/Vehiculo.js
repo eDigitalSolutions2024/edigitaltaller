@@ -39,6 +39,18 @@ const TERMINALES_TARJETA_CAJA = ['', 'BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 
 // los reportes de Cajas, ej. "SPEI-BR" (ver utils/abreviaturaFormaPago.js).
 const TIPOS_TRANSFERENCIA_CAJA = ['', 'SPEI', 'TEF'];
 
+// Desglose de un cobro con tarjeta dividido en más de una tarjeta física:
+// cada entrada es un cargo independiente (su propio monto y terminal); la
+// suma de `monto` es el total cobrado con tarjeta de ese pago (o de esa parte
+// del combinado). Usado en pagos[].{notaVenta,reciboProvisional,liquidacion}.tarjetas
+// (formaPago CREDITO/DEBITO simple) y en combinado.tarjetasCredito/tarjetasDebito.
+const tarjetasDesgloseSchema = () => [
+  {
+    monto: { type: Number, default: 0 },
+    terminal: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+  },
+];
+
 // Desglose del monto en pesos por método, usado tal cual en
 // pagos[].reciboProvisional.combinado y en pagos[].notaVenta.combinado.
 const combinadoCajaSchema = () => ({
@@ -59,6 +71,11 @@ const combinadoCajaSchema = () => ({
   // puede traer tarjeta Y transferencia a la vez.
   transferenciaTipo: { type: String, enum: TIPOS_TRANSFERENCIA_CAJA, default: '' },
   transferenciaBanco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+  // Desglose por terminal cuando la parte de T. Crédito y/o T. Débito de este
+  // combinado se cobró con más de una tarjeta. `banco` de arriba sigue
+  // poblado (compatibilidad) cuando solo hubo una terminal.
+  tarjetasCredito: tarjetasDesgloseSchema(),
+  tarjetasDebito: tarjetasDesgloseSchema(),
 });
 
 // ===== Solicitud de Garantía =====
@@ -766,6 +783,10 @@ pendienteCierre: { type: Boolean, default: false },
           // literal 'TRANSFERENCIA', la clave de depósito histórica).
           tipoTransferencia: { type: String, enum: TIPOS_TRANSFERENCIA_CAJA, default: '' },
           bancoTransferencia: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+          // Desglose por tarjeta cuando formaPago 'CREDITO'/'DEBITO' se cobró
+          // con más de una tarjeta física. `banco` de arriba sigue poblado
+          // (compatibilidad) cuando solo hubo una terminal.
+          tarjetas: tarjetasDesgloseSchema(),
           // Presente solo si formaPago === 'COMBINADO': desglose del monto en
           // pesos por método (su suma es el montoPesos del pago).
           combinado: combinadoCajaSchema(),
@@ -796,6 +817,7 @@ pendienteCierre: { type: Boolean, default: false },
           // Tipo (SPEI/TEF) y banco elegidos cuando formaPago === 'TRANSFERENCIA'.
           tipoTransferencia: { type: String, enum: TIPOS_TRANSFERENCIA_CAJA, default: '' },
           bancoTransferencia: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+          tarjetas: tarjetasDesgloseSchema(),
           // Presente solo si formaPago === 'COMBINADO': desglose del monto en
           // pesos por método (su suma es el montoPesos del pago).
           combinado: combinadoCajaSchema(),
@@ -810,6 +832,7 @@ pendienteCierre: { type: Boolean, default: false },
           banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
           tipoTransferencia: { type: String, enum: TIPOS_TRANSFERENCIA_CAJA, default: '' },
           bancoTransferencia: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+          tarjetas: tarjetasDesgloseSchema(),
           combinado: combinadoCajaSchema(),
         },
 

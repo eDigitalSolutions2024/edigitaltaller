@@ -588,6 +588,17 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
   for (const o of ordenes) {
     const pagosRemision = (o.pagos || []).filter((p) => p.comprobante === 'REMISION');
 
+    // Una Remisión no captura forma de pago (se concilia aparte); si la orden
+    // se terminó de saldar directo en Cajas con la opción "Liquidar" (sin
+    // pasar por Factura), esa captura sí trae forma de pago — se usa para
+    // anotar en Notas cómo se cobró, sobre todo para las Remisiones a
+    // Crédito que nunca se facturaron. "Liquidar" siempre cubre el saldo
+    // completo en una sola captura, así que basta la primera no cancelada.
+    const pagoLiquidacionOrden = (o.pagos || []).find(
+      (pg) => pg.comprobante === 'SIN_COMPROBANTE' && !pg.cancelado && !pg.facturaId
+    );
+    const notaMetodoLiquidacion = pagoLiquidacionOrden ? abreviaturaFormaPago(pagoLiquidacionOrden.liquidacion) : '';
+
     const tieneVentaEnRango = pagosRemision.some((p) => {
       if (p.tipoPago !== 'COMPLETO' || p.remision?.tipo === 'Cancelada') return false;
       const f = new Date(p.fecha);
@@ -607,18 +618,34 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
       };
 
       if (p.remision?.tipo === 'Cancelada') {
-        totalVentaDia -= p.monto;
-        totalPorCobrar -= p.monto;
+        // Una Remisión a Crédito se guarda con monto 0 (ver Cajas): lo que de
+        // verdad hay que revertir es el total de la orden que se reportó el
+        // día que se creó (mismo cálculo que la rama "vigente" de abajo), no
+        // p.monto.
+        const esCreditoCancelada = p.remisionTipoAntesCancelar === 'Credito';
+        const montoOriginal = esCreditoCancelada ? calcularTotalesOrden(o).totalOrden : p.monto;
+        // Si se canceló el MISMO día en que se creó (p. ej. se facturó de
+        // inmediato), el neto de ese día es cero: no debe aparecer ningún
+        // importe (columnas vacías), ni afectar los totales. Si se canceló un
+        // día POSTERIOR, el reporte de este día (el de la creación) ya cerró
+        // contando ese importe, así que debe corregirse aquí en negativo.
+        const canceladaMismoDia =
+          !!p.canceladoEn &&
+          dayjsFecha(p.fecha).format('YYYY-MM-DD') === dayjsFecha(p.canceladoEn).format('YYYY-MM-DD');
+        if (!canceladaMismoDia) {
+          totalVentaDia -= montoOriginal;
+          totalPorCobrar -= montoOriginal;
+        }
         // La leyenda de la fila ya dice que se canceló: no repetirla en Notas
         const notasCancel = /se cancela/i.test(base.notas) ? '' : base.notas;
-        const filaCancel = tieneVentaEnRango
+        const filaCancel = tieneVentaEnRango || canceladaMismoDia
           ? { ...base, cliente: 'SE CANCELA REMISIÓN Y PASA A FACTURA', notas: notasCancel }
           : {
               ...base,
               cliente: 'SE CANCELA REMISIÓN Y PASA A FACTURA',
               notas: notasCancel,
-              ventaDia: -p.monto,
-              cuentasPorCobrar: -p.monto,
+              ventaDia: -montoOriginal,
+              cuentasPorCobrar: -montoOriginal,
             };
         (tieneVentaEnRango ? nuevaVenta : canceladas).push(filaCancel);
         filasCancel.push({ fila: filaCancel, vehiculoId: String(o._id) });
@@ -638,8 +665,17 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
         const esCredito = p.remision?.tipo === 'Credito';
         const ventaDia = esCredito ? calcularTotalesOrden(o).totalOrden : p.monto;
         const porCobrar = Math.max(0, ventaDia - p.monto);
+        // Si al liquidar entró parte en dólares en efectivo, la nota lo dice
+        // junto con el folio del Recibo de Dólares que se generó (ver POST
+        // /cajas/:id/pagos), además de lo que ya haya escrito el cajero
+        // (p. ej. "Liquida Efectivo").
+        const notaDolares =
+          Number(p.montoDolares) > 0
+            ? `Y DLLS${p.reciboDolares?.numero != null ? ` REC.DLS#${p.reciboDolares.numero}` : ''}`
+            : '';
         nuevaVenta.push({
           ...base,
+          notas: [base.notas, notaDolares, notaMetodoLiquidacion].filter(Boolean).join(' '),
           ventaDia,
           ingresoContado: p.monto || undefined,
           cuentasPorCobrar: porCobrar || undefined,
