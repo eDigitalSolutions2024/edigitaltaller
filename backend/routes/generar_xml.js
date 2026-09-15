@@ -30,6 +30,7 @@ const CONTADOR_RECIBO_DOLARES = "reciboDolares";
 // SIN_COMPROBANTE ("Liquidar") dado de alta desde Cajas.
 const FORMAS_PAGO_CAJA = ["EFECTIVO", "CREDITO", "DEBITO", "CHEQUE", "TRANSFERENCIA", "COMBINADO"];
 const TERMINALES_TARJETA = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER"];
+const TIPOS_TRANSFERENCIA = ["SPEI", "TEF"];
 
 // Valida una entrada de `pagosSinComprobante` (una orden de la factura que no
 // tiene ningún anticipo/remisión vigente): mismas reglas que cajas.js aplica
@@ -43,11 +44,23 @@ function errorPagoSinComprobante(p) {
   if (["CREDITO", "DEBITO"].includes(p.formaPago) && !TERMINALES_TARJETA.includes(p.terminal)) {
     return "Selecciona la terminal donde se cobró la tarjeta de la orden sin comprobante en Cajas.";
   }
+  if (
+    p.formaPago === "TRANSFERENCIA" &&
+    (!TIPOS_TRANSFERENCIA.includes(p.tipoTransferencia) || !TERMINALES_TARJETA.includes(p.bancoTransferencia))
+  ) {
+    return "Selecciona el tipo de transferencia (SPEI o TEF) y el banco de la orden sin comprobante en Cajas.";
+  }
   if (p.formaPago === "COMBINADO") {
     const c = p.combinado || {};
     const totalTarjeta = (Number(c.credito) || 0) + (Number(c.debito) || 0);
     if (totalTarjeta > 0 && !TERMINALES_TARJETA.includes(c.banco)) {
       return "Selecciona la terminal de la parte con tarjeta del pago combinado (orden sin comprobante en Cajas).";
+    }
+    if (
+      (Number(c.transferencia) || 0) > 0 &&
+      (!TIPOS_TRANSFERENCIA.includes(c.transferenciaTipo) || !TERMINALES_TARJETA.includes(c.transferenciaBanco))
+    ) {
+      return "Selecciona el tipo de transferencia (SPEI o TEF) y el banco de la parte por transferencia del pago combinado (orden sin comprobante en Cajas).";
     }
   }
   return null;
@@ -745,6 +758,8 @@ async function crearPagosSinComprobante(pagosSinComprobante, facturaDoc, user = 
         formaPago,
         chequeNumero: formaPago === "CHEQUE" ? entrada.chequeNumero || "" : "",
         banco: ["CREDITO", "DEBITO"].includes(formaPago) ? terminal : "",
+        tipoTransferencia: formaPago === "TRANSFERENCIA" ? entrada.tipoTransferencia || "" : "",
+        bancoTransferencia: formaPago === "TRANSFERENCIA" ? entrada.bancoTransferencia || "" : "",
         ...(combinado ? { combinado } : {}),
       },
       facturaId: facturaDoc._id,

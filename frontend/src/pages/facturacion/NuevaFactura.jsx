@@ -8,9 +8,11 @@ import { listClavesUnidad } from "../../api/clavesUnidad";
 import { listFacturasCfdi, getFacturaCfdiPdf } from "../../api/facturasCfdi";
 import { generarVistaPreviaPDF, getNotasVentaPendientes } from "../../api/facturacion";
 import { getReciboDolaresPdfUrl } from "../../api/cajas";
+import { getValePdfUrl } from "../../api/vales";
 import api from "../../api/http";
 import usePdfModal from "../../hooks/usePdfModal";
 import CajaModalCancelarPago from "../cajas/components/CajaModalCancelarPago";
+import FacturaModalValeSalida from "./components/FacturaModalValeSalida";
 import useTipoCambioActual from "../../hooks/useTipoCambioActual";
 import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 import { calcularTotalesOrden } from "../../utils/cajaTotales";
@@ -63,9 +65,16 @@ const FORMAS_PAGO_CAJA = [
   { value: "COMBINADO", label: "Combinado" },
 ];
 const TERMINALES_CAJA = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER"];
+// Tipos de transferencia (mismo catálogo que TIPOS_TRANSFERENCIA_CAJA en
+// backend/models/Vehiculo.js).
+const TIPOS_TRANSFERENCIA = [
+  { value: "SPEI", label: "SPEI" },
+  { value: "TEF", label: "TEF" },
+];
 // Mismos nombres de campo que backend/routes/cajas.js espera en `combinado`
 // (pago.liquidacion.combinado): efectivo/efectivoDolares/credito/debito/
-// cheque/transferencia/banco (terminal de la parte con tarjeta).
+// cheque/transferencia/banco (terminal de la parte con tarjeta)/
+// transferenciaTipo/transferenciaBanco (SPEI|TEF y banco de la transferencia).
 const MONTOS_COMBINADO_INICIAL = {
   efectivo: "",
   efectivoDolares: "",
@@ -74,12 +83,17 @@ const MONTOS_COMBINADO_INICIAL = {
   cheque: "",
   transferencia: "",
   banco: "",
+  transferenciaTipo: "",
+  transferenciaBanco: "",
 };
 const MONTOS_COMBINADO_PESOS = ["efectivo", "credito", "debito", "cheque", "transferencia"];
 const PAGO_LIQUIDAR_VACIO = {
   formaPago: "EFECTIVO",
   chequeNumero: "",
   terminal: "",
+  // Tipo (SPEI/TEF) y banco cuando formaPago === "TRANSFERENCIA".
+  tipoTransferencia: "",
+  bancoTransferencia: "",
   combinado: null,
   // Solo aplica con formaPago EFECTIVO: parte del pago recibida en dólares en
   // efectivo (igual que el Combinado, pero sin obligar a cambiar de modo por
@@ -933,12 +947,13 @@ export default function NuevaFactura() {
       // Se convierte a su equivalente pre-IVA y se reparte proporcional entre
       // los conceptos bajando su valorUnitario, para que el total del CFDI
       // coincida con lo que Cajas le cobró al cliente (totalOrden).
-      const { descuentoMonto, ivaPct, totalOrden } = calcularTotalesOrden(v);
-      // "La cantidad actual" de esta orden (con IVA y descuentos ya aplicados,
-      // el mismo monto que usaría una Nota de Venta/Remisión real) — la usa la
-      // captura de "Liquidar" cuando la orden no tiene ningún comprobante
-      // vigente (ver ordenesSinComprobante más abajo).
-      setMontoPorOrden((prev) => ({ ...prev, [v._id]: totalOrden }));
+      const { descuentoMonto, ivaPct, saldoPendiente } = calcularTotalesOrden(v);
+      // Lo que falta cobrar de esta orden (total con IVA/descuentos, MENOS
+      // cualquier abono ya registrado, p. ej. contra una Remisión a Crédito) —
+      // la usa la captura de "Liquidar" cuando la orden no tiene ningún
+      // comprobante vigente que traiga pago real (ver ordenesSinComprobante
+      // más abajo). Sin abonos previos, saldoPendiente === totalOrden.
+      setMontoPorOrden((prev) => ({ ...prev, [v._id]: saldoPendiente }));
       if (descuentoMonto > 0 && conceptosOrden.length) {
         const baseConceptos = conceptosOrden.reduce(
           (s, c) => s + c.cantidad * c.valorUnitario,
@@ -1567,26 +1582,40 @@ export default function NuevaFactura() {
 
   const accionDe = (pagoId) => accionesComprobantes[pagoId] || "INCLUIR";
 
+  // Una Remisión a Crédito documenta la venta sin recibir dinero (monto 0,
+  // ver backend/routes/cajas.js): a diferencia de un anticipo o una remisión
+  // de Contado, cancelarla al facturar NO trae ningún pago real consigo, así
+  // que no "cubre" la orden — sigue necesitando capturar la forma de pago de
+  // abajo, igual que una orden sin ningún comprobante.
+  const esRemisionCredito = (p) => p.comprobante === "REMISION" && p.remision?.tipo === "Credito";
+
+  const TOLERANCIA_LIQUIDAR = 0.01;
+
   // Órdenes de esta factura que NO van a quedar cubiertas por ningún anticipo
-  // o remisión vigente que pase a ella (ni lo hay, o el usuario eligió
-  // OTRA_FACTURA/VIGENTE para el único que había): para esas se necesita
-  // capturar la forma de pago (Caja) de abajo — al generar la factura, el
-  // backend crea con esos datos un pago "Liquidar (sin comprobante)" ligado a
-  // ella, para que quede registrada en Cajas y en el Cierre de Caja. Solo
-  // aplica a la factura de ingreso normal (no notaCredito/complementoPago/
-  // facturaGlobal, que no representan el cobro nuevo de una orden).
+  // o remisión (de Contado) vigente que pase a ella (ni lo hay, el usuario
+  // eligió OTRA_FACTURA/VIGENTE para el único que había, o era una Remisión a
+  // Crédito sin pago real): para esas se necesita capturar la forma de pago
+  // (Caja) de abajo — al generar la factura, el backend crea con esos datos
+  // un pago "Liquidar (sin comprobante)" ligado a ella, para que quede
+  // registrada en Cajas y en el Cierre de Caja. Solo aplica a la factura de
+  // ingreso normal (no notaCredito/complementoPago/facturaGlobal, que no
+  // representan el cobro nuevo de una orden). Una Remisión a Crédito ya
+  // saldada con abonos previos (montoPorOrden ya en 0, ver saldoPendiente en
+  // cajaTotales.js) no necesita un pago nuevo: los abonos ya son su cobro.
   const ordenesSinComprobante = useMemo(() => {
     if (!esFactura) return [];
-    return ordenes.filter(
-      (o) =>
-        !(o.pagos || []).some(
-          (p) =>
-            (p.tipoPago === "ANTICIPO" || p.comprobante === "REMISION") &&
-            !p.cancelado &&
-            accionDe(p._id) === "INCLUIR"
-        )
-    );
-  }, [ordenes, esFactura, accionesComprobantes]); // eslint-disable-line react-hooks/exhaustive-deps
+    return ordenes.filter((o) => {
+      const cubierta = (o.pagos || []).some(
+        (p) =>
+          (p.tipoPago === "ANTICIPO" || p.comprobante === "REMISION") &&
+          !p.cancelado &&
+          accionDe(p._id) === "INCLUIR" &&
+          !esRemisionCredito(p)
+      );
+      if (cubierta) return false;
+      return (montoPorOrden[o._id] || 0) > TOLERANCIA_LIQUIDAR;
+    });
+  }, [ordenes, esFactura, accionesComprobantes, montoPorOrden]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pagoLiquidarDe = (vehiculoId) => pagosLiquidar[vehiculoId] || PAGO_LIQUIDAR_VACIO;
 
@@ -1626,7 +1655,6 @@ export default function NuevaFactura() {
     return pesos + dolares;
   };
 
-  const TOLERANCIA_LIQUIDAR = 0.01;
   const diferenciaLiquidar = (vehiculoId) =>
     Math.round((totalCapturadoLiquidar(vehiculoId) - (montoPorOrden[vehiculoId] || 0)) * 100) / 100;
 
@@ -1641,6 +1669,12 @@ export default function NuevaFactura() {
     if (!FORMAS_PAGO_CAJA.some((f) => f.value === p.formaPago)) return false;
     if (["CREDITO", "DEBITO"].includes(p.formaPago) && !TERMINALES_CAJA.includes(p.terminal)) return false;
     if (p.formaPago === "CHEQUE" && !String(p.chequeNumero || "").trim()) return false;
+    if (
+      p.formaPago === "TRANSFERENCIA" &&
+      (!TIPOS_TRANSFERENCIA.some((t) => t.value === p.tipoTransferencia) || !TERMINALES_CAJA.includes(p.bancoTransferencia))
+    ) {
+      return false;
+    }
     // Efectivo con parte en dólares: necesita tipo de cambio y los dólares
     // convertidos no pueden pasarse del total de la orden (el resto en pesos
     // se deriva solo, nunca puede quedar negativo).
@@ -1653,6 +1687,12 @@ export default function NuevaFactura() {
       const c = p.combinado || {};
       const totalTarjeta = (Number(c.credito) || 0) + (Number(c.debito) || 0);
       if (totalTarjeta > 0 && !TERMINALES_CAJA.includes(c.banco)) return false;
+      if (
+        (Number(c.transferencia) || 0) > 0 &&
+        (!TIPOS_TRANSFERENCIA.some((t) => t.value === c.transferenciaTipo) || !TERMINALES_CAJA.includes(c.transferenciaBanco))
+      ) {
+        return false;
+      }
       if ((Number(c.efectivoDolares) || 0) > 0 && !(tipoCambioLiquidar > 0)) return false;
       if (Math.abs(diferenciaLiquidar(vehiculoId)) > TOLERANCIA_LIQUIDAR) return false;
     }
@@ -1841,6 +1881,8 @@ export default function NuevaFactura() {
             formaPago: p.formaPago,
             chequeNumero: p.formaPago === "CHEQUE" ? p.chequeNumero : "",
             terminal: ["CREDITO", "DEBITO"].includes(p.formaPago) ? p.terminal : "",
+            tipoTransferencia: p.formaPago === "TRANSFERENCIA" ? p.tipoTransferencia : "",
+            bancoTransferencia: p.formaPago === "TRANSFERENCIA" ? p.bancoTransferencia : "",
             combinado: p.formaPago === "COMBINADO" ? p.combinado : null,
             montoDolares: p.formaPago === "EFECTIVO" ? Number(p.montoDolares) || 0 : 0,
             tipoCambio: tipoCambioLiquidar,
@@ -2027,6 +2069,20 @@ export default function NuevaFactura() {
     } finally {
       setPdfGeneradaLoading(false);
     }
+  };
+
+  // Vale de Salida por orden, disponible junto a "Ver Factura" solo después de
+  // generar el XML: la salida del vehículo se autoriza hasta que la factura
+  // ya quedó timbrada, no antes. Una vez generado, el botón por esa orden
+  // cambia de "Generar" a "Ver Vale de Salida" (valesGenerados: { [ordenId]: vale }).
+  const [ordenParaVale, setOrdenParaVale] = useState(null);
+  const [valesGenerados, setValesGenerados] = useState({});
+  const handleValeGuardado = (vale, imprimir) => {
+    if (ordenParaVale) {
+      setValesGenerados((prev) => ({ ...prev, [ordenParaVale._id]: vale }));
+    }
+    setOrdenParaVale(null);
+    if (imprimir) abrirPdf(getValePdfUrl(vale._id), "vale.pdf", "Vale de Salida");
   };
 
   /* ==========
@@ -2724,6 +2780,7 @@ export default function NuevaFactura() {
                       <tbody>
                         {comprobantesCajas.map((row) => {
                           const { ordenServicio, pago } = row;
+                          const esCredito = esRemisionCredito(pago);
                           const comp =
                             pago.comprobante === "REMISION"
                               ? `Remisión N°${pago.remision?.numero ?? "—"}`
@@ -2734,7 +2791,12 @@ export default function NuevaFactura() {
                           return (
                             <tr key={pago._id}>
                               <td>{ordenServicio}</td>
-                              <td>{comp}</td>
+                              <td>
+                                {comp}
+                                {esCredito && (
+                                  <span className="badge bg-warning text-dark ms-2">Crédito</span>
+                                )}
+                              </td>
                               <td>{fechaCorta(pago.fecha)}</td>
                               <td className="text-end">{money(pago.monto)}</td>
                               <td>
@@ -2764,6 +2826,12 @@ export default function NuevaFactura() {
                                         sigue vigente.
                                       </div>
                                     )}
+                                    {accion === "INCLUIR" && esCredito && (
+                                      <div className="small text-muted mt-1">
+                                        No tiene un pago real registrado (Remisión a Crédito): captura
+                                        abajo cómo pagó el cliente para que quede en Cajas.
+                                      </div>
+                                    )}
                                   </>
                                 )}
                               </td>
@@ -2789,7 +2857,8 @@ export default function NuevaFactura() {
                   </div>
                   <div className="small mb-3">
                     Captura cómo pagó el cliente para que quede registrado en Cajas (Cierre de
-                    Caja) al generar la factura.
+                    Caja) al generar la factura. Incluye órdenes cuya única Remisión vigente es a
+                    Crédito (no trae un pago real).
                   </div>
 
                   {ordenesSinComprobante.map((o) => {
@@ -2852,6 +2921,37 @@ export default function NuevaFactura() {
                                 Obligatoria: en qué terminal se cobró (para el Cierre de Caja).
                               </small>
                             </div>
+                          )}
+
+                          {p.formaPago === "TRANSFERENCIA" && (
+                            <>
+                              <div className="col-6 col-sm-3">
+                                <label className="form-label mb-0 small text-muted">Tipo de transferencia</label>
+                                <Dropdown
+                                  className="form-select form-select-sm"
+                                  value={p.tipoTransferencia}
+                                  onChange={(e) => setCampoPagoLiquidar(o._id, "tipoTransferencia", e.target.value)}
+                                >
+                                  <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                                  {TIPOS_TRANSFERENCIA.map((t) => (
+                                    <Dropdown.Option key={t.value} value={t.value}>{t.label}</Dropdown.Option>
+                                  ))}
+                                </Dropdown>
+                              </div>
+                              <div className="col-6 col-sm-3">
+                                <label className="form-label mb-0 small text-muted">Banco</label>
+                                <Dropdown
+                                  className="form-select form-select-sm"
+                                  value={p.bancoTransferencia}
+                                  onChange={(e) => setCampoPagoLiquidar(o._id, "bancoTransferencia", e.target.value)}
+                                >
+                                  <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                                  {TERMINALES_CAJA.map((t) => (
+                                    <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+                                  ))}
+                                </Dropdown>
+                              </div>
+                            </>
                           )}
                         </div>
 
@@ -2994,6 +3094,36 @@ export default function NuevaFactura() {
                                   ))}
                                 </Dropdown>
                               </div>
+                            )}
+                            {(Number(p.combinado?.transferencia) || 0) > 0 && (
+                              <>
+                                <div className="col-6 col-md-3">
+                                  <label className="form-label mb-0 small">Tipo de transferencia</label>
+                                  <Dropdown
+                                    className="form-select form-select-sm"
+                                    value={p.combinado?.transferenciaTipo || ""}
+                                    onChange={(e) => setCombinadoPagoLiquidar(o._id, "transferenciaTipo", e.target.value)}
+                                  >
+                                    <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                                    {TIPOS_TRANSFERENCIA.map((t) => (
+                                      <Dropdown.Option key={t.value} value={t.value}>{t.label}</Dropdown.Option>
+                                    ))}
+                                  </Dropdown>
+                                </div>
+                                <div className="col-6 col-md-3">
+                                  <label className="form-label mb-0 small">Banco (Transferencia)</label>
+                                  <Dropdown
+                                    className="form-select form-select-sm"
+                                    value={p.combinado?.transferenciaBanco || ""}
+                                    onChange={(e) => setCombinadoPagoLiquidar(o._id, "transferenciaBanco", e.target.value)}
+                                  >
+                                    <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                                    {TERMINALES_CAJA.map((t) => (
+                                      <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+                                    ))}
+                                  </Dropdown>
+                                </div>
+                              </>
                             )}
 
                             {/* Total capturado en vivo vs. el monto de la orden: no deja
@@ -3821,7 +3951,7 @@ export default function NuevaFactura() {
                 </div>
 
                 <div className="col-12">
-                  <label className="form-label">Información extra / comentarios</label>
+                  <label className="form-label">Observaciones/Comentarios</label>
                   <textarea
                     className="form-control"
                     rows={2}
@@ -4136,7 +4266,7 @@ export default function NuevaFactura() {
                 )}
 
                 <div className="col-12">
-                  <label className="form-label">Información extra / comentarios</label>
+                  <label className="form-label">Observaciones/Comentarios</label>
                   <textarea
                     className="form-control"
                     rows={2}
@@ -4302,6 +4432,28 @@ export default function NuevaFactura() {
                     Ver Recibo de Dólares N°{r.numero}
                   </button>
                 ))}
+                {esFactura &&
+                  ordenes.map((o) => {
+                    const vale = valesGenerados[o._id];
+                    const sufijo = ordenes.length > 1 ? ` (${o.ordenServicio})` : "";
+                    return vale ? (
+                      <button
+                        key={o._id}
+                        className="btn btn-success fw-semibold"
+                        onClick={() => abrirPdf(getValePdfUrl(vale._id), "vale.pdf", "Vale de Salida")}
+                      >
+                        Ver Vale de Salida{sufijo}
+                      </button>
+                    ) : (
+                      <button
+                        key={o._id}
+                        className="btn btn-outline-success fw-semibold"
+                        onClick={() => setOrdenParaVale(o)}
+                      >
+                        Generar Vale de Salida{sufijo}
+                      </button>
+                    );
+                  })}
               </>
             ) : (
               <>
@@ -4406,6 +4558,13 @@ export default function NuevaFactura() {
         modoForzado="PASA_A_FACTURA_EXISTENTE"
         onClose={handleOtraFacturaCancelada}
         onConfirmado={handleOtraFacturaConfirmada}
+      />
+
+      <FacturaModalValeSalida
+        show={!!ordenParaVale}
+        orden={ordenParaVale}
+        onClose={() => setOrdenParaVale(null)}
+        onGuardado={handleValeGuardado}
       />
     </div>
   );

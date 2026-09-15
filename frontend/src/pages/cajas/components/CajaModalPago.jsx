@@ -21,8 +21,15 @@ import {
 } from "../../../api/vales";
 
 // Terminales físicas para cobros con tarjeta (mismo catálogo que
-// TERMINALES_TARJETA en backend/routes/cajas.js).
+// TERMINALES_TARJETA en backend/routes/cajas.js). También sirve como catálogo
+// de bancos para un pago por Transferencia.
 const TERMINALES = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER"];
+// Tipos de transferencia (mismo catálogo que TIPOS_TRANSFERENCIA_CAJA en
+// backend/models/Vehiculo.js).
+const TIPOS_TRANSFERENCIA = [
+  { value: "SPEI", label: "SPEI" },
+  { value: "TEF", label: "TEF" },
+];
 // Tipo de Nota de Venta / Remisión al registrar el cobro. "Cancelada" NO se
 // ofrece aquí: no es una opción de alta, es un ESTADO que fija el flujo de
 // cancelación (cancelar el comprobante desde Cajas o al facturar). Elegirlo al
@@ -124,6 +131,12 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   // Terminal de un pago SIMPLE con tarjeta (formaPago CREDITO/DEBITO).
   // Obligatoria para que el Cierre de Caja cuadre por terminal.
   const [terminalSimple, setTerminalSimple] = useState("");
+  // Tipo (SPEI/TEF) y banco de un pago SIMPLE por transferencia.
+  const [tipoTransferencia, setTipoTransferencia] = useState("");
+  const [bancoTransferencia, setBancoTransferencia] = useState("");
+  // Tipo y banco de la parte por transferencia de un pago Combinado.
+  const [transferenciaTipoCombinado, setTransferenciaTipoCombinado] = useState("");
+  const [transferenciaBancoCombinado, setTransferenciaBancoCombinado] = useState("");
 
   // Solo para tipoPago === "ANTICIPO": a qué reporte diario de Cajas se suma
   // (Facturas o Remisiones), ver pago.anticipoDestino en el backend.
@@ -286,6 +299,10 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setMontosCombinado(MONTOS_COMBINADO_INICIAL);
     setTerminalCombinado("");
     setTerminalSimple("");
+    setTipoTransferencia("");
+    setBancoTransferencia("");
+    setTransferenciaTipoCombinado("");
+    setTransferenciaBancoCombinado("");
     setReciboConcepto(orden?.ordenServicio || "");
     setReciboRecibio(user?.name || user?.username || "");
     setAnticipoDestino("");
@@ -566,6 +583,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
       cheque: Number(montosCombinado.CHEQUE) || 0,
       transferencia: Number(montosCombinado.TRANSFERENCIA) || 0,
       banco: terminalCombinado,
+      transferenciaTipo: transferenciaTipoCombinado,
+      transferenciaBanco: transferenciaBancoCombinado,
     };
   };
 
@@ -663,6 +682,10 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
         setError("Selecciona la terminal donde se cobró la tarjeta.");
         return false;
       }
+      if (usaFormaPago && formaPago === "TRANSFERENCIA" && (!tipoTransferencia || !bancoTransferencia)) {
+        setError("Selecciona el tipo de transferencia (SPEI o TEF) y el banco.");
+        return false;
+      }
       if (
         usaFormaPago &&
         formaPago === "COMBINADO" &&
@@ -670,6 +693,15 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
         !terminalCombinado
       ) {
         setError("Selecciona la terminal donde se cobró la parte con tarjeta del pago combinado.");
+        return false;
+      }
+      if (
+        usaFormaPago &&
+        formaPago === "COMBINADO" &&
+        Number(montosCombinado.TRANSFERENCIA) > 0 &&
+        (!transferenciaTipoCombinado || !transferenciaBancoCombinado)
+      ) {
+        setError("Selecciona el tipo de transferencia (SPEI o TEF) y el banco de la parte por transferencia del pago combinado.");
         return false;
       }
       if (Number(montoDolares) > 0 && !Number(tipoCambio)) {
@@ -762,6 +794,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
               formaPago,
               chequeNumero,
               terminal: terminalSimple,
+              tipoTransferencia,
+              bancoTransferencia,
               tipoNota,
               fecha: fechaComprobante,
               ...(formaPago === "COMBINADO" ? { combinado: combinadoAplicado() } : {}),
@@ -773,6 +807,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
               formaPago,
               chequeNumero,
               terminal: terminalSimple,
+              tipoTransferencia,
+              bancoTransferencia,
               ...(formaPago === "COMBINADO" ? { combinado: combinadoAplicado() } : {}),
             }
           : {
@@ -781,6 +817,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
               reciboConcepto,
               reciboRecibio,
               terminal: terminalSimple,
+              tipoTransferencia,
+              bancoTransferencia,
               ...(tipoPago === "ANTICIPO" ? { anticipoDestino } : {}),
               ...(formaPago === "COMBINADO" ? { combinado: combinadoAplicado() } : {}),
             }),
@@ -850,6 +888,29 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
           <small className="text-muted">
             Obligatoria: en qué terminal se cobró la tarjeta (para el Cierre de Caja).
           </small>
+        </div>
+      )}
+
+      {formaPago === "TRANSFERENCIA" && (
+        <div className="mt-2 row g-2">
+          <div className="col-sm-6">
+            <label className="form-label mb-0">Tipo de transferencia</label>
+            <Dropdown className="form-select" value={tipoTransferencia} onChange={(e) => setTipoTransferencia(e.target.value)}>
+              <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+              {TIPOS_TRANSFERENCIA.map((t) => (
+                <Dropdown.Option key={t.value} value={t.value}>{t.label}</Dropdown.Option>
+              ))}
+            </Dropdown>
+          </div>
+          <div className="col-sm-6">
+            <label className="form-label mb-0">Banco</label>
+            <Dropdown className="form-select" value={bancoTransferencia} onChange={(e) => setBancoTransferencia(e.target.value)}>
+              <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+              {TERMINALES.map((t) => (
+                <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+              ))}
+            </Dropdown>
+          </div>
         </div>
       )}
     </div>
@@ -949,6 +1010,36 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
             onChange={(e) => setMontosCombinado((prev) => ({ ...prev, TRANSFERENCIA: e.target.value }))}
           />
         </div>
+        {Number(montosCombinado.TRANSFERENCIA) > 0 && (
+          <>
+            <div className="col-6 col-md-4">
+              <label className="form-label mb-0 small">Tipo de transferencia</label>
+              <Dropdown
+                className="form-select form-select-sm"
+                value={transferenciaTipoCombinado}
+                onChange={(e) => setTransferenciaTipoCombinado(e.target.value)}
+              >
+                <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                {TIPOS_TRANSFERENCIA.map((t) => (
+                  <Dropdown.Option key={t.value} value={t.value}>{t.label}</Dropdown.Option>
+                ))}
+              </Dropdown>
+            </div>
+            <div className="col-6 col-md-4">
+              <label className="form-label mb-0 small">Banco (Transferencia)</label>
+              <Dropdown
+                className="form-select form-select-sm"
+                value={transferenciaBancoCombinado}
+                onChange={(e) => setTransferenciaBancoCombinado(e.target.value)}
+              >
+                <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                {TERMINALES.map((t) => (
+                  <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+                ))}
+              </Dropdown>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1377,6 +1468,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
       const term =
         (formaPago === "CREDITO" || formaPago === "DEBITO") && terminalSimple
           ? ` · ${terminalSimple}`
+          : formaPago === "TRANSFERENCIA" && tipoTransferencia && bancoTransferencia
+          ? ` · ${tipoTransferencia}-${bancoTransferencia}`
           : formaPago === "COMBINADO" && terminalCombinado
           ? ` · ${terminalCombinado}`
           : "";

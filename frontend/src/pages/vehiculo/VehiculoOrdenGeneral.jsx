@@ -59,7 +59,11 @@ function formaPagoNotaVenta(nv = {}) {
     return `${t} — ${banco}`;
   }
   if (banco === "CHEQUE" || nv.formaPago === "CHEQUE") return nv.chequeNumero ? `Cheque #${nv.chequeNumero}` : "Cheque";
-  if (banco === "TRANSFERENCIA" || nv.formaPago === "TRANSFERENCIA") return "Transferencia";
+  if (banco === "TRANSFERENCIA" || nv.formaPago === "TRANSFERENCIA") {
+    return nv.tipoTransferencia && nv.bancoTransferencia
+      ? `Transferencia ${nv.tipoTransferencia} — ${nv.bancoTransferencia}`
+      : "Transferencia";
+  }
   if (banco === "DOLARES") return "Dólares";
   if (banco === "EFECTIVOS" || banco === "") return "Efectivo";
   return banco;

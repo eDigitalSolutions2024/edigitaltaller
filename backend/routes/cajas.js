@@ -311,6 +311,10 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       // (T. Crédito / T. Débito). El Combinado trae la suya en combinado.banco;
       // la Nota de Venta, en `banco`.
       terminal = '',
+      // Tipo (SPEI/TEF) y banco de un pago SIMPLE por transferencia. El
+      // Combinado trae los suyos en combinado.transferenciaTipo/transferenciaBanco.
+      tipoTransferencia = '',
+      bancoTransferencia = '',
       // Solo para comprobante 'REMISION' / 'NOTA_VENTA': fecha con la que se
       // registra el comprobante (a veces se captura un día después). Sin valor
       // = hoy. No se permiten fechas futuras (ver validación abajo).
@@ -328,6 +332,7 @@ router.post('/:id/pagos', proteger, async (req, res) => {
     const tipoRemision = tipoRemisionRaw === 'Cancelada' ? 'Contado' : tipoRemisionRaw;
 
     const TERMINALES_TARJETA = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
+    const TIPOS_TRANSFERENCIA = ['SPEI', 'TEF'];
 
     if (!['COMPLETO', 'ABONO', 'ANTICIPO'].includes(tipoPago)) {
       return res.status(400).json({ ok: false, msg: 'Tipo de pago inválido.' });
@@ -373,6 +378,23 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       !TERMINALES_TARJETA.includes(combinado?.banco)
     ) {
       return res.status(400).json({ ok: false, msg: 'Selecciona la terminal donde se cobró la parte con tarjeta del pago combinado.' });
+    }
+    // Transferencia (simple o dentro de un combinado) requiere tipo (SPEI/TEF)
+    // y banco, igual que la tarjeta requiere terminal.
+    if (
+      ['NOTA_VENTA', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) &&
+      formaPago === 'TRANSFERENCIA' &&
+      (!TIPOS_TRANSFERENCIA.includes(tipoTransferencia) || !TERMINALES_TARJETA.includes(bancoTransferencia))
+    ) {
+      return res.status(400).json({ ok: false, msg: 'Selecciona el tipo de transferencia (SPEI o TEF) y el banco.' });
+    }
+    if (
+      ['NOTA_VENTA', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) &&
+      formaPago === 'COMBINADO' &&
+      (Number(combinado?.transferencia) || 0) > 0 &&
+      (!TIPOS_TRANSFERENCIA.includes(combinado?.transferenciaTipo) || !TERMINALES_TARJETA.includes(combinado?.transferenciaBanco))
+    ) {
+      return res.status(400).json({ ok: false, msg: 'Selecciona el tipo de transferencia (SPEI o TEF) y el banco de la parte por transferencia del pago combinado.' });
     }
     // Cheque en una Nota de Venta (simple o dentro de un combinado) necesita
     // su número. El Recibo Provisional ya lo valida en el front.
@@ -653,6 +675,8 @@ router.post('/:id/pagos', proteger, async (req, res) => {
             cheque: Number(combinado?.cheque) || 0,
             transferencia: Number(combinado?.transferencia) || 0,
             banco: combinado?.banco || '',
+            transferenciaTipo: combinado?.transferenciaTipo || '',
+            transferenciaBanco: combinado?.transferenciaBanco || '',
           }
         : null;
       pago.notaVenta = {
@@ -662,6 +686,8 @@ router.post('/:id/pagos', proteger, async (req, res) => {
         banco: bancoNotaVenta(formaPago, terminal),
         chequeNumero: (formaPago === 'CHEQUE' || combinadoNota?.cheque > 0) ? chequeNumero : '',
         tipo: tipoNota,
+        tipoTransferencia: formaPago === 'TRANSFERENCIA' ? tipoTransferencia : '',
+        bancoTransferencia: formaPago === 'TRANSFERENCIA' ? bancoTransferencia : '',
         ...(combinadoNota ? { combinado: combinadoNota } : {}),
       };
     } else if (comprobante === 'REMISION') {
@@ -685,6 +711,8 @@ router.post('/:id/pagos', proteger, async (req, res) => {
           cheque: Number(combinado?.cheque) || 0,
           transferencia: Number(combinado?.transferencia) || 0,
           banco: combinado?.banco || '',
+          transferenciaTipo: combinado?.transferenciaTipo || '',
+          transferenciaBanco: combinado?.transferenciaBanco || '',
         }
       : null;
 
@@ -700,6 +728,8 @@ router.post('/:id/pagos', proteger, async (req, res) => {
         formaPago,
         chequeNumero: (formaPago === 'CHEQUE' || combinadoMontos?.cheque > 0) ? chequeNumero : '',
         banco: ['CREDITO', 'DEBITO'].includes(formaPago) ? terminal : '',
+        tipoTransferencia: formaPago === 'TRANSFERENCIA' ? tipoTransferencia : '',
+        bancoTransferencia: formaPago === 'TRANSFERENCIA' ? bancoTransferencia : '',
         concepto: reciboConcepto,
         recibio: reciboRecibio,
         ...(combinadoMontos ? { combinado: combinadoMontos } : {}),
@@ -713,6 +743,8 @@ router.post('/:id/pagos', proteger, async (req, res) => {
         formaPago,
         chequeNumero: (formaPago === 'CHEQUE' || combinadoMontos?.cheque > 0) ? chequeNumero : '',
         banco: ['CREDITO', 'DEBITO'].includes(formaPago) ? terminal : '',
+        tipoTransferencia: formaPago === 'TRANSFERENCIA' ? tipoTransferencia : '',
+        bancoTransferencia: formaPago === 'TRANSFERENCIA' ? bancoTransferencia : '',
         ...(combinadoMontos ? { combinado: combinadoMontos } : {}),
       };
     }

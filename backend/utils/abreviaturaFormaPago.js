@@ -7,14 +7,16 @@
  *
  * Reglas (acordadas con el cliente):
  *   - Tarjeta: <abrev. terminal>-<C|D>      ej. "BanRegio Crédito" -> "BR-C"
- *   - Efectivo / Cheque / Transferencia: texto completo
+ *   - Transferencia con tipo y banco capturados: <SPEI|TEF>-<abrev. banco>
+ *     ej. "SPEI-BR". Sin esos datos (pagos viejos): texto completo "TRANSFERENCIA".
+ *   - Efectivo / Cheque: texto completo
  *   - Combinado: cada componente presente, separado por "Y" (o comas si son
  *     más de dos), para que se lea claro que fue un pago combinado
- *     ej. "EFECTIVO Y BR-C", "EFECTIVO, BR-C Y TRANSFERENCIA"
+ *     ej. "EFECTIVO Y BR-C", "EFECTIVO, BR-C Y SPEI-BX"
  *
- * Recibe el sub-objeto `pago.notaVenta` o `pago.reciboProvisional` (comparten
- * forma: { formaPago, banco, combinado }). Devuelve "" si no hay datos
- * utilizables.
+ * Recibe el sub-objeto `pago.notaVenta` / `pago.reciboProvisional` /
+ * `pago.liquidacion` (comparten forma: { formaPago, banco, tipoTransferencia,
+ * bancoTransferencia, combinado }). Devuelve "" si no hay datos utilizables.
  */
 
 // Nombre de terminal (BANCOS_CAJA / TERMINALES_TARJETA_CAJA en
@@ -44,6 +46,16 @@ function abrevTarjeta(formaPago, banco) {
   return term || 'TARJETA';
 }
 
+// Abreviatura de una parte pagada por transferencia: "<SPEI|TEF>-<banco>",
+// ej. "SPEI-BR". Si falta el tipo o el banco (pagos viejos, previos a este
+// catálogo) cae a "TRANSFERENCIA".
+function abrevTransferencia(tipo, banco) {
+  const t = String(tipo || '').trim().toUpperCase();
+  const term = abrevTerminal(banco);
+  if (t && term) return `${t}-${term}`;
+  return 'TRANSFERENCIA';
+}
+
 // Une los métodos de un pago combinado como lista en español: "A Y B" para
 // dos, "A, B Y C" para tres o más.
 function joinMetodos(partes) {
@@ -60,7 +72,7 @@ function abreviaturaCombinado(combinado) {
   if (n(c.credito)) partes.push(abrevTarjeta('CREDITO', c.banco));
   if (n(c.debito)) partes.push(abrevTarjeta('DEBITO', c.banco));
   if (n(c.cheque)) partes.push('CHEQUE');
-  if (n(c.transferencia)) partes.push('TRANSFERENCIA');
+  if (n(c.transferencia)) partes.push(abrevTransferencia(c.transferenciaTipo, c.transferenciaBanco));
   return joinMetodos(partes);
 }
 
@@ -71,7 +83,7 @@ function abreviaturaFormaPago(desc) {
   if (forma === 'COMBINADO') return abreviaturaCombinado(desc.combinado);
   if (forma === 'CREDITO' || forma === 'DEBITO') return abrevTarjeta(forma, desc.banco);
   if (forma === 'CHEQUE') return 'CHEQUE';
-  if (forma === 'TRANSFERENCIA') return 'TRANSFERENCIA';
+  if (forma === 'TRANSFERENCIA') return abrevTransferencia(desc.tipoTransferencia, desc.bancoTransferencia);
   if (forma === 'EFECTIVO' || forma === '') {
     // Notas de Venta viejas sin formaPago: si `banco` apunta a una terminal
     // real, en su momento se cobró con tarjeta (tipo desconocido).

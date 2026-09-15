@@ -33,6 +33,11 @@ const FORMAS_PAGO_CAJA = ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFEREN
 // "sin terminal" (pago que no se cobró con tarjeta) y debe ser válido para el
 // enum, o un vehiculo.save() posterior sobre ese pago falla la validación.
 const TERMINALES_TARJETA_CAJA = ['', 'BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
+// Tipo de transferencia (SPEI vs. TEF) para un pago/desglose con
+// formaPago/parte 'TRANSFERENCIA'; '' = no capturado (pagos viejos, previos a
+// este catálogo). Se combina con el banco elegido para la columna Notas de
+// los reportes de Cajas, ej. "SPEI-BR" (ver utils/abreviaturaFormaPago.js).
+const TIPOS_TRANSFERENCIA_CAJA = ['', 'SPEI', 'TEF'];
 
 // Desglose del monto en pesos por método, usado tal cual en
 // pagos[].reciboProvisional.combinado y en pagos[].notaVenta.combinado.
@@ -49,6 +54,11 @@ const combinadoCajaSchema = () => ({
   // combinado; mismo catálogo que BANCO_A_TERMINAL en
   // utils/cierreCajaTerminales.js, para poder sumarla al Cierre de Caja.
   banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+  // Tipo y banco de la parte de Transferencia de este combinado. Van aparte
+  // de `banco` (que es la terminal de la parte con tarjeta): un combinado
+  // puede traer tarjeta Y transferencia a la vez.
+  transferenciaTipo: { type: String, enum: TIPOS_TRANSFERENCIA_CAJA, default: '' },
+  transferenciaBanco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
 });
 
 // ===== Solicitud de Garantía =====
@@ -751,6 +761,11 @@ pendienteCierre: { type: Boolean, default: false },
           banco: { type: String, enum: BANCOS_NOTA_VENTA, default: '' },
           chequeNumero: { type: String, default: '' },
           tipo: { type: String, enum: TIPO_NOTA, default: 'Contado' },
+          // Tipo (SPEI/TEF) y banco elegidos cuando formaPago === 'TRANSFERENCIA';
+          // '' en cualquier otro caso. Van aparte de `banco` (que aquí guarda el
+          // literal 'TRANSFERENCIA', la clave de depósito histórica).
+          tipoTransferencia: { type: String, enum: TIPOS_TRANSFERENCIA_CAJA, default: '' },
+          bancoTransferencia: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
           // Presente solo si formaPago === 'COMBINADO': desglose del monto en
           // pesos por método (su suma es el montoPesos del pago).
           combinado: combinadoCajaSchema(),
@@ -778,6 +793,9 @@ pendienteCierre: { type: Boolean, default: false },
           // Cierre de Caja (ver POST /:id/pagos). El pago Combinado lleva su
           // propia terminal en `combinado.banco`.
           banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+          // Tipo (SPEI/TEF) y banco elegidos cuando formaPago === 'TRANSFERENCIA'.
+          tipoTransferencia: { type: String, enum: TIPOS_TRANSFERENCIA_CAJA, default: '' },
+          bancoTransferencia: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
           // Presente solo si formaPago === 'COMBINADO': desglose del monto en
           // pesos por método (su suma es el montoPesos del pago).
           combinado: combinadoCajaSchema(),
@@ -790,6 +808,8 @@ pendienteCierre: { type: Boolean, default: false },
           formaPago: { type: String, enum: FORMAS_PAGO_CAJA, default: 'EFECTIVO' },
           chequeNumero: { type: String, default: '' },
           banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+          tipoTransferencia: { type: String, enum: TIPOS_TRANSFERENCIA_CAJA, default: '' },
+          bancoTransferencia: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
           combinado: combinadoCajaSchema(),
         },
 
@@ -893,3 +913,4 @@ module.exports.BANCOS_CAJA = BANCOS_CAJA;
 module.exports.TIPO_NOTA = TIPO_NOTA;
 module.exports.FORMAS_PAGO_CAJA = FORMAS_PAGO_CAJA;
 module.exports.TERMINALES_TARJETA_CAJA = TERMINALES_TARJETA_CAJA;
+module.exports.TIPOS_TRANSFERENCIA_CAJA = TIPOS_TRANSFERENCIA_CAJA;
