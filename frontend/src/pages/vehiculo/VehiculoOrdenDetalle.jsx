@@ -263,7 +263,7 @@ export default function VehiculoOrdenDetalle() {
       {orden.lineaNegocio === "CHIREY" && (
         <div className="text-center mb-3">
           <span className="badge bg-info text-dark fs-6">
-            Orden Chirey — no aparece en los reportes de Servicompacto
+            Orden Chirey
           </span>
         </div>
       )}

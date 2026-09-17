@@ -6,23 +6,12 @@
 
 const puppeteer = require('puppeteer');
 const dayjs = require('dayjs');
-const fs = require('fs');
-const path = require('path');
 const { dayjsFecha } = require('../utils/fechas');
 const { WATERMARK_CSS, watermarkHtml } = require('../utils/pdfWatermark');
 const { esc } = require('../utils/htmlEscape');
 const { CONTRATO_CSS, buildContratoBodyHtml } = require('../utils/contratoOrdenServicioHtml');
 const ContratoOrdenServicio = require('../models/ContratoOrdenServicio');
-
-// Carga el logo una sola vez al iniciar el módulo
-let LOGO_DATA_URL = '';
-try {
-  const logoPath = path.join(__dirname, '../../frontend/public/images/logo_servicompactos.png');
-  const buf = fs.readFileSync(logoPath);
-  LOGO_DATA_URL = `data:image/png;base64,${buf.toString('base64')}`;
-} catch (e) {
-  console.warn('[VehiculoOperativoPdf] Logo no encontrado:', e.message);
-}
+const { logoParaLinea } = require('../utils/logoOrden');
 
 function fmtFecha(fechaISO) {
   if (!fechaISO) return '';
@@ -109,6 +98,7 @@ function buildPaginaResumen(vehiculo, fechaRecepcion) {
   const sinVehiculo = !!vehiculo.sinVehiculo;
   const totalCols = sinVehiculo ? 3 : 6;
   const pieColspan = sinVehiculo ? 1 : 2;
+  const logoDataUrl = logoParaLinea(vehiculo.lineaNegocio);
 
   return `
 <!-- ==================== PÁGINA 3: RESUMEN VEHÍCULO ==================== -->
@@ -116,8 +106,8 @@ function buildPaginaResumen(vehiculo, fechaRecepcion) {
   <table style="border-collapse:collapse;width:100%;border:1.5px solid #000;">
     <tr>
       <td rowspan="2" style="width:26%;border:1.5px solid #000;padding:4px 6px;text-align:center;vertical-align:middle;">
-        ${LOGO_DATA_URL
-          ? `<img src="${LOGO_DATA_URL}" style="max-height:54px;max-width:170px;object-fit:contain;"/>`
+        ${logoDataUrl
+          ? `<img src="${logoDataUrl}" style="max-height:54px;max-width:170px;object-fit:contain;"/>`
           : `<span style="font-size:14px;font-weight:800;color:#1E40AF;">Servicompactos</span>`}
       </td>
       ${sinVehiculo ? '' : `
@@ -171,6 +161,7 @@ function buildHtml(vehiculo, asesorOverride = '', formato = 'operativo', contrat
   // Si la orden es de un grupo, en el PDF se muestra quién lo está
   // imprimiendo (quien presionó el botón), no necesariamente quien la creó.
   const asesor = vehiculo.creadoPor || '';
+  const logoDataUrl = logoParaLinea(vehiculo.lineaNegocio);
   const insp = vehiculo.inspeccionFisica || {};
   const sr   = vehiculo.servicioReparacion || {};
   const mm   = sr.mantenimientoMotor || {};
@@ -401,8 +392,8 @@ ${watermarkHtml(vehiculo)}
       </div>
     </td>
     <td style="text-align:center;vertical-align:middle;padding:0 10px;">
-      ${LOGO_DATA_URL
-        ? `<img src="${LOGO_DATA_URL}" style="max-height:52px;max-width:220px;object-fit:contain;" />`
+      ${logoDataUrl
+        ? `<img src="${logoDataUrl}" style="max-height:52px;max-width:220px;object-fit:contain;" />`
         : `<div style="font-size:26px;font-weight:800;color:#1E40AF;letter-spacing:1px;">Edigital Solutions</div>`
       }
     </td>
