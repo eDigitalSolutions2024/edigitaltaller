@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { dayjsFecha } = require('../utils/fechas');
 const { WATERMARK_CSS, watermarkHtml } = require('../utils/pdfWatermark');
+const { logoParaLinea } = require('../utils/logoOrden');
 
 
 const assetPath = (...parts) =>
@@ -121,7 +122,7 @@ exports.generarVentaClientePDF = async (res, orden) => {
       .filter(Boolean)
       .join(' ');
 
-      const logoSrc = imageBase64('logo_servicompactos.png');
+      const logoSrc = logoParaLinea(orden.lineaNegocio);
       const engomadoSrc = imageBase64('engomado_ecologico.jpg');
       const marcasSrc = imageBase64('marcas_llantas.jpg');
 

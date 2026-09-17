@@ -248,7 +248,9 @@ router.put('/:id', async (req, res) => {
 // GET /api/vales/:id/pdf
 router.get('/:id/pdf', async (req, res) => {
   try {
-    const vale = await ValeSalida.findById(req.params.id).lean();
+    const vale = await ValeSalida.findById(req.params.id)
+      .populate('vehiculo', 'lineaNegocio')
+      .lean();
     if (!vale) return res.status(404).json({ ok: false, msg: 'Vale no encontrado' });
     await streamValeSalidaPdf(res, vale);
   } catch (err) {

@@ -248,7 +248,14 @@ exports.logout = async (req, res) => {
       const tok = h.startsWith('Bearer ') ? h.slice(7) : null;
       if (tok) {
         const p = jwt.verify(tok, process.env.JWT_SECRET);
-        quien = { usuario: p.username || '', usuarioId: p.id || null, rol: p.role || '' };
+        // El token solo trae `username` (login, en minúsculas); buscamos el
+        // usuario para loguear su nombre para mostrar, igual que en login.
+        const u = await User.findById(p.id).select('name username role').lean();
+        quien = {
+          usuario: (u && (u.name || u.username)) || p.username || '',
+          usuarioId: p.id || null,
+          rol: (u && u.role) || p.role || '',
+        };
       }
     } catch (_) {
       /* token vencido: se registra sin usuario */

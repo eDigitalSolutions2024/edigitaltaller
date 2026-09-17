@@ -1,18 +1,8 @@
 const puppeteer = require('puppeteer');
 const dayjs = require('dayjs');
-const fs = require('fs');
-const path = require('path');
 require('dayjs/locale/es');
 dayjs.locale('es');
-
-let LOGO_DATA_URL = '';
-try {
-  const logoPath = path.join(__dirname, '../../frontend/public/images/logo_servicompactos.png');
-  const buf = fs.readFileSync(logoPath);
-  LOGO_DATA_URL = `data:image/png;base64,${buf.toString('base64')}`;
-} catch (e) {
-  console.warn('[valeSalidaPdf] Logo no encontrado:', e.message);
-}
+const { logoParaLinea } = require('../utils/logoOrden');
 
 function esc(str) {
   if (str === null || str === undefined) return '';
@@ -36,6 +26,7 @@ function emojiSlot(estatus) {
 function buildHtml(vale) {
   const noVale = `${vale.noVale ?? ''}-${vale.dig ?? 0}`;
   const slotActivo = emojiSlot(vale.estatus);
+  const logoDataUrl = logoParaLinea(vale.vehiculo?.lineaNegocio);
   const etiquetaSlot3 = slotActivo === 3 ? (vale.estatus || '').toUpperCase() : 'OTROS';
 
   const emoji = (n, cara) => `
@@ -106,7 +97,7 @@ function buildHtml(vale) {
     <div class="encabezado">
       <div class="encabezado__izq">
         <div class="encabezado__logo">
-          ${LOGO_DATA_URL ? `<img src="${LOGO_DATA_URL}" />` : '<span class="encabezado__logo-txt">Servi compactos</span>'}
+          ${logoDataUrl ? `<img src="${logoDataUrl}" />` : '<span class="encabezado__logo-txt">Servi compactos</span>'}
         </div>
         <div class="encabezado__dir">
           PASEO TRIUNFO DE LA REPUBLICA # 322 - B<br/>
