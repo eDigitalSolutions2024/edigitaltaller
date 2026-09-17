@@ -1,6 +1,8 @@
 // routes/clientes.js
 const express = require("express");
 const Cliente = require("../models/Cliente");
+const Empleado = require("../models/Empleado");
+const User = require("../models/User");
 const { proteger, requiereRol } = require("../middleware/auth");
 const { normalizaLineaNegocio } = require("../utils/lineaNegocio");
 const router = express.Router();
@@ -10,6 +12,18 @@ const router = express.Router();
 // leer o modificar clientes sin login). Se vuelve crítico en cuanto el saldo
 // a favor (ver Cliente.saldoAFavor) vive en este mismo modelo.
 router.use(proteger);
+
+// Traduce el rol de sistema (User.role, permisos de acceso) al puesto de
+// taller más parecido (Empleado.puesto, ver su enum) cuando se crea la ficha
+// de Empleado de alguien que solo tenía usuario ("solo_usuario"). Únicamente
+// se mapean los que tienen una correspondencia clara y sin ambigüedad; el
+// resto (cajas, admin, finanzas, etc. no son puestos de taller) se queda en
+// "otro" en vez de adivinar.
+const ROL_A_PUESTO = {
+  mecanico: "mecanico",
+  recepcion: "recepcion",
+  asesor_servicio: "asesor",
+};
 
 // Escapa metacaracteres de regex antes de meterlos en `new RegExp(...)`: el
 // texto de búsqueda/duplicados entraba crudo, lo que permite un patrón
@@ -196,7 +210,7 @@ router.post("/", async (req, res) => {
 // routes/clientes.js — GET /
 router.get("/", async (req, res) => {
   try {
-    const { q = "", page = 1, limit = 10 } = req.query;
+    const { q = "", page = 1, limit = 10, estado = "activos" } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
     // 👇 Reemplaza el $text por $regex — busca parcial, insensible a mayúsculas
@@ -215,6 +229,21 @@ router.get("/", async (req, res) => {
           ],
         }
       : {};
+
+    // Baja lógica (Cliente.activo): por default solo se listan/buscan
+    // activos — así desaparecen tanto de Consulta de Clientes como del
+    // buscador de Nueva Orden de Servicio sin borrar nada. `estado=inactivos`
+    // es lo que usa el toggle "Mostrar inactivos" de Consulta de Clientes
+    // para poder encontrarlos y reactivarlos; `estado=todos` no filtra.
+    if (estado === "inactivos") find.activo = false;
+    else if (estado !== "todos") find.activo = { $ne: false };
+
+    // Un cliente ya vinculado a un Empleado (ver empleadoRef / "Convertir a
+    // Empleado") queda oculto de Clientes de forma permanente: sus órdenes
+    // siguen intactas porque apuntan al mismo _id, solo deja de aparecer
+    // aquí. No depende de `estado` porque no es una baja reversible desde
+    // esta pantalla.
+    find.empleadoRef = null;
 
     // La lista nunca necesita el catálogo de códigos por cliente
     // (codigosServicio solo se usa al editar un cliente o al facturar); con un
@@ -241,6 +270,192 @@ router.get("/:id", async (req, res) => {
   const c = await Cliente.findById(req.params.id).select(camposExcluidos);
   if (!c) return res.status(404).json({ ok: false, error: "No encontrado" });
   res.json({ ok: true, data: c });
+});
+
+/* ------------------------------------------------------------------ */
+/* Activar / desactivar cliente (baja lógica). Solo admin — a diferencia */
+/* del resto de Clientes (alta/edición), que sí ven cajas/asesor_servicio */
+/* (ver CLIENTES_ROLES en frontend/src/utils/roles.js).                  */
+/* ------------------------------------------------------------------ */
+
+// PATCH /api/clientes/:id/estado   body: { activo: true|false, motivo? }
+// Al desactivar, `motivo` es obligatorio (lo exige el modal de confirmación
+// en AltaCliente.jsx) — no se guarda aparte en Cliente porque el middleware
+// de auditoría ya registra este PATCH como DESACTIVAR con el body completo
+// (ver derivarAccion en middleware/auditoria.js), así que basta con que viaje.
+router.patch(
+  "/:id/estado",
+  requiereRol("admin"),
+  async (req, res) => {
+    try {
+      const { activo, motivo } = req.body;
+      if (typeof activo !== "boolean") {
+        return res.status(400).json({ ok: false, error: 'El campo "activo" debe ser booleano' });
+      }
+      if (activo === false && !String(motivo || "").trim()) {
+        return res.status(400).json({ ok: false, error: "El motivo es obligatorio para desactivar un cliente." });
+      }
+
+      const c = await Cliente.findByIdAndUpdate(req.params.id, { activo }, { new: true });
+      if (!c) return res.status(404).json({ ok: false, error: "No encontrado" });
+      res.json({ ok: true, data: c });
+    } catch (err) {
+      res.status(400).json({ ok: false, error: err.message });
+    }
+  }
+);
+
+/* ------------------------------------------------------------------ */
+/* Puente Cliente ⇄ Empleado (ver Cliente.empleadoRef).                */
+/* ------------------------------------------------------------------ */
+
+// POST /api/clientes/desde-personal   body: { empleadoId } o { userId }
+// Botón "Empleados" de Nueva Orden de Servicio y editor de "Datos de
+// facturación" de Administración → Personal: en vez de dar de alta a mano un
+// cliente y marcar la casilla "Empleado", busca (o crea la primera vez) la
+// ficha-sombra de Cliente ligada a esa persona del roster de Personal
+// (ver GET /api/empleados/personal) y la regresa lista para usarse.
+//
+// Personal mezcla dos fuentes (mismo criterio que Personal.jsx): un
+// `Empleado` (con o sin usuario de sistema vinculado) o, para altas
+// "solo_usuario", un `User` sin ficha de Empleado — a esos se les crea aquí
+// la ficha de Empleado que les faltaba (ligando ambos lados) antes de seguir
+// con el mismo camino de siempre.
+router.post("/desde-personal", async (req, res) => {
+  try {
+    const { empleadoId, userId } = req.body || {};
+    let empleado;
+
+    if (empleadoId) {
+      empleado = await Empleado.findById(empleadoId);
+      if (!empleado) return res.status(404).json({ ok: false, error: "Empleado no encontrado" });
+    } else if (userId) {
+      const user = await User.findById(userId);
+      if (!user) return res.status(404).json({ ok: false, error: "Usuario no encontrado" });
+      if (user.isActive === false) {
+        return res.status(409).json({ ok: false, error: "El usuario está inactivo." });
+      }
+
+      empleado = user.employee ? await Empleado.findById(user.employee) : null;
+      if (!empleado) {
+        // Copia correo/teléfono del usuario: sin esto, la ficha de Empleado
+        // nacía vacía y "pisaba" en Personal el contacto que la persona ya
+        // tenía como solo_usuario (ver GET /empleados/personal).
+        empleado = await Empleado.create({
+          nombre: user.name,
+          puesto: ROL_A_PUESTO[user.role] || "otro",
+          correo: user.email || "",
+          telefono: user.telefono || user.celular || "",
+        });
+        user.employee = empleado._id;
+        await user.save();
+      } else {
+        // Autocorrige fichas que este mismo flujo haya creado antes de este
+        // ajuste (sin correo/teléfono/puesto real) — solo rellena lo que
+        // esté vacío o siga en el default "otro".
+        let cambios = false;
+        if (!empleado.correo && user.email) { empleado.correo = user.email; cambios = true; }
+        if (!empleado.telefono && (user.telefono || user.celular)) {
+          empleado.telefono = user.telefono || user.celular;
+          cambios = true;
+        }
+        if (empleado.puesto === "otro" && ROL_A_PUESTO[user.role]) {
+          empleado.puesto = ROL_A_PUESTO[user.role];
+          cambios = true;
+        }
+        if (cambios) await empleado.save();
+      }
+      if (!empleado.usuario) {
+        empleado.usuario = user._id;
+        await empleado.save();
+      }
+    } else {
+      return res.status(400).json({ ok: false, error: "Falta empleadoId o userId." });
+    }
+
+    if (!empleado.activo) {
+      return res.status(409).json({ ok: false, error: "El empleado está inactivo." });
+    }
+
+    let cliente = await Cliente.findOne({ empleadoRef: empleado._id });
+
+    if (!cliente) {
+      cliente = await Cliente.create({
+        tipoCliente: "Particular",
+        nombre: empleado.nombre,
+        esEmpleado: true,
+        empleadoRef: empleado._id,
+        // Precarga correo/celular desde la ficha de Empleado para que ya
+        // aparezcan al abrir la orden (antes quedaban en blanco aunque el
+        // empleado ya los tuviera registrados en Personal).
+        emails: empleado.correo ? [empleado.correo] : [],
+        celulares: empleado.telefono ? [{ numero: empleado.telefono }] : [],
+      });
+    } else {
+      let cambios = false;
+      if (!cliente.activo) {
+        // Reactivar automáticamente: si se había desactivado, seleccionar de
+        // nuevo a esta persona desde este botón implica que vuelve a estar en uso.
+        cliente.activo = true;
+        cambios = true;
+      }
+      // Mismo backfill que arriba, para fichas ya creadas antes de este
+      // ajuste o para cuando se agregó el correo/teléfono después en Personal.
+      if (!cliente.emails?.length && empleado.correo) {
+        cliente.emails = [empleado.correo];
+        cambios = true;
+      }
+      if (!cliente.celulares?.length && empleado.telefono) {
+        cliente.celulares = [{ numero: empleado.telefono }];
+        cambios = true;
+      }
+      if (cambios) await cliente.save();
+    }
+
+    res.status(201).json({ ok: true, data: cliente });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/clientes/:id/convertir-a-empleado
+// Migración manual (Consulta de Clientes → "Convertir a Empleado") para
+// clientes esEmpleado=true dados de alta a mano antes de que existiera el
+// botón "Empleados": liga el cliente a un Empleado (existente, por
+// `empleadoId`, o uno nuevo con los datos del cliente si no viene) sin tocar
+// las órdenes (Vehiculo.cliente) que ya apuntan a este _id — solo deja de
+// listarse en Clientes (ver GET / arriba, filtra empleadoRef != null).
+router.post("/:id/convertir-a-empleado", requiereRol("admin"), async (req, res) => {
+  try {
+    const cliente = await Cliente.findById(req.params.id);
+    if (!cliente) return res.status(404).json({ ok: false, error: "Cliente no encontrado" });
+    if (cliente.empleadoRef) {
+      return res.status(409).json({ ok: false, error: "Este cliente ya está ligado a un empleado." });
+    }
+
+    let empleado;
+    if (req.body?.empleadoId) {
+      empleado = await Empleado.findById(req.body.empleadoId);
+      if (!empleado) return res.status(404).json({ ok: false, error: "Empleado no encontrado" });
+    } else {
+      const nombre = (req.body?.nombreEmpleado || cliente.nombre || "").trim();
+      if (!nombre) {
+        return res.status(400).json({ ok: false, error: "Falta el nombre para crear el empleado." });
+      }
+      empleado = await Empleado.create({
+        nombre,
+        puesto: req.body?.puesto || "otro",
+      });
+    }
+
+    cliente.empleadoRef = empleado._id;
+    cliente.esEmpleado = true;
+    await cliente.save();
+
+    res.json({ ok: true, data: { cliente, empleado } });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
 });
 
 /* ------------------------------------------------------------------ */

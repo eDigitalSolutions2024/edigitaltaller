@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import 'bootstrap/dist/css/bootstrap.min.css';
+// El CSS de Bootstrap ya se importaba, pero nunca su JS: sin esto,
+// data-bs-toggle="dropdown" (menú "Opciones" de Consulta de Clientes,
+// selector de tamaño de PDF en VehiculoOrdenDetalle) no hace nada.
+import 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { canSeeModule, defaultRouteForRole } from "./utils/roles";
 import { setAccessToken, getAccessToken } from "./api/http";

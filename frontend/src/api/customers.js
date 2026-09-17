@@ -28,3 +28,19 @@ export const getCustomerCodigos = (id) =>
 
 export const updateCustomerCodigos = (id, rows) =>
   http.put(`/clientes/${id}/codigos-servicio`, rows);
+
+// 👇 Activar / desactivar cliente (baja lógica, ver Cliente.activo). El
+// backend exige `motivo` al desactivar (ver PATCH /clientes/:id/estado).
+export const setCustomerEstado = (id, activo, motivo) =>
+  http.patch(`/clientes/${id}/estado`, { activo, ...(motivo ? { motivo } : {}) });
+
+// 👇 Botón "Empleados" de Nueva Orden de Servicio y editor de "Datos de
+// facturación" de Personal: busca o crea la ficha de cliente ligada a esa
+// persona (Empleado o usuario "solo_usuario") — ver POST /clientes/desde-personal
+export const crearClienteDesdePersonal = ({ empleadoId, userId }) =>
+  http.post(`/clientes/desde-personal`, { empleadoId, userId });
+
+// 👇 Migración manual de un cliente "es empleado" ya existente hacia el
+// registro real de Empleado (Consulta de Clientes → "Convertir a Empleado")
+export const convertirClienteAEmpleado = (id, payload) =>
+  http.post(`/clientes/${id}/convertir-a-empleado`, payload);

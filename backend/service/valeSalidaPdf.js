@@ -51,7 +51,7 @@ function buildHtml(vale) {
   .encabezado { display: flex;  margin-bottom: 10px; }
   .encabezado__izq { width: 55%; display: flex; flex-direction: column; }
   .encabezado__logo { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
-  .encabezado__logo img { height: 63px; }
+  .encabezado__logo img { max-height: 60px; max-width: 320px; object-fit: contain; }
   .encabezado__logo-txt { font-size: 20pt; font-weight: bold; color: #1f4e79; }
   .encabezado__dir { padding: 6px 12px;  text-align: center; font-size: 8.5pt; line-height: 1.4; }
   .encabezado__der { width: 45%; display: flex; flex-direction: column; }

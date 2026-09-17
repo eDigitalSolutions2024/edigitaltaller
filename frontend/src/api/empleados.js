@@ -36,3 +36,15 @@ export async function vincularUsuario(empleadoId, usuarioId) {
   const { data } = await http.put(`/empleados/${empleadoId}`, { usuario: usuarioId || null });
   return data;
 }
+
+// GET /api/empleados/personal — roster unificado de Administración → Personal
+// (Empleados + usuarios "solo_usuario" sin ficha de Empleado), accesible a
+// cualquier rol autenticado. Lo usa el botón "Empleados" de Nueva Orden de
+// Servicio para no depender de GET /users (admin-only).
+export async function listarPersonal(filtros = {}) {
+  const params = {};
+  if (filtros.activo === false) params.activo = "false";
+
+  const { data } = await http.get("/empleados/personal", { params });
+  return data;
+}

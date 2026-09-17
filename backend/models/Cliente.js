@@ -130,6 +130,27 @@ const ClienteSchema = new Schema(
     esEmpleado: { type: Boolean, default: false },
     rfc: { type: String, trim: true, uppercase: true },
 
+    // Baja lógica: un cliente inactivo se oculta de la búsqueda/listado y no
+    // se le pueden abrir órdenes nuevas (ver GET /api/clientes y el guard en
+    // POST /api/vehiculos). Las órdenes que ya tenía se conservan intactas.
+    activo: { type: Boolean, default: true, index: true },
+
+    // Vínculo con el registro real de Empleado (staff) cuando este cliente es
+    // en realidad la "ficha sombra" de un empleado que trae su propio
+    // vehículo (ver esEmpleado arriba). Se llena desde el botón "Empleados"
+    // de Nueva Orden de Servicio (alta automática, sin pasar por Alta
+    // Cliente) o desde "Convertir a Empleado" en Consulta de Clientes
+    // (migración manual de un cliente esEmpleado ya existente). Una vez
+    // ligado, el cliente deja de listarse en Clientes (GET /api/clientes)
+    // pero sus órdenes ya abiertas se conservan porque siguen apuntando al
+    // mismo _id de Cliente.
+    empleadoRef: {
+      type: Schema.Types.ObjectId,
+      ref: "Empleado",
+      default: null,
+      index: true,
+    },
+
     // 👇 NUEVOS — necesarios para facturación CFDI 4.0
     regimenFiscal: {
       type: String,

@@ -107,7 +107,7 @@ function buildPaginaResumen(vehiculo, fechaRecepcion) {
     <tr>
       <td rowspan="2" style="width:26%;border:1.5px solid #000;padding:4px 6px;text-align:center;vertical-align:middle;">
         ${logoDataUrl
-          ? `<img src="${logoDataUrl}" style="max-height:54px;max-width:170px;object-fit:contain;"/>`
+          ? `<img src="${logoDataUrl}" style="max-height:60px;max-width:220px;object-fit:contain;"/>`
           : `<span style="font-size:14px;font-weight:800;color:#1E40AF;">Servicompactos</span>`}
       </td>
       ${sinVehiculo ? '' : `
@@ -393,7 +393,7 @@ ${watermarkHtml(vehiculo)}
     </td>
     <td style="text-align:center;vertical-align:middle;padding:0 10px;">
       ${logoDataUrl
-        ? `<img src="${logoDataUrl}" style="max-height:52px;max-width:220px;object-fit:contain;" />`
+        ? `<img src="${logoDataUrl}" style="max-height:60px;max-width:345px;object-fit:contain;" />`
         : `<div style="font-size:26px;font-weight:800;color:#1E40AF;letter-spacing:1px;">Edigital Solutions</div>`
       }
     </td>

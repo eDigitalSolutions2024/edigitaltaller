@@ -19,7 +19,7 @@ const { streamReportePendientesFacturaPdf } = require('../service/reportePendien
 const { streamReporteClientesAnticiposPdf } = require('../service/reporteClientesAnticiposPdf');
 const { calcImporteHoras } = require('../utils/manoObra');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
-const { abreviaturaFormaPago } = require('../utils/abreviaturaFormaPago');
+const { abreviaturaFormaPago, joinMetodos } = require('../utils/abreviaturaFormaPago');
 const { FILTRO_SERVICOMPACTO } = require('../utils/lineaNegocio');
 const { dayjsFecha } = require('../utils/fechas');
 
@@ -30,6 +30,37 @@ function notaConMetodo(notas, formaPagoDesc) {
   const abrev = abreviaturaFormaPago(formaPagoDesc);
   if (!abrev) return notas || '';
   return notas ? `${notas} ${abrev}` : abrev;
+}
+
+// Desglosa el monto de un pago COMBINADO por cada método presente, con la
+// misma abreviatura de terminal/transferencia que abreviaturaFormaPago usa
+// para un método simple: "$5,000.00 EFECTIVO Y $4,180.00 BR-C". Se usa en el
+// desglose de PUBLICO GENERAL (Factura Global) para que una Nota de Venta
+// pagada con varios métodos no se vea solo como su total con la lista de
+// métodos, sin decir cuánto fue con cada uno. El Efectivo en Dólares no entra
+// aquí: ese desglose ya se arma aparte con el folio del Recibo de Dólares.
+function desgloseMontosCombinado(combinado, fmtMonto) {
+  const c = combinado || {};
+  const n = (v) => Number(v) || 0;
+  const partes = [];
+  if (n(c.efectivo) > 0) partes.push(`$${fmtMonto(c.efectivo)} EFECTIVO`);
+  if (n(c.credito) > 0) {
+    partes.push(`$${fmtMonto(c.credito)} ${abreviaturaFormaPago({ formaPago: 'CREDITO', banco: c.banco })}`);
+  }
+  if (n(c.debito) > 0) {
+    partes.push(`$${fmtMonto(c.debito)} ${abreviaturaFormaPago({ formaPago: 'DEBITO', banco: c.banco })}`);
+  }
+  if (n(c.cheque) > 0) partes.push(`$${fmtMonto(c.cheque)} CHEQUE`);
+  if (n(c.transferencia) > 0) {
+    partes.push(
+      `$${fmtMonto(c.transferencia)} ${abreviaturaFormaPago({
+        formaPago: 'TRANSFERENCIA',
+        tipoTransferencia: c.transferenciaTipo,
+        bancoTransferencia: c.transferenciaBanco,
+      })}`
+    );
+  }
+  return joinMetodos(partes);
 }
 
 // Fecha en el estilo del reporte en papel: "17 JULIO 2026" (día, mes en
@@ -1422,6 +1453,10 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
       notasDelDiaPorFacturaGlobal.get(key).set(num, {
         fecha: p.fecha,
         metodo: abreviaturaFormaPago(p.notaVenta),
+        // Si la nota se pagó Combinado, se guarda el desglose crudo para
+        // poder mostrar cuánto fue con cada método (no solo la lista de
+        // métodos): ver desgloseMontosCombinado más abajo.
+        combinado: p.notaVenta?.formaPago === 'COMBINADO' ? p.notaVenta.combinado : null,
         montoTransferencia: montoTransferenciaNotaVenta(p),
         // Si parte del pago entró en dólares en efectivo, el desglose de
         // PUBLICO GENERAL debe decirlo junto con el folio del Recibo de
@@ -1483,6 +1518,11 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
               info.reciboDolaresNumero != null ? ` REC.DLS#${info.reciboDolaresNumero}` : ''
             }`
           : '';
+        // Combinado: en vez de "$total CON EFECTIVO Y BR-C" (que no dice
+        // cuánto fue de cada uno), se desglosa el monto por método.
+        if (info?.combinado) {
+          return `(${folio} ${desgloseMontosCombinado(info.combinado, fmtMonto)}${textoDolares})`;
+        }
         return info?.metodo
           ? `(${folio} $${fmtMonto(n.monto)} CON ${info.metodo}${textoDolares})`
           : `(${folio} $${fmtMonto(n.monto)}${textoDolares})`;

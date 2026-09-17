@@ -24,7 +24,7 @@ const LOGO_SERVICOMPACTO = cargarDataUrl(
 );
 
 const LOGO_CHIREY = cargarDataUrl(
-  path.join(__dirname, '../assets/Chirey_logo.svg'),
+  path.join(__dirname, '../assets/Servicompacto-Chirey.svg'),
   'image/svg+xml'
 );
 

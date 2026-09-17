@@ -18,6 +18,7 @@ const { datosMovimientosTerminal, moverTerminalesDePago, registrarMovimientosTar
 const { cancelarDeposito, revertirUso, SaldoInsuficienteError } = require("../utils/anticiposCliente");
 const { dayjsFecha } = require("../utils/fechas");
 const { limpiarYValidarTarjetas } = require("../utils/tarjetasCaja");
+const { registrarAccion } = require("../utils/registrarAccion");
 
 const router = express.Router();
 
@@ -1469,6 +1470,49 @@ router.post("/xml", proteger, async (req, res) => {
       });
 
       facturaId = facturaDoc._id;
+
+      // Deja rastro en el Registro de Actividad con el folio real de la
+      // factura (serie-folio), la del middleware global no lo conoce: el
+      // folio se asigna aquí adentro, no viene en la URL ni en el body de la
+      // petición. Así se puede buscar la factura por folio en el log.
+      registrarAccion(req, {
+        accion:
+          tipoFactura === "notaCredito"
+            ? "FACTURA_NOTA_CREDITO_GENERAR"
+            : tipoFactura === "complementoPago"
+            ? "FACTURA_COMPLEMENTO_GENERAR"
+            : tipoFactura === "facturaGlobal"
+            ? "FACTURA_GLOBAL_GENERAR"
+            : "FACTURA_GENERAR",
+        entidad: "generar-xml",
+        entidadId: facturaDoc._id,
+        referencia: [cfdiFinal.serie, cfdiFinal.folio].filter(Boolean).join("-") || String(facturaDoc._id),
+        detalle: {
+          tipoFactura,
+          tipoComprobante: cfdiFinal.tipoComprobante,
+          cliente: receptor?.nombre || "",
+          rfc: receptor?.rfc || "",
+          total: Number(totales?.total || 0),
+          ordenes: ordenes.map((o) => o?.ordenServicio).filter(Boolean),
+          // Forma/método de pago declarados en el propio CFDI (catálogo SAT
+          // c_FormaPago, ej. "01" Efectivo, "03" Transferencia...).
+          formaPago: cfdiFinal.formaPago || "",
+          metodoPago: cfdiFinal.metodoPago || "",
+          // Solo complemento de pago: el abono que documenta este CFDI.
+          ...(esComplementoPago
+            ? {
+                pagoFecha: pago?.fechaPago || null,
+                pagoFormaPago: pago?.formaPago || "",
+                pagoMonto: Number(pago?.monto || totales?.total || 0),
+              }
+            : {}),
+          // Órdenes sin comprobante de Caja vigente: la forma de pago y el
+          // monto que se capturaron aquí mismo al generar la factura.
+          ...(Array.isArray(pagosSinComprobante) && pagosSinComprobante.length
+            ? { pagos: pagosSinComprobante.map((p) => ({ formaPago: p.formaPago || "", monto: Number(p.monto || 0) })) }
+            : {}),
+        },
+      });
 
       if (tipoFactura === "factura" && ordenes.length) {
         const decisiones = {};
