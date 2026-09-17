@@ -313,9 +313,16 @@ router.post('/', async (req, res) => {
     // para un cliente de Servicompacto ni al revés). Los reportes filtran por
     // Vehiculo.lineaNegocio; ver backend/utils/lineaNegocio.js.
     delete payload.lineaNegocio;
-    const clienteLinea = await Cliente.findById(clienteId).select('lineaNegocio');
+    const clienteLinea = await Cliente.findById(clienteId).select('lineaNegocio activo');
     if (!clienteLinea) {
       return res.status(400).json({ ok: false, msg: 'El cliente indicado no existe.' });
+    }
+    // No se pueden abrir órdenes nuevas a un cliente dado de baja (ver
+    // Cliente.activo): el buscador de Nueva Orden ya los excluye, pero se
+    // valida también aquí por si el id llega de otro lado (recarga con un
+    // cliente ya desactivado, llamada directa a la API, etc.).
+    if (clienteLinea.activo === false) {
+      return res.status(409).json({ ok: false, msg: 'El cliente está inactivo; no se le pueden abrir órdenes nuevas.' });
     }
     payload.lineaNegocio = normalizaLineaNegocio(clienteLinea.lineaNegocio);
 

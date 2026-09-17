@@ -2,12 +2,14 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import Dropdown from "../../components/Dropdown";
-import { createCustomer, getCustomer, updateCustomer } from "../../api/customers";
+import { createCustomer, getCustomer, updateCustomer, setCustomerEstado } from "../../api/customers";
 import { getAsesores } from "../../api/users";
 import { getUser } from "../../auth";
 import { puedeEditarCodigosCliente } from "../../utils/roles";
 import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 import ModalCodigosCliente from "./components/ModalCodigosCliente";
+import ConvertirEmpleadoModal from "./ConvertirEmpleadoModal";
+import ConfirmarDesactivarClienteModal from "./ConfirmarDesactivarClienteModal";
 import "../../styles/clientes.css";
 
 const CLIENT_TYPES = [
@@ -332,6 +334,11 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
   const [loadingData, setLoadingData] = useState(false);
   // Catálogo de códigos de servicio propios del cliente (solo en edición).
   const [showCodigos, setShowCodigos] = useState(false);
+  // Desactivar/reactivar (ver Cliente.activo) y convertir a Empleado viven
+  // en el mismo menú ⚙ Configuración, no en Consulta de Clientes.
+  const [cambiandoEstado, setCambiandoEstado] = useState(false);
+  const [showConfirmarDesactivar, setShowConfirmarDesactivar] = useState(false);
+  const [showConvertir, setShowConvertir] = useState(false);
 
   // 👉 lista de empleados para el combo de Asesor Responsable
   const [empleados, setEmpleados] = useState([]);
@@ -541,6 +548,29 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
     }
   };
 
+  // Reactivar no es destructivo (el cliente ya no se pierde de nada), así que
+  // va directo; desactivar sí pasa antes por ConfirmarDesactivarClienteModal
+  // para no perder al cliente de la búsqueda por un clic equivocado.
+  const handleReactivar = async () => {
+    try {
+      setCambiandoEstado(true);
+      await setCustomerEstado(id, true);
+      upd("activo", true);
+      setMsg("✅ Cliente reactivado.");
+    } catch (err) {
+      setMsg("❌ " + (err?.response?.data?.error || err.message));
+    } finally {
+      setCambiandoEstado(false);
+    }
+  };
+
+  const handleConfirmarDesactivar = async (motivo) => {
+    await setCustomerEstado(id, false, motivo);
+    upd("activo", false);
+    setShowConfirmarDesactivar(false);
+    setMsg("✅ Cliente marcado como inactivo.");
+  };
+
   if (loadingData) {
     return (
       <div className="form-card">
@@ -549,25 +579,91 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
     );
   }
 
+  // Configuración del cliente: solo en edición de un cliente ya guardado.
+  // "Registrar códigos" es admin/cajas; desactivar/reactivar y convertir a
+  // Empleado quedan solo para admin (mismo criterio que su endpoint).
+  const puedeConvertir = isAdmin && form.esEmpleado && !form.empleadoRef;
+  const puedeAbrirConfiguracion = isEdit && !modoModal && (puedeCodigos || isAdmin);
+  const nombreClienteActual =
+    form.empresa?.razonSocial || form.gobierno?.nombreGobierno ||
+    [form.nombre, form.apellidoPaterno, form.apellidoMaterno].filter(Boolean).join(" ");
+
   return (
     <form className="form-card" onSubmit={onSubmit} autoComplete="off">
       <div className="d-flex justify-content-between align-items-start gap-2">
-        <h2>{isEdit ? "Editar Cliente" : "Alta de Clientes"}</h2>
+        <h2>
+          {isEdit ? "Editar Cliente" : "Alta de Clientes"}
+          {isEdit && form.activo === false && (
+            <span className="badge bg-danger ms-2 align-middle">Inactivo</span>
+          )}
+        </h2>
 
-        {/* Configuración del cliente: por ahora, su catálogo de códigos de
-            servicio (se usan al facturar para llenar NoIdentificacion). Solo
-            en edición de un cliente ya guardado y solo para admin/cajas. */}
-        {isEdit && !modoModal && puedeCodigos && (
-          <button
-            type="button"
-            className="btn btn-outline-secondary btn-sm"
-            onClick={() => setShowCodigos(true)}
-            title="Configuración del cliente"
-          >
-            ⚙ Configuración
-          </button>
+        {puedeAbrirConfiguracion && (
+          <div className="dropdown">
+            <button
+              type="button"
+              className="btn btn-outline-secondary btn-sm dropdown-toggle"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+              title="Configuración del cliente"
+            >
+              ⚙ Configuración
+            </button>
+            <ul className="dropdown-menu dropdown-menu-end">
+              {puedeCodigos && (
+                <li>
+                  <button type="button" className="dropdown-item" onClick={() => setShowCodigos(true)}>
+                    Registrar códigos
+                  </button>
+                </li>
+              )}
+              {isAdmin && (
+                <li>
+                  <button
+                    type="button"
+                    className="dropdown-item"
+                    disabled={cambiandoEstado}
+                    onClick={() =>
+                      form.activo === false ? handleReactivar() : setShowConfirmarDesactivar(true)
+                    }
+                  >
+                    {form.activo === false ? "Reactivar" : "Desactivar"}
+                  </button>
+                </li>
+              )}
+              {puedeConvertir && (
+                <li>
+                  <button type="button" className="dropdown-item" onClick={() => setShowConvertir(true)}>
+                    Convertir a Empleado
+                  </button>
+                </li>
+              )}
+            </ul>
+          </div>
         )}
       </div>
+
+      {isAdmin && (
+        <ConfirmarDesactivarClienteModal
+          show={showConfirmarDesactivar}
+          clienteNombre={nombreClienteActual}
+          onClose={() => setShowConfirmarDesactivar(false)}
+          onConfirm={handleConfirmarDesactivar}
+        />
+      )}
+
+      {puedeConvertir && showConvertir && (
+        <ConvertirEmpleadoModal
+          show={showConvertir}
+          cliente={form}
+          onClose={() => setShowConvertir(false)}
+          onConverted={(resultado) => {
+            setShowConvertir(false);
+            if (resultado?.cliente?.empleadoRef) upd("empleadoRef", resultado.cliente.empleadoRef);
+            setMsg("✅ Cliente convertido a Empleado.");
+          }}
+        />
+      )}
 
       {isEdit && !modoModal && puedeCodigos && showCodigos && (
         <ModalCodigosCliente

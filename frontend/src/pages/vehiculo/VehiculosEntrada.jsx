@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import ModalAltaCliente from "../../components/ModalAltaCliente";
 import GarageModal from "./GarageModal";
 import GarantiaModal from "./GarantiaModal";
+import EmpleadosOrdenModal from "./EmpleadosOrdenModal";
 import { getUser } from "../../auth";
 
 // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas no se
@@ -36,6 +37,7 @@ export default function VehiculoEntrada() {
   const [error, setError] = useState("");
 
   const [mostrarModalAlta, setMostrarModalAlta] = useState(false);
+  const [mostrarModalEmpleados, setMostrarModalEmpleados] = useState(false);
 
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
   const [mostrarAcciones, setMostrarAcciones] = useState(false);
@@ -221,8 +223,15 @@ export default function VehiculoEntrada() {
         <div className="card-body">
           <div className="row g-2 align-items-center">
             {/* Etiqueta */}
-            <div className="col-12 col-md-3">
+            <div className="col-12 col-md-3 d-flex align-items-center justify-content-between w-100">
               <label className="fw-semibold mb-0">Nombre Cliente:</label>
+              <button
+                type="button"
+                className="btn btn-outline-primary btn-sm ms-2"
+                onClick={() => setMostrarModalEmpleados(true)}
+              >
+                Empleados
+              </button>
             </div>
 
             {/* Input */}
@@ -405,6 +414,21 @@ export default function VehiculoEntrada() {
           }}
         />
       )}
+
+      <EmpleadosOrdenModal
+        show={mostrarModalEmpleados}
+        onClose={() => setMostrarModalEmpleados(false)}
+        onSelect={(clienteEmpleado) => {
+          setMostrarModalEmpleados(false);
+          if (!clienteEmpleado?._id) return;
+          setClientes((prev) =>
+            prev.some((c) => c._id === clienteEmpleado._id)
+              ? prev
+              : [clienteEmpleado, ...prev]
+          );
+          handleSeleccion(clienteEmpleado);
+        }}
+      />
 
       <GarageModal
         show={showGarageModal}

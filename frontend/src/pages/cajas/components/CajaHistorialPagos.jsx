@@ -36,8 +36,27 @@ function comprobanteLabel(p) {
   return "-";
 }
 
+// Si esta Remisión se canceló porque la orden ya tenía otro comprobante
+// generado en su lugar (REEMPLAZADO, ver pasaAPagoId / POST /cajas/:id/pagos),
+// resuelve a qué pago pasó y, si ese pago ya se facturó (Factura Global u
+// otra), a qué factura — para no dejarlo como un "Cancelado" sin rastro.
+function resolverReemplazo(p, pagos, facturas) {
+  if (p.motivoCancelacionTipo !== "REEMPLAZADO" || !p.pasaAPagoId) return null;
+  const destino = pagos.find((x) => String(x._id) === String(p.pasaAPagoId));
+  if (!destino) return null;
+  const notaLabel = comprobanteLabel(destino);
+  const idFactura = destino.facturaGlobalId || destino.facturaId;
+  const factura = idFactura ? facturas.find((f) => String(f._id) === String(idFactura)) : null;
+  return { notaLabel, facturaLabel: factura ? facturaFolioLabel(factura) : null };
+}
+
 // Etiqueta y color del badge de una cancelación según su tipo.
-function badgeCancelacion(p) {
+function badgeCancelacion(p, pagos, facturas) {
+  if (p.motivoCancelacionTipo === "REEMPLAZADO") {
+    const r = resolverReemplazo(p, pagos, facturas);
+    if (r?.facturaLabel) return { texto: `Pasó a factura ${r.facturaLabel}`, clase: "bg-secondary" };
+    if (r?.notaLabel) return { texto: `Pasó a ${r.notaLabel}`, clase: "bg-secondary" };
+  }
   if (p.motivoCancelacionTipo === "PASA_A_FACTURA" || p.facturaId) {
     return { texto: "Pasó a factura", clase: "bg-secondary" };
   }
@@ -210,7 +229,7 @@ export default function CajaHistorialPagos({
                     </span>
                   )}
                   {p.cancelado && (() => {
-                    const b = badgeCancelacion(p);
+                    const b = badgeCancelacion(p, pagos, facturas);
                     return (
                       <span className={`badge ms-1 ${b.clase}`} title={p.motivoCancelacion || "Cancelado"}>
                         {b.texto}

@@ -17,6 +17,7 @@ import {
   cambiarEstadoEmpleado,
   vincularUsuario
 } from '../../api/empleados';
+import DatosFacturacionModal from './DatosFacturacionModal';
 
 // ─── Etiquetas de roles ───────────────────────────────────────────────────────
 const ROLES = [
@@ -166,6 +167,8 @@ export default function Personal() {
   const [revealed,    setRevealed]    = useState({});     // { [userId]: password }
   const [verifyFor,   setVerifyFor]   = useState(null);   // userId pendiente de reveal
   const [pwdError,    setPwdError]    = useState({});     // { [userId]: mensaje de error }
+
+  const [facturacionPersona, setFacturacionPersona] = useState(null); // persona con el modal de Datos de facturación abierto
 
   // ── Carga de datos ──────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -794,6 +797,12 @@ export default function Personal() {
                           >
                             {p.activo ? 'Desactivar' : 'Activar'}
                           </button>
+                          <button
+                            className="btn btn-sm btn-outline-secondary"
+                            onClick={() => setFacturacionPersona(p)}
+                          >
+                            Facturación
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -812,6 +821,12 @@ export default function Personal() {
           onClose={() => setVerifyFor(null)}
         />
       )}
+
+      <DatosFacturacionModal
+        show={!!facturacionPersona}
+        persona={facturacionPersona}
+        onClose={() => setFacturacionPersona(null)}
+      />
     </div>
   );
 }

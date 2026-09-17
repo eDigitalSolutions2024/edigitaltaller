@@ -24,6 +24,11 @@ const ACCION_LABEL = {
   // Sesión
   SESION_INICIAR: "Inició sesión",
   SESION_CERRAR: "Cerró sesión",
+  // Facturación
+  FACTURA_GENERAR: "Generó una factura",
+  FACTURA_NOTA_CREDITO_GENERAR: "Generó una nota de crédito",
+  FACTURA_COMPLEMENTO_GENERAR: "Generó un complemento de pago",
+  FACTURA_GLOBAL_GENERAR: "Generó una factura global",
 };
 
 const ACCION_COLOR = {
@@ -35,6 +40,10 @@ const ACCION_COLOR = {
   DESACTIVAR: "text-bg-secondary",
   SESION_INICIAR: "text-bg-info",
   SESION_CERRAR: "text-bg-secondary",
+  FACTURA_GENERAR: "text-bg-success",
+  FACTURA_NOTA_CREDITO_GENERAR: "text-bg-warning",
+  FACTURA_COMPLEMENTO_GENERAR: "text-bg-success",
+  FACTURA_GLOBAL_GENERAR: "text-bg-success",
 };
 
 const RECURSO_LABEL = {
@@ -122,7 +131,87 @@ const VERBO = {
   DESACTIVAR: "Desactivó",
 };
 
-// [RegExp sobre "<METODO> <rutaNorm>", texto]. Gana la primera que coincide.
+// $ formateado en pesos, sin símbolo. null si no es un número usable.
+function moneyN(n) {
+  const v = Number(n);
+  return Number.isFinite(v) ? v.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : null;
+}
+
+// Forma de pago capturada en Caja/Anticipos (catálogo interno de la app).
+const FORMA_PAGO_LABEL = {
+  EFECTIVO: "efectivo",
+  CREDITO: "tarjeta de crédito",
+  DEBITO: "tarjeta de débito",
+  TRANSFERENCIA: "transferencia",
+  CHEQUE: "cheque",
+  COMBINADO: "pago combinado",
+};
+
+// Forma de pago del propio CFDI (catálogo SAT c_FormaPago).
+const FORMA_PAGO_SAT_LABEL = {
+  "01": "efectivo",
+  "02": "cheque nominativo",
+  "03": "transferencia",
+  "04": "tarjeta de crédito",
+  "05": "monedero electrónico",
+  "06": "dinero electrónico",
+  "08": "vales de despensa",
+  12: "dación en pago",
+  17: "compensación",
+  23: "novación",
+  24: "confusión",
+  25: "remisión de deuda",
+  26: "prescripción o caducidad",
+  27: "a satisfacción del acreedor",
+  28: "tarjeta de débito",
+  29: "tarjeta de servicios",
+  30: "aplicación de anticipos",
+  31: "intermediario de pagos",
+  99: "por definir",
+};
+
+const COMPROBANTE_LABEL = {
+  NOTA_VENTA: "Nota de Venta",
+  REMISION: "Remisión",
+  RECIBO_PROVISIONAL: "Recibo Provisional",
+  SIN_COMPROBANTE: "Liquidar (sin comprobante)",
+};
+
+// Arma "$monto forma-de-pago (Comprobante)" a partir del body ya guardado de
+// POST /cajas/:id/pagos o POST /anticipos.
+function resumenPago(b) {
+  const partes = [];
+  const mxn = moneyN(b.montoPesos);
+  if (mxn && Number(b.montoPesos) > 0) partes.push(`$${mxn}`);
+  const usd = moneyN(b.montoDolares);
+  if (usd && Number(b.montoDolares) > 0) partes.push(`USD ${usd}`);
+  const fp = FORMA_PAGO_LABEL[b.formaPago] || (b.formaPago ? String(b.formaPago).toLowerCase() : "");
+  if (fp) partes.push(fp);
+  if (b.comprobante) partes.push(COMPROBANTE_LABEL[b.comprobante] || b.comprobante);
+  const saldo = moneyN(b.montoSaldoAplicado);
+  if (saldo && Number(b.montoSaldoAplicado) > 0) partes.push(`$${saldo} de saldo a favor`);
+  return partes.join(" · ");
+}
+
+function descPagoCaja(row) {
+  const r = resumenPago(row.detalle?.body || {});
+  return `Registró un pago en caja${r ? ` — ${r}` : ""}`;
+}
+
+function descCancelarPagoCaja(row) {
+  const b = row.detalle?.body || {};
+  const partes = [];
+  if (b.motivo) partes.push(`motivo: ${b.motivo}`);
+  if (b.modo === "PASA_A_FACTURA_EXISTENTE") partes.push("pasa a otra factura");
+  return `Canceló un pago de caja${partes.length ? ` — ${partes.join(" · ")}` : ""}`;
+}
+
+function descAnticipo(row) {
+  const r = resumenPago(row.detalle?.body || {});
+  return `Registró un anticipo de cliente${r ? ` — ${r}` : ""}`;
+}
+
+// [RegExp sobre "<METODO> <rutaNorm>", texto o función(row)]. Gana la primera que coincide.
 const REGLAS_DESC = [
   // ── Órdenes / Vehículos ──
   [/^POST \/vehiculos$/, "Creó una orden de servicio"],
@@ -144,15 +233,15 @@ const REGLAS_DESC = [
   [/^PUT \/vehiculos\/:id\/surtir$/, "Marcó refacciones como surtidas en la orden"],
   [/^POST \/vehiculos\/backfill-creado-por-id$/, "Ejecutó un ajuste masivo de órdenes (backfill)"],
   // ── Cajas ──
-  [/^POST \/cajas\/:id\/pagos$/, "Registró un pago en caja"],
-  [/^POST \/cajas\/:id\/pagos\/:id\/cancelar$/, "Canceló un pago de caja"],
+  [/^POST \/cajas\/:id\/pagos$/, descPagoCaja],
+  [/^POST \/cajas\/:id\/pagos\/:id\/cancelar$/, descCancelarPagoCaja],
   [/^POST \/cajas\/:id\/pagos\/:id\/deshacer-cancelacion$/, "Revirtió la cancelación de un pago de caja"],
   [/^POST \/cajas\/:id\/descuentos$/, "Aplicó un descuento en caja"],
   [/^PUT \/cajas\/:id\/descuentos\/:id$/, "Editó un descuento en caja"],
   [/^DELETE \/cajas\/:id\/descuentos\/:id$/, "Quitó un descuento en caja"],
   [/^PATCH \/cajas\/:id\/pendiente-factura$/, "Cambió la marca de 'pendiente de factura' de la orden"],
   // ── Anticipos ──
-  [/^POST \/anticipos$/, "Registró un anticipo de cliente"],
+  [/^POST \/anticipos$/, descAnticipo],
   [/^POST \/anticipos\/:id\/cancelar$/, "Canceló un anticipo de cliente"],
   // ── Cierre de caja ──
   [/^POST \/reportes\/cierre-caja$/, "Guardó una captura de cierre de caja"],
@@ -250,12 +339,45 @@ function describir(row) {
       : "Inició sesión";
   }
   if (a === "SESION_CERRAR") return "Cerró sesión";
-  // Eventos de dominio (órdenes) ya traen un código propio y legible
+  // Facturación: además de qué se hizo, con qué cliente/monto/orden y cómo se pagó
+  if (a.startsWith("FACTURA_") && a.endsWith("_GENERAR")) {
+    const d = row.detalle || {};
+    const partes = [];
+    if (d.cliente) partes.push(d.cliente);
+    const total = moneyN(d.total);
+    if (total) partes.push(`$${total}`);
+    if (Array.isArray(d.ordenes) && d.ordenes.length) partes.push(`orden ${d.ordenes.join(", ")}`);
+
+    if (d.tipoFactura === "complementoPago") {
+      // El pago que documenta este complemento (catálogo SAT).
+      const fp = FORMA_PAGO_SAT_LABEL[d.pagoFormaPago] || d.pagoFormaPago;
+      const m = moneyN(d.pagoMonto);
+      if (m || fp) partes.push(`pago${m ? ` $${m}` : ""}${fp ? ` (${fp})` : ""}`);
+    } else if (Array.isArray(d.pagos) && d.pagos.length) {
+      // Órdenes que se pagaron aquí mismo, al generar la factura (catálogo de Caja).
+      const resumen = d.pagos
+        .map((p) => {
+          const fp = FORMA_PAGO_LABEL[p.formaPago] || (p.formaPago || "").toLowerCase();
+          const m = moneyN(p.monto);
+          return `${fp}${m ? ` $${m}` : ""}`;
+        })
+        .join(", ");
+      partes.push(`pagado: ${resumen}`);
+    } else {
+      // Sin captura de pago propia: la forma de pago declarada en el CFDI.
+      const fp = FORMA_PAGO_SAT_LABEL[d.formaPago] || d.formaPago;
+      if (fp) partes.push(fp);
+    }
+
+    return `${accionLabel(a)}${partes.length ? ` — ${partes.join(" · ")}` : ""}`;
+  }
+  // Eventos de dominio (órdenes, sesión, facturación) ya traen un código
+  // propio y legible
   if (!VERBO[a]) return accionLabel(a);
 
   const clave = `${(row.metodo || "").toUpperCase()} ${rutaNorm(row.ruta)}`;
   for (const [rx, texto] of REGLAS_DESC) {
-    if (rx.test(clave)) return texto;
+    if (rx.test(clave)) return typeof texto === "function" ? texto(row) : texto;
   }
   // Genérico: verbo + recurso + los tramos de ruta que no son ids
   const extra = rutaNorm(row.ruta)

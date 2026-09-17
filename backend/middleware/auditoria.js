@@ -32,7 +32,10 @@ const METODOS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const RECURSOS_IGNORADOS = new Set(['auth', 'auditoria']);
 
 // Fragmentos de ruta = generación de documentos / side-effects sin interés.
-const RUTA_IGNORADA = /(^|\/)(pdf|xml|imprimir|print|preview|recibo-pdf|ticket-pdf|password-reveal|verify-admin-password)(\/|$|-)/i;
+// OJO: "xml" NO va aquí a propósito. La única ruta de todo el backend con
+// "xml" en el path es POST /generar-xml/xml — que SÍ genera una factura real
+// y debe auditarse; solo hay rutas de descarga en PDF, nunca en XML.
+const RUTA_IGNORADA = /(^|\/)(pdf|imprimir|print|preview|recibo-pdf|ticket-pdf|password-reveal|verify-admin-password)(\/|$|-)/i;
 
 // Claves de body/query que nunca deben quedar guardadas (credenciales, binarios
 // grandes...). Es coincidencia sobre el NOMBRE del campo; se ancla a inicio de
@@ -116,22 +119,97 @@ const RE_OBJECTID = /^[a-f\d]{24}$/i;
 const RE_FOLIO = /^(OS|OC|VS|CP|A|F)[-\d]/i;
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Cache corta _id de orden -> folio OS-... legible.
-const cacheFolios = new Map();
-async function folioVehiculo(id) {
-  if (!id) return '';
-  const clave = String(id);
-  const hit = cacheFolios.get(clave);
+// Lee "a.b.c" de un objeto sin tronar si algún nivel no existe.
+function getPath(obj, path) {
+  return path.split('.').reduce((o, k) => (o && typeof o === 'object' ? o[k] : undefined), obj);
+}
+
+// Campos "de nombre" preferidos por recurso, en orden. Se usan tanto para
+// convertir un _id de la URL en algo legible (resolverNombre, vía BD) como
+// para leer la etiqueta de un documento recién creado desde su propia
+// respuesta (extraerCreado, sin BD).
+const CAMPOS_ETIQUETA_POR_RECURSO = {
+  vehiculos: ['ordenServicio'],
+  garage: ['serie', 'placas'],
+  clientes: ['nombre', 'empresa.razonSocial'],
+  proveedores: ['nombreProveedor'],
+  users: ['name', 'username'],
+  empleados: ['nombre'],
+  grupos: ['nombre'],
+};
+const CAMPOS_ETIQUETA_GENERICO = ['ordenServicio', 'folio', 'nombre', 'serie', 'placas', 'razonSocial', 'nombreProveedor', 'name', 'username'];
+
+// Modelo Mongoose a consultar cuando el _id viene en la URL (edición/
+// eliminación) y hace falta ir a buscar el nombre/folio a la BD.
+const MODELO_POR_RECURSO = {
+  vehiculos: 'Vehiculo',
+  clientes: 'Cliente',
+  proveedores: 'Proveedor',
+  users: 'User',
+  empleados: 'Empleado',
+  grupos: 'Grupo',
+};
+
+function obtenerModelo(nombre) {
+  return mongoose.models[nombre] || require(`../models/${nombre}`);
+}
+
+// Cache corta `${recurso}:${id}` -> nombre/folio legible.
+const cacheNombres = new Map();
+async function resolverNombre(recurso, id) {
+  const modelo = MODELO_POR_RECURSO[recurso];
+  if (!modelo || !id) return '';
+  const clave = `${recurso}:${id}`;
+  const hit = cacheNombres.get(clave);
   if (hit && Date.now() - hit.t < CACHE_TTL) return hit.v;
   try {
-    const V = mongoose.models.Vehiculo || require('../models/Vehiculo');
-    const doc = await V.findById(id).select('ordenServicio').lean();
-    const v = (doc && doc.ordenServicio) || '';
-    cacheFolios.set(clave, { t: Date.now(), v });
+    const Modelo = obtenerModelo(modelo);
+    const campos = CAMPOS_ETIQUETA_POR_RECURSO[recurso] || [];
+    const select = campos.map((c) => c.split('.')[0]).join(' ');
+    const doc = await Modelo.findById(id).select(select).lean();
+    let v = '';
+    if (doc) {
+      for (const campo of campos) {
+        const val = getPath(doc, campo);
+        if (val && String(val).trim()) {
+          v = String(val).trim();
+          break;
+        }
+      }
+    }
+    cacheNombres.set(clave, { t: Date.now(), v });
     return v;
   } catch (_) {
     return '';
   }
+}
+
+// Cuando una creación no trae ningún id en la URL (POST /vehiculos, POST
+// /garage, ...), busca en el propio JSON de respuesta el documento creado:
+// el primer sub-objeto con un _id de Mongo válido, y de ahí su campo de
+// nombre. Nunca baja más de 2 niveles ni entra en arrays (listas, no un
+// documento creado) para no gastar de más en respuestas grandes.
+function extraerCreado(recurso, body, prof = 0) {
+  if (!body || typeof body !== 'object' || Array.isArray(body) || prof > 2) return null;
+  if (RE_OBJECTID.test(String(body._id || ''))) {
+    const campos = (CAMPOS_ETIQUETA_POR_RECURSO[recurso] || []).concat(CAMPOS_ETIQUETA_GENERICO);
+    let etiqueta = '';
+    for (const campo of campos) {
+      const val = getPath(body, campo);
+      if (val && typeof val === 'string' && val.trim()) {
+        etiqueta = val.trim();
+        break;
+      }
+    }
+    return { id: String(body._id), etiqueta };
+  }
+  for (const v of Object.values(body)) {
+    if (v && typeof v === 'object') {
+      const r = extraerCreado(recurso, v, prof + 1);
+      if (r) return r;
+    }
+  }
+  return null;
 }
 
 function derivarAccion(req) {
@@ -220,12 +298,23 @@ module.exports = function auditoria(req, res, next) {
       ua: String(req.headers['user-agent'] || '').slice(0, 200),
     };
 
-    // Captura el cuerpo de la respuesta SOLO si es un error, para guardar el
-    // mensaje. Se envuelven json() y send() sin cambiar su comportamiento.
+    // Captura el cuerpo de la respuesta: si es un error, el mensaje; si es una
+    // creación SIN id en la URL (POST /vehiculos, /garage, ...), el documento
+    // recién creado, para poder mostrar su folio/nombre en vez de "—". Se
+    // envuelven json() y send() sin cambiar su comportamiento.
     let cuerpoError = '';
+    let creadoDetectado = null;
+    const buscarCreado = !meta.referencia && meta.accion === 'CREAR';
     const _json = res.json.bind(res);
     res.json = (body) => {
       if (res.statusCode >= 400) cuerpoError = mensajeError(body);
+      else if (buscarCreado) {
+        try {
+          creadoDetectado = extraerCreado(meta.entidad, body);
+        } catch (_) {
+          /* no crítico: se queda sin referencia amigable */
+        }
+      }
       return _json(body);
     };
     const _send = res.send.bind(res);
@@ -247,15 +336,18 @@ module.exports = function auditoria(req, res, next) {
           role: meta.rolTok,
         });
 
-        // Para órdenes, mostrar el folio OS-... en lugar del _id hexadecimal.
+        // Referencia amigable en vez del _id hexadecimal:
+        //  1) Si el id venía en la URL (editar/eliminar) -> buscarlo en la BD.
+        //  2) Si no había id (crear) -> usar el documento recién creado que
+        //     se detectó en la propia respuesta (ver buscarCreado arriba).
         let referencia = meta.referencia;
-        if (
-          meta.entidadId &&
-          (meta.entidad === 'vehiculos' || meta.entidad === 'garage') &&
-          RE_OBJECTID.test(String(meta.referencia))
-        ) {
-          const folio = await folioVehiculo(meta.entidadId);
-          if (folio) referencia = folio;
+        let entidadIdFinal = meta.entidadId;
+        if (entidadIdFinal && MODELO_POR_RECURSO[meta.entidad] && RE_OBJECTID.test(String(referencia))) {
+          const nombre = await resolverNombre(meta.entidad, entidadIdFinal);
+          if (nombre) referencia = nombre;
+        } else if (!referencia && creadoDetectado) {
+          referencia = creadoDetectado.etiqueta || creadoDetectado.id;
+          entidadIdFinal = entidadIdFinal || creadoDetectado.id;
         }
 
         const detalle = {
@@ -271,7 +363,7 @@ module.exports = function auditoria(req, res, next) {
         await RegistroAccion.create({
           accion: meta.accion,
           entidad: meta.entidad,
-          entidadId: meta.entidadId || null,
+          entidadId: entidadIdFinal || null,
           referencia,
           usuario: u.name || u.username || meta.userTok || '',
           usuarioId: meta.usuarioId,

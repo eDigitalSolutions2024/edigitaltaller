@@ -109,4 +109,4 @@ function abreviaturaFormaPago(desc) {
   return forma;
 }
 
-module.exports = { abreviaturaFormaPago, ABREV_TERMINAL, abrevTerminal };
+module.exports = { abreviaturaFormaPago, ABREV_TERMINAL, abrevTerminal, joinMetodos };

@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 
 const Empleado = require('../models/Empleado'); // 👈 YA NO Usuario
+const User = require('../models/User');
 const { proteger, requiereRol } = require('../middleware/auth');
 
 /**
@@ -70,6 +71,63 @@ router.get('/', proteger, async (req, res) => {
     res
       .status(500)
       .json({ mensaje: 'Error al obtener los empleados', error: error.message });
+  }
+});
+
+/**
+ * Roster unificado de "personal": Empleados (con o sin usuario vinculado) +
+ * Usuarios que no tienen ficha de Empleado (alta "solo_usuario" desde
+ * Administración → Personal, ver frontend/src/pages/admin/Personal.jsx).
+ * Mismo criterio de merge que esa pantalla, pero accesible a cualquier rol
+ * autenticado (a diferencia de GET /api/users, que es admin-only) porque lo
+ * usa el botón "Empleados" de Nueva Orden de Servicio, al que entran asesores,
+ * cajas, mecánicos, etc. Debe ir ANTES de GET /:id para que "personal" no se
+ * interprete como un id.
+ * GET /api/empleados/personal  ?activo=false para incluir inactivos
+ */
+router.get('/personal', proteger, async (req, res) => {
+  try {
+    const soloActivos = req.query.activo !== 'false';
+
+    const [empleados, usuarios] = await Promise.all([
+      Empleado.find(soloActivos ? { activo: true } : {})
+        .populate('usuario', '_id name role isActive')
+        .sort({ nombre: 1 })
+        .lean(),
+      User.find(soloActivos ? { isActive: true } : {})
+        .select('_id name role isActive employee')
+        .lean(),
+    ]);
+
+    const usuarioIdsEnEmpleados = new Set(
+      empleados.filter((e) => e.usuario).map((e) => String(e.usuario._id))
+    );
+
+    const lista = empleados.map((emp) => ({
+      empleadoId: emp._id,
+      userId: emp.usuario?._id || null,
+      nombre: emp.nombre,
+      puesto: emp.puesto,
+      role: emp.usuario?.role || null,
+    }));
+
+    for (const u of usuarios) {
+      if (!u.employee && !usuarioIdsEnEmpleados.has(String(u._id))) {
+        lista.push({
+          empleadoId: null,
+          userId: u._id,
+          nombre: u.name,
+          puesto: null,
+          role: u.role,
+        });
+      }
+    }
+
+    lista.sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+    res.json(lista);
+  } catch (error) {
+    console.error('Error listando personal:', error);
+    res.status(500).json({ mensaje: 'Error al obtener el personal', error: error.message });
   }
 });
 

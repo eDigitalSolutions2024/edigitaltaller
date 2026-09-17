@@ -743,8 +743,10 @@ pendienteCierre: { type: Boolean, default: false },
         // Clasifica POR QUÉ se canceló (ver POST /:id/pagos/:pagoId/cancelar):
         // 'ERROR' = corrección de captura (solo admin, facturaId queda null);
         // 'PASA_A_FACTURA' = el anticipo/remisión pasa a una factura (existente
-        // o la que se está haciendo). null = pagos viejos o sin cancelar.
-        motivoCancelacionTipo: { type: String, enum: ['ERROR', 'PASA_A_FACTURA'], default: null },
+        // o la que se está haciendo); 'REEMPLAZADO' = la orden ya tenía una
+        // Remisión activa y se generó otro comprobante en su lugar (ver
+        // pasaAPagoId abajo, POST /:id/pagos). null = pagos viejos o sin cancelar.
+        motivoCancelacionTipo: { type: String, enum: ['ERROR', 'PASA_A_FACTURA', 'REEMPLAZADO'], default: null },
         // Valores previos a la cancelación, para poder restaurarlos al deshacer
         // (la cancelación pisa remision.tipo con 'Cancelada' y, en modo ERROR,
         // también pisa `notas` con el motivo).
@@ -754,6 +756,11 @@ pendienteCierre: { type: Boolean, default: false },
         // facturó la orden (ver generar_xml.js). Null cuando la cancelación
         // fue una corrección manual por error de captura (ver cajas.js).
         facturaId: { type: Schema.Types.ObjectId, ref: 'FacturaCfdi', default: null },
+        // Solo con motivoCancelacionTipo 'REEMPLAZADO': el _id del nuevo pago
+        // (dentro de este mismo `pagos[]`) que se generó en lugar de esta
+        // Remisión cancelada — para poder rastrear a qué Nota de Venta pasó y,
+        // si esa nota ya se facturó (facturaGlobalId/facturaId), a qué factura.
+        pasaAPagoId: { type: Schema.Types.ObjectId, default: null },
         // Factura Global (CFDI al público en general) que agrupó esta Nota de
         // Venta. Se marca al generar el CFDI global (ver generar_xml.js) para
         // que la misma nota no entre en dos facturas globales; se limpiaría al

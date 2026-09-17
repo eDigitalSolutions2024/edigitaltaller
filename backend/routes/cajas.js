@@ -468,6 +468,11 @@ router.post('/:id/pagos', proteger, async (req, res) => {
     }
     clienteParaRevertirSaldo = ordenExistente.cliente;
 
+    // Id pre-generado del pago: se necesita desde aquí (antes del $push) para
+    // poder ligar a él tanto el saldo aplicado (más abajo) como, si aplica, la
+    // Remisión activa que se cancela a continuación (pagos.$.pasaAPagoId).
+    const pagoId = new mongoose.Types.ObjectId();
+
     // Una orden solo puede tener UNA Remisión activa. Si ya la tiene y se va a
     // generar otro comprobante (Nota de Venta / Remisión), esa remisión se
     // cancela en el mismo paso — el comprobante quedó equivocado — siempre con
@@ -485,7 +490,11 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       }
 
       // Reversa económica de la remisión, igual que POST /:id/pagos/:pagoId/cancelar
-      // en modo ERROR (corrección de captura: facturaId null, se pisa `notas`).
+      // en modo ERROR (corrección de captura, facturaId null), pero se marca
+      // 'REEMPLAZADO' con pasaAPagoId apuntando al nuevo comprobante (pagoId,
+      // ya generado arriba): así se puede rastrear a qué Nota de Venta pasó y,
+      // si esa nota ya se facturó, a qué factura (ver badgeCancelacion en el
+      // frontend).
       const datosTermRem = datosMovimientosTerminal(remisionActiva);
       const updRem = await Vehiculo.updateOne(
         { _id: req.params.id, pagos: { $elemMatch: { _id: remisionActiva._id, cancelado: { $ne: true } } } },
@@ -495,10 +504,11 @@ router.post('/:id/pagos', proteger, async (req, res) => {
             'pagos.$.canceladoEn': new Date(),
             'pagos.$.canceladoPor': req.user?.name || req.user?.username || '',
             'pagos.$.motivoCancelacion': motivoRem,
-            'pagos.$.motivoCancelacionTipo': 'ERROR',
+            'pagos.$.motivoCancelacionTipo': 'REEMPLAZADO',
             'pagos.$.notasAntesCancelar': remisionActiva.notas || '',
             'pagos.$.notas': motivoRem,
             'pagos.$.facturaId': null,
+            'pagos.$.pasaAPagoId': pagoId,
             'pagos.$.remisionTipoAntesCancelar': remisionActiva.remision?.tipo || 'Contado',
             'pagos.$.remision.tipo': 'Cancelada',
           },
@@ -614,11 +624,6 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       }
       if (!esHoy) fechaPago = f;
     }
-
-    // Id pre-generado del pago: si se aplica saldo, el movimiento del ledger
-    // (AnticipoCliente) necesita poder ligarse a este pago desde antes de que
-    // exista en Vehiculo.pagos (el $push todavía no se ejecuta en este punto).
-    const pagoId = new mongoose.Types.ObjectId();
 
     const pago = {
       _id: pagoId,
@@ -1124,6 +1129,7 @@ router.post('/:id/pagos/:pagoId/deshacer-cancelacion', proteger, requiereRol('ad
       'pagos.$.motivoCancelacion': '',
       'pagos.$.motivoCancelacionTipo': null,
       'pagos.$.facturaId': null,
+      'pagos.$.pasaAPagoId': null,
       'pagos.$.notas': pago.notasAntesCancelar || pago.notas || '',
       'pagos.$.notasAntesCancelar': '',
     };

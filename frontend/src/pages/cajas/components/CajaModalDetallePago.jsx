@@ -43,6 +43,9 @@ const FORMA_PAGO_LABELS = {
 const MOTIVO_CANCELACION_LABELS = {
   ERROR: "Corrección de captura (error)",
   PASA_A_FACTURA: "Pasó a factura",
+  // Detalle completo (a qué Nota de Venta/factura pasó) se ve en el badge de
+  // la tabla del Historial, que sí tiene los datos de los demás pagos.
+  REEMPLAZADO: "Se generó otro comprobante en su lugar",
 };
 
 // El sub-objeto con la forma de pago depende del comprobante; una Remisión no

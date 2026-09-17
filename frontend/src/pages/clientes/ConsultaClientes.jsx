@@ -22,6 +22,9 @@ export default function ConsultaClientes() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [err, setErr] = useState("");
+  // Deja ver clientes inactivos para poder encontrarlos y reactivarlos desde
+  // Editar Cliente (ver ⚙ Configuración en AltaCliente.jsx).
+  const [mostrarInactivos, setMostrarInactivos] = useState(false);
   const limit = 10;
 
   const navigate = useNavigate();                        // 👈 NUEVO
@@ -30,7 +33,8 @@ export default function ConsultaClientes() {
     async (p = 1) => {
       try {
         setErr("");
-        const res = await listCustomers({ q, page: p, limit });
+        const estado = mostrarInactivos ? "inactivos" : "activos";
+        const res = await listCustomers({ q, page: p, limit, estado });
         setRows(res.data.data || []);
         setTotal(res.data.total || 0);
         setPage(res.data.page || 1);
@@ -46,8 +50,8 @@ export default function ConsultaClientes() {
         setPage(1);
       }
     },
-    [q]
-  ); // dependemos de q para que el botón “Buscar” use el último valor
+    [q, mostrarInactivos]
+  ); // dependemos de q/mostrarInactivos para que el botón “Buscar” y el toggle usen el último valor
 
   useEffect(() => {
     fetchData(1);
@@ -81,6 +85,18 @@ export default function ConsultaClientes() {
         <button className="btn btn-light" onClick={() => fetchData(1)}>
           Buscar
         </button>
+        <div className="form-check ms-3 d-flex align-items-center">
+          <input
+            type="checkbox"
+            className="form-check-input"
+            id="chkMostrarInactivos"
+            checked={mostrarInactivos}
+            onChange={(e) => setMostrarInactivos(e.target.checked)}
+          />
+          <label className="form-check-label ms-1 mb-0" htmlFor="chkMostrarInactivos">
+            Mostrar inactivos
+          </label>
+        </div>
       </div>
 
       {err && (
@@ -126,6 +142,12 @@ export default function ConsultaClientes() {
               )}
               {c.lineaNegocio === "CHIREY" && (
                 <span className="badge bg-info text-dark ms-1">Chirey</span>
+              )}
+              {c.esEmpleado && (
+                <span className="badge bg-secondary ms-1">Empleado</span>
+              )}
+              {c.activo === false && (
+                <span className="badge bg-danger ms-1">Inactivo</span>
               )}
             </div>
             <div>
