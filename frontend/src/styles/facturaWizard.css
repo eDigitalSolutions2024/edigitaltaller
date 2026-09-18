@@ -225,3 +225,114 @@
 .fw-bubble b {
   color: #7a3a06;
 }
+
+/* ---- Cobro en Cajas (paso Comprobante): captura del pago de las órdenes que
+   no traen ningún comprobante. Panel cálido con acento naranja a la izquierda,
+   una tarjeta por orden y "chips" de estado en vez de badges de Bootstrap. ---- */
+.fw-cobro {
+  padding: 12px 14px;
+  background: #fffaf3;
+  border: 1px solid var(--fw-orange-border);
+  border-left: 4px solid var(--fw-orange);
+  border-radius: 10px;
+}
+.fw-cobro__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 10px;
+}
+.fw-cobro__title {
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--fw-orange-ink);
+}
+.fw-cobro__sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #8a6d4b;
+}
+.fw-cobro__switch {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fw-orange-ink);
+  white-space: nowrap;
+}
+.fw-cobro__switch .form-check-input {
+  cursor: pointer;
+}
+.fw-cobro__switch .form-check-input:checked {
+  background-color: var(--fw-orange);
+  border-color: var(--fw-orange);
+}
+.fw-cobro__orden {
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid var(--fw-line);
+  border-radius: 10px;
+}
+.fw-cobro__orden + .fw-cobro__orden {
+  margin-top: 8px;
+}
+.fw-cobro__orden.is-ok {
+  border-color: #8fd19e;
+}
+.fw-cobro__orden-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+}
+.fw-cobro__folio {
+  font-weight: 700;
+  color: var(--fw-ink);
+}
+.fw-cobro__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fw-cobro__monto {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--fw-ink);
+}
+.fw-chip {
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.fw-chip--forma {
+  color: var(--fw-orange-ink);
+  background: var(--fw-orange-bg);
+  border: 1px solid var(--fw-orange-border);
+}
+.fw-chip--pend {
+  color: #6c757d;
+  background: #f1f3f5;
+}
+.fw-chip--ok {
+  color: #1e7a34;
+  background: #e3f5e8;
+}
+/* Aviso de una línea (Por definir / forma sin equivalente en Cajas). */
+.fw-cobro--nota {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #495057;
+  background: #f7f5f8;
+  border: 1px dashed #ced4da;
+  border-radius: 10px;
+}

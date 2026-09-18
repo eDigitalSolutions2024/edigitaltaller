@@ -308,7 +308,6 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       observaciones = '',
       notas = '',
       banco = '',
-      tipoNota: tipoNotaRaw = 'Contado',
       tipoRemision: tipoRemisionRaw = 'Contado',
       formaPago = 'EFECTIVO',
       chequeNumero = '',
@@ -342,7 +341,6 @@ router.post('/:id/pagos', proteger, async (req, res) => {
     // 'Cancelada' NO es un tipo de alta válido: es un ESTADO que solo fija el
     // flujo de cancelación (POST /:id/pagos/:pagoId/cancelar / generar_xml.js).
     // Si llega desde un cliente viejo se trata como 'Contado'.
-    const tipoNota = tipoNotaRaw === 'Cancelada' ? 'Contado' : tipoNotaRaw;
     const tipoRemision = tipoRemisionRaw === 'Cancelada' ? 'Contado' : tipoRemisionRaw;
 
     const TERMINALES_TARJETA = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
@@ -490,7 +488,8 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       }
 
       // Reversa económica de la remisión, igual que POST /:id/pagos/:pagoId/cancelar
-      // en modo ERROR (corrección de captura, facturaId null), pero se marca
+      // (facturaId null; el motivo queda solo en motivoCancelacion, NO se pisa
+      // `notas`: el motivo es interno y no debe salir en los reportes), pero se marca
       // 'REEMPLAZADO' con pasaAPagoId apuntando al nuevo comprobante (pagoId,
       // ya generado arriba): así se puede rastrear a qué Nota de Venta pasó y,
       // si esa nota ya se facturó, a qué factura (ver badgeCancelacion en el
@@ -506,7 +505,6 @@ router.post('/:id/pagos', proteger, async (req, res) => {
             'pagos.$.motivoCancelacion': motivoRem,
             'pagos.$.motivoCancelacionTipo': 'REEMPLAZADO',
             'pagos.$.notasAntesCancelar': remisionActiva.notas || '',
-            'pagos.$.notas': motivoRem,
             'pagos.$.facturaId': null,
             'pagos.$.pasaAPagoId': pagoId,
             'pagos.$.remisionTipoAntesCancelar': remisionActiva.remision?.tipo || 'Contado',
@@ -763,7 +761,9 @@ router.post('/:id/pagos', proteger, async (req, res) => {
         // Ver bancoNotaVenta(): terminal si fue tarjeta, método si no, '' si combinado.
         banco: bancoNotaVenta(formaPago, terminalLegacyDeTarjetas(tarjetasSimpleLimpias) || terminal),
         chequeNumero: (formaPago === 'CHEQUE' || combinadoNota?.cheque > 0) ? chequeNumero : '',
-        tipo: tipoNota,
+        // Una Nota de Venta siempre es de Contado (no existe a crédito): el tipo ya
+        // no se elige, se ignora lo que mande un cliente viejo.
+        tipo: 'Contado',
         tipoTransferencia: formaPago === 'TRANSFERENCIA' ? tipoTransferencia : '',
         bancoTransferencia: formaPago === 'TRANSFERENCIA' ? bancoTransferencia : '',
         tarjetas: tarjetasSimpleLimpias,
@@ -843,7 +843,7 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       pago.reciboDolares = { numero: contadorDolares.valor };
     }
 
-    const vehiculo = await Vehiculo.findByIdAndUpdate(
+    let vehiculo = await Vehiculo.findByIdAndUpdate(
       req.params.id,
       { $push: { pagos: pago } },
       { new: true }
@@ -851,6 +851,33 @@ router.post('/:id/pagos', proteger, async (req, res) => {
     if (!vehiculo) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
 
     await sincronizarFechaPagadaRemisiones(vehiculo, pago.fecha);
+
+    // Si antes se canceló a mano una Remisión de esta orden para convertirla en
+    // Nota de Venta (modo CONVIERTE_A_NOTA_VENTA de la cancelación), esta Nota
+    // es la que la sustituye: se liga para poder rastrear a qué factura terminó.
+    if (comprobante === 'NOTA_VENTA') {
+      try {
+        const link = await Vehiculo.updateOne(
+          { _id: req.params.id },
+          { $set: { 'pagos.$[pendiente].pasaAPagoId': pagoId } },
+          {
+            arrayFilters: [
+              {
+                'pendiente.comprobante': 'REMISION',
+                'pendiente.cancelado': true,
+                'pendiente.motivoCancelacionTipo': 'REEMPLAZADO',
+                'pendiente.pasaAPagoId': null,
+              },
+            ],
+          }
+        );
+        if (link.modifiedCount) {
+          vehiculo = await Vehiculo.findById(req.params.id).populate('cliente', POPULATE_CLIENTE);
+        }
+      } catch (errLink) {
+        console.error('Error ligando la remisión cancelada con su Nota de Venta:', errLink);
+      }
+    }
 
     // Nota de Venta con forma de pago SIMPLE con tarjeta: cada tarjeta usada
     // (1+, ver tarjetasSimpleLimpias) suma su monto a su propia terminal en el
@@ -925,11 +952,17 @@ router.post('/:id/pagos', proteger, async (req, res) => {
 // POST /api/cajas/:id/pagos/:pagoId/cancelar -> cancela un pago ya registrado.
 // `modo`:
 //  - 'ERROR' (default, SOLO admin): corrección de captura. facturaId queda
-//    null, se pisa `notas` con el motivo. Comportamiento histórico.
+//    null. El motivo se guarda en motivoCancelacion (interno): `notas` no se
+//    toca, para que el motivo no salga en los reportes.
 //  - 'PASA_A_FACTURA_EXISTENTE' (admin o cajas, sin ticket de Soporte de por
 //    medio): solo anticipo (Nota de Venta o Recibo Provisional) o remisión.
 //    Se liga a una FacturaCfdi YA generada (pago.facturaId); NO pisa
 //    `notas` (el Reporte de Facturas conserva la referencia original).
+//  - 'CONVIERTE_A_NOTA_VENTA' (admin o cajas): solo remisión. El cliente ya
+//    no quiso facturar y se va a generar una Nota de Venta en su lugar: NO es
+//    un error de captura. Queda 'REEMPLAZADO' con pasaAPagoId pendiente; en
+//    cuanto se registre la Nota de Venta de la orden (POST /:id/pagos) se
+//    liga sola a la remisión cancelada.
 // Desde Cajas NO se puede cancelar hacia una factura que aún no existe: para
 // eso se usa la pantalla de Facturar (elección por comprobante), que cancela
 // y liga al generar la factura.
@@ -939,10 +972,11 @@ router.post('/:id/pagos', proteger, async (req, res) => {
 router.post('/:id/pagos/:pagoId/cancelar', proteger, requiereRol('admin', 'cajas'), async (req, res) => {
   try {
     const { modo = 'ERROR', motivo = '', facturaId = '' } = req.body || {};
-    if (!['ERROR', 'PASA_A_FACTURA_EXISTENTE'].includes(modo)) {
+    if (!['ERROR', 'PASA_A_FACTURA_EXISTENTE', 'CONVIERTE_A_NOTA_VENTA'].includes(modo)) {
       return res.status(400).json({ ok: false, msg: 'Modo de cancelación inválido.' });
     }
     const esModoError = modo === 'ERROR';
+    const esConversion = modo === 'CONVIERTE_A_NOTA_VENTA';
     const esAdmin = req.user?.role === 'admin';
     if (esModoError && !esAdmin) {
       return res.status(403).json({ ok: false, msg: 'Solo un administrador puede cancelar por error.' });
@@ -964,11 +998,14 @@ router.post('/:id/pagos/:pagoId/cancelar', proteger, requiereRol('admin', 'cajas
     // Los modos "pasa a factura" solo aplican a lo que el Reporte de Facturas
     // cruza con FacturaCfdi (anticipo Nota de Venta o remisión). Un anticipo con
     // Recibo Provisional solo se puede cancelar por error.
-    if (!esModoError && !puedePasarAFactura(pago)) {
+    if (modo === 'PASA_A_FACTURA_EXISTENTE' && !puedePasarAFactura(pago)) {
       return res.status(400).json({
         ok: false,
         msg: 'Solo un anticipo (Nota de Venta) o una remisión pueden pasar a una factura.',
       });
+    }
+    if (esConversion && pago.comprobante !== 'REMISION') {
+      return res.status(400).json({ ok: false, msg: 'Solo una remisión se puede convertir a Nota de Venta.' });
     }
 
     // Modo EXISTENTE: resolver y validar la factura destino.
@@ -1009,6 +1046,8 @@ router.post('/:id/pagos/:pagoId/cancelar', proteger, requiereRol('admin', 'cajas
     const folioFactura = facturaDestino ? `${facturaDestino.serie || ''}${facturaDestino.folio || ''}` : '';
     const motivoGuardado = esModoError
       ? motivoFinal
+      : esConversion
+      ? motivoFinal || 'El cliente ya no quiso facturar; se genera Nota de Venta'
       : `Se cancela ${esRemision ? 'remisión' : 'anticipo'} y pasa a factura ${folioFactura}`;
 
     const set = {
@@ -1016,13 +1055,16 @@ router.post('/:id/pagos/:pagoId/cancelar', proteger, requiereRol('admin', 'cajas
       'pagos.$.canceladoEn': new Date(),
       'pagos.$.canceladoPor': req.user?.name || req.user?.username || '',
       'pagos.$.motivoCancelacion': motivoGuardado,
-      'pagos.$.motivoCancelacionTipo': esModoError ? 'ERROR' : 'PASA_A_FACTURA',
+      'pagos.$.motivoCancelacionTipo': esModoError ? 'ERROR' : esConversion ? 'REEMPLAZADO' : 'PASA_A_FACTURA',
       'pagos.$.notasAntesCancelar': pago.notas || '',
-      'pagos.$.facturaId': esModoError ? null : facturaDestino._id,
+      'pagos.$.facturaId': esModoError || esConversion ? null : facturaDestino._id,
     };
-    // El modo ERROR pisa `notas` con el motivo (como hoy); los de factura NO,
-    // para conservar la referencia original del cobro en el Reporte de Facturas.
-    if (esModoError) set['pagos.$.notas'] = motivoFinal;
+    // La Nota de Venta que la sustituye todavía no existe: pasaAPagoId se
+    // completa cuando se registre (ver POST /:id/pagos).
+    if (esConversion) set['pagos.$.pasaAPagoId'] = null;
+    // Ningún modo pisa `notas` con el motivo: el motivo es solo interno
+    // (motivoCancelacion) y `notas` es lo que muestran los reportes, que
+    // conservan la referencia original del cobro.
     if (esRemision) {
       set['pagos.$.remisionTipoAntesCancelar'] = pago.remision?.tipo || 'Contado';
       set['pagos.$.remision.tipo'] = 'Cancelada';

@@ -748,8 +748,10 @@ pendienteCierre: { type: Boolean, default: false },
         // pasaAPagoId abajo, POST /:id/pagos). null = pagos viejos o sin cancelar.
         motivoCancelacionTipo: { type: String, enum: ['ERROR', 'PASA_A_FACTURA', 'REEMPLAZADO'], default: null },
         // Valores previos a la cancelación, para poder restaurarlos al deshacer
-        // (la cancelación pisa remision.tipo con 'Cancelada' y, en modo ERROR,
-        // también pisa `notas` con el motivo).
+        // (la cancelación pisa remision.tipo con 'Cancelada'). El motivo NO se
+        // guarda en `notas` (eso es lo que salen en los reportes): vive solo en
+        // motivoCancelacion. Cancelaciones viejas sí pisaron `notas` con el
+        // motivo; los reportes leen notasAntesCancelar en esos casos.
         remisionTipoAntesCancelar: { type: String, default: '' },
         notasAntesCancelar: { type: String, default: '' },
         // Factura a la que pasó este pago cuando se cancela porque se
