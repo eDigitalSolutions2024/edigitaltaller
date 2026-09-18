@@ -579,20 +579,27 @@ router.get('/ordenes', proteger, async (req, res) => {
     // Global vigente, no debe ni aparecer en los resultados, para no dejar que
     // el usuario la elija y se tope con el rechazo hasta el paso final (ver
     // también la validación dura en POST /api/generar-xml/xml).
+    // motivosExcluidas: vehiculoId -> por qué no se lista, para poder decírselo al
+    // usuario cuando busca una orden que sí está cerrada pero no aparece.
+    const motivosExcluidas = new Map();
     if (excluirFacturadas === 'true') {
       const facturadas = await FacturaCfdi.find({ tipoFactura: 'factura', estatus: 'generada' })
-        .select('orden.vehiculoId ordenes.vehiculoId')
+        .select('serie folio orden.vehiculoId ordenes.vehiculoId')
         .lean();
-      const vehiculoIdsFacturados = new Set();
       for (const f of facturadas) {
-        if (f.orden?.vehiculoId) vehiculoIdsFacturados.add(String(f.orden.vehiculoId));
+        const motivo = `ya tiene la factura ${f.serie || ''}${f.folio || ''}`.trim();
+        if (f.orden?.vehiculoId) motivosExcluidas.set(String(f.orden.vehiculoId), motivo);
         for (const o of f.ordenes || []) {
-          if (o.vehiculoId) vehiculoIdsFacturados.add(String(o.vehiculoId));
+          if (o.vehiculoId) motivosExcluidas.set(String(o.vehiculoId), motivo);
         }
       }
-      for (const vid of (await ordenesEnFacturaGlobal()).keys()) vehiculoIdsFacturados.add(vid);
-      if (vehiculoIdsFacturados.size) {
-        q._id = { $nin: [...vehiculoIdsFacturados] };
+      for (const [vid, folioGlobal] of await ordenesEnFacturaGlobal()) {
+        if (!motivosExcluidas.has(vid)) {
+          motivosExcluidas.set(vid, `su nota de venta ya está en la factura global ${folioGlobal}`);
+        }
+      }
+      if (motivosExcluidas.size) {
+        q._id = { $nin: [...motivosExcluidas.keys()] };
       }
     }
 
@@ -736,12 +743,28 @@ router.get('/ordenes', proteger, async (req, res) => {
       Vehiculo.countDocuments(q),
     ]);
 
+    // Búsqueda de Nueva Factura sin resultados: si es porque las órdenes que
+    // coinciden se excluyeron por estar ya facturadas, se avisa cuáles y por qué
+    // (en vez de solo "sin órdenes", que parece que la orden no existe).
+    let excluidas = [];
+    if (data.length === 0 && motivosExcluidas.size) {
+      const halladas = await Vehiculo.find({ ...q, _id: { $in: [...motivosExcluidas.keys()] } })
+        .limit(5)
+        .select('ordenServicio')
+        .lean();
+      excluidas = halladas.map((v) => ({
+        ordenServicio: v.ordenServicio,
+        motivo: motivosExcluidas.get(String(v._id)),
+      }));
+    }
+
     return res.json({
       ok: true,
       data,
       total,
       page: pageNum,
       limit: limitNum,
+      ...(excluidas.length ? { excluidas } : {}),
     });
   } catch (err) {
     console.error('Error listando ordenes:', err);
