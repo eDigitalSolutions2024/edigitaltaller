@@ -481,6 +481,9 @@ export default function NuevaFactura() {
   const [qOrden, setQOrden] = useState("");
   const [loadingOrden, setLoadingOrden] = useState(false);
   const [optsOrdenes, setOptsOrdenes] = useState([]);
+  // Órdenes cerradas que coinciden con la búsqueda pero no se listan porque ya
+  // están facturadas: [{ ordenServicio, motivo }] (lo manda el backend).
+  const [ordenesExcluidas, setOrdenesExcluidas] = useState([]);
   const [showOrdenes, setShowOrdenes] = useState(false);
   const [ordenes, setOrdenes] = useState([]);
   const [cliente, setCliente] = useState(null);
@@ -840,6 +843,7 @@ export default function NuevaFactura() {
 
       if (term.length < 2) {
         setOptsOrdenes([]);
+        setOrdenesExcluidas([]);
         setShowOrdenes(false);
         return;
       }
@@ -860,9 +864,11 @@ export default function NuevaFactura() {
         });
         const yaAgregadas = new Set(ordenes.map((o) => o._id));
         setOptsOrdenes((res.data?.data || []).filter((o) => !yaAgregadas.has(o._id)));
+        setOrdenesExcluidas(res.data?.excluidas || []);
         setShowOrdenes(true);
       } catch (e) {
         setOptsOrdenes([]);
+        setOrdenesExcluidas([]);
       } finally {
         setLoadingOrden(false);
       }
@@ -2623,7 +2629,14 @@ export default function NuevaFactura() {
                     {loadingOrden && <div className="list-group-item">Buscando…</div>}
 
                     {!loadingOrden && optsOrdenes.length === 0 && (
-                      <div className="list-group-item">Sin órdenes cerradas para esa búsqueda</div>
+                      <div className="list-group-item">
+                        Sin órdenes cerradas para esa búsqueda
+                        {ordenesExcluidas.map((x) => (
+                          <div key={x.ordenServicio} className="small text-muted mt-1">
+                            <b>{x.ordenServicio}</b> no se lista: {x.motivo}.
+                          </div>
+                        ))}
+                      </div>
                     )}
 
                     {!loadingOrden &&
@@ -2849,7 +2862,6 @@ export default function NuevaFactura() {
                   <input
                     className="form-control"
                     value={nombreFacturacion}
-                    disabled={disabledSteps}
                     onChange={(e) => setNombreFacturacion(e.target.value)}
                   />
                   {facturaConNombreDistinto && (
