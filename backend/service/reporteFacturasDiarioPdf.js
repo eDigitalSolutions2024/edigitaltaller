@@ -70,8 +70,8 @@ function fila(r, folioDefault) {
   return `
     <tr class="body-style">
       <td class="cen">${esc(r.folio ?? folioDefault ?? '').replace(/\n/g, '<br>')}</td>
-      <td class="cen">${esc(r.ordenServicio)}</td>
-      <td class="cliente">${esc(r.cliente)}</td>
+      <td class="cen">${esc(r.ordenServicio).replace(/\n/g, '<br>')}</td>
+      <td class="cliente">${esc(r.cliente).replace(/\n/g, '<br>')}</td>
       <td class="num">${fmtCelda(r.ventaDia)}</td>
       <td class="num">${fmtCelda(r.ingresoContado)}</td>
       <td class="num">${fmtCelda(r.ingresoCredito)}</td>

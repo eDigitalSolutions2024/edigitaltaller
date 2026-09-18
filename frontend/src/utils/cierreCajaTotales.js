@@ -29,7 +29,8 @@ export function calcularTotalesCierre(cierre) {
   const totalTerminales = TERMINALES.reduce((s, t) => s + (Number(terminales[t.key]) || 0), 0);
   const totalDolares = (Number(cierre.dolares?.cantidad) || 0) * (Number(cierre.dolares?.tipoCambio) || 0);
   const totalVales = (cierre.vales || []).reduce((s, v) => s + (Number(v.monto) || 0), 0);
-  const totalCobrado = totalBilletes + totalMonedas + totalTerminales + totalDolares;
+  // Los vales de salida (dinero que ya salió de la caja) suman al Total Cobrado.
+  const totalCobrado = totalBilletes + totalMonedas + totalTerminales + totalDolares + totalVales;
   const totalReportes = Number(cierre.totalReportes) || 0;
   const fondoCaja = Number(cierre.fondoCaja) || 0;
   const diferencia = totalCobrado - totalReportes - fondoCaja;

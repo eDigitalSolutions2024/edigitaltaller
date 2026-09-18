@@ -30,7 +30,8 @@ const TIPOS_TRANSFERENCIA = [
   { value: "SPEI", label: "SPEI" },
   { value: "TEF", label: "TEF" },
 ];
-// Tipo de Nota de Venta / Remisión al registrar el cobro. "Cancelada" NO se
+// Tipo de Remisión al registrar el cobro (la Nota de Venta siempre es de
+// Contado: no existe una Nota de Venta a crédito). "Cancelada" NO se
 // ofrece aquí: no es una opción de alta, es un ESTADO que fija el flujo de
 // cancelación (cancelar el comprobante desde Cajas o al facturar). Elegirlo al
 // registrar no cancelaba nada — solo dejaba una etiqueta engañosa.
@@ -102,9 +103,6 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   const [comprobante, setComprobante] = useState("");
   const [comprobanteInvalido, setComprobanteInvalido] = useState(false);
 
-  // Datos de Nota de Venta (solo si comprobante === NOTA_VENTA)
-  const [tipoNota, setTipoNota] = useState("Contado");
-
   // Datos de Remisión (solo si comprobante === REMISION). La Fecha de Pagada
   // no se captura aquí: la marca el backend cuando la orden se queda sin saldo
   // pendiente (ver POST /api/cajas/:id/pagos).
@@ -126,19 +124,15 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   // Desglose por método cuando formaPago === "COMBINADO"; su suma reemplaza
   // a montoPesos (ver efecto más abajo).
   const [montosCombinado, setMontosCombinado] = useState(MONTOS_COMBINADO_INICIAL);
-  // Terminal con la que se cobró el T. Crédito/T. Débito del combinado,
-  // cuando se cobró con UNA sola tarjeta (modo simple). En cuanto se agrega
-  // una tarjeta (ver tarjetasCombinado) este campo deja de usarse.
-  const [terminalCombinado, setTerminalCombinado] = useState("");
   // Desglose de un pago SIMPLE con tarjeta (formaPago CREDITO/DEBITO) dividido
   // en 1+ tarjetas físicas: cada una con su monto y terminal. Con una sola
   // fila (el caso común) el monto no se captura aquí: se toma de "Cantidad en
   // Pesos" (ver el efecto de sincronización más abajo). Obligatoria la
   // terminal de cada una para que el Cierre de Caja cuadre.
   const [tarjetasSimple, setTarjetasSimple] = useState([{ monto: "", terminal: "" }]);
-  // Desglose de la parte de tarjeta (T. Crédito + T. Débito) de un pago
-  // Combinado cuando se cobró con más de una tarjeta: [{tipo, monto, terminal}].
-  // Vacío = modo simple, una sola terminal en `terminalCombinado`.
+  // Tarjetas del pago Combinado: [{tipo, monto, terminal}]. Es la única
+  // fuente de T. Crédito / T. Débito: esos dos totales no se capturan, son la
+  // suma de las tarjetas de cada tipo (ver efecto de sincronización abajo).
   const [tarjetasCombinado, setTarjetasCombinado] = useState([]);
   // Tipo (SPEI/TEF) y banco de un pago SIMPLE por transferencia.
   const [tipoTransferencia, setTipoTransferencia] = useState("");
@@ -253,6 +247,24 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setMontoDolares(totalDolares > 0 ? String(totalDolares) : "");
   }, [formaPago, montosCombinado]);
 
+  // Con forma de pago Combinado, T. Crédito y T. Débito no se capturan a mano:
+  // son la suma de las tarjetas del desglose, por tipo. Redondeado a centavos
+  // para que la suma cuadre exacto con lo que valida el backend.
+  useEffect(() => {
+    if (formaPago !== "COMBINADO") return;
+    const suma = (tipo) =>
+      Math.round(
+        tarjetasCombinado.filter((t) => t.tipo === tipo).reduce((acc, t) => acc + (Number(t.monto) || 0), 0) * 100
+      ) / 100;
+    const credito = suma("CREDITO");
+    const debito = suma("DEBITO");
+    setMontosCombinado((prev) => {
+      const c = credito > 0 ? String(credito) : "";
+      const d = debito > 0 ? String(debito) : "";
+      return prev.CREDITO === c && prev.DEBITO === d ? prev : { ...prev, CREDITO: c, DEBITO: d };
+    });
+  }, [formaPago, tarjetasCombinado]);
+
   // Con forma de pago CREDITO/DEBITO dividida en más de una tarjeta, "Cantidad
   // en Pesos" deja de capturarse a mano: es la suma de lo que se capturó en
   // cada tarjeta (ver bloqueFormaPago, que deshabilita el campo en ese caso).
@@ -328,11 +340,12 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   useEffect(() => {
     if (estatusValeEditado) return;
     if (comprobante !== "NOTA_VENTA" && comprobante !== "REMISION") return;
-    const tipoComprobante = comprobante === "REMISION" ? tipoRemision : tipoNota;
+    // La Nota de Venta siempre es de Contado; solo la Remisión puede ser a Crédito.
+    const tipoComprobante = comprobante === "REMISION" ? tipoRemision : "Contado";
     if (tipoComprobante === "Contado" || tipoComprobante === "Credito") {
       setEstatusVale(tipoComprobante);
     }
-  }, [comprobante, tipoNota, tipoRemision, estatusValeEditado]);
+  }, [comprobante, tipoRemision, estatusValeEditado]);
 
   // Reinicia el formulario cada vez que se abre el modal.
   useEffect(() => {
@@ -345,7 +358,6 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setComprobante("");
     setTipoPagoInvalido(false);
     setComprobanteInvalido(false);
-    setTipoNota("Contado");
     setTipoRemision("Contado");
     setFechaComprobante(hoyISO());
     setCancelarRemisionMotivo("");
@@ -353,7 +365,6 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     setFormaPago("EFECTIVO");
     setChequeNumero("");
     setMontosCombinado(MONTOS_COMBINADO_INICIAL);
-    setTerminalCombinado("");
     setTarjetasSimple([{ monto: "", terminal: "" }]);
     setTarjetasCombinado([]);
     setTipoTransferencia("");
@@ -560,6 +571,15 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
       : 0;
   const totalAplicado = cambio > 0 ? saldoValido : totalConSaldo;
 
+  // Lo que aún falta para cubrir el saldo pendiente con lo capturado hasta
+  // ahora (solo informativo, se muestra bajo el Total Recibido). "Liquidar"
+  // ya tiene su propio aviso bloqueante (faltanteLiquidar); un Anticipo no se
+  // abona a la orden y una Remisión a Crédito no recibe dinero.
+  const faltantePago =
+    ["COMPLETO", "ABONO"].includes(tipoPago) && !esRemisionCredito && saldoValido !== undefined
+      ? Math.max(0, saldoValido - totalConSaldo)
+      : 0;
+
   // Un Anticipo no se abona a la orden: su dinero se registra como saldo a
   // favor del cliente (con su forma de pago), y la orden se cobra de ese saldo
   // cuando ya tenga servicios/precio.
@@ -632,7 +652,6 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
       debito: Number(montosCombinado.DEBITO) || 0,
       cheque: Number(montosCombinado.CHEQUE) || 0,
       transferencia: Number(montosCombinado.TRANSFERENCIA) || 0,
-      banco: terminalCombinado,
       transferenciaTipo: transferenciaTipoCombinado,
       transferenciaBanco: transferenciaBancoCombinado,
       tarjetasCredito: tarjetasCombinado
@@ -761,30 +780,13 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
         setError("Selecciona el tipo de transferencia (SPEI o TEF) y el banco.");
         return false;
       }
-      if (usaFormaPago && formaPago === "COMBINADO") {
-        const totalCredito = Number(montosCombinado.CREDITO) || 0;
-        const totalDebito = Number(montosCombinado.DEBITO) || 0;
-        if (totalCredito > 0 || totalDebito > 0) {
-          if (tarjetasCombinado.length > 0) {
-            if (tarjetasCombinado.some((t) => !t.terminal || !(Number(t.monto) > 0))) {
-              setError("Captura el monto y la terminal de cada tarjeta del pago combinado.");
-              return false;
-            }
-            const sumCredito = tarjetasCombinado
-              .filter((t) => t.tipo === "CREDITO")
-              .reduce((acc, t) => acc + (Number(t.monto) || 0), 0);
-            const sumDebito = tarjetasCombinado
-              .filter((t) => t.tipo === "DEBITO")
-              .reduce((acc, t) => acc + (Number(t.monto) || 0), 0);
-            if (Math.abs(sumCredito - totalCredito) > 0.01 || Math.abs(sumDebito - totalDebito) > 0.01) {
-              setError("La suma de las tarjetas no coincide con el T. Crédito / T. Débito capturado.");
-              return false;
-            }
-          } else if (!terminalCombinado) {
-            setError("Selecciona la terminal donde se cobró la parte con tarjeta del pago combinado.");
-            return false;
-          }
-        }
+      if (
+        usaFormaPago &&
+        formaPago === "COMBINADO" &&
+        tarjetasCombinado.some((t) => !t.terminal || !(Number(t.monto) > 0))
+      ) {
+        setError("Captura el monto y la terminal de cada tarjeta del pago combinado.");
+        return false;
       }
       if (
         usaFormaPago &&
@@ -888,7 +890,6 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
               tarjetas: ["CREDITO", "DEBITO"].includes(formaPago) ? tarjetasSimpleAplicadas() : [],
               tipoTransferencia,
               bancoTransferencia,
-              tipoNota,
               fecha: fechaComprobante,
               ...(formaPago === "COMBINADO" ? { combinado: combinadoAplicado() } : {}),
             }
@@ -1047,12 +1048,22 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     </div>
   );
 
+  // T. Crédito / T. Débito del combinado: solo lectura, son la suma de las
+  // tarjetas del desglose (ver efecto de sincronización).
+  const sumaTarjetasCombinado = (tipo) =>
+    tarjetasCombinado.filter((t) => t.tipo === tipo).reduce((acc, t) => acc + (Number(t.monto) || 0), 0);
+
+  const subtituloCombinado = "small fw-semibold text-muted text-uppercase mb-1";
+
   const bloqueCombinado = formaPago === "COMBINADO" && (
     <div className="border rounded p-3 mb-3">
       <label className="form-label fw-semibold d-block">Desglose del pago combinado</label>
-      <div className="row g-2">
-        <div className="col-6 col-md-4">
-          <label className="form-label mb-0 small">Efectivo (Pesos)</label>
+
+      {/* ---- Efectivo ---- */}
+      <div className={subtituloCombinado}>Efectivo</div>
+      <div className="row g-2 mb-3">
+        <div className="col-6">
+          <label className="form-label mb-0 small">Pesos</label>
           <input
             type="number"
             step="0.01"
@@ -1061,8 +1072,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
             onChange={(e) => setMontosCombinado((prev) => ({ ...prev, EFECTIVO: e.target.value }))}
           />
         </div>
-        <div className="col-6 col-md-4">
-          <label className="form-label mb-0 small">Efectivo (Dólares)</label>
+        <div className="col-6">
+          <label className="form-label mb-0 small">Dólares</label>
           <input
             type="number"
             step="0.01"
@@ -1076,111 +1087,97 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
             </small>
           )}
         </div>
-        <div className="col-6 col-md-4">
-          <label className="form-label mb-0 small">T. Crédito</label>
-          <input
-            type="number"
-            step="0.01"
-            className="form-control form-control-sm"
-            value={montosCombinado.CREDITO}
-            onChange={(e) => setMontosCombinado((prev) => ({ ...prev, CREDITO: e.target.value }))}
-          />
-        </div>
-        <div className="col-6 col-md-4">
-          <label className="form-label mb-0 small">T. Débito</label>
-          <input
-            type="number"
-            step="0.01"
-            className="form-control form-control-sm"
-            value={montosCombinado.DEBITO}
-            onChange={(e) => setMontosCombinado((prev) => ({ ...prev, DEBITO: e.target.value }))}
-          />
-        </div>
-        {(Number(montosCombinado.CREDITO) > 0 || Number(montosCombinado.DEBITO) > 0) && (
-          <div className="col-12">
-            {tarjetasCombinado.length === 0 ? (
-              <div className="row g-2 align-items-end">
-                <div className="col-12 col-md-4">
-                  <label className="form-label mb-0 small">Terminal</label>
-                  <Dropdown
-                    className="form-select form-select-sm"
-                    value={terminalCombinado}
-                    onChange={(e) => setTerminalCombinado(e.target.value)}
-                  >
-                    <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-                    {TERMINALES.map((t) => (
-                      <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
-                    ))}
-                  </Dropdown>
-                  <small className="text-muted">Obligatoria: con qué terminal se cobró el T. Crédito/T. Débito.</small>
-                </div>
-                <div className="col-12 col-md-4">
-                  <button type="button" className="btn btn-sm btn-link px-0" onClick={agregarTarjetaCombinado}>
-                    + Cobrar con más de una tarjeta
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div>
-                <label className="form-label mb-0 small fw-semibold d-block">Tarjetas</label>
-                {tarjetasCombinado.map((t, idx) => (
-                  <div className="row g-2 align-items-center mb-1" key={idx}>
-                    <div className="col-4 col-md-3">
-                      <Dropdown
-                        className="form-select form-select-sm"
-                        value={t.tipo}
-                        onChange={(e) => setTarjetaCombinadoCampo(idx, "tipo", e.target.value)}
-                      >
-                        <Dropdown.Option value="CREDITO">T. Crédito</Dropdown.Option>
-                        <Dropdown.Option value="DEBITO">T. Débito</Dropdown.Option>
-                      </Dropdown>
-                    </div>
-                    <div className="col-4 col-md-3">
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="form-control form-control-sm"
-                        placeholder="Monto"
-                        value={t.monto}
-                        onChange={(e) => setTarjetaCombinadoCampo(idx, "monto", e.target.value)}
-                      />
-                    </div>
-                    <div className="col-3 col-md-4">
-                      <Dropdown
-                        className="form-select form-select-sm"
-                        value={t.terminal}
-                        onChange={(e) => setTarjetaCombinadoCampo(idx, "terminal", e.target.value)}
-                      >
-                        <Dropdown.Option value="">Terminal...</Dropdown.Option>
-                        {TERMINALES.map((term) => (
-                          <Dropdown.Option key={term} value={term}>{term}</Dropdown.Option>
-                        ))}
-                      </Dropdown>
-                    </div>
-                    <div className="col-1 px-0">
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-danger"
-                        onClick={() => quitarTarjetaCombinado(idx)}
-                        title="Quitar tarjeta"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                <button type="button" className="btn btn-sm btn-link px-0" onClick={agregarTarjetaCombinado}>
-                  + Agregar otra tarjeta
-                </button>
-                <small className="text-muted d-block">
-                  La suma de T. Crédito debe dar {formatMoney(montosCombinado.CREDITO || 0)} y la de T. Débito{" "}
-                  {formatMoney(montosCombinado.DEBITO || 0)}.
-                </small>
-              </div>
-            )}
+      </div>
+
+      {/* ---- Tarjetas: cada una con su tipo, monto y terminal ---- */}
+      <div className={subtituloCombinado}>Tarjetas</div>
+      <div className="mb-3">
+        {tarjetasCombinado.length === 0 && (
+          <div className="small text-muted mb-1">
+            Sin tarjetas. Agrega cada tarjeta con su monto y terminal; T. Crédito y T. Débito se calculan solos.
           </div>
         )}
-        <div className="col-6 col-md-4">
+        {tarjetasCombinado.map((t, idx) => (
+          <div className="border rounded bg-light p-2 mb-2" key={idx}>
+            <div className="row g-2 align-items-center">
+              <div className="col-6">
+                <Dropdown
+                  className="form-select form-select-sm"
+                  value={t.tipo}
+                  onChange={(e) => setTarjetaCombinadoCampo(idx, "tipo", e.target.value)}
+                >
+                  <Dropdown.Option value="CREDITO">T. Crédito</Dropdown.Option>
+                  <Dropdown.Option value="DEBITO">T. Débito</Dropdown.Option>
+                </Dropdown>
+              </div>
+              <div className="col-6">
+                <input
+                  type="number"
+                  step="0.01"
+                  className="form-control form-control-sm"
+                  placeholder="Monto"
+                  value={t.monto}
+                  onChange={(e) => setTarjetaCombinadoCampo(idx, "monto", e.target.value)}
+                />
+              </div>
+              <div className="col-10">
+                <Dropdown
+                  className="form-select form-select-sm"
+                  value={t.terminal}
+                  onChange={(e) => setTarjetaCombinadoCampo(idx, "terminal", e.target.value)}
+                >
+                  <Dropdown.Option value="">Terminal...</Dropdown.Option>
+                  {TERMINALES.map((term) => (
+                    <Dropdown.Option key={term} value={term}>{term}</Dropdown.Option>
+                  ))}
+                </Dropdown>
+              </div>
+              <div className="col-2 text-end">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-danger"
+                  onClick={() => quitarTarjetaCombinado(idx)}
+                  title="Quitar tarjeta"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        <button type="button" className="btn btn-sm btn-outline-primary mb-2" onClick={agregarTarjetaCombinado}>
+          + Agregar tarjeta
+        </button>
+        <div className="row g-2">
+          <div className="col-6">
+            <label className="form-label mb-0 small">T. Crédito (suma)</label>
+            <input
+              type="text"
+              className="form-control form-control-sm"
+              value={formatMoney(sumaTarjetasCombinado("CREDITO"))}
+              readOnly
+              disabled
+              title="Se calcula sola con la suma de las tarjetas de crédito"
+            />
+          </div>
+          <div className="col-6">
+            <label className="form-label mb-0 small">T. Débito (suma)</label>
+            <input
+              type="text"
+              className="form-control form-control-sm"
+              value={formatMoney(sumaTarjetasCombinado("DEBITO"))}
+              readOnly
+              disabled
+              title="Se calcula sola con la suma de las tarjetas de débito"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* ---- Cheque ---- */}
+      <div className={subtituloCombinado}>Cheque</div>
+      <div className="row g-2 mb-3">
+        <div className="col-6">
           <label className="form-label mb-0 small">No. de Cheque</label>
           <input
             type="text"
@@ -1189,8 +1186,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
             onChange={(e) => setChequeNumero(e.target.value)}
           />
         </div>
-        <div className="col-6 col-md-4">
-          <label className="form-label mb-0 small">Cantidad (Cheque)</label>
+        <div className="col-6">
+          <label className="form-label mb-0 small">Cantidad</label>
           <input
             type="number"
             step="0.01"
@@ -1199,8 +1196,13 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
             onChange={(e) => setMontosCombinado((prev) => ({ ...prev, CHEQUE: e.target.value }))}
           />
         </div>
-        <div className="col-12 col-md-4">
-          <label className="form-label mb-0 small">Transferencia</label>
+      </div>
+
+      {/* ---- Transferencia ---- */}
+      <div className={subtituloCombinado}>Transferencia</div>
+      <div className="row g-2">
+        <div className="col-12">
+          <label className="form-label mb-0 small">Cantidad</label>
           <input
             type="number"
             step="0.01"
@@ -1211,8 +1213,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
         </div>
         {Number(montosCombinado.TRANSFERENCIA) > 0 && (
           <>
-            <div className="col-6 col-md-4">
-              <label className="form-label mb-0 small">Tipo de transferencia</label>
+            <div className="col-6">
+              <label className="form-label mb-0 small">Tipo</label>
               <Dropdown
                 className="form-select form-select-sm"
                 value={transferenciaTipoCombinado}
@@ -1224,8 +1226,8 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                 ))}
               </Dropdown>
             </div>
-            <div className="col-6 col-md-4">
-              <label className="form-label mb-0 small">Banco (Transferencia)</label>
+            <div className="col-6">
+              <label className="form-label mb-0 small">Banco</label>
               <Dropdown
                 className="form-select form-select-sm"
                 value={transferenciaBancoCombinado}
@@ -1556,6 +1558,12 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
             <span>{formatMoney(faltanteLiquidar)}</span>
           </p>
         )}
+        {faltantePago > 0.005 && (
+          <p className="d-flex justify-content-between fw-bold text-danger mb-0 mt-1">
+            <span>Falta para completar el pago</span>
+            <span>{formatMoney(faltantePago)}</span>
+          </p>
+        )}
         {cambio > 0 && (
           <>
             <p className="d-flex justify-content-between mb-1 mt-2">
@@ -1655,7 +1663,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
       k: "Comprobante",
       v:
         tipoPago === "COMPLETO" && comprobante === "NOTA_VENTA"
-          ? `Nota de Venta · ${tipoNota} · ${fechaComprobante.split("-").reverse().join("/")}`
+          ? `Nota de Venta · ${fechaComprobante.split("-").reverse().join("/")}`
           : tipoPago === "COMPLETO" && comprobante === "REMISION"
           ? `Remisión · ${tipoRemision} · ${fechaComprobante.split("-").reverse().join("/")}`
           : comprobante === "SIN_COMPROBANTE"
@@ -1684,9 +1692,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
           : formaPago === "TRANSFERENCIA" && tipoTransferencia && bancoTransferencia
           ? ` · ${tipoTransferencia}-${bancoTransferencia}`
           : formaPago === "COMBINADO" && tarjetasCombinado.length > 0
-          ? ` · ${tarjetasCombinado.length} tarjetas`
-          : formaPago === "COMBINADO" && terminalCombinado
-          ? ` · ${terminalCombinado}`
+          ? ` · ${tarjetasCombinado.length} ${tarjetasCombinado.length === 1 ? "tarjeta" : "tarjetas"}`
           : "";
       resumenPrevio.push({ k: "Forma de pago", v: (FORMAS_PAGO.find((f) => f.value === formaPago)?.label || formaPago) + term });
     }
@@ -1813,11 +1819,23 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                           className={`form-control${cancelarRemisionMotivoInvalido ? " is-invalid border-danger" : ""}`}
                           value={cancelarRemisionMotivo}
                           onChange={(e) => { setCancelarRemisionMotivo(e.target.value); setCancelarRemisionMotivoInvalido(false); }}
-                          placeholder="Ej. Se generó remisión por error, el cliente pidió Nota de Venta"
+                          placeholder="Ej. El cliente ya no quiso factura, se hace Nota de Venta"
                         />
                         <small className="text-muted">
                           Al registrar este comprobante se cancelará la Remisión N°{remisionActiva?.remision?.numero}.
                         </small>
+                        {comprobante === "NOTA_VENTA" && (
+                          <button
+                            type="button"
+                            className="btn btn-link btn-sm p-0 ms-2 align-baseline"
+                            onClick={() => {
+                              setCancelarRemisionMotivo("El cliente ya no quiso facturar; se genera Nota de Venta");
+                              setCancelarRemisionMotivoInvalido(false);
+                            }}
+                          >
+                            Usar: el cliente ya no quiso facturar
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -1837,17 +1855,6 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                         <small className="text-muted">
                           Por defecto hoy; cámbiala si el comprobante es de otro día (no se permiten fechas futuras).
                         </small>
-                      </div>
-                    )}
-
-                    {comprobante === "NOTA_VENTA" && (
-                      <div className="mb-3">
-                        <label className="form-label mb-0">Tipo de Nota</label>
-                        <Dropdown className="form-select" value={tipoNota} onChange={(e) => setTipoNota(e.target.value)}>
-                          {TIPOS_NOTA.map((t) => (
-                            <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
-                          ))}
-                        </Dropdown>
                       </div>
                     )}
 

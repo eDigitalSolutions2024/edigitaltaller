@@ -277,8 +277,8 @@ function FilaRemision({ r }) {
   return (
     <tr>
       <td style={{ whiteSpace: 'pre-line' }}>{r.folio ?? '—'}</td>
-      <td>{r.ordenServicio || '—'}</td>
-      <td>{r.cliente || '—'}</td>
+      <td style={{ whiteSpace: 'pre-line' }}>{r.ordenServicio || '—'}</td>
+      <td style={{ whiteSpace: 'pre-line' }}>{r.cliente || '—'}</td>
       <td className="text-end">{celda(r.ventaDia)}</td>
       <td className="text-end">{celda(r.ingresoContado)}</td>
       <td className="text-end">{celda(r.ingresoCredito)}</td>

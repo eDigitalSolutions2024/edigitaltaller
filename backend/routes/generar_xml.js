@@ -19,6 +19,7 @@ const { cancelarDeposito, revertirUso, SaldoInsuficienteError } = require("../ut
 const { dayjsFecha } = require("../utils/fechas");
 const { limpiarYValidarTarjetas } = require("../utils/tarjetasCaja");
 const { registrarAccion } = require("../utils/registrarAccion");
+const { ordenesEnFacturaGlobal } = require("../utils/ordenesEnFacturaGlobal");
 
 const router = express.Router();
 
@@ -986,10 +987,11 @@ router.post("/xml", proteger, async (req, res) => {
       return res.status(400).json({ ok: false, error: "Falta la orden de servicio." });
     }
 
-    // Una orden ya facturada (factura de ingreso vigente) no puede volver a
-    // facturarse: la pantalla de Nueva Factura ya la excluye de la búsqueda
-    // (ver GET /api/vehiculos/ordenes?excluirFacturadas=true), esto es el
-    // respaldo en el servidor por si se llega aquí de otra forma.
+    // Una orden ya facturada (factura de ingreso vigente, o su Nota de Venta ya
+    // en una Factura Global vigente) no puede volver a facturarse: la pantalla
+    // de Nueva Factura ya la excluye de la búsqueda (ver GET
+    // /api/vehiculos/ordenes?excluirFacturadas=true), esto es el respaldo en el
+    // servidor por si se llega aquí de otra forma.
     if (tipoFactura === "factura" && ordenes.length) {
       const vehiculoIds = ordenes.map((o) => o._id).filter(Boolean);
       const yaFacturadas = await FacturaCfdi.find({
@@ -1018,6 +1020,18 @@ router.post("/xml", proteger, async (req, res) => {
         return res.status(400).json({
           ok: false,
           error: `Ya existe una factura para: ${[...new Set(conflictos)].join(", ")}. No se puede generar otra.`,
+        });
+      }
+
+      const enGlobal = await ordenesEnFacturaGlobal(vehiculoIds);
+      if (enGlobal.size) {
+        const conflictos = [...enGlobal].map(([vid, folioGlobal]) => {
+          const orden = ordenes.find((o) => String(o._id) === vid);
+          return `${orden?.ordenServicio || vid} (factura global ${folioGlobal})`;
+        });
+        return res.status(400).json({
+          ok: false,
+          error: `Ya está en una factura global: ${conflictos.join(", ")}. No se puede generar otra factura para esa orden.`,
         });
       }
     }

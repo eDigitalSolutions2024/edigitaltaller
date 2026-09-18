@@ -33,7 +33,37 @@ const TIPOS_FILTRO = [
   { value: 'SIN_COMPROBANTE', label: 'Sin comprobante' },
   { value: 'FACTURA', label: 'Factura' },
   { value: 'VALE_SALIDA', label: 'Vale de Salida' },
+  { value: 'VALE_CAJA', label: 'Vale de Caja' },
 ];
+
+// Los vales capturados en la caja (Vales de arriba: folio + motivo + monto) no
+// pertenecen a una orden: van en su propio grupo, al final de la lista.
+const GRUPO_VALES_CAJA = '__VALES_CAJA__';
+
+function valesDeCaja(cierre) {
+  const capturas = cierre.capturas || [];
+  // Con historial de capturas se usan solo las vigentes (las canceladas no
+  // suman al total), con su fecha y quién las guardó; sin él (cierres viejos)
+  // se listan los vales agregados del cierre.
+  const origen = capturas.length
+    ? capturas
+        .filter((c) => !c.cancelada)
+        .flatMap((c) => (c.vales || []).map((v) => ({ v, fecha: c.fecha, por: c.capturadoPor })))
+    : (cierre.vales || []).map((v) => ({ v, fecha: cierre.abiertaEn || cierre.fecha, por: cierre.capturadoPor }));
+  return origen.map(({ v, fecha, por }, i) => ({
+    key: `vc-${i}`,
+    orden: GRUPO_VALES_CAJA,
+    cliente: v.motivo || '—',
+    tipo: 'VALE_CAJA',
+    tipoLabel: 'Vale de Caja',
+    folio: v.folio || '—',
+    monto: v.monto,
+    estatus: '',
+    registradoPor: por || '—',
+    fecha,
+    clickable: false,
+  }));
+}
 
 // Combina comprobantes (Nota de Venta / Remisión / Recibo Provisional) y
 // vales de salida en una sola lista agrupada por Orden, para ver de un
@@ -68,6 +98,7 @@ function combinarPorOrden(cierre, filtroTipo, abrirPdf) {
       clickable: !!v._id,
       onClick: () => v._id && abrirPdf(getValePdfUrl(v._id), 'vale.pdf', 'Vale de Salida'),
     })),
+    ...valesDeCaja(cierre),
   ].filter((f) => !filtroTipo || f.tipo === filtroTipo);
 
   const grupos = new Map();
@@ -80,7 +111,11 @@ function combinarPorOrden(cierre, filtroTipo, abrirPdf) {
       orden,
       [...filasOrden].sort((a, b) => new Date(a.fecha) - new Date(b.fecha)),
     ])
-    .sort((a, b) => String(a[0]).localeCompare(String(b[0]), 'es', { numeric: true }));
+    .sort((a, b) => {
+      if (a[0] === GRUPO_VALES_CAJA) return 1;
+      if (b[0] === GRUPO_VALES_CAJA) return -1;
+      return String(a[0]).localeCompare(String(b[0]), 'es', { numeric: true });
+    });
 }
 
 // Fila de denominación de solo lectura: importe · ×cantidad · subtotal.
@@ -245,7 +280,7 @@ export default function CierreCajaResumen({ cierre, accionesCierre }) {
       <div className="col-12">
         <div className="gc-sec gc-sec--otros">
           <div className="gc-sec__head">
-            <span>Comprobantes y Vales de Salida</span>
+            <span>Comprobantes Generados</span>
             <Dropdown
               className="form-select-sm w-auto"
               value={filtroTipo}
@@ -279,8 +314,14 @@ export default function CierreCajaResumen({ cierre, accionesCierre }) {
                     <React.Fragment key={orden}>
                       <tr className="table-light">
                         <td colSpan={6} className="fw-bold">
-                          Orden {orden}
-                          {filas[0]?.cliente && filas[0].cliente !== '—' ? ` — ${filas[0].cliente}` : ''}
+                          {orden === GRUPO_VALES_CAJA ? (
+                            'Vales de caja'
+                          ) : (
+                            <>
+                              Orden {orden}
+                              {filas[0]?.cliente && filas[0].cliente !== '—' ? ` — ${filas[0].cliente}` : ''}
+                            </>
+                          )}
                         </td>
                       </tr>
                       {filas.map((f) => (
@@ -288,7 +329,9 @@ export default function CierreCajaResumen({ cierre, accionesCierre }) {
                           key={f.key}
                           style={{ cursor: f.clickable ? 'pointer' : undefined }}
                           onClick={f.onClick}
-                          title={f.tipo === 'VALE_SALIDA' ? 'Ver vale' : 'Ver comprobante'}
+                          title={
+                            !f.clickable ? undefined : f.tipo === 'VALE_SALIDA' ? 'Ver vale' : 'Ver comprobante'
+                          }
                         >
                           <td>{f.tipoLabel}</td>
                           <td>{f.folio}</td>

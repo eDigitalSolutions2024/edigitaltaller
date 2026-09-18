@@ -6,6 +6,7 @@ const Empleado = require('../models/Empleado');
 const User = require('../models/User');
 const FacturaCfdi = require('../models/FacturaCfdi');
 const Cliente = require('../models/Cliente');
+const ReporteCajasSnapshot = require('../models/ReporteCajasSnapshot');
 const { streamReporteOriginalesPdf } = require('../service/reporteOriginalesPdf');
 const { streamReporteVentasAsesoresPdf } = require('../service/reporteVentasAsesoresPdf');
 const { streamReporteOrdenesAbiertasPdf } = require('../service/reporteOrdenesAbiertasPdf');
@@ -32,24 +33,44 @@ function notaConMetodo(notas, formaPagoDesc) {
   return notas ? `${notas} ${abrev}` : abrev;
 }
 
+// Notas de un pago cancelado para los reportes. El motivo de una cancelación
+// (ERROR / REEMPLAZADO) es solo interno: cancelaciones viejas lo guardaron
+// pisando `notas`, así que en esos casos se usan las notas originales
+// (notasAntesCancelar). El resto de las cancelaciones nunca pisó `notas`.
+function notasDePagoCancelado(p) {
+  const pisadas = ['ERROR', 'REEMPLAZADO'].includes(p.motivoCancelacionTipo);
+  return (pisadas ? p.notasAntesCancelar : p.notas) || '';
+}
+
 // Desglosa el monto de un pago COMBINADO por cada método presente, con la
 // misma abreviatura de terminal/transferencia que abreviaturaFormaPago usa
 // para un método simple: "$5,000.00 EFECTIVO Y $4,180.00 BR-C". Se usa en el
 // desglose de PUBLICO GENERAL (Factura Global) para que una Nota de Venta
 // pagada con varios métodos no se vea solo como su total con la lista de
-// métodos, sin decir cuánto fue con cada uno. El Efectivo en Dólares no entra
-// aquí: ese desglose ya se arma aparte con el folio del Recibo de Dólares.
-function desgloseMontosCombinado(combinado, fmtMonto) {
+// métodos, sin decir cuánto fue con cada uno. Los dólares en efectivo entran
+// ya convertidos a pesos (`dolaresPesos`, con el tipo de cambio del pago) y se
+// SUMAN al Efectivo (no llevan renglón propio), para que las partes sumen el
+// monto de la nota; su cantidad en USD y el folio del Recibo de Dólares van
+// aparte, en Notas.
+function desgloseMontosCombinado(combinado, fmtMonto, dolaresPesos = 0) {
   const c = combinado || {};
   const n = (v) => Number(v) || 0;
+  // Cada tarjeta con su propia terminal ("$1,000.00 BR-C"): con más de una
+  // terminal el `banco` legacy del combinado queda vacío (no hay una
+  // representativa) y saldría solo "TC"/"TD". Sin desglose por tarjeta (pagos
+  // viejos) se usa el total con ese `banco`.
+  const tarjetas = (lista, formaPago, total) => {
+    const filas = Array.isArray(lista) ? lista.filter((t) => n(t.monto) > 0) : [];
+    if (filas.length) {
+      return filas.map((t) => `$${fmtMonto(t.monto)} ${abreviaturaFormaPago({ formaPago, banco: t.terminal })}`);
+    }
+    return [`$${fmtMonto(total)} ${abreviaturaFormaPago({ formaPago, banco: c.banco })}`];
+  };
   const partes = [];
-  if (n(c.efectivo) > 0) partes.push(`$${fmtMonto(c.efectivo)} EFECTIVO`);
-  if (n(c.credito) > 0) {
-    partes.push(`$${fmtMonto(c.credito)} ${abreviaturaFormaPago({ formaPago: 'CREDITO', banco: c.banco })}`);
-  }
-  if (n(c.debito) > 0) {
-    partes.push(`$${fmtMonto(c.debito)} ${abreviaturaFormaPago({ formaPago: 'DEBITO', banco: c.banco })}`);
-  }
+  const efectivoTotal = n(c.efectivo) + n(dolaresPesos);
+  if (efectivoTotal > 0) partes.push(`$${fmtMonto(efectivoTotal)} EFECTIVO`);
+  if (n(c.credito) > 0) partes.push(...tarjetas(c.tarjetasCredito, 'CREDITO', c.credito));
+  if (n(c.debito) > 0) partes.push(...tarjetas(c.tarjetasDebito, 'DEBITO', c.debito));
   if (n(c.cheque) > 0) partes.push(`$${fmtMonto(c.cheque)} CHEQUE`);
   if (n(c.transferencia) > 0) {
     partes.push(
@@ -574,6 +595,44 @@ router.get('/garantias-pdf', async (req, res) => {
 const TIPOS_COMPROBANTE_CAJA = ['NOTA_VENTA', 'REMISION'];
 
 // ===== Reporte Diario de Remisiones (formato clásico de 9 columnas) =====
+// Sirve un Reporte Diario de Ingresos (Remisiones o Facturas) congelado para
+// cualquier día que ya haya terminado: se calcula (con `builder`) la primera
+// vez que se pide y de ahí se guarda; las siguientes consultas de ese mismo
+// día devuelven el mismo resultado siempre, aunque después pase algo
+// relacionado (p. ej. se cancele una remisión de ese día hasta el día
+// siguiente) — ese evento posterior corrige el reporte de SU PROPIO día, no
+// reabre uno que ya cerró. Un rango de más de un día, o cualquier rango que
+// toque el día de hoy (todavía en curso), siempre se calcula en vivo: nunca
+// se cachea "hoy" a medias.
+async function reporteDiaConCache(tipo, desde, hasta, builder) {
+  const d = new Date(desde);
+  const h = new Date(hasta);
+  const esUnDia = dayjsFecha(d).format('YYYY-MM-DD') === dayjsFecha(h).format('YYYY-MM-DD');
+  if (!esUnDia) return builder({ desde, hasta });
+
+  const diaKey = dayjsFecha(d).format('YYYY-MM-DD');
+  const hoyKey = dayjsFecha(new Date()).format('YYYY-MM-DD');
+  if (diaKey >= hoyKey) return builder({ desde, hasta });
+
+  const existente = await ReporteCajasSnapshot.findOne({ tipo, diaKey }).lean();
+  if (existente) return existente.data;
+
+  const data = await builder({ desde, hasta });
+  try {
+    await ReporteCajasSnapshot.findOneAndUpdate(
+      { tipo, diaKey },
+      { tipo, diaKey, desde: d, hasta: h, data, generadoEn: new Date() },
+      { upsert: true, setDefaultsOnInsert: true }
+    );
+  } catch (err) {
+    // Carrera con otra petición guardando el mismo día (índice único): ya
+    // quedó guardado por la otra, no hay nada que corregir aquí. No debe
+    // tumbar la respuesta de este request.
+    console.error('No se pudo guardar el snapshot del reporte de caja:', err);
+  }
+  return data;
+}
+
 // Reconstruye, a partir de pagos[] (comprobante=REMISION), las 4 secciones
 // del reporte viejo, en este orden:
 //   1. Anticipos del día (tipoPago=ANTICIPO)
@@ -592,7 +651,7 @@ const TIPOS_COMPROBANTE_CAJA = ['NOTA_VENTA', 'REMISION'];
 // permite registrarlas con monto 0 (única excepción a monto > 0), y se
 // reportan con Venta del Día = total de la orden y esa misma cantidad en
 // Cuentas por Cobrar.
-async function buildReporteRemisionesDiario({ desde, hasta }) {
+async function buildReporteRemisionesDiarioImpl({ desde, hasta }) {
   const d = new Date(desde);
   const h = new Date(hasta);
 
@@ -630,8 +689,14 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
     );
     const notaMetodoLiquidacion = pagoLiquidacionOrden ? abreviaturaFormaPago(pagoLiquidacionOrden.liquidacion) : '';
 
+    // Cancelada DESPUÉS de este rango = para este reporte es como si siguiera
+    // vigente: ese día ya cerró (ver reporteDiaConCache) tal como se vio
+    // entonces, no se corrige retroactivamente cuando algo pasa un día
+    // posterior (la cancelación se documenta en el reporte de SU PROPIO día,
+    // más abajo).
     const tieneVentaEnRango = pagosRemision.some((p) => {
-      if (p.tipoPago !== 'COMPLETO' || p.remision?.tipo === 'Cancelada') return false;
+      if (p.tipoPago !== 'COMPLETO') return false;
+      if (p.remision?.tipo === 'Cancelada' && (!p.canceladoEn || new Date(p.canceladoEn) <= h)) return false;
       const f = new Date(p.fecha);
       return f >= d && f <= h;
     });
@@ -645,10 +710,16 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
         ordenServicio: o.ordenServicio || '',
         cliente: nombreCliente(o.cliente),
         fecha: p.fecha,
-        notas: p.notas || '',
+        // Cancelada (aunque sea después de este día): sin el motivo interno.
+        notas: p.remision?.tipo === 'Cancelada' ? notasDePagoCancelado(p) : p.notas || '',
       };
 
-      if (p.remision?.tipo === 'Cancelada') {
+      // Cancelada DESPUÉS de este rango (ver tieneVentaEnRango arriba): para
+      // el reporte de este día se trata como si siguiera vigente.
+      const canceladaParaEsteDia =
+        p.remision?.tipo === 'Cancelada' && (!p.canceladoEn || new Date(p.canceladoEn) <= h);
+
+      if (canceladaParaEsteDia) {
         // Una Remisión a Crédito se guarda con monto 0 (ver Cajas): lo que de
         // verdad hay que revertir es el total de la orden que se reportó el
         // día que se creó (mismo cálculo que la rama "vigente" de abajo), no
@@ -667,8 +738,10 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
           totalVentaDia -= montoOriginal;
           totalPorCobrar -= montoOriginal;
         }
-        // La leyenda de la fila ya dice que se canceló: no repetirla en Notas
-        const notasCancel = /se cancela/i.test(base.notas) ? '' : base.notas;
+        // La leyenda de la fila ya dice que se canceló (y, más abajo, a qué
+        // factura): no repetir "se cancela..."/"pasa a..." como texto suelto
+        // en Notas, aunque así lo haya escrito el cajero como motivo.
+        const notasCancel = /se cancela|pasa a/i.test(base.notas) ? '' : base.notas;
         const filaCancel = tieneVentaEnRango || canceladaMismoDia
           ? { ...base, cliente: 'SE CANCELA REMISIÓN Y PASA A FACTURA', notas: notasCancel }
           : {
@@ -678,8 +751,24 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
               ventaDia: -montoOriginal,
               cuentasPorCobrar: -montoOriginal,
             };
-        (tieneVentaEnRango ? nuevaVenta : canceladas).push(filaCancel);
-        filasCancel.push({ fila: filaCancel, vehiculoId: String(o._id) });
+        // Creada y cancelada el MISMO día: va con las remisiones del día, sin
+        // ningún importe (neto cero). Si se creó en un día anterior del rango
+        // y se canceló después, va a "Canceladas" con el importe en negativo.
+        (tieneVentaEnRango || canceladaMismoDia ? nuevaVenta : canceladas).push(filaCancel);
+        // Si esta remisión se canceló porque la orden ya tenía otro
+        // comprobante (REEMPLAZADO, ver pasaAPagoId / POST /cajas/:id/pagos),
+        // ese comprobante puede ser una Nota de Venta que después se agrupó
+        // en una Factura Global: se resuelve más abajo, junto con el cruce
+        // directo por factura normal.
+        const pagoDestino =
+          p.motivoCancelacionTipo === 'REEMPLAZADO' && p.pasaAPagoId
+            ? (o.pagos || []).find((pg) => String(pg._id) === String(p.pasaAPagoId))
+            : null;
+        filasCancel.push({
+          fila: filaCancel,
+          vehiculoId: String(o._id),
+          facturaGlobalId: pagoDestino?.facturaGlobalId || null,
+        });
         continue;
       }
 
@@ -692,8 +781,12 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
       } else {
         // Una remisión a Crédito documenta la venta completa aunque no entre
         // dinero (o entre solo una parte): la venta del día es el total de la
-        // orden y lo no cobrado queda como cuenta por cobrar.
-        const esCredito = p.remision?.tipo === 'Credito';
+        // orden y lo no cobrado queda como cuenta por cobrar. Si ya se
+        // canceló pero para este día se trata como vigente (arriba), el tipo
+        // real es 'Cancelada': se usa el que tenía antes de cancelarse.
+        const tipoEfectivo =
+          p.remision?.tipo === 'Cancelada' ? p.remisionTipoAntesCancelar || 'Contado' : p.remision?.tipo;
+        const esCredito = tipoEfectivo === 'Credito';
         const ventaDia = esCredito ? calcularTotalesOrden(o).totalOrden : p.monto;
         const porCobrar = Math.max(0, ventaDia - p.monto);
         // Si al liquidar entró parte en dólares en efectivo, la nota lo dice
@@ -715,6 +808,64 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
         totalContado += p.monto;
         totalPorCobrar += porCobrar;
       }
+    }
+  }
+
+  // Remisiones canceladas EN ESTE RANGO pero creadas otro día (fuera de él):
+  // el reporte de su propio día de creación ya no las corrige (arriba se
+  // tratan como si siguieran vigentes, canceladaParaEsteDia), así que la
+  // reversa se documenta aquí, en el día en que de verdad se canceló (p. ej.
+  // el día que se generó la factura), en "Canceladas y pasan a factura" con
+  // el importe en negativo y descontándolo de los totales de este día. La
+  // venta original ya quedó contada, para siempre, en el reporte congelado
+  // del día en que se creó.
+  const ordenesConCancelacionEnRango = await Vehiculo.find({
+    pagos: {
+      $elemMatch: {
+        comprobante: 'REMISION',
+        'remision.tipo': 'Cancelada',
+        canceladoEn: { $gte: d, $lte: h },
+      },
+    },
+  })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
+
+  for (const o of ordenesConCancelacionEnRango) {
+    for (const p of o.pagos || []) {
+      if (p.comprobante !== 'REMISION' || p.remision?.tipo !== 'Cancelada' || !p.canceladoEn) continue;
+      const ce = new Date(p.canceladoEn);
+      if (ce < d || ce > h) continue;
+      const fCreacion = new Date(p.fecha);
+      if (fCreacion >= d && fCreacion <= h) continue; // ya se documentó arriba (creada en este mismo rango)
+
+      const notasOriginales = notasDePagoCancelado(p);
+      const notasCancel = /se cancela|pasa a/i.test(notasOriginales) ? '' : notasOriginales;
+      // Igual que la reversa de la rama de arriba: una Remisión a Crédito se
+      // guarda con monto 0, lo que se revierte es el total de la orden.
+      const esCreditoCancelada = p.remisionTipoAntesCancelar === 'Credito';
+      const montoOriginal = esCreditoCancelada ? calcularTotalesOrden(o).totalOrden : p.monto || 0;
+      totalVentaDia -= montoOriginal;
+      totalPorCobrar -= montoOriginal;
+      const filaCancel = {
+        folio: p.remision?.numero ?? null,
+        ordenServicio: o.ordenServicio || '',
+        cliente: 'SE CANCELA REMISIÓN Y PASA A FACTURA',
+        fecha: p.canceladoEn,
+        notas: notasCancel,
+        ventaDia: -montoOriginal,
+        cuentasPorCobrar: -montoOriginal,
+      };
+      canceladas.push(filaCancel);
+      const pagoDestino =
+        p.motivoCancelacionTipo === 'REEMPLAZADO' && p.pasaAPagoId
+          ? (o.pagos || []).find((pg) => String(pg._id) === String(p.pasaAPagoId))
+          : null;
+      filasCancel.push({
+        fila: filaCancel,
+        vehiculoId: String(o._id),
+        facturaGlobalId: pagoDestino?.facturaGlobalId || null,
+      });
     }
   }
 
@@ -756,17 +907,32 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
   }
 
   // "SE CANCELA REMISIÓN Y PASA A FACTURA A64739": la leyenda incluye el folio
-  // (serie+folio) del CFDI vigente de esa orden, igual que el reporte original.
+  // (serie+folio) del CFDI vigente de esa orden, igual que el reporte
+  // original. Cubre dos casos: la orden se facturó directo (cruce por
+  // vehiculoId) o la remisión se reemplazó por una Nota de Venta que después
+  // se agrupó en una Factura Global (cruce por facturaGlobalId, resuelto
+  // arriba vía pasaAPagoId).
   if (filasCancel.length) {
     const ids = [...new Set(filasCancel.map((f) => f.vehiculoId))];
-    const facturas = await FacturaCfdi.find({
-      tipoFactura: 'factura',
-      estatus: 'generada',
-      $or: [{ 'orden.vehiculoId': { $in: ids } }, { 'ordenes.vehiculoId': { $in: ids } }],
-    })
-      .select('serie folio fecha orden ordenes')
-      .sort({ fecha: 1 })
-      .lean();
+    const facturaGlobalIds = [
+      ...new Set(filasCancel.map((f) => f.facturaGlobalId).filter(Boolean).map(String)),
+    ];
+
+    const [facturas, facturasGlobales] = await Promise.all([
+      FacturaCfdi.find({
+        tipoFactura: 'factura',
+        estatus: 'generada',
+        $or: [{ 'orden.vehiculoId': { $in: ids } }, { 'ordenes.vehiculoId': { $in: ids } }],
+      })
+        .select('serie folio fecha orden ordenes')
+        .sort({ fecha: 1 })
+        .lean(),
+      facturaGlobalIds.length
+        ? FacturaCfdi.find({ _id: { $in: facturaGlobalIds }, estatus: 'generada' })
+            .select('serie folio')
+            .lean()
+        : [],
+    ]);
 
     // fecha ascendente: si la orden se refacturó, prevalece el CFDI más reciente
     const folioPorVehiculo = new Map();
@@ -776,8 +942,14 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
       const vids = [f.orden?.vehiculoId, ...(f.ordenes || []).map((x) => x.vehiculoId)];
       for (const vid of vids) if (vid) folioPorVehiculo.set(String(vid), folioCfdi);
     }
-    for (const { fila, vehiculoId } of filasCancel) {
-      const folioCfdi = folioPorVehiculo.get(vehiculoId);
+    const folioPorFacturaGlobalId = new Map();
+    for (const f of facturasGlobales) {
+      folioPorFacturaGlobalId.set(String(f._id), `${f.serie || ''}${f.folio || ''}`);
+    }
+    for (const { fila, vehiculoId, facturaGlobalId } of filasCancel) {
+      const folioCfdi =
+        folioPorVehiculo.get(vehiculoId) ||
+        (facturaGlobalId ? folioPorFacturaGlobalId.get(String(facturaGlobalId)) : null);
       if (folioCfdi) fila.cliente += ` ${folioCfdi}`;
     }
   }
@@ -818,6 +990,10 @@ async function buildReporteRemisionesDiario({ desde, hasta }) {
     ordenesCanceladas,
     totales: { totalVentaDia, totalContado, totalCredito, totalAnticipo, totalPorCobrar, totalIngreso },
   };
+}
+
+function buildReporteRemisionesDiario({ desde, hasta }) {
+  return reporteDiaConCache('REMISION', desde, hasta, buildReporteRemisionesDiarioImpl);
 }
 
 // ===== Reporte Diario de Facturas (formato clásico de 9 columnas) =====
@@ -870,6 +1046,9 @@ const SAT_FORMA_PAGO_ABREV = {
   '04': 'TC',
   '28': 'TD',
   '29': 'TARJ-SERV',
+  // "Por definir": la factura se generó a crédito, sin capturar cómo pagó el
+  // cliente en Cajas (ver "Facturar a crédito" en Nueva Factura).
+  '99': 'CREDITO',
 };
 
 function bancoADeposito(banco) {
@@ -952,7 +1131,7 @@ function sumarDepositoLiquidacion(sumarDeposito, pago) {
   sumarDeposito(formaPagoProvisionalADeposito(l.formaPago), pago.monto);
 }
 
-async function buildReporteFacturasDiario({ desde, hasta }) {
+async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
   const d = new Date(desde);
   const h = new Date(hasta);
 
@@ -1192,7 +1371,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     const folioFactura = rel ? `${rel.serie || ''}${rel.folio || ''}` : '';
     return {
       folio: folioFactura ? `${folioCp}\n${folioFactura}` : folioCp,
-      ordenServicio: f.orden?.ordenServicio || (f.ordenes || []).map((x) => x.ordenServicio).join(', '),
+      ordenServicio: f.orden?.ordenServicio || (f.ordenes || []).map((x) => x.ordenServicio).join('\n'),
       cliente: f.cliente?.nombre || '',
       fecha: f.fecha,
       ingresoCredito: monto,
@@ -1216,7 +1395,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     totalPorCobrar -= total;
     return {
       folio: `${f.serie || ''}${f.folio || ''}`,
-      ordenServicio: f.orden?.ordenServicio || (f.ordenes || []).map((x) => x.ordenServicio).join(', '),
+      ordenServicio: f.orden?.ordenServicio || (f.ordenes || []).map((x) => x.ordenServicio).join('\n'),
       cliente: rel
         ? `NOTA DE CREDITO APLICADA A FACTURA ${rel.serie || ''}${rel.folio || ''}`
         : 'NOTA DE CREDITO',
@@ -1278,7 +1457,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
 
     const fila = {
       folio: `${f.serie || ''}${f.folio || ''}`,
-      ordenServicio: ordenes.map((o) => o.ordenServicio).filter(Boolean).join(', '),
+      ordenServicio: ordenes.map((o) => o.ordenServicio).filter(Boolean).join('\n'),
       cliente: f.cliente?.nombre || '',
       fecha: f.fecha,
       ventaDia: total,
@@ -1462,6 +1641,7 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         // PUBLICO GENERAL debe decirlo junto con el folio del Recibo de
         // Dólares que se generó para esa nota (ver POST /cajas/:id/pagos).
         montoDolares: Number(p.montoDolares) > 0 ? Number(p.montoDolares) : 0,
+        tipoCambio: Number(p.tipoCambio) || 0,
         reciboDolaresNumero: p.reciboDolares?.numero ?? null,
       });
     }
@@ -1510,35 +1690,58 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
         totalPorCobrar += total;
       }
 
+      // Dólares en efectivo de la nota, convertidos a pesos con el tipo de
+      // cambio con el que se cobró (0 si no hubo o no se conoce el T.C.).
+      const dolaresEnPesos = (info) =>
+        info?.montoDolares > 0 && info?.tipoCambio > 0
+          ? Math.round(info.montoDolares * info.tipoCambio * 100) / 100
+          : 0;
+
       const partes = notasDia.map((n) => {
         const info = infoPorNota.get(n.numero);
         const folio = n.numero != null ? `P${n.numero}` : 'S/N';
-        const textoDolares = info?.montoDolares
-          ? ` / $${fmtMonto(info.montoDolares)} USD${
-              info.reciboDolaresNumero != null ? ` REC.DLS#${info.reciboDolaresNumero}` : ''
-            }`
-          : '';
+        const dolaresPesos = dolaresEnPesos(info);
         // Combinado: en vez de "$total CON EFECTIVO Y BR-C" (que no dice
         // cuánto fue de cada uno), se desglosa el monto por método.
         if (info?.combinado) {
-          return `(${folio} ${desgloseMontosCombinado(info.combinado, fmtMonto)}${textoDolares})`;
+          return `(${folio} ${desgloseMontosCombinado(info.combinado, fmtMonto, dolaresPesos)})`;
         }
+        // Pago simple con parte en dólares (solo puede ser Efectivo): n.monto ya
+        // trae los dólares convertidos, así que sale como un Efectivo por el
+        // total; los dólares en sí van en Notas.
         return info?.metodo
-          ? `(${folio} $${fmtMonto(n.monto)} CON ${info.metodo}${textoDolares})`
-          : `(${folio} $${fmtMonto(n.monto)}${textoDolares})`;
+          ? `(${folio} $${fmtMonto(n.monto)} CON ${info.metodo})`
+          : `(${folio} $${fmtMonto(n.monto)})`;
       });
+
+      // Notas: el Recibo de Dólares y la cantidad en USD de las notas que
+      // incluyeron dólares (con su folio de nota si son varias).
+      const conDolares = notasDia.filter((n) => infoPorNota.get(n.numero)?.montoDolares > 0);
+      const notasDolares = conDolares
+        .map((n) => {
+          const info = infoPorNota.get(n.numero);
+          const texto = [
+            info.reciboDolaresNumero != null ? `REC.DLS#${info.reciboDolaresNumero}` : '',
+            `$${fmtMonto(info.montoDolares)} USD`,
+          ]
+            .filter(Boolean)
+            .join(' ');
+          return conDolares.length > 1 ? `P${n.numero} ${texto}` : texto;
+        })
+        .join(', ');
 
       facturaGlobal.push({
         folio: `${f.serie || ''}${f.folio || ''}`,
-        ordenServicio: notasDia.map((n) => n.ordenServicio).filter(Boolean).join(', '),
-        cliente: `PUBLICO GENERAL.=${partes.join('--')}`,
+        ordenServicio: notasDia.map((n) => n.ordenServicio).filter(Boolean).join('\n'),
+        // Una nota de venta por línea (el renderer parte por el salto de línea).
+        cliente: `PUBLICO GENERAL.=${partes.join('\n')}`,
         fecha: notasDia
           .map((n) => infoPorNota.get(n.numero)?.fecha)
           .sort((a, b) => new Date(a) - new Date(b))[0],
         ventaDia: total,
         ingresoContado,
         cuentasPorCobrar,
-        notas: '',
+        notas: notasDolares,
       });
     }
   }
@@ -1563,6 +1766,10 @@ async function buildReporteFacturasDiario({ desde, hasta }) {
     totales: { totalVentaDia, totalContado, totalCredito, totalAnticipo, totalPorCobrar, totalIngreso },
     deposito: { ...deposito, total: totalDeposito },
   };
+}
+
+function buildReporteFacturasDiario({ desde, hasta }) {
+  return reporteDiaConCache('NOTA_VENTA', desde, hasta, buildReporteFacturasDiarioImpl);
 }
 
 // ===== Resumen diario de Remisiones (para rangos de más de un día) =====

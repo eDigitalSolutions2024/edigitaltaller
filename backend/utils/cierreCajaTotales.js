@@ -32,10 +32,10 @@ function calcularTotalesCierre(cierre) {
 
   const totalVales = (cierre.vales || []).reduce((s, v) => s + Number(v.monto || 0), 0);
 
-  // Total Cobrado = todo lo contado físicamente. Los vales quedan fuera de esta
-  // suma y de la diferencia: su efecto en el corte es una regla de negocio que
-  // todavía no se define (ver conversación de origen de esta función).
-  const totalCobrado = totalBilletes + totalMonedas + totalTerminales + totalDolares;
+  // Total Cobrado = todo lo contado físicamente + los vales de salida: un vale
+  // es dinero que ya salió de la caja (p. ej. para pagar una pieza) y que hay
+  // que sumar para que el corte cuadre contra lo cobrado según los reportes.
+  const totalCobrado = totalBilletes + totalMonedas + totalTerminales + totalDolares + totalVales;
 
   const totalReportes = Number(cierre.totalReportes || 0);
   const fondoCaja = Number(cierre.fondoCaja || 0);

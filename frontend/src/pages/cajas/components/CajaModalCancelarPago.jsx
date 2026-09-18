@@ -41,11 +41,14 @@ function comprobanteLabel(p) {
 }
 
 // Modal compartido (Cajas y Facturar) para cancelar un anticipo / remisión /
-// abono / nota. Dos modos:
+// abono / nota. Modos:
+//  - CONVIERTE_A_NOTA_VENTA: solo remisión (admin o cajas). El cliente ya no
+//    quiso facturar y se hace una Nota de Venta en su lugar: no es un error de
+//    captura, así que no requiere administrador ni ticket de Soporte.
 //  - PASA_A_FACTURA_EXISTENTE: se liga a una factura ya generada (admin o
 //    cajas, sin pedir permiso). Antes de confirmar se muestra una vista previa
 //    (mini-PDF, solo para ver) de cómo quedaría en el Reporte de Cajas.
-//  - ERROR: corrección de captura (solo admin), pisa las notas con el motivo.
+//  - ERROR: corrección de captura (solo admin). El motivo es interno: no sale en los reportes.
 // Desde Cajas NO se puede cancelar hacia una factura que aún no existe: eso se
 // hace en la pantalla de Facturar (elección por comprobante).
 // Si ninguno de los dos modos aplica (Caja, sobre algo que no es anticipo ni
@@ -77,9 +80,10 @@ export default function CajaModalCancelarPago({
   const modosDisponibles = useMemo(() => {
     const m = [];
     if (esAnticipoORemision) m.push("PASA_A_FACTURA_EXISTENTE");
+    if (pago?.comprobante === "REMISION") m.push("CONVIERTE_A_NOTA_VENTA");
     if (esAdmin) m.push("ERROR");
     return m;
-  }, [esAnticipoORemision, esAdmin]);
+  }, [esAnticipoORemision, esAdmin, pago]);
 
   const [modo, setModo] = useState(modoForzado || modosDisponibles[0] || "");
   const [motivo, setMotivo] = useState("");
@@ -169,6 +173,8 @@ export default function CajaModalCancelarPago({
       ? !!facturaSel
       : modo === "ERROR"
       ? !!motivo.trim()
+      : modo === "CONVIERTE_A_NOTA_VENTA"
+      ? true
       : false;
 
   const handleConfirmar = async () => {
@@ -179,6 +185,8 @@ export default function CajaModalCancelarPago({
       const payload =
         modo === "ERROR"
           ? { modo: "ERROR", motivo: motivo.trim() }
+          : modo === "CONVIERTE_A_NOTA_VENTA"
+          ? { modo: "CONVIERTE_A_NOTA_VENTA", motivo: motivo.trim() }
           : { modo: "PASA_A_FACTURA_EXISTENTE", facturaId: facturaSel._id };
       const res = await cancelarPagoCaja(orden._id, pago._id, payload);
       onConfirmado?.(res.data.vehiculo);
@@ -274,6 +282,21 @@ export default function CajaModalCancelarPago({
                             </label>
                           </div>
                         )}
+                        {modosDisponibles.includes("CONVIERTE_A_NOTA_VENTA") && (
+                          <div className="form-check">
+                            <input
+                              className="form-check-input"
+                              type="radio"
+                              name="modoCancelar"
+                              id="modoConvierte"
+                              checked={modo === "CONVIERTE_A_NOTA_VENTA"}
+                              onChange={() => setModo("CONVIERTE_A_NOTA_VENTA")}
+                            />
+                            <label className="form-check-label" htmlFor="modoConvierte">
+                              Convertirla a <strong>Nota de Venta</strong> (el cliente ya no quiso facturar)
+                            </label>
+                          </div>
+                        )}
                         {modosDisponibles.includes("ERROR") && (
                           <div className="form-check">
                             <input
@@ -333,6 +356,25 @@ export default function CajaModalCancelarPago({
                             })}
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {/* ---- Modo: convertir a Nota de Venta ---- */}
+                    {modo === "CONVIERTE_A_NOTA_VENTA" && (
+                      <div className="mb-3">
+                        <div className="alert alert-info py-2 small">
+                          No es un error de captura: la Remisión se cancela porque el cliente ya no quiso
+                          factura. Después de confirmar, registra la <strong>Nota de Venta</strong> de la orden
+                          (Registrar Pago → Generar Comprobante); quedará ligada a esta remisión cancelada.
+                        </div>
+                        <label className="form-label mb-0 fw-semibold">Motivo (opcional)</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={motivo}
+                          onChange={(e) => setMotivo(e.target.value)}
+                          placeholder="El cliente ya no quiso facturar; se genera Nota de Venta"
+                        />
                       </div>
                     )}
 

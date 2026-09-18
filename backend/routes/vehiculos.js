@@ -19,6 +19,7 @@ const { calcularTotalesOrden } = require('../utils/cajaTotales');
 const { sincronizarAnticiposAplicados } = require('../utils/anticiposCliente');
 const { backfillCreadoPorId } = require('../utils/backfillCreadoPorId');
 const { reasignarAsesorOrden } = require('../utils/reasignarAsesor');
+const { ordenesEnFacturaGlobal } = require('../utils/ordenesEnFacturaGlobal');
 const {
   puedeGestionarOrden,
   bloquearSiOrdenTerminal,
@@ -574,9 +575,10 @@ router.get('/ordenes', proteger, async (req, res) => {
     const andConditions = [];
 
     // Nueva Factura (búsqueda de orden a facturar): una orden que ya tiene una
-    // factura de ingreso vigente no debe ni aparecer en los resultados, para
-    // no dejar que el usuario la elija y se tope con el rechazo hasta el paso
-    // final (ver también la validación dura en POST /api/generar-xml/xml).
+    // factura de ingreso vigente, o cuya Nota de Venta ya está en una Factura
+    // Global vigente, no debe ni aparecer en los resultados, para no dejar que
+    // el usuario la elija y se tope con el rechazo hasta el paso final (ver
+    // también la validación dura en POST /api/generar-xml/xml).
     if (excluirFacturadas === 'true') {
       const facturadas = await FacturaCfdi.find({ tipoFactura: 'factura', estatus: 'generada' })
         .select('orden.vehiculoId ordenes.vehiculoId')
@@ -588,6 +590,7 @@ router.get('/ordenes', proteger, async (req, res) => {
           if (o.vehiculoId) vehiculoIdsFacturados.add(String(o.vehiculoId));
         }
       }
+      for (const vid of (await ordenesEnFacturaGlobal()).keys()) vehiculoIdsFacturados.add(vid);
       if (vehiculoIdsFacturados.size) {
         q._id = { $nin: [...vehiculoIdsFacturados] };
       }
