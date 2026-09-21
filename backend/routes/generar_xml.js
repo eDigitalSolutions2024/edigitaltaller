@@ -20,6 +20,16 @@ const { dayjsFecha } = require("../utils/fechas");
 const { limpiarYValidarTarjetas } = require("../utils/tarjetasCaja");
 const { registrarAccion } = require("../utils/registrarAccion");
 const { ordenesEnFacturaGlobal } = require("../utils/ordenesEnFacturaGlobal");
+const { exigirUuidActivo } = require("../utils/configuracionUuid");
+const { resolverNotasLiberadas, liberarNotasDeGlobal } = require("../utils/notaCreditoGlobal");
+const {
+  folioDe,
+  vehiculoIdsDeFactura,
+  facturasPreviasDeOrdenes,
+  vehiculoIdsConCobroHeredable,
+  registrarCancelacionFactura,
+  reasignarPagosDeFacturas,
+} = require("../utils/refacturacion");
 
 const router = express.Router();
 
@@ -108,6 +118,11 @@ function errorPagoSinComprobante(p) {
 // para validar cfdi:CfdiRelacionados y pago20:DoctoRelacionado — el SAT
 // rechaza el XML si UUID/IdDocumento no tiene esta forma.
 const UUID_RE = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
+// UUID que lleva el XML donde falta el real. Solo ocurre con "Exigir UUID" desactivado en
+// Configuración (pruebas mientras no se timbra): con la exigencia activa se valida antes.
+const UUID_SIN_TIMBRAR = "00000000-0000-0000-0000-000000000000";
+const uuidParaXml = (u) => String(u || "").trim().toUpperCase() || UUID_SIN_TIMBRAR;
+
 // Catálogo SAT c_TipoRelacion (mismo en CFDI 3.3 y 4.0).
 const TIPO_RELACION_VALIDOS = ["01", "02", "03", "04", "05", "06", "07"];
 
@@ -287,8 +302,10 @@ function buildCfdiXmlUnsigned({ emisor, receptor, cfdi, conceptos, totales }) {
   const folioAttr = folio ? ` Folio="${escapeXml(String(folio))}"` : "";
 
   const relacionadosXml = relacion
-    ? `<cfdi:CfdiRelacionados TipoRelacion="${escapeXml(relacion.tipoRelacion)}">${(relacion.uuids || [])
-        .map((u) => `<cfdi:CfdiRelacionado UUID="${escapeXml(u)}"/>`)
+    ? `<cfdi:CfdiRelacionados TipoRelacion="${escapeXml(relacion.tipoRelacion)}">${(
+        (relacion.uuids || []).length ? relacion.uuids : [""]
+      )
+        .map((u) => `<cfdi:CfdiRelacionado UUID="${escapeXml(uuidParaXml(u))}"/>`)
         .join("")}</cfdi:CfdiRelacionados>`
     : "";
 
@@ -478,7 +495,7 @@ function buildPagoXmlUnsigned({ emisor, receptor, cfdi, pago, relacionadas }) {
       // IdDocumento SIEMPRE es el UUID real de la factura pagada (Pagos 2.0 lo
       // exige); se valida en POST /xml antes de llegar aquí, nunca se cae a
       // serie+folio, que no es un UUID válido.
-      const idDoc = String(r.uuid || "").trim().toUpperCase();
+      const idDoc = uuidParaXml(r.uuid);
 
       const serieDrAttr = r.serie ? ` Serie="${escapeXml(r.serie)}"` : "";
       const folioDrAttr = r.folio ? ` Folio="${escapeXml(r.folio)}"` : "";
@@ -955,6 +972,9 @@ router.post("/xml", proteger, async (req, res) => {
       // ella, para que Cajas y el Cierre de Caja queden al día (ver más abajo).
       // [{ vehiculoId, monto, formaPago, chequeNumero, terminal, combinado }]
       pagosSinComprobante = [],
+      // Solo nota de crédito CONTRA UNA FACTURA GLOBAL: notas de venta de esa Global que se
+      // acreditan y liberan para facturarlas a su cliente: [{ vehiculoId, numero }].
+      notasLiberadas = [],
     } = req.body;
 
     const esNotaCredito = tipoFactura === "notaCredito";
@@ -987,41 +1007,62 @@ router.post("/xml", proteger, async (req, res) => {
       return res.status(400).json({ ok: false, error: "Falta la orden de servicio." });
     }
 
-    // Una orden ya facturada (factura de ingreso vigente, o su Nota de Venta ya
-    // en una Factura Global vigente) no puede volver a facturarse: la pantalla
-    // de Nueva Factura ya la excluye de la búsqueda (ver GET
-    // /api/vehiculos/ordenes?excluirFacturadas=true), esto es el respaldo en el
-    // servidor por si se llega aquí de otra forma.
+    // Una orden con factura de ingreso VIGENTE solo se puede volver a facturar como
+    // REFACTURACIÓN (SAT: sustitución, TipoRelacion 04): la factura nueva relaciona a
+    // la anterior con 04, la anterior queda registrada como cancelada y la nueva hereda
+    // el cobro ya registrado en Cajas (ver más abajo, tras crear la factura). Nueva
+    // Factura ya guía este flujo; esto es el respaldo en el servidor. Una orden cuya
+    // Nota de Venta ya está en una Factura Global vigente sigue bloqueada.
+    let vehiculoIdsFactura = [];
+    let facturasPorSustituir = []; // facturas vigentes que esta factura sustituye
+    let facturasPreviasCobro = []; // vigentes + canceladas: la nueva hereda su cobro
     if (tipoFactura === "factura" && ordenes.length) {
       const vehiculoIds = ordenes.map((o) => o._id).filter(Boolean);
-      const yaFacturadas = await FacturaCfdi.find({
-        tipoFactura: "factura",
-        estatus: "generada",
-        $or: [
-          { "orden.vehiculoId": { $in: vehiculoIds } },
-          { "ordenes.vehiculoId": { $in: vehiculoIds } },
-        ],
-      })
-        .select("serie folio orden.vehiculoId ordenes.vehiculoId")
-        .lean();
-      if (yaFacturadas.length) {
-        const vehiculoIdsStr = new Set(vehiculoIds.map(String));
+      vehiculoIdsFactura = vehiculoIds;
+      const vehiculoIdsStr = new Set(vehiculoIds.map(String));
+      const { vigentes, canceladas } = await facturasPreviasDeOrdenes(vehiculoIds);
+
+      if (vigentes.length) {
+        const nombreOrden = (f, vid) =>
+          [f.orden, ...(f.ordenes || [])].find((o) => String(o?.vehiculoId) === vid)?.ordenServicio || vid;
         const conflictos = [];
-        for (const f of yaFacturadas) {
-          const folioCfdi = `${f.serie || ""}${f.folio || ""}`;
-          const vids = [f.orden?.vehiculoId, ...(f.ordenes || []).map((x) => x.vehiculoId)];
-          for (const vid of vids) {
-            if (vid && vehiculoIdsStr.has(String(vid))) {
-              const orden = ordenes.find((o) => String(o._id) === String(vid));
-              conflictos.push(`${orden?.ordenServicio || String(vid)} (factura ${folioCfdi})`);
-            }
+        for (const f of vigentes) {
+          for (const vid of vehiculoIdsDeFactura(f)) {
+            if (vehiculoIdsStr.has(vid)) conflictos.push(`${nombreOrden(f, vid)} (factura ${folioDe(f)})`);
           }
         }
-        return res.status(400).json({
-          ok: false,
-          error: `Ya existe una factura para: ${[...new Set(conflictos)].join(", ")}. No se puede generar otra.`,
-        });
+        const listado = [...new Set(conflictos)].join(", ");
+
+        if (cfdi?.relacion?.tipoRelacion !== "04") {
+          return res.status(400).json({
+            ok: false,
+            error: `Ya existe una factura para: ${listado}. Para refacturar, relaciona la factura original con el tipo de relación 04 (Sustitución de los CFDI previos).`,
+          });
+        }
+        if (req.user?.role !== "admin") {
+          return res.status(403).json({
+            ok: false,
+            error: `Solo un administrador puede refacturar una orden que ya tiene factura (implica cancelar la original): ${listado}.`,
+          });
+        }
+
+        // La factura nueva debe cubrir COMPLETA a cada factura que sustituye.
+        const incompletas = [];
+        for (const f of vigentes) {
+          const fuera = [...vehiculoIdsDeFactura(f)].filter((vid) => !vehiculoIdsStr.has(vid));
+          if (fuera.length) {
+            incompletas.push(`${folioDe(f)} también incluye ${fuera.map((vid) => nombreOrden(f, vid)).join(", ")}`);
+          }
+        }
+        if (incompletas.length) {
+          return res.status(400).json({
+            ok: false,
+            error: `Para sustituir una factura hay que refacturar todas sus órdenes: ${incompletas.join("; ")}. Agrégalas a esta factura.`,
+          });
+        }
+        facturasPorSustituir = vigentes;
       }
+      facturasPreviasCobro = [...vigentes, ...canceladas];
 
       const enGlobal = await ordenesEnFacturaGlobal(vehiculoIds);
       if (enGlobal.size) {
@@ -1113,8 +1154,11 @@ router.post("/xml", proteger, async (req, res) => {
     // El UUID (folio fiscal) es obligatorio y debe tener el formato real del
     // SAT: ni la nota de crédito (cfdi:CfdiRelacionados) ni el complemento de
     // pago (pago20:DoctoRelacionado) son válidos con un folio interno en su
-    // lugar.
+    // lugar. Un administrador puede desactivar la exigencia en Configuración (solo
+    // pruebas mientras no se timbra): entonces el XML lleva un UUID en ceros.
+    const exigirUuid = await exigirUuidActivo();
     if (
+      exigirUuid &&
       (esNotaCredito || esComplementoPago) &&
       relacionadas.some((r) => !UUID_RE.test(String(r.uuid || "").trim()))
     ) {
@@ -1135,9 +1179,10 @@ router.post("/xml", proteger, async (req, res) => {
         return res.status(400).json({ ok: false, error: "Tipo de relación inválido." });
       }
       if (
-        !Array.isArray(uuidsBody) ||
-        uuidsBody.length === 0 ||
-        uuidsBody.some((u) => !UUID_RE.test(String(u || "").trim()))
+        exigirUuid &&
+        (!Array.isArray(uuidsBody) ||
+          uuidsBody.length === 0 ||
+          uuidsBody.some((u) => !UUID_RE.test(String(u || "").trim())))
       ) {
         return res.status(400).json({
           ok: false,
@@ -1186,6 +1231,28 @@ router.post("/xml", proteger, async (req, res) => {
           });
         }
       }
+    }
+
+    // Nota de crédito contra una Factura Global (SAT, Opción A de refacturación): las notas que
+    // acredita salen de la BD, deben ser de esa Global, no estar ya liberadas y sumar el total.
+    let notasLiberadasResueltas = [];
+    if (esNotaCredito && Array.isArray(notasLiberadas) && notasLiberadas.length) {
+      const totalNcEsperado = Number(
+        calcularTotales({
+          conceptos,
+          ivaRate: Number(cfdi.ivaRate ?? 0.16),
+          aplicarRetencionIsr: !!cfdi.aplicarRetencionIsr,
+          isrRate: Number(cfdi.isrRate ?? 0.0125),
+          descuento: Number(cfdi?.descuento || 0),
+        }).total
+      );
+      const resuelto = await resolverNotasLiberadas({
+        relacionadas,
+        notasLiberadas,
+        totalNc: totalNcEsperado,
+      });
+      if (resuelto.error) return res.status(400).json({ ok: false, error: resuelto.error });
+      notasLiberadasResueltas = resuelto.notas;
     }
 
     // Lee config fiscal
@@ -1394,8 +1461,18 @@ router.post("/xml", proteger, async (req, res) => {
           ? `Facturado como "${nombreEmitido}" (razón social: "${razonSocialOriginal}")`
           : "";
 
+      // Una NC contra Global guarda las órdenes de las notas que libera (para encontrarla por
+      // orden y para el Reporte de Facturas); el resto de los tipos, las que mandó la pantalla.
+      const ordenesDoc = notasLiberadasResueltas.length
+        ? notasLiberadasResueltas
+            .filter((n, i, a) => a.findIndex((x) => String(x.vehiculoId) === String(n.vehiculoId)) === i)
+            .map((n) => ({ _id: n.vehiculoId, ordenServicio: n.ordenServicio }))
+        : ordenes;
+      const ordenPrincipalDoc = ordenesDoc[0] || null;
+
       const facturaDoc = await FacturaCfdi.create({
         tipoFactura,
+        notasLiberadas: notasLiberadasResueltas,
         tipoComprobante: cfdiFinal.tipoComprobante,
         serie: cfdiFinal.serie,
         folio: cfdiFinal.folio,
@@ -1438,10 +1515,10 @@ router.post("/xml", proteger, async (req, res) => {
           pais: cliente.pais || "",
         },
         orden: {
-          vehiculoId: ordenPrincipal?._id || null,
-          ordenServicio: ordenPrincipal?.ordenServicio || "",
+          vehiculoId: ordenPrincipalDoc?._id || null,
+          ordenServicio: ordenPrincipalDoc?.ordenServicio || "",
         },
-        ordenes: ordenes.map((o) => ({
+        ordenes: ordenesDoc.map((o) => ({
           vehiculoId: o?._id || null,
           ordenServicio: o?.ordenServicio || "",
         })),
@@ -1507,7 +1584,7 @@ router.post("/xml", proteger, async (req, res) => {
           cliente: receptor?.nombre || "",
           rfc: receptor?.rfc || "",
           total: Number(totales?.total || 0),
-          ordenes: ordenes.map((o) => o?.ordenServicio).filter(Boolean),
+          ordenes: ordenesDoc.map((o) => o?.ordenServicio).filter(Boolean),
           // Forma/método de pago declarados en el propio CFDI (catálogo SAT
           // c_FormaPago, ej. "01" Efectivo, "03" Transferencia...).
           formaPago: cfdiFinal.formaPago || "",
@@ -1529,6 +1606,48 @@ router.post("/xml", proteger, async (req, res) => {
       });
 
       if (tipoFactura === "factura" && ordenes.length) {
+        // Refacturación: la factura nueva hereda el cobro ya registrado en Cajas (los pagos
+        // ligados a las anteriores pasan a apuntarle) y las vigentes que sustituye
+        // quedan registradas como canceladas (motivo 01, sustituidas por esta).
+        let ordenesConCobroHeredado = new Set();
+        if (facturasPreviasCobro.length) {
+          const idsPrevias = facturasPreviasCobro.map((f) => f._id);
+          ordenesConCobroHeredado = await vehiculoIdsConCobroHeredable(vehiculoIdsFactura, idsPrevias);
+          await reasignarPagosDeFacturas(vehiculoIdsFactura, idsPrevias, facturaDoc._id);
+          await FacturaCfdi.updateOne(
+            { _id: facturaDoc._id },
+            {
+              $set: {
+                sustituye: facturasPreviasCobro.map((f) => ({
+                  facturaId: f._id,
+                  serie: f.serie || "",
+                  folio: f.folio || "",
+                })),
+              },
+            }
+          );
+          for (const f of facturasPorSustituir) {
+            await registrarCancelacionFactura(f._id, {
+              motivo: "01",
+              sustituta: facturaDoc,
+              nota: "Sustituida al refacturar (relación 04).",
+              user: req.user,
+            });
+          }
+          // Al final (tras cancelar las vigentes, que reescribe `cancelacion`): las facturas
+          // anteriores apuntan a la que heredó su cobro.
+          await FacturaCfdi.updateMany(
+            { _id: { $in: idsPrevias } },
+            { $set: { "cancelacion.cobroHeredadoPorId": facturaDoc._id } }
+          );
+          if (facturasPorSustituir.length) {
+            persistWarning =
+              (persistWarning ? persistWarning + " " : "") +
+              `Recuerda cancelar en el SAT/PAC la factura ${facturasPorSustituir.map(folioDe).join(", ")} ` +
+              `(motivo 01, sustituida por el UUID de la nueva).`;
+          }
+        }
+
         const decisiones = {};
         for (const c of Array.isArray(comprobantesCajas) ? comprobantesCajas : []) {
           if (c?.pagoId) decisiones[String(c.pagoId)] = c.accion;
@@ -1543,11 +1662,22 @@ router.post("/xml", proteger, async (req, res) => {
           persistWarning = (persistWarning ? persistWarning + " " : "") + avisos.join(" ");
         }
 
-        recibosDolares = await crearPagosSinComprobante(pagosSinComprobante, facturaDoc, req.user);
+        // Una orden que hereda el cobro de la factura anterior no captura otro Liquidar.
+        const pagosLiquidar = ordenesConCobroHeredado.size
+          ? (Array.isArray(pagosSinComprobante) ? pagosSinComprobante : []).filter(
+              (p) => !ordenesConCobroHeredado.has(String(p?.vehiculoId))
+            )
+          : pagosSinComprobante;
+        recibosDolares = await crearPagosSinComprobante(pagosLiquidar, facturaDoc, req.user);
       }
 
       if (esFacturaGlobal) {
         await marcarNotasVentaFacturadas(notasVenta, facturaDoc._id);
+      }
+
+      // NC contra Global: las notas acreditadas quedan liberadas (su orden ya se puede facturar).
+      if (esNotaCredito && notasLiberadasResueltas.length) {
+        await liberarNotasDeGlobal(notasLiberadasResueltas, facturaDoc._id, req.user);
       }
     } catch (persistErr) {
       console.error("No se pudo guardar FacturaCfdi:", persistErr);

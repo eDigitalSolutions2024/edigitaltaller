@@ -25,6 +25,8 @@ import {
   actualizarOrdenCompraContador,
   getFondoCaja,
   actualizarFondoCaja,
+  getExigirUuid,
+  actualizarExigirUuid,
   getContratoOrdenServicio,
   actualizarContratoOrdenServicio,
 } from "../../api/configuracion";
@@ -52,6 +54,9 @@ export default function Configuracion() {
   const [remisionContador, setRemisionContador] = useState(0);
   const [ordenCompraContador, setOrdenCompraContador] = useState(0);
   const [fondoCaja, setFondoCaja] = useState(0);
+  // Facturación: ¿se exige el UUID real al relacionar facturas? (default sí; ver hooks/useExigirUuid)
+  const [exigirUuid, setExigirUuid] = useState(true);
+  const [guardandoUuid, setGuardandoUuid] = useState(false);
 
   const [tipoCambioForm, setTipoCambioForm] = useState({
     valor: "",
@@ -416,6 +421,33 @@ export default function Configuracion() {
     }
   };
 
+  useEffect(() => {
+    getExigirUuid()
+      .then((data) => setExigirUuid(data?.valor !== false))
+      .catch(() => {
+        // sin dato: se deja en "se exige" (lo seguro)
+      });
+  }, []);
+
+  const handleToggleExigirUuid = async (e) => {
+    const nuevo = e.target.checked;
+    try {
+      setError("");
+      setGuardandoUuid(true);
+      const res = await actualizarExigirUuid(nuevo);
+      setExigirUuid(res?.valor !== false);
+      mostrarMensaje(
+        nuevo
+          ? "Ahora se exige el UUID real al relacionar facturas"
+          : "Modo pruebas: ya no se exige el UUID al relacionar facturas"
+      );
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message);
+    } finally {
+      setGuardandoUuid(false);
+    }
+  };
+
   const handleGuardarFondoCaja = async (e) => {
     e.preventDefault();
 
@@ -655,6 +687,45 @@ export default function Configuracion() {
 
               <button type="submit">Guardar</button>
             </form>
+          </section>
+
+          {/* Facturación: exigir UUID (solo pruebas) */}
+          <section className="config-card">
+            <div className="config-card-header">
+              <div>
+                <h2>UUID en facturas</h2>
+                <span>
+                  El sistema aún no timbra, así que el UUID (folio fiscal) se captura a mano al relacionar
+                  facturas (nota de crédito, complemento de pago, refacturación).
+                </span>
+              </div>
+              <div className="config-icon">🧾</div>
+            </div>
+
+            <div className="config-current">
+              <span>Estado</span>
+              <strong>{exigirUuid ? "UUID obligatorio" : "UUID NO obligatorio (pruebas)"}</strong>
+            </div>
+
+            <div className="form-check form-switch mb-2">
+              <input
+                type="checkbox"
+                role="switch"
+                className="form-check-input"
+                id="exigirUuidFacturas"
+                checked={exigirUuid}
+                disabled={guardandoUuid}
+                onChange={handleToggleExigirUuid}
+              />
+              <label className="form-check-label" htmlFor="exigirUuidFacturas">
+                Exigir el UUID real para generar el XML
+              </label>
+            </div>
+
+            <p className="text-muted small mb-0">
+              Desactívalo <strong>solo para pruebas</strong>: el XML se genera sin pedir el UUID y lleva uno en
+              ceros donde falte. Vuelve a activarlo antes de subir a producción.
+            </p>
           </section>
 
           {/* Contador de Orden de Servicio */}

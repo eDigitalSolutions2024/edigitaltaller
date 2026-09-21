@@ -83,6 +83,13 @@ export const getFondoCaja = () =>
 export const actualizarFondoCaja = (valor) =>
   http.put('/configuracion/fondo-caja', { valor }).then(r => r.data);
 
+// ¿Se exige el UUID real al relacionar facturas? (solo pruebas mientras no se timbra)
+export const getExigirUuid = () =>
+  http.get('/configuracion/exigir-uuid').then(r => r.data);
+
+export const actualizarExigirUuid = (valor) =>
+  http.put('/configuracion/exigir-uuid', { valor }).then(r => r.data);
+
 export const getContratoOrdenServicio = () =>
   http.get('/configuracion/contrato-orden-servicio').then(r => r.data);
 

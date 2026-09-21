@@ -1385,17 +1385,49 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
     tipoFactura: 'notaCredito',
     fecha: { $gte: d, $lte: h },
   })
-    .select('serie folio fecha cliente totales relacionadas orden ordenes')
+    .select('serie folio fecha cliente totales relacionadas orden ordenes notasLiberadas')
     .lean();
+
+  // Nota de crédito CONTRA UNA FACTURA GLOBAL (libera notas de venta para facturarlas a su cliente,
+  // ver utils/notaCreditoGlobal.js): reversa hoy lo que esas notas sumaron en la Global el día de
+  // la nota, con el MISMO reparto (contado / transferencia -> por cobrar, o todo por cobrar si la
+  // Global fue PPD). La factura nominativa que se emita después suma lo mismo y no vuelve a
+  // sumar Depósito, así el día queda neto cero. Las demás NC siguen restando por cobrar.
+  const globalesDeNc = [
+    ...new Set(
+      notasCreditoDocs
+        .filter((f) => (f.notasLiberadas || []).length)
+        .map((f) => String(f.relacionadas?.[0]?.facturaId || ''))
+        .filter(Boolean)
+    ),
+  ];
+  const metodoPagoPorGlobal = new Map(
+    (globalesDeNc.length
+      ? await FacturaCfdi.find({ _id: { $in: globalesDeNc } }).select('cfdi.metodoPago').lean()
+      : []
+    ).map((g) => [String(g._id), g.cfdi?.metodoPago || 'PUE'])
+  );
+  const vehiculoIdsNcGlobal = [
+    ...new Set(
+      notasCreditoDocs.flatMap((f) => (f.notasLiberadas || []).map((n) => String(n.vehiculoId)))
+    ),
+  ];
+  const pagoNcPorId = new Map();
+  if (vehiculoIdsNcGlobal.length) {
+    const vehiculosNc = await Vehiculo.find({ _id: { $in: vehiculoIdsNcGlobal } }).select('pagos').lean();
+    for (const v of vehiculosNc) for (const p of v.pagos || []) pagoNcPorId.set(String(p._id), p);
+  }
 
   const notasCredito = notasCreditoDocs.map((f) => {
     const rel = f.relacionadas?.[0];
     const total = f.totales?.total || 0;
-    totalVentaDia -= total;
-    totalPorCobrar -= total;
-    return {
+    const liberadas = f.notasLiberadas || [];
+    const fila = {
       folio: `${f.serie || ''}${f.folio || ''}`,
-      ordenServicio: f.orden?.ordenServicio || (f.ordenes || []).map((x) => x.ordenServicio).join('\n'),
+      // Una NC contra Global lista todas las órdenes de las notas que libera (una por línea).
+      ordenServicio: (f.ordenes || []).length
+        ? f.ordenes.map((x) => x.ordenServicio).filter(Boolean).join('\n')
+        : f.orden?.ordenServicio || '',
       cliente: rel
         ? `NOTA DE CREDITO APLICADA A FACTURA ${rel.serie || ''}${rel.folio || ''}`
         : 'NOTA DE CREDITO',
@@ -1404,16 +1436,56 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       cuentasPorCobrar: -total,
       notas: f.cliente?.nombre || '',
     };
+
+    totalVentaDia -= total;
+    if (!liberadas.length) {
+      totalPorCobrar -= total;
+      return fila;
+    }
+
+    const esPueGlobal = (metodoPagoPorGlobal.get(String(rel?.facturaId)) || 'PUE') !== 'PPD';
+    const montoTransf = esPueGlobal
+      ? Math.min(
+          total,
+          liberadas.reduce((s, n) => {
+            const pago = pagoNcPorId.get(String(n.pagoId));
+            return s + (pago ? montoTransferenciaNotaVenta(pago) : 0);
+          }, 0)
+        )
+      : 0;
+    const contado = esPueGlobal ? total - montoTransf : 0;
+    const porCobrar = esPueGlobal ? montoTransf : total;
+    totalContado -= contado;
+    totalPorCobrar -= porCobrar;
+    fila.ingresoContado = contado > 0 ? -contado : undefined;
+    fila.cuentasPorCobrar = porCobrar > 0 ? -porCobrar : undefined;
+    fila.notas = `NOTAS DE VENTA ${liberadas.map((n) => `P${n.numero}`).join(', ')}`;
+    return fila;
   });
 
   // ---- 5: Facturas del día (la banda 7, Factura global, se arma más abajo) ----
+  // Una factura cancelada DESPUÉS de este día sigue contando en su propio día (era vigente
+  // al cierre); su cancelación se resta el día en que se registra (banda "Facturas
+  // canceladas", más abajo). Una cancelada el mismo día en que se emitió no cuenta en ninguno.
   const facturaDocs = await FacturaCfdi.find({
     tipoFactura: 'factura',
-    estatus: 'generada',
     fecha: { $gte: d, $lte: h },
+    $or: [{ estatus: 'generada' }, { estatus: 'cancelada', 'cancelacion.fecha': { $gt: h } }],
   })
-    .select('serie folio fecha cliente totales cfdi orden ordenes')
+    .select('serie folio fecha cliente totales cfdi orden ordenes sustituye cancelacion')
     .lean();
+
+  // Refacturación: una factura que sustituye a otra de un día ANTERIOR hereda un cobro que
+  // ya entró (y se contó en el Depósito) ese día: no se vuelve a sumar al Depósito hoy.
+  const idsSustituidas = [
+    ...new Set(facturaDocs.flatMap((f) => (f.sustituye || []).map((x) => String(x.facturaId)))),
+  ].filter((x) => x && x !== 'null');
+  const fechaPorFacturaSustituida = new Map(
+    (idsSustituidas.length
+      ? await FacturaCfdi.find({ _id: { $in: idsSustituidas } }).select('fecha').lean()
+      : []
+    ).map((x) => [String(x._id), x.fecha])
+  );
 
   const facturas = [];
   // Bandas 5 y 7: facturas normales del día (agrupen una o varias órdenes) y,
@@ -1430,12 +1502,14 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
   // Solo los anticipos cancelados quedan listados arriba en "Anticipos
   // cancelados" (las remisiones canceladas no), así que solo ellos pueden
   // decir "ANTES MENCIONADO"; una remisión cancelada se explica sola.
-  function notaCanceladoPrevio(facturaIdStr, ordenes) {
+  function notaCanceladoPrevio(idsFactura, ordenes) {
     const tipos = new Set();
     for (const o of ordenes) {
       if (!o.vehiculoId) continue;
-      const cruce = cruceAnticipoPorOrdenFactura.get(`${facturaIdStr}_${String(o.vehiculoId)}`);
-      if (cruce) tipos.add(cruce.tipo);
+      for (const idF of idsFactura) {
+        const cruce = cruceAnticipoPorOrdenFactura.get(`${idF}_${String(o.vehiculoId)}`);
+        if (cruce) tipos.add(cruce.tipo);
+      }
     }
     if (tipos.has('ANTICIPO')) return 'CON ANTICIPO CANCELADO ANTES MENCIONADO';
     // Una remisión cancelada NO se menciona en este reporte (esa historia
@@ -1454,6 +1528,15 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
     else totalPorCobrar += total;
 
     const facturaIdStr = String(f._id);
+    // Los pagos de Cajas de esta factura pueden apuntar a ella o, si la sustituyó otra
+    // (refacturación, ver generar_xml.js), a la que la sustituyó.
+    const idsCruce = new Set([facturaIdStr]);
+    if (f.cancelacion?.sustituidaPorId) idsCruce.add(String(f.cancelacion.sustituidaPorId));
+    if (f.cancelacion?.cobroHeredadoPorId) idsCruce.add(String(f.cancelacion.cobroHeredadoPorId));
+    const sinDeposito = (f.sustituye || []).some((x) => {
+      const fecha1 = fechaPorFacturaSustituida.get(String(x.facturaId));
+      return fecha1 && new Date(fecha1) < d;
+    });
 
     const fila = {
       folio: `${f.serie || ''}${f.folio || ''}`,
@@ -1463,7 +1546,7 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       ventaDia: total,
       ingresoContado: esPue ? total : undefined,
       cuentasPorCobrar: esPue ? undefined : total,
-      notas: notaCanceladoPrevio(facturaIdStr, ordenes),
+      notas: notaCanceladoPrevio([...idsCruce], ordenes),
     };
 
     // Facturas normales, agrupen una o varias órdenes, van todas a la banda
@@ -1473,6 +1556,69 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       fila,
       ordenes,
       facturaIdStr,
+      idsCruce,
+      sinDeposito,
+      signo: 1,
+      cfdiFormaPago: f.cfdi?.formaPago,
+      esPue,
+      total,
+      metodos: new Set(),
+      montoTransferencia: 0,
+    });
+    for (const o of ordenes) if (o.vehiculoId) vehiculoIdsFacturas.push(String(o.vehiculoId));
+  }
+
+  // ---- 5b: Facturas canceladas (registradas hoy, emitidas un día anterior) ----
+  // Resta hoy lo que la factura sumó el día que se emitió (ese día ya cerró): Venta del día
+  // y Contado/Por cobrar en negativo, con el mismo reparto (transferencia -> por cobrar) que
+  // tuvo. No toca el Depósito: el dinero no sale de caja por cancelar la factura. Si la
+  // sustituye otra, esa suma hoy o después con su propio día y el neto queda en cero.
+  const facturasCanceladas = [];
+  const facturaCanceladaDocs = await FacturaCfdi.find({
+    tipoFactura: 'factura',
+    estatus: 'cancelada',
+    'cancelacion.fecha': { $gte: d, $lte: h },
+    fecha: { $lt: d },
+  })
+    .select('serie folio fecha cliente totales cfdi orden ordenes cancelacion')
+    .sort({ 'cancelacion.fecha': 1 })
+    .lean();
+
+  for (const f of facturaCanceladaDocs) {
+    const ordenes = f.ordenes?.length ? f.ordenes : f.orden?.vehiculoId ? [f.orden] : [];
+    const total = f.totales?.total || 0;
+    const esPue = (f.cfdi?.metodoPago || 'PUE') !== 'PPD';
+
+    totalVentaDia -= total;
+    if (esPue) totalContado -= total;
+    else totalPorCobrar -= total;
+
+    const facturaIdStr = String(f._id);
+    const idsCruce = new Set([facturaIdStr]);
+    if (f.cancelacion?.sustituidaPorId) idsCruce.add(String(f.cancelacion.sustituidaPorId));
+    if (f.cancelacion?.cobroHeredadoPorId) idsCruce.add(String(f.cancelacion.cobroHeredadoPorId));
+
+    const fila = {
+      folio: `${f.serie || ''}${f.folio || ''}`,
+      ordenServicio: ordenes.map((o) => o.ordenServicio).filter(Boolean).join('\n'),
+      cliente: f.cliente?.nombre || '',
+      fecha: f.cancelacion?.fecha || f.fecha,
+      ventaDia: -total,
+      ingresoContado: esPue ? -total : undefined,
+      cuentasPorCobrar: esPue ? undefined : -total,
+      notas: '',
+    };
+    facturasCanceladas.push(fila);
+    facturasConOrdenes.push({
+      fila,
+      ordenes,
+      facturaIdStr,
+      idsCruce,
+      sinDeposito: true,
+      signo: -1,
+      textoNotas: `CANCELADA${
+        f.cancelacion?.sustituidaPorFolio ? ` · SUSTITUIDA POR ${f.cancelacion.sustituidaPorFolio}` : ''
+      }`,
       cfdiFormaPago: f.cfdi?.formaPago,
       esPue,
       total,
@@ -1496,12 +1642,17 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
     const pagosPorVehiculo = new Map(vehiculosNotaVenta.map((v) => [String(v._id), v.pagos || []]));
 
     for (const entry of facturasConOrdenes) {
-      const { fila, ordenes, facturaIdStr, metodos } = entry;
+      const { fila, ordenes, idsCruce, metodos } = entry;
+      // Una factura cancelada, o una que hereda un cobro de un día anterior, no vuelve a
+      // sumar al Depósito: el dinero ya entró (y se contó) el día original.
+      const depositar = entry.sinDeposito ? () => {} : sumarDeposito;
       const partes = [];
       for (const o of ordenes) {
         const vehiculoIdStr = String(o.vehiculoId);
         const pagos = pagosPorVehiculo.get(vehiculoIdStr) || [];
-        const cruce = cruceAnticipoPorOrdenFactura.get(`${facturaIdStr}_${vehiculoIdStr}`);
+        const cruce = [...idsCruce]
+          .map((idF) => cruceAnticipoPorOrdenFactura.get(`${idF}_${vehiculoIdStr}`))
+          .find(Boolean);
 
         for (const p of pagos) {
           // Pago "Liquidar" creado al facturar esta orden directo, sin Nota de
@@ -1509,15 +1660,17 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
           // generar_xml.js). Se liga por facturaId (no solo por vehiculoId):
           // un mismo vehículo puede tener más de una factura en fechas
           // distintas, cada una con su propio Liquidar.
-          if (p.comprobante === 'SIN_COMPROBANTE' && !p.cancelado && String(p.facturaId || '') === facturaIdStr) {
-            sumarDepositoLiquidacion(sumarDeposito, p);
+          if (p.comprobante === 'SIN_COMPROBANTE' && !p.cancelado && idsCruce.has(String(p.facturaId || ''))) {
+            sumarDepositoLiquidacion(depositar, p);
             const abrevLiq = abreviaturaFormaPago(p.liquidacion);
             if (abrevLiq) metodos.add(abrevLiq);
             continue;
           }
 
           if (p.comprobante !== 'NOTA_VENTA' || p.tipoPago !== 'COMPLETO' || p.cancelado) continue;
-          sumarDepositoNotaVenta(sumarDeposito, p);
+          // Una nota liberada de la Global (nota de crédito) ya sumó su Depósito el día de la
+          // nota, en la banda Factura global: la factura nominativa no lo repite.
+          sumarDepositoNotaVenta(p.facturaGlobalLiberada?.notaCreditoId ? () => {} : depositar, p);
           entry.montoTransferencia += montoTransferenciaNotaVenta(p);
           const abrevNota = abreviaturaFormaPago(p.notaVenta);
           if (abrevNota) metodos.add(abrevNota);
@@ -1553,13 +1706,15 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
   //     (una factura fiscal normal se cobra en el mismo acto, sin Nota de Venta).
   for (const entry of facturasConOrdenes) {
     const { fila, cfdiFormaPago, esPue, total, metodos, montoTransferencia } = entry;
+    const signo = entry.signo || 1;
     if (!/PUBLICO GENERAL/.test(fila.notas || '')) {
       const abrev = metodos.size
         ? [...metodos].join(' ')
         : SAT_FORMA_PAGO_ABREV[cfdiFormaPago] || '';
       if (abrev) fila.notas = fila.notas ? `${fila.notas} ${abrev}` : abrev;
     }
-    if (esPue && metodos.size === 0) {
+    if (entry.textoNotas) fila.notas = entry.textoNotas;
+    if (esPue && metodos.size === 0 && !entry.sinDeposito) {
       sumarDeposito(SAT_FORMA_PAGO_A_DEPOSITO[cfdiFormaPago], total);
     }
 
@@ -1576,10 +1731,10 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
           : 0;
       if (montoTransf > 0) {
         const restante = total - montoTransf;
-        fila.ingresoContado = restante > 0 ? restante : undefined;
-        fila.cuentasPorCobrar = montoTransf;
-        totalContado -= montoTransf;
-        totalPorCobrar += montoTransf;
+        fila.ingresoContado = restante > 0 ? signo * restante : undefined;
+        fila.cuentasPorCobrar = signo * montoTransf;
+        totalContado -= signo * montoTransf;
+        totalPorCobrar += signo * montoTransf;
       }
     }
   }
@@ -1761,6 +1916,7 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
     anticiposCancelados,
     complementosPago,
     notasCredito,
+    facturasCanceladas,
     facturas,
     facturaGlobal,
     totales: { totalVentaDia, totalContado, totalCredito, totalAnticipo, totalPorCobrar, totalIngreso },

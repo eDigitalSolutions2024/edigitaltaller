@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Dropdown from "../../components/Dropdown";
 import { listOrdenesServicio, getVehiculoById } from "../../api/vehiculos";
 import { updateCustomer } from "../../api/customers";
 import { listConceptosPreset } from "../../api/conceptosPreset";
 import { listClavesUnidad } from "../../api/clavesUnidad";
-import { listFacturasCfdi, getFacturaCfdiPdf } from "../../api/facturasCfdi";
+import {
+  listFacturasCfdi,
+  getFacturaCfdiPdf,
+  getFacturasPreviasDeOrden,
+  getNotasLiberadasDeGlobal,
+} from "../../api/facturasCfdi";
+import { getUser } from "../../auth";
 import { generarVistaPreviaPDF, getNotasVentaPendientes } from "../../api/facturacion";
 import { getReciboDolaresPdfUrl } from "../../api/cajas";
 import { getValePdfUrl } from "../../api/vales";
@@ -14,6 +20,7 @@ import usePdfModal from "../../hooks/usePdfModal";
 import CajaModalCancelarPago from "../cajas/components/CajaModalCancelarPago";
 import FacturaModalValeSalida from "./components/FacturaModalValeSalida";
 import useTipoCambioActual from "../../hooks/useTipoCambioActual";
+import useExigirUuid from "../../hooks/useExigirUuid";
 import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 import { calcularTotalesOrden } from "../../utils/cajaTotales";
 import "../../styles/facturaWizard.css";
@@ -484,6 +491,11 @@ export default function NuevaFactura() {
   // Órdenes cerradas que coinciden con la búsqueda pero no se listan porque ya
   // están facturadas: [{ ordenServicio, motivo }] (lo manda el backend).
   const [ordenesExcluidas, setOrdenesExcluidas] = useState([]);
+  // Facturas de ingreso previas de cada orden agregada (para saber si es una REFACTURACIÓN):
+  // { [vehiculoId]: { vigentes, canceladas, heredaCobro } } — ver GET /facturas-cfdi/por-orden.
+  const [facturasPreviasPorOrden, setFacturasPreviasPorOrden] = useState({});
+  // Órdenes de la búsqueda que ya tienen factura vigente: { [vehiculoId]: { id, folio } }.
+  const [facturasPorOrdenBusqueda, setFacturasPorOrdenBusqueda] = useState({});
   const [showOrdenes, setShowOrdenes] = useState(false);
   const [ordenes, setOrdenes] = useState([]);
   const [cliente, setCliente] = useState(null);
@@ -636,6 +648,11 @@ export default function NuevaFactura() {
   // pantalla no lo conoce sola porque el timbrado ocurre fuera del sistema).
   const [ncUuids, setNcUuids] = useState({}); // { [facturaId]: uuid }
   const setNcUuid = (id, uuid) => setNcUuids((prev) => ({ ...prev, [id]: uuid }));
+  // Nota de crédito contra una FACTURA GLOBAL (SAT, Opción A de refacturación): acredita las notas
+  // de venta elegidas y las libera para facturarlas a su cliente. No se mezcla con otras facturas.
+  const globalNC = esNotaCredito ? facturasNC.find((f) => f.tipoFactura === "facturaGlobal") || null : null;
+  const [notasNcSel, setNotasNcSel] = useState([]); // números de nota de venta elegidos
+  const [notasNcLiberadas, setNotasNcLiberadas] = useState([]); // ya acreditados con otra NC
 
   // Complemento de pago: varias facturas con importe pagado editable
   const [facturasPago, setFacturasPago] = useState([]); // [{ doc, importePagado, uuid }]
@@ -754,6 +771,8 @@ export default function NuevaFactura() {
     setShowFacturas(false);
     setFacturasNC([]);
     setNcUuids({});
+    setNotasNcSel([]);
+    setNotasNcLiberadas([]);
     setFacturasPago([]);
 
     setTipoRelacion("");
@@ -770,6 +789,8 @@ export default function NuevaFactura() {
     setPagoCombinado(false);
     setFormaPagoManual(false);
     setPagosLiquidar({});
+    setFacturasPreviasPorOrden({});
+    setFacturasPorOrdenBusqueda({});
 
     setConceptos([]);
     setConceptosSeleccionados([]);
@@ -800,7 +821,8 @@ export default function NuevaFactura() {
     if (t.value === "factura") {
       setUsoCfdi("G03");
       setMetodoPago("PUE");
-      setFormaPago("03");
+      // Sin forma de pago por defecto: se elige a mano (o la sugiere Cajas).
+      setFormaPago("");
     } else if (t.value === "notaCredito") {
       setUsoCfdi("G02");
       setMetodoPago("PUE");
@@ -865,10 +887,12 @@ export default function NuevaFactura() {
         const yaAgregadas = new Set(ordenes.map((o) => o._id));
         setOptsOrdenes((res.data?.data || []).filter((o) => !yaAgregadas.has(o._id)));
         setOrdenesExcluidas(res.data?.excluidas || []);
+        setFacturasPorOrdenBusqueda(res.data?.facturasPorOrden || {});
         setShowOrdenes(true);
       } catch (e) {
         setOptsOrdenes([]);
         setOrdenesExcluidas([]);
+        setFacturasPorOrdenBusqueda({});
       } finally {
         setLoadingOrden(false);
       }
@@ -1012,6 +1036,35 @@ export default function NuevaFactura() {
         );
       }
 
+      // ¿La orden ya tiene factura de ingreso (vigente o cancelada)? Con una VIGENTE, esta factura
+      // es una REFACTURACIÓN: sustitución (SAT, relación 04) de la original, cuyo UUID se captura
+      // en el paso Comprobante. Sin el dato se factura como orden nueva (el servidor igual valida).
+      let previas = { vigentes: [], canceladas: [], heredaCobro: false };
+      try {
+        const rp = await getFacturasPreviasDeOrden(v._id);
+        previas = rp.data?.data || previas;
+      } catch (e) {
+        // sin datos previos
+      }
+      setFacturasPreviasPorOrden((prev) => ({ ...prev, [v._id]: previas }));
+      if (previas.vigentes.length) {
+        setTipoRelacion("04");
+        setRelacionadasExtra((prev) => [
+          ...prev,
+          ...previas.vigentes
+            .filter((f) => !prev.some((r) => r.facturaId === f._id))
+            .map((f) => ({
+              key: f._id,
+              facturaId: f._id,
+              serie: f.serie || "",
+              folio: f.folio || "",
+              cliente: clienteOrden?.nombre || "",
+              uuid: "",
+              auto: true,
+            })),
+        ]);
+      }
+
       setOrdenes((prev) => [...prev, v]);
 
       // Las partidas ya autorizadas por el cliente en Cajas se pasan directo
@@ -1113,6 +1166,17 @@ export default function NuevaFactura() {
       const { [id]: _quitado, ...resto } = prev;
       return resto;
     });
+    setFacturasPreviasPorOrden((prev) => {
+      const { [id]: _quitado, ...resto } = prev;
+      return resto;
+    });
+    // Las facturas originales que se relacionaron solas (refacturación) salen si ya ninguna orden
+    // restante las tiene vigentes; sin ninguna, la relación 04 automática también se quita.
+    const vigentesRestantes = new Set(
+      restantes.flatMap((o) => (facturasPreviasPorOrden[o._id]?.vigentes || []).map((f) => f._id))
+    );
+    if (!vigentesRestantes.size && relacionadasExtra.every((r) => r.auto)) setTipoRelacion("");
+    setRelacionadasExtra((prev) => prev.filter((r) => !r.auto || vigentesRestantes.has(r.facturaId)));
 
     // Se retiran también los conceptos que se auto-cargaron desde esta orden.
     const conceptosRestantes = conceptos.filter((c) => c._origenOrdenId !== id);
@@ -1152,13 +1216,71 @@ export default function NuevaFactura() {
       return alert("Todas las facturas de la nota de crédito deben ser del mismo cliente (mismo RFC).");
     }
 
+    // Una Factura Global se acredita por nota de venta y no se mezcla con otras facturas.
+    if (doc.tipoFactura === "facturaGlobal" || globalNC) {
+      if (facturasNC.length > 0) {
+        return alert(
+          "Una nota de crédito contra una Factura Global no se mezcla con otras facturas. " +
+            "Quita las que ya agregaste primero."
+        );
+      }
+      setFacturasNC([doc]);
+      setNotasNcSel([]);
+      setNotasNcLiberadas([]);
+      // El IVA de la nota de crédito es el de la Global (8%), no el 16% por defecto.
+      const ivaGlobal = Number(doc.cfdi?.ivaRate);
+      if (IVA_OPTS.some((x) => x.value === ivaGlobal)) setIvaRate(ivaGlobal);
+      getNotasLiberadasDeGlobal(doc._id)
+        .then((r) => setNotasNcLiberadas(r.data?.data || []))
+        .catch(() => setNotasNcLiberadas([]));
+      if (doc.uuid) setNcUuid(doc._id, doc.uuid);
+      cancelEdit();
+      return;
+    }
+
     setFacturasNC((prev) => [...prev, doc]);
     setConceptos((prev) => [...prev, conceptoDeFacturaNC(doc)]);
     if (doc.uuid) setNcUuid(doc._id, doc.uuid);
     cancelEdit();
   };
 
+  const toggleNotaNc = (numero) =>
+    setNotasNcSel((prev) => (prev.includes(numero) ? prev.filter((n) => n !== numero) : [...prev, numero]));
+
+  // Con una Factura Global, el concepto de la nota de crédito sale de las notas de venta elegidas:
+  // su total (con IVA) entre 1 + IVA de la Global. Al cambiar la selección se reemplaza.
+  useEffect(() => {
+    if (!globalNC) return;
+    const notas = (globalNC.notasVenta || []).filter((n) => notasNcSel.includes(n.numero));
+    const suma = notas.reduce((s, n) => s + Number(n.monto || 0), 0);
+    const iva = Number(globalNC.cfdi?.ivaRate ?? 0.08);
+    setConceptos((prev) => {
+      const resto = prev.filter((c) => c._origenFacturaId !== globalNC._id);
+      if (!notas.length) return resto;
+      return [
+        ...resto,
+        {
+          _key: nextKeyRef.current++,
+          cantidad: 1,
+          unidad: "Actividad",
+          cProdServ: "84111506",
+          cUnidad: "ACT",
+          descripcion: `NOTA DE CREDITO APLICADA A FACTURA ${(globalNC.serie || "") + (globalNC.folio || "")} (NOTAS DE VENTA ${notas
+            .map((n) => `P${n.numero}`)
+            .join(", ")})`,
+          valorUnitario: Math.round((suma / (1 + iva)) * 100) / 100,
+          noIdentificacion: "",
+          _origenFacturaId: globalNC._id,
+        },
+      ];
+    });
+  }, [globalNC, notasNcSel]);
+
   const quitarFacturaNC = (id) => {
+    if (globalNC && globalNC._id === id) {
+      setNotasNcSel([]);
+      setNotasNcLiberadas([]);
+    }
     setFacturasNC((prev) => prev.filter((f) => f._id !== id));
     setConceptos((prev) => prev.filter((c) => c._origenFacturaId !== id));
     setNcUuids((prev) => {
@@ -1299,11 +1421,11 @@ export default function NuevaFactura() {
 
   const pasoBaseOk = useMemo(() => {
     if (esFactura) return ordenes.length > 0 && !!cliente && !faltanFiscales;
-    if (esNotaCredito) return facturasNC.length > 0;
+    if (esNotaCredito) return facturasNC.length > 0 && (!globalNC || notasNcSel.length > 0);
     if (esComplementoPago) return facturasPago.length > 0;
     if (esFacturaGlobal) return notasSel.length > 0;
     return false;
-  }, [esFactura, esNotaCredito, esComplementoPago, esFacturaGlobal, ordenes, cliente, faltanFiscales, facturasNC, facturasPago, notasSel]);
+  }, [esFactura, esNotaCredito, esComplementoPago, esFacturaGlobal, ordenes, cliente, faltanFiscales, facturasNC, facturasPago, notasSel, globalNC, notasNcSel]);
 
   const guardarFiscalCliente = async () => {
     if (!cliente?._id) return;
@@ -1534,6 +1656,17 @@ export default function NuevaFactura() {
   const [moneda, setMoneda] = useState("MXN");
   const [tipoCambio, setTipoCambio] = useState("");
   const { tipoCambio: tipoCambioConfig, loading: cargandoTipoCambio } = useTipoCambioActual();
+  // Configuración puede desactivar la exigencia del UUID (solo pruebas mientras no se timbra).
+  const exigirUuid = useExigirUuid();
+  const uuidValido = useCallback(
+    (u) => !exigirUuid || UUID_RE.test(String(u || "").trim()),
+    [exigirUuid]
+  );
+  const avisoUuidPruebas = exigirUuid ? null : (
+    <div className="alert alert-warning py-1 px-2 small mb-2">
+      Modo pruebas: el UUID <b>no es obligatorio</b> (Configuración). Donde falte, el XML lleva un UUID en ceros.
+    </div>
+  );
   const [oc, setOc] = useState("");
   const [comentarios, setComentarios] = useState("");
   // Nombre con el que se quiere facturar (F3). Arranca en la razón social del
@@ -1607,10 +1740,23 @@ export default function NuevaFactura() {
     [facturasPago]
   );
 
-  const totalNC = useMemo(
-    () => facturasNC.reduce((s, f) => s + Number(f.totales?.total || 0), 0),
-    [facturasNC]
-  );
+  // Resumen de la nota de crédito: con una Factura Global es lo de las notas de venta elegidas
+  // (con el IVA de la Global); si no, la suma de las facturas acreditadas.
+  const resumenNc = useMemo(() => {
+    if (globalNC) {
+      const total = (globalNC.notasVenta || [])
+        .filter((n) => notasNcSel.includes(n.numero))
+        .reduce((s, n) => s + Number(n.monto || 0), 0);
+      const subtotal = total / (1 + Number(globalNC.cfdi?.ivaRate ?? 0.08));
+      return { subtotal, iva: total - subtotal, total };
+    }
+    return {
+      subtotal: facturasNC.reduce((s, f) => s + Number(f.totales?.subtotal || 0), 0),
+      iva: facturasNC.reduce((s, f) => s + Number(f.totales?.iva || 0), 0),
+      total: facturasNC.reduce((s, f) => s + Number(f.totales?.total || 0), 0),
+    };
+  }, [globalNC, notasNcSel, facturasNC]);
+  const totalNC = resumenNc.total;
 
   useEffect(() => {
     if (moneda === "USD") {
@@ -1697,9 +1843,21 @@ export default function NuevaFactura() {
   // representan el cobro nuevo de una orden). Una Remisión a Crédito ya
   // saldada con abonos previos (montoPorOrden ya en 0, ver saldoPendiente en
   // cajaTotales.js) no necesita un pago nuevo: los abonos ya son su cobro.
+  // Órdenes de esta factura que ya tienen factura de ingreso VIGENTE: emitirla es una
+  // REFACTURACIÓN (SAT: sustitución, relación 04). Al generarla, la original queda cancelada en el
+  // sistema y la nueva hereda su cobro de Cajas. Solo un administrador puede hacerlo.
+  const esAdmin = getUser()?.role === "admin";
+  const ordenesRefacturadas = esFactura
+    ? ordenes.filter((o) => (facturasPreviasPorOrden[o._id]?.vigentes || []).length > 0)
+    : [];
+  const esRefacturacion = ordenesRefacturadas.length > 0;
+  const refacturaSinPermiso = esRefacturacion && !esAdmin;
+
   const ordenesSinComprobante = useMemo(() => {
     if (!esFactura) return [];
     return ordenes.filter((o) => {
+      // Una orden que hereda el cobro de una factura anterior (refacturación) no captura otro.
+      if (facturasPreviasPorOrden[o._id]?.heredaCobro) return false;
       const cubierta = (o.pagos || []).some(
         (p) =>
           (p.tipoPago === "ANTICIPO" || p.comprobante === "REMISION") &&
@@ -1710,7 +1868,7 @@ export default function NuevaFactura() {
       if (cubierta) return false;
       return (montoPorOrden[o._id] || 0) > TOLERANCIA_LIQUIDAR;
     });
-  }, [ordenes, esFactura, accionesComprobantes, montoPorOrden]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ordenes, esFactura, accionesComprobantes, montoPorOrden, facturasPreviasPorOrden]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Forma de pago de Cajas con la que se captura el cobro de esas órdenes: sale
   // de la forma de pago SAT elegida en el paso "Comprobante" (o "COMBINADO" si
@@ -1951,7 +2109,7 @@ export default function NuevaFactura() {
       }
       // El complemento de pago (Pagos 2.0) exige el UUID real de cada
       // factura pagada (nodo pago20:DoctoRelacionado IdDocumento).
-      return facturasPago.every((f) => UUID_RE.test((f.uuid || "").trim()));
+      return facturasPago.every((f) => uuidValido(f.uuid));
     }
 
     if (conceptos.length === 0) return false;
@@ -1960,9 +2118,12 @@ export default function NuevaFactura() {
     // Factura global: el método de pago (PUE/PPD) se elige a mano.
     if (esFacturaGlobal && !metodoPago) return false;
 
+    // Factura: la forma de pago no tiene valor por defecto, hay que elegirla.
+    if (esFactura && !formaPago) return false;
+
     // Nota de crédito: CfdiRelacionados exige el UUID real de cada factura
     // acreditada; sin él el XML quedaría inválido para el SAT.
-    if (esNotaCredito && !facturasNC.every((f) => UUID_RE.test((ncUuids[f._id] || "").trim()))) {
+    if (esNotaCredito && !facturasNC.every((f) => uuidValido(ncUuids[f._id]))) {
       return false;
     }
 
@@ -1970,8 +2131,11 @@ export default function NuevaFactura() {
     // relación y que todos los UUID capturados tengan formato válido.
     if (esFactura && relacionadasExtra.length > 0) {
       if (!tipoRelacion) return false;
-      if (!relacionadasExtra.every((r) => UUID_RE.test((r.uuid || "").trim()))) return false;
+      if (!relacionadasExtra.every((r) => uuidValido(r.uuid))) return false;
     }
+
+    // Refacturación: solo admin, y con la factura original relacionada (sustitución 04).
+    if (esRefacturacion && (!esAdmin || tipoRelacion !== "04" || relacionadasExtra.length === 0)) return false;
 
     // Factura: toda orden sin comprobante vigente en Cajas necesita su cobro
     // (Liquidar) capturado antes de poder generar/timbrar — salvo con forma de
@@ -1997,6 +2161,9 @@ export default function NuevaFactura() {
     formaPago,
     metodoPago,
     faltaCapturarLiquidar,
+    esRefacturacion,
+    esAdmin,
+    uuidValido,
   ]);
 
   /* ==========
@@ -2144,6 +2311,12 @@ export default function NuevaFactura() {
       conceptos: esComplementoPago ? [] : conceptos.map(limpiaConcepto),
       relacionadas,
       notasVenta: notasVentaPayload,
+      // NC contra Factura Global: las notas de venta que acredita y libera.
+      notasLiberadas: globalNC
+        ? (globalNC.notasVenta || [])
+            .filter((n) => notasNcSel.includes(n.numero))
+            .map((n) => ({ vehiculoId: n.vehiculoId, numero: n.numero }))
+        : [],
       informacionGlobal: esFacturaGlobal
         ? { periodicidad: "01", meses: gMes, anio: gAnio }
         : null,
@@ -2370,7 +2543,7 @@ export default function NuevaFactura() {
 
   const puedeAvanzarDe = (n) => {
     if (n === 1) return !!tipoFactura;
-    if (n === 2) return pasoBaseOk;
+    if (n === 2) return pasoBaseOk && !refacturaSinPermiso;
     if (n === 3) {
       if (esComplementoPago) {
         return !!fechaPago && facturasPago.length > 0 && facturasPago.every((f) => Number(f.importePagado) > 0);
@@ -2381,6 +2554,7 @@ export default function NuevaFactura() {
     if (n === 4) {
       if (moneda === "USD" && !(Number(tipoCambio || 0) > 0)) return false;
       if (esFacturaGlobal && !metodoPago) return false;
+      if (esFactura && !formaPago) return false;
       if (faltaCapturarLiquidar) return false;
       return true;
     }
@@ -2647,7 +2821,17 @@ export default function NuevaFactura() {
                           className="list-group-item list-group-item-action"
                           onClick={() => agregarOrden(o)}
                         >
-                          <div className="fw-bold">{o.ordenServicio}</div>
+                          <div className="fw-bold">
+                            {o.ordenServicio}
+                            {facturasPorOrdenBusqueda[o._id] && (
+                              <span
+                                className="badge bg-warning text-dark ms-2"
+                                title="Se emitirá como refacturación (sustitución, relación 04)"
+                              >
+                                Ya facturada · {facturasPorOrdenBusqueda[o._id].folio}
+                              </span>
+                            )}
+                          </div>
                           <div style={{ fontSize: 13, opacity: 0.8 }}>
                             {nombreFiscalCliente(o.cliente) || "Sin cliente"} · {o.marca || "—"}{" "}
                             {o.modelo || ""} · Placas: {o.placas || "—"} · {o.estadoOrden}
@@ -2703,7 +2887,10 @@ export default function NuevaFactura() {
                           </div>
                           <div style={{ fontSize: 13, opacity: 0.8 }}>
                             {d.cliente?.nombre || "Sin cliente"} · RFC: {d.cliente?.rfc || "—"} ·{" "}
-                            {fechaCorta(d.fecha)} · Orden: {d.orden?.ordenServicio || "—"}
+                            {fechaCorta(d.fecha)} ·{" "}
+                            {d.tipoFactura === "facturaGlobal"
+                              ? `Factura global · ${(d.notasVenta || []).length} notas de venta`
+                              : `Orden: ${d.orden?.ordenServicio || "—"}`}
                           </div>
                         </button>
                       ))}
@@ -3093,6 +3280,42 @@ export default function NuevaFactura() {
                 </div>
               )}
 
+              {/* Refacturación: la orden ya tiene una factura de ingreso vigente (ver
+                  facturasPreviasPorOrden) o una cancelada cuyo cobro hereda esta factura. */}
+              {esRefacturacion && (
+                <div className="alert alert-info mt-3 mb-0">
+                  <div className="fw-semibold mb-1">🔁 Refacturación (sustitución de factura)</div>
+                  <ul className="small mb-2 ps-3">
+                    {ordenesRefacturadas.map((o) => (
+                      <li key={o._id}>
+                        <b>{o.ordenServicio}</b> ya tiene la factura{" "}
+                        <b>{facturasPreviasPorOrden[o._id].vigentes.map((f) => f.folioCompleto || f.folio).join(", ")}</b>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="small">
+                    Esta factura <b>sustituye</b> a la original (SAT: relación 04). En el paso{" "}
+                    <b>Comprobante</b> captura el UUID de la original. Al generarla, la original queda cancelada
+                    en el sistema y esta hereda su cobro de Cajas (no se vuelve a capturar). Cancela también la
+                    original en el PAC / SAT (motivo 01, sustituida por el UUID de la nueva).
+                  </div>
+                  {refacturaSinPermiso && (
+                    <div className="text-danger small mt-2">
+                      Solo un administrador puede refacturar una orden que ya tiene factura.
+                    </div>
+                  )}
+                </div>
+              )}
+              {!esRefacturacion &&
+                ordenes.some((o) => facturasPreviasPorOrden[o._id]?.canceladas?.length > 0) && (
+                  <div className="alert alert-secondary mt-3 mb-0 small">
+                    Esta orden tenía una factura que ya está cancelada
+                    {ordenes.some((o) => facturasPreviasPorOrden[o._id]?.heredaCobro)
+                      ? "; esta factura hereda el cobro que ya tenía registrado en Cajas (no se vuelve a capturar)."
+                      : "."}
+                  </div>
+                )}
+
               {faltanFiscales && (
                 <div className="mt-3 p-2 border rounded">
                   <div className="text-danger mb-2">
@@ -3228,19 +3451,18 @@ export default function NuevaFactura() {
                   sub={`RFC: ${receptor?.rfc || "—"}`}
                 />
                 <CajaResumen
-                  titulo="Subtotal facturado"
-                  valor={money(facturasNC.reduce((s, f) => s + Number(f.totales?.subtotal || 0), 0))}
-                  sub={`IVA: ${money(
-                    facturasNC.reduce((s, f) => s + Number(f.totales?.iva || 0), 0)
-                  )}`}
+                  titulo={globalNC ? "Subtotal a acreditar" : "Subtotal facturado"}
+                  valor={money(resumenNc.subtotal)}
+                  sub={`IVA: ${money(resumenNc.iva)}`}
                 />
                 <CajaResumen
-                  titulo="Total facturado"
+                  titulo={globalNC ? "Total a acreditar" : "Total facturado"}
                   valor={money(totalNC)}
-                  sub="suma de las facturas acreditadas"
+                  sub={globalNC ? `${notasNcSel.length} nota(s) de venta elegida(s)` : "suma de las facturas acreditadas"}
                 />
               </div>
 
+              {avisoUuidPruebas && <div className="mt-3">{avisoUuidPruebas}</div>}
               <div className="table-responsive mt-3">
                 <table className="table table-sm table-bordered align-middle mb-0">
                   <thead className="table-light">
@@ -3267,7 +3489,7 @@ export default function NuevaFactura() {
                           <td>
                             <input
                               className={`form-control form-control-sm ${
-                                uuidF && !UUID_RE.test(uuidF.trim()) ? "is-invalid" : ""
+                                uuidF && !uuidValido(uuidF) ? "is-invalid" : ""
                               }`}
                               value={uuidF}
                               placeholder="00000000-0000-0000-0000-000000000000"
@@ -3292,6 +3514,56 @@ export default function NuevaFactura() {
                   SAT para la relación 01 y no se conoce hasta que esa factura se timbra.
                 </div>
               </div>
+
+              {/* NC contra Factura Global: elegir qué notas de venta se acreditan. */}
+              {globalNC && (
+                <div className="border rounded p-3 mt-3">
+                  <div className="fw-semibold">
+                    Notas de venta de la Factura Global {(globalNC.serie || "") + (globalNC.folio || "")}
+                  </div>
+                  <div className="small text-muted mb-2">
+                    Elige las que acreditas con esta nota de crédito: sus órdenes quedan libres para
+                    facturarse a su cliente (después, en Nueva Factura).
+                  </div>
+                  <div className="d-flex flex-column gap-1" style={{ maxHeight: 320, overflow: "auto" }}>
+                    {(globalNC.notasVenta || []).map((n) => {
+                      const yaAcreditada = notasNcLiberadas.includes(n.numero);
+                      return (
+                        <label
+                          key={`${n.vehiculoId}_${n.numero}`}
+                          className={`d-flex justify-content-between align-items-center border rounded px-2 py-1 ${
+                            yaAcreditada ? "bg-light text-muted" : ""
+                          }`}
+                        >
+                          <span>
+                            <input
+                              type="checkbox"
+                              className="form-check-input me-2"
+                              checked={notasNcSel.includes(n.numero)}
+                              disabled={yaAcreditada}
+                              onChange={() => toggleNotaNc(n.numero)}
+                            />
+                            <b>P{n.numero}</b> · Orden {n.ordenServicio || "—"}
+                            {yaAcreditada && <span className="badge bg-secondary ms-2">Ya acreditada</span>}
+                          </span>
+                          <span>{money(n.monto)}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="d-flex justify-content-between small mt-2">
+                    <span>
+                      Seleccionadas: <b>{notasNcSel.length}</b>
+                    </span>
+                    <span>
+                      Total a acreditar: <b>{money(totalNC)}</b>
+                    </span>
+                  </div>
+                  {notasNcSel.length === 0 && (
+                    <div className="small text-danger mt-1">Elige al menos una nota de venta para continuar.</div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -3748,6 +4020,7 @@ export default function NuevaFactura() {
             </div>
           )}
 
+          {avisoUuidPruebas}
           <div className="table-responsive mt-2">
             <table className="table table-bordered align-middle">
               <thead>
@@ -3800,7 +4073,7 @@ export default function NuevaFactura() {
                         <td>
                           <input
                             className={`form-control form-control-sm ${
-                              uuidF && !UUID_RE.test(uuidF.trim()) ? "is-invalid" : ""
+                              uuidF && !uuidValido(uuidF) ? "is-invalid" : ""
                             }`}
                             value={uuidF}
                             placeholder="00000000-0000-0000-0000-000000000000"
@@ -3960,7 +4233,7 @@ export default function NuevaFactura() {
                 <div className="col-12 col-md-4">
                   <label className="form-label">Forma de pago</label>
                   <Dropdown
-                    className="form-select"
+                    className={`form-select${esFactura && !formaPago ? " is-invalid border-danger" : ""}`}
                     value={formaPago}
                     disabled={disabledSteps || esFacturaGlobal || (capturaPagoActiva && pagoCombinado)}
                     onChange={(e) => {
@@ -3968,12 +4241,16 @@ export default function NuevaFactura() {
                       setFormaPago(e.target.value);
                     }}
                   >
+                    {esFactura && <Dropdown.Option value="">— Selecciona —</Dropdown.Option>}
                     {FORMA_PAGO.map((x) => (
                       <Dropdown.Option key={x.value} value={x.value}>
                         {x.label}
                       </Dropdown.Option>
                     ))}
                   </Dropdown>
+                  {esFactura && !formaPago && (
+                    <small className="text-danger d-block">Elige la forma de pago para continuar.</small>
+                  )}
                   {esFacturaGlobal && notaMayorGlobal && (
                     <small className="text-muted">
                       Regla SAT: forma de pago de la nota de mayor monto (#
@@ -4043,7 +4320,7 @@ export default function NuevaFactura() {
                     el backend crea con esta captura un pago "Liquidar (sin
                     comprobante)" ligado a ella (ver Paso 5 del backend). Con "99 -
                     Por definir" no se pide ningún pago. */}
-                {esFactura && ordenesSinComprobante.length > 0 && (
+                {esFactura && ordenesSinComprobante.length > 0 && !!formaPago && (
                   <div className="col-12">
                     {!capturaPagoActiva ? (
                       <div className="fw-cobro fw-cobro--nota">
@@ -4528,13 +4805,19 @@ export default function NuevaFactura() {
                       Si esta factura sustituye, devuelve, aplica un anticipo o de cualquier
                       otra forma se relaciona con uno o más CFDI previos, indícalo aquí.
                     </div>
+                    {esRefacturacion && (
+                      <div className="alert alert-info py-2 px-3 small">
+                        Refacturación: la relación es <b>04 - Sustitución</b>. Captura el UUID (folio fiscal) de
+                        cada factura original que sustituyes.
+                      </div>
+                    )}
 
                     <div className="row g-3">
                       <div className="col-12 col-md-4">
                         <Dropdown
                           className="form-select"
                           value={tipoRelacion}
-                          disabled={disabledSteps}
+                          disabled={disabledSteps || esRefacturacion}
                           onChange={(e) => setTipoRelacion(e.target.value)}
                         >
                           <Dropdown.Option value="">Tipo de relación…</Dropdown.Option>
@@ -4621,6 +4904,7 @@ export default function NuevaFactura() {
 
                     {relacionadasExtra.length > 0 && (
                       <div className="table-responsive mt-2">
+                        {avisoUuidPruebas}
                         <table className="table table-sm table-bordered align-middle mb-0">
                           <thead className="table-light">
                             <tr>
@@ -4645,7 +4929,7 @@ export default function NuevaFactura() {
                                 <td>
                                   <input
                                     className={`form-control form-control-sm ${
-                                      r.uuid && !UUID_RE.test(r.uuid.trim()) ? "is-invalid" : ""
+                                      r.uuid && !uuidValido(r.uuid) ? "is-invalid" : ""
                                     }`}
                                     value={r.uuid}
                                     placeholder="00000000-0000-0000-0000-000000000000"

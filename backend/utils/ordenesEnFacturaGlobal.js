@@ -26,6 +26,8 @@ async function ordenesEnFacturaGlobal(vehiculoIds = null) {
         comprobante: 'NOTA_VENTA',
         cancelado: { $ne: true },
         facturaGlobalId: { $in: globales.map((f) => f._id) },
+        // Una nota que ya se acreditó con una nota de crédito contra la Global no cuenta.
+        'facturaGlobalLiberada.notaCreditoId': null,
       },
     },
   };
@@ -38,6 +40,7 @@ async function ordenesEnFacturaGlobal(vehiculoIds = null) {
         p.comprobante === 'NOTA_VENTA' &&
         !p.cancelado &&
         p.facturaGlobalId &&
+        !p.facturaGlobalLiberada?.notaCreditoId &&
         folioPorId.has(String(p.facturaGlobalId))
     );
     if (pago) resultado.set(String(v._id), folioPorId.get(String(pago.facturaGlobalId)));

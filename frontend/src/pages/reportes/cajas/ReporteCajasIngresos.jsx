@@ -374,6 +374,7 @@ function ReporteFacturas({ data }) {
     anticiposCancelados = [],
     complementosPago = [],
     notasCredito = [],
+    facturasCanceladas = [],
     facturas = [],
     facturaGlobal = [],
     totales = {},
@@ -384,6 +385,7 @@ function ReporteFacturas({ data }) {
     !anticiposCancelados.length &&
     !complementosPago.length &&
     !notasCredito.length &&
+    !facturasCanceladas.length &&
     !facturas.length &&
     !facturaGlobal.length;
 
@@ -412,6 +414,7 @@ function ReporteFacturas({ data }) {
               <BandaRemision titulo="Anticipos cancelados" filas={anticiposCancelados} />
               <BandaRemision titulo="Complementos de pago" filas={complementosPago} />
               <BandaRemision titulo="Notas de crédito" filas={notasCredito} />
+              <BandaRemision titulo="Facturas canceladas" filas={facturasCanceladas} />
               <BandaRemision titulo="Facturas" filas={facturas} />
               <BandaRemision titulo="Factura global" filas={facturaGlobal} />
             </tbody>

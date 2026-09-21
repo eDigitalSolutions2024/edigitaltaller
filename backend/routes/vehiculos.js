@@ -20,6 +20,7 @@ const { sincronizarAnticiposAplicados } = require('../utils/anticiposCliente');
 const { backfillCreadoPorId } = require('../utils/backfillCreadoPorId');
 const { reasignarAsesorOrden } = require('../utils/reasignarAsesor');
 const { ordenesEnFacturaGlobal } = require('../utils/ordenesEnFacturaGlobal');
+const { folioDe, vehiculoIdsDeFactura, facturasPreviasDeOrdenes } = require('../utils/refacturacion');
 const {
   puedeGestionarOrden,
   bloquearSiOrdenTerminal,
@@ -574,29 +575,18 @@ router.get('/ordenes', proteger, async (req, res) => {
     // q.$or directamente) para poder combinar varias sin que choquen entre sí.
     const andConditions = [];
 
-    // Nueva Factura (búsqueda de orden a facturar): una orden que ya tiene una
-    // factura de ingreso vigente, o cuya Nota de Venta ya está en una Factura
-    // Global vigente, no debe ni aparecer en los resultados, para no dejar que
-    // el usuario la elija y se tope con el rechazo hasta el paso final (ver
-    // también la validación dura en POST /api/generar-xml/xml).
+    // Nueva Factura (búsqueda de orden a facturar): una orden cuya Nota de Venta ya
+    // está en una Factura Global vigente no aparece en los resultados, para no dejar
+    // que el usuario la elija y se tope con el rechazo hasta el paso final (ver
+    // también la validación dura en POST /api/generar-xml/xml). Una orden que ya tiene
+    // factura de ingreso vigente SÍ aparece (refacturación: sustitución 04), marcada
+    // en `facturasPorOrden` de la respuesta.
     // motivosExcluidas: vehiculoId -> por qué no se lista, para poder decírselo al
     // usuario cuando busca una orden que sí está cerrada pero no aparece.
     const motivosExcluidas = new Map();
     if (excluirFacturadas === 'true') {
-      const facturadas = await FacturaCfdi.find({ tipoFactura: 'factura', estatus: 'generada' })
-        .select('serie folio orden.vehiculoId ordenes.vehiculoId')
-        .lean();
-      for (const f of facturadas) {
-        const motivo = `ya tiene la factura ${f.serie || ''}${f.folio || ''}`.trim();
-        if (f.orden?.vehiculoId) motivosExcluidas.set(String(f.orden.vehiculoId), motivo);
-        for (const o of f.ordenes || []) {
-          if (o.vehiculoId) motivosExcluidas.set(String(o.vehiculoId), motivo);
-        }
-      }
       for (const [vid, folioGlobal] of await ordenesEnFacturaGlobal()) {
-        if (!motivosExcluidas.has(vid)) {
-          motivosExcluidas.set(vid, `su nota de venta ya está en la factura global ${folioGlobal}`);
-        }
+        motivosExcluidas.set(vid, `su nota de venta ya está en la factura global ${folioGlobal}`);
       }
       if (motivosExcluidas.size) {
         q._id = { $nin: [...motivosExcluidas.keys()] };
@@ -758,6 +748,19 @@ router.get('/ordenes', proteger, async (req, res) => {
       }));
     }
 
+    // Órdenes de este resultado que ya tienen factura de ingreso vigente: la UI las
+    // marca ("Ya facturada A45") y las trata como refacturación (sustitución 04).
+    const facturasPorOrden = {};
+    if (excluirFacturadas === 'true' && data.length) {
+      const idsResultado = new Set(data.map((v) => String(v._id)));
+      const { vigentes } = await facturasPreviasDeOrdenes([...idsResultado]);
+      for (const f of vigentes) {
+        for (const vid of vehiculoIdsDeFactura(f)) {
+          if (idsResultado.has(vid)) facturasPorOrden[vid] = { id: f._id, folio: folioDe(f) };
+        }
+      }
+    }
+
     return res.json({
       ok: true,
       data,
@@ -765,6 +768,7 @@ router.get('/ordenes', proteger, async (req, res) => {
       page: pageNum,
       limit: limitNum,
       ...(excluidas.length ? { excluidas } : {}),
+      ...(Object.keys(facturasPorOrden).length ? { facturasPorOrden } : {}),
     });
   } catch (err) {
     console.error('Error listando ordenes:', err);

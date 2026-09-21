@@ -9,6 +9,7 @@ const Contador = require('../models/Contador');
 const ContratoOrdenServicio = require('../models/ContratoOrdenServicio');
 const { streamContratoOrdenServicioPdf } = require('../service/ContratoOrdenServicioPdf');
 const banxicoService = require('../service/banxicoService');
+const { EXIGIR_UUID_CONTADOR, exigirUuidActivo } = require('../utils/configuracionUuid');
 
 const { proteger, requiereRol } = require('../middleware/auth');
 
@@ -545,6 +546,38 @@ router.put('/fondo-caja', proteger, requiereRol('admin'), async (req, res) => {
     res.json({ valor: contador.valor });
   } catch (error) {
     res.status(500).json({ message: 'Error al actualizar el fondo de caja', error: error.message });
+  }
+});
+
+// ===============================
+// EXIGIR UUID EN FACTURAS (solo pruebas mientras no se timbra)
+// ===============================
+
+// GET /api/configuracion/exigir-uuid
+// (sin restricción de rol: Nueva Factura lo consulta para saber si pide el UUID)
+router.get('/exigir-uuid', proteger, async (req, res) => {
+  try {
+    res.json({ valor: await exigirUuidActivo() });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener la configuración de UUID', error: error.message });
+  }
+});
+
+// PUT /api/configuracion/exigir-uuid   body: { valor: true | false }
+router.put('/exigir-uuid', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { valor } = req.body || {};
+    if (typeof valor !== 'boolean') {
+      return res.status(400).json({ message: 'El valor debe ser verdadero o falso' });
+    }
+    await Contador.findOneAndUpdate(
+      { nombre: EXIGIR_UUID_CONTADOR },
+      { $set: { valor: valor ? 1 : 0 } },
+      { new: true, upsert: true }
+    );
+    res.json({ valor });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al actualizar la configuración de UUID', error: error.message });
   }
 });
 

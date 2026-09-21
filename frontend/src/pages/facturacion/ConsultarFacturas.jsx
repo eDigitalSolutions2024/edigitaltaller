@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Dropdown from "../../components/Dropdown";
 import usePdfModal from "../../hooks/usePdfModal";
+import { getUser } from "../../auth";
 import {
   listFacturasCfdi,
   getFacturaCfdiById,
   getFacturaCfdiPdf,
   exportFacturasCfdiZip,
+  cancelarFacturaCfdi,
 } from "../../api/facturasCfdi";
 
 function money(n) {
@@ -45,12 +47,123 @@ const FORMA_PAGO_LABEL = {
   "30": "30 - Aplicación de anticipos",
   "99": "99 - Por definir",
 };
+// c_MotivoCancelacion del SAT.
+const MOTIVO_CANCELACION = [
+  { value: "01", label: "01 - Comprobante emitido con errores con relación (la sustituye otra)" },
+  { value: "02", label: "02 - Comprobante emitido con errores sin relación" },
+  { value: "03", label: "03 - No se llevó a cabo la operación" },
+  { value: "04", label: "04 - Operación nominativa relacionada en una factura global" },
+];
+
 const TIPO_FACTURA_LABEL = {
   factura: "Factura (Ingreso)",
   notaCredito: "Nota de crédito (Egreso)",
   complementoPago: "Complemento de pago",
   facturaGlobal: "Factura global (Público en general)",
 };
+
+/* Modal para REGISTRAR la cancelación de una factura de ingreso (solo admin). La cancelación
+   real se hace fuera del sistema, en el PAC / portal del SAT. */
+function CancelarFacturaModal({ factura, onClose, onCancelada }) {
+  const [motivo, setMotivo] = useState("02");
+  const [folioSustituta, setFolioSustituta] = useState("");
+  const [nota, setNota] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState("");
+  if (!factura) return null;
+
+  const folio = [factura.serie, factura.folio].filter(Boolean).join("") || "—";
+
+  const confirmar = async () => {
+    setError("");
+    if (motivo === "01" && !folioSustituta.trim()) {
+      return setError("Con el motivo 01 indica el folio de la factura que la sustituye.");
+    }
+    setGuardando(true);
+    try {
+      await cancelarFacturaCfdi(factura._id, {
+        motivo,
+        sustituidaPorFolio: motivo === "01" ? folioSustituta.trim() : "",
+        nota: nota.trim(),
+      });
+      onCancelada(factura);
+    } catch (e) {
+      setError(e?.response?.data?.error || e?.response?.data?.message || "No se pudo registrar la cancelación.");
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <div
+      className="position-fixed top-0 start-0 w-100 h-100"
+      style={{ background: "rgba(0,0,0,.45)", zIndex: 10000 }}
+      onClick={onClose}
+    >
+      <div
+        className="bg-white shadow p-3"
+        style={{ width: "94%", maxWidth: 520, margin: "6% auto", borderRadius: 10 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="d-flex justify-content-between align-items-center mb-2">
+          <b>Cancelar factura {folio}</b>
+          <button className="btn btn-sm btn-outline-secondary" onClick={onClose} disabled={guardando}>
+            Cerrar
+          </button>
+        </div>
+
+        <div className="alert alert-warning py-2 small">
+          Esto solo <b>registra</b> la cancelación en el sistema (deja de contar en reportes y la orden se
+          puede refacturar). Cancélala también en el PAC / portal del SAT.
+        </div>
+
+        <label className="form-label mb-0 small">Motivo</label>
+        <Dropdown className="form-select mb-2" value={motivo} onChange={(e) => setMotivo(e.target.value)}>
+          {MOTIVO_CANCELACION.map((m) => (
+            <Dropdown.Option key={m.value} value={m.value}>
+              {m.label}
+            </Dropdown.Option>
+          ))}
+        </Dropdown>
+
+        {motivo === "01" && (
+          <div className="mb-2">
+            <label className="form-label mb-0 small">Folio de la factura que la sustituye</label>
+            <input
+              className="form-control"
+              value={folioSustituta}
+              onChange={(e) => setFolioSustituta(e.target.value)}
+              placeholder="Ej. 34"
+            />
+            <small className="text-muted">
+              La sustituta debe existir y estar vigente. Para refacturar una orden, es más fácil hacerlo
+              desde Nueva Factura (relación 04): cancela la original sola.
+            </small>
+          </div>
+        )}
+
+        <label className="form-label mb-0 small">Nota (opcional)</label>
+        <textarea
+          className="form-control mb-2"
+          rows={2}
+          value={nota}
+          onChange={(e) => setNota(e.target.value)}
+        />
+
+        {error && <div className="text-danger small mb-2">{error}</div>}
+
+        <div className="d-flex justify-content-end gap-2">
+          <button className="btn btn-outline-secondary" onClick={onClose} disabled={guardando}>
+            Volver
+          </button>
+          <button className="btn btn-danger" onClick={confirmar} disabled={guardando}>
+            {guardando ? "Registrando…" : "Registrar cancelación"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function CampoDetalle({ label, children }) {
   return (
@@ -135,6 +248,21 @@ function FacturaDetalleModal({ factura: f, onClose }) {
             <CampoDetalle label="Retención ISR">{c.aplicarRetencionIsr ? "Sí (1.25%)" : "No"}</CampoDetalle>
             <CampoDetalle label="Estatus">{f.estatus === "cancelada" ? "Cancelada" : "Generada"}</CampoDetalle>
           </div>
+          {f.estatus === "cancelada" && (
+            <div className="alert alert-secondary py-2 px-3 small mb-2">
+              <b>Cancelada</b> el {fecha(f.cancelacion?.fecha)}
+              {f.cancelacion?.canceladoPor ? ` por ${f.cancelacion.canceladoPor}` : ""} · motivo{" "}
+              {f.cancelacion?.motivo || "—"}
+              {f.cancelacion?.sustituidaPorFolio ? ` · sustituida por la factura ${f.cancelacion.sustituidaPorFolio}` : ""}
+              {f.cancelacion?.nota ? ` · ${f.cancelacion.nota}` : ""}
+            </div>
+          )}
+          {(f.sustituye || []).length > 0 && (
+            <div className="alert alert-info py-2 px-3 small mb-2">
+              Refactura: sustituye a {f.sustituye.map((x) => [x.serie, x.folio].filter(Boolean).join("")).join(", ")}{" "}
+              y hereda su cobro registrado en Cajas.
+            </div>
+          )}
           {c.comentarios ? (
             <div className="mb-2">
               <div className="text-muted small">Comentarios</div>
@@ -270,6 +398,8 @@ export default function ConsultarFacturas() {
   const [cargando, setCargando] = useState(false);
 
   const debounceRef = useRef(null);
+  const esAdmin = getUser()?.role === "admin";
+  const [facturaACancelar, setFacturaACancelar] = useState(null);
 
   const buscar = useCallback(async (nuevosFiltros = filtros, nuevaPagina = 1) => {
     setCargando(true);
@@ -674,7 +804,31 @@ export default function ConsultarFacturas() {
                         >
                           {pdfLoadingId === f._id ? "Generando…" : "Ver PDF"}
                         </button>
-                        <span className="btn btn-sm btn-outline-secondary disabled">Cancelar</span>
+                        {esAdmin && f.estatus !== "cancelada" && (f.tipoFactura || "factura") === "factura" ? (
+                          <button
+                            className="btn btn-sm btn-outline-secondary"
+                            onClick={() => setFacturaACancelar(f)}
+                            title="Registrar la cancelación de esta factura"
+                          >
+                            Cancelar
+                          </button>
+                        ) : (
+                          <span
+                            className="btn btn-sm disabled"
+                            // Apagado: relleno gris con texto atenuado, para distinguirlo de un
+                            // "Cancelar" activo (que va plano, como Ver XML / Ver PDF).
+                            style={{ background: "#e9ecef", borderColor: "#ced4da", color: "#6c757d" }}
+                            title={
+                              f.estatus === "cancelada"
+                                ? "Ya está cancelada"
+                                : esAdmin
+                                ? "Solo se cancelan facturas de ingreso"
+                                : "Solo un administrador puede registrar cancelaciones"
+                            }
+                          >
+                            Cancelar
+                          </span>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -741,6 +895,20 @@ export default function ConsultarFacturas() {
 
       {/* Modal detalle (solo consulta) */}
       <FacturaDetalleModal factura={detalle} onClose={cerrarDetalle} />
+
+      {/* Modal cancelar factura (solo admin) */}
+      <CancelarFacturaModal
+        factura={facturaACancelar}
+        onClose={() => setFacturaACancelar(null)}
+        onCancelada={(f) => {
+          setFacturaACancelar(null);
+          buscar(filtros, page);
+          alert(
+            `Factura ${[f.serie, f.folio].filter(Boolean).join("")} marcada como cancelada en el sistema.\n\n` +
+              "Recuerda cancelarla también en el PAC / portal del SAT."
+          );
+        }}
+      />
 
       {pdfModal}
     </div>
