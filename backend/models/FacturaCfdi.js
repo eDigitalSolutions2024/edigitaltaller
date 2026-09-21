@@ -71,6 +71,24 @@ const FacturaCfdiSchema = new Schema(
     // Solo factura global: notas de venta de Caja agrupadas en este CFDI.
     notasVenta: { type: [NotaVentaGlobalSchema], default: [] },
 
+    // Solo nota de crédito CONTRA UNA FACTURA GLOBAL: las notas de venta de esa Global que
+    // acredita y "libera" para poder facturarlas a su cliente (ver utils/notaCreditoGlobal.js).
+    notasLiberadas: {
+      type: [
+        new Schema(
+          {
+            vehiculoId: { type: Schema.Types.ObjectId, ref: "Vehiculo", default: null },
+            pagoId: { type: Schema.Types.ObjectId, default: null },
+            ordenServicio: { type: String, default: "" },
+            numero: { type: Number, default: null },
+            monto: { type: Number, default: 0 },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
+
     serie: { type: String, default: "", trim: true },
     folio: { type: String, default: "", trim: true },
     fecha: { type: Date, default: Date.now },
@@ -178,6 +196,42 @@ const FacturaCfdiSchema = new Schema(
     sello: { type: String, default: "" },
 
     estatus: { type: String, enum: ["generada", "cancelada"], default: "generada" },
+
+    // Cancelación REGISTRADA en el sistema (la real se hace fuera, en el PAC / portal
+    // del SAT; ver utils/refacturacion.js). motivo = c_MotivoCancelacion del SAT:
+    // 01 con errores y con relación (la sustituye `sustituidaPorId`), 02 con errores
+    // sin relación, 03 no se llevó a cabo la operación, 04 nominativa relacionada
+    // en una factura global.
+    cancelacion: {
+      motivo: { type: String, enum: ["", "01", "02", "03", "04"], default: "" },
+      fecha: { type: Date, default: null },
+      canceladoPor: { type: String, default: "" },
+      canceladoPorId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+      sustituidaPorId: { type: Schema.Types.ObjectId, ref: "FacturaCfdi", default: null },
+      sustituidaPorFolio: { type: String, default: "" },
+      // Factura nueva que heredó el cobro (pagos de Cajas) de esta al refacturar: los pagos
+      // pasaron a apuntarle, y el reporte la usa para reconstruir esta factura en su día.
+      cobroHeredadoPorId: { type: Schema.Types.ObjectId, ref: "FacturaCfdi", default: null },
+      nota: { type: String, default: "" },
+    },
+
+    // Refacturación: facturas de ingreso anteriores de estas mismas órdenes cuyo
+    // cobro (pagos de Cajas) hereda esta factura, porque la sustituye (relación 04)
+    // o porque ya estaban canceladas. El reporte no vuelve a contar el dinero en
+    // el Depósito si esa factura anterior es de un día previo.
+    sustituye: {
+      type: [
+        new Schema(
+          {
+            facturaId: { type: Schema.Types.ObjectId, ref: "FacturaCfdi", default: null },
+            serie: { type: String, default: "" },
+            folio: { type: String, default: "" },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
     generadoPor: { type: String, default: "" },
 
     // Nota para el historial: se llena cuando el usuario factura con un nombre

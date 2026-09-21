@@ -102,6 +102,7 @@ function buildHtml(data, desde, hasta) {
     anticiposCancelados = [],
     complementosPago = [],
     notasCredito = [],
+    facturasCanceladas = [],
     facturas = [],
     facturaGlobal = [],
     totales = {},
@@ -113,6 +114,7 @@ function buildHtml(data, desde, hasta) {
     banda(anticiposCancelados, 'ANT'),
     banda(complementosPago),
     banda(notasCredito),
+    banda(facturasCanceladas),
     banda(facturas),
     banda(facturaGlobal),
   ].join('');
@@ -122,6 +124,7 @@ function buildHtml(data, desde, hasta) {
     !anticiposCancelados.length &&
     !complementosPago.length &&
     !notasCredito.length &&
+    !facturasCanceladas.length &&
     !facturas.length &&
     !facturaGlobal.length;
 

@@ -768,6 +768,15 @@ pendienteCierre: { type: Boolean, default: false },
         // que la misma nota no entre en dos facturas globales; se limpiaría al
         // cancelar ese CFDI. El pago NO se cancela: sigue contando como cobro.
         facturaGlobalId: { type: Schema.Types.ObjectId, ref: 'FacturaCfdi', default: null },
+        // Nota de crédito que acreditó esta Nota de Venta contra su Factura Global (SAT: Opción A
+        // de refacturación, ver utils/notaCreditoGlobal.js). La nota CONSERVA facturaGlobalId (si
+        // se limpiara reaparecería en /notas-venta-pendientes y entraría en otra Global); con esto
+        // la orden ya se puede facturar a su cliente y el reporte no vuelve a contar su Depósito.
+        facturaGlobalLiberada: {
+          notaCreditoId: { type: Schema.Types.ObjectId, ref: 'FacturaCfdi', default: null },
+          en: { type: Date, default: null },
+          por: { type: String, default: '' },
+        },
 
         // Presente solo si comprobante === 'NOTA_VENTA'
         // numero sin default: si se le pone `default: null`, Mongoose lo agrega

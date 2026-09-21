@@ -63,7 +63,10 @@
   border-radius: 10px;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.15);
   overflow-y: auto;
-  z-index: 2000;
+  /* Por encima de los modales propios de la app (position-fixed con z-index de hasta 10050,
+     p. ej. el de "Cancelar factura"): el panel va en un portal en <body>, así que con menos
+     quedaba escondido detrás del modal desde el que se abrió. */
+  z-index: 20000;
 }
 
 .dd-option {

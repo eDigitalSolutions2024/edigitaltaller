@@ -29,6 +29,7 @@ const ACCION_LABEL = {
   FACTURA_NOTA_CREDITO_GENERAR: "Generó una nota de crédito",
   FACTURA_COMPLEMENTO_GENERAR: "Generó un complemento de pago",
   FACTURA_GLOBAL_GENERAR: "Generó una factura global",
+  FACTURA_CANCELAR: "Registró la cancelación de una factura",
 };
 
 const ACCION_COLOR = {
@@ -44,6 +45,7 @@ const ACCION_COLOR = {
   FACTURA_NOTA_CREDITO_GENERAR: "text-bg-warning",
   FACTURA_COMPLEMENTO_GENERAR: "text-bg-success",
   FACTURA_GLOBAL_GENERAR: "text-bg-success",
+  FACTURA_CANCELAR: "text-bg-danger",
 };
 
 const RECURSO_LABEL = {
@@ -298,6 +300,7 @@ const REGLAS_DESC = [
   [/^PATCH \/configuracion\/unidades-medida\/:id\/status$/, "Activó o desactivó una unidad de medida"],
   [/^PUT \/configuracion\/.+-contador$/, "Ajustó un folio consecutivo"],
   [/^PUT \/configuracion\/fondo-caja$/, "Cambió el fondo de caja"],
+  [/^PUT \/configuracion\/exigir-uuid$/, "Cambió si se exige el UUID en facturas"],
   [/^POST \/configuracion\/mecanicos$/, "Dio de alta un mecánico"],
   [/^PATCH \/configuracion\/mecanicos\/:id\/status$/, "Activó o desactivó un mecánico"],
   [/^PUT \/configuracion\/contrato-orden-servicio$/, "Editó el texto del contrato de orden de servicio"],
