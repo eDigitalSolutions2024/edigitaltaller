@@ -3,11 +3,14 @@ import PeriodoSelector from '../../captura/PeriodoSelector';
 import ReporteCierreCaja from './ReporteCierreCaja';
 import ReportePendientesFactura from './ReportePendientesFactura';
 import ReporteClientesAnticipos from './ReporteClientesAnticipos';
+import ModalRegenerarReporte from './ModalRegenerarReporte';
 import {
   getReporteCajasIngresos,
   getReporteCajasIngresosDias,
   getReporteCajasIngresosPdfUrl,
+  regenerarReporteCajasIngresos,
 } from '../../../api/reportes';
+import { getUser } from '../../../auth';
 import { formatFecha } from '../../../utils/fechas';
 import usePdfModal from '../../../hooks/usePdfModal';
 
@@ -32,6 +35,18 @@ function mismoDia(desde, hasta) {
   return new Date(desde).toDateString() === new Date(hasta).toDateString();
 }
 
+function fechaHora(v) {
+  const d = new Date(v);
+  if (!v || Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export default function ReporteCajasIngresos() {
   const [vista, setVista] = useState('ingresos');
   const [tipo, setTipo] = useState('REMISION');
@@ -50,12 +65,19 @@ export default function ReporteCajasIngresos() {
   const [diaActivo, setDiaActivo] = useState(null);
   const { pdfModal, abrirPdf } = usePdfModal();
 
+  // Regenerar día (solo admin): un día ya terminado queda congelado la primera
+  // vez que se abre; si algo llegó tarde, el admin lo recalcula con su motivo.
+  const esAdmin = getUser()?.role === 'admin';
+  const [modalRegenerar, setModalRegenerar] = useState(false);
+  const [avisoRegen, setAvisoRegen] = useState(null);
+
   const buscar = async (desde, hasta, tipoActual) => {
     setCargando(true);
     setError('');
     setData(null);
     setDias(null);
     setDiaActivo(null);
+    setAvisoRegen(null);
     setRango({ desde, hasta });
     try {
       if (!mismoDia(desde, hasta)) {
@@ -76,6 +98,7 @@ export default function ReporteCajasIngresos() {
   const verDia = async (dia) => {
     setCargando(true);
     setError('');
+    setAvisoRegen(null);
     try {
       const res = await getReporteCajasIngresos(dia.desde, dia.hasta, tipo);
       setData(res.data);
@@ -90,6 +113,26 @@ export default function ReporteCajasIngresos() {
   const volverALista = () => {
     setData(null);
     setDiaActivo(null);
+    setAvisoRegen(null);
+  };
+
+  // Recalcula el día que se está viendo. Lanza el error para que el modal lo
+  // muestre; si sale bien, cierra el modal, muestra el reporte nuevo y, en modo
+  // lista, refresca los totales del día en el índice.
+  const regenerarDia = async (motivo) => {
+    const res = await regenerarReporteCajasIngresos(diaActivo.desde, diaActivo.hasta, tipo, motivo);
+    const { cambio, ...reporte } = res.data;
+    setData(reporte);
+    setAvisoRegen(cambio || null);
+    setModalRegenerar(false);
+    if (dias && rango) {
+      try {
+        const lista = await getReporteCajasIngresosDias(rango.desde, rango.hasta, tipo);
+        setDias(lista.data.dias);
+      } catch (_) {
+        /* la lista se actualiza al volver a generar el reporte */
+      }
+    }
   };
 
   const handleBuscar = (desde, hasta) => buscar(desde, hasta, tipo);
@@ -113,6 +156,11 @@ export default function ReporteCajasIngresos() {
         day: 'numeric',
       })}`
     : '';
+
+  const tituloDiaActivo = diaActivo
+    ? formatFecha(diaActivo.desde, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+    : '';
+  const tipoLabel = TIPOS.find((t) => t.key === tipo)?.label || '';
 
   return (
     <div className="container-fluid py-3">
@@ -192,7 +240,22 @@ export default function ReporteCajasIngresos() {
               </div>
             </div>
 
-            <PeriodoSelector onBuscar={handleBuscar} cargando={cargando} />
+            <PeriodoSelector
+              onBuscar={handleBuscar}
+              cargando={cargando}
+              acciones={
+                esAdmin && data?.cache ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-danger"
+                    title="Recalcula el día que estás viendo con los datos de hoy (pide motivo)"
+                    onClick={() => setModalRegenerar(true)}
+                  >
+                    Regenerar día
+                  </button>
+                ) : null
+              }
+            />
 
             {error && <div className="alert alert-danger py-2">{error}</div>}
 
@@ -224,6 +287,23 @@ export default function ReporteCajasIngresos() {
                   </button>
                 </div>
 
+                {avisoRegen && (
+                  <div className="alert alert-success py-2 mb-2">
+                    Reporte regenerado. Venta del día: {fmtTotal(avisoRegen.antes?.totalVentaDia)} →{' '}
+                    <strong>{fmtTotal(avisoRegen.despues?.totalVentaDia)}</strong> · Total Ingreso:{' '}
+                    {fmtTotal(avisoRegen.antes?.totalIngreso)} →{' '}
+                    <strong>{fmtTotal(avisoRegen.despues?.totalIngreso)}</strong>
+                  </div>
+                )}
+
+                {data.cache?.ultimaRegeneracion && (
+                  <div className="text-muted small mb-2">
+                    Regenerado el {fechaHora(data.cache.ultimaRegeneracion.fecha)}
+                    {data.cache.ultimaRegeneracion.usuario ? ` por ${data.cache.ultimaRegeneracion.usuario}` : ''}
+                    {data.cache.ultimaRegeneracion.motivo ? ` — Motivo: ${data.cache.ultimaRegeneracion.motivo}` : ''}
+                  </div>
+                )}
+
                 {tipo === 'REMISION' ? <ReporteRemisiones data={data} /> : <ReporteFacturas data={data} />}
               </>
             )}
@@ -231,6 +311,13 @@ export default function ReporteCajasIngresos() {
         </div>
       )}
       {pdfModal}
+      <ModalRegenerarReporte
+        show={modalRegenerar}
+        tituloDia={tituloDiaActivo}
+        tipoLabel={tipoLabel}
+        onClose={() => setModalRegenerar(false)}
+        onConfirm={regenerarDia}
+      />
     </div>
   );
 }

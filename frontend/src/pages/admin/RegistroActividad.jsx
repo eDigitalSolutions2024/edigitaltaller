@@ -50,6 +50,7 @@ const ACCION_COLOR = {
 
 const RECURSO_LABEL = {
   cajas: "Cajas",
+  "cajas-ingresos": "Reporte de Cajas",
   anticipos: "Anticipos de clientes",
   clientes: "Clientes",
   vehiculos: "Órdenes / Vehículos",
@@ -208,6 +209,19 @@ function descCancelarPagoCaja(row) {
   return `Canceló un pago de caja${partes.length ? ` — ${partes.join(" · ")}` : ""}`;
 }
 
+function descRegenerarReporteCajas(row) {
+  const b = row.detalle?.body || {};
+  const d = b.desde ? new Date(b.desde) : null;
+  const dia =
+    d && !Number.isNaN(d.getTime())
+      ? d.toLocaleDateString("es-MX", { day: "2-digit", month: "2-digit", year: "numeric" })
+      : "";
+  const tipo = b.tipo === "REMISION" ? "Remisiones" : "Facturas";
+  const partes = [`${tipo}${dia ? ` del ${dia}` : ""}`];
+  if (b.motivo) partes.push(`motivo: ${b.motivo}`);
+  return `Regeneró el reporte diario de ingresos — ${partes.join(" · ")}`;
+}
+
 function descAnticipo(row) {
   const r = resumenPago(row.detalle?.body || {});
   return `Registró un anticipo de cliente${r ? ` — ${r}` : ""}`;
@@ -250,6 +264,7 @@ const REGLAS_DESC = [
   [/^POST \/reportes\/cierre-caja\/cerrar$/, "Cerró la sesión de caja"],
   [/^POST \/reportes\/cierre-caja\/restablecer$/, "Reabrió una sesión de caja ya cerrada"],
   [/^POST \/reportes\/cierre-caja\/captura\/:id\/cancelar$/, "Canceló una captura de cierre de caja"],
+  [/^POST \/reportes\/cajas-ingresos\/regenerar$/, descRegenerarReporteCajas],
   // ── Clientes ──
   [/^POST \/clientes$/, "Dio de alta un cliente"],
   [/^PUT \/clientes\/:id\/codigos-servicio$/, "Editó los códigos de servicio del cliente"],

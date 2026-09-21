@@ -22,6 +22,27 @@ const reporteCajasSnapshotSchema = new mongoose.Schema(
     // funciones), para servirlo idéntico en cualquier consulta posterior.
     data: { type: mongoose.Schema.Types.Mixed, required: true },
     generadoEn: { type: Date, default: Date.now },
+    // Bitácora de "Regenerar día" (solo admin, con motivo): cada vez que se
+    // descarta la foto y se recalcula el día con los datos de hoy — p. ej.
+    // porque una Factura Global de ese día se timbró después de que el
+    // reporte ya se había congelado. Guarda los totales de antes y de después
+    // para poder ver qué movió.
+    regeneraciones: {
+      type: [
+        new mongoose.Schema(
+          {
+            fecha: { type: Date, default: Date.now },
+            usuario: { type: String, default: '' },
+            usuarioId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+            motivo: { type: String, default: '' },
+            totalesAntes: { type: mongoose.Schema.Types.Mixed, default: null },
+            totalesDespues: { type: mongoose.Schema.Types.Mixed, default: null },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );

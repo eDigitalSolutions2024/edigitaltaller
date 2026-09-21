@@ -41,6 +41,12 @@ export const getReporteGarantiasPdfUrl = (desde, hasta, asesor) => {
 export const getReporteCajasIngresos = (desde, hasta, tipo) =>
   http.get('/reportes/cajas-ingresos', { params: { desde, hasta, tipo } });
 
+// Solo admin: descarta la foto de un día ya terminado y lo recalcula con los
+// datos de hoy. El motivo es obligatorio (queda en el reporte y en el Registro
+// de Actividad).
+export const regenerarReporteCajasIngresos = (desde, hasta, tipo, motivo) =>
+  http.post('/reportes/cajas-ingresos/regenerar', { desde, hasta, tipo, motivo });
+
 export const getReporteCajasIngresosDias = (desde, hasta, tipo) =>
   http.get('/reportes/cajas-ingresos-dias', { params: { desde, hasta, tipo } });
 

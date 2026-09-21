@@ -7,6 +7,7 @@ const User = require('../models/User');
 const FacturaCfdi = require('../models/FacturaCfdi');
 const Cliente = require('../models/Cliente');
 const ReporteCajasSnapshot = require('../models/ReporteCajasSnapshot');
+const { proteger, requiereRol } = require('../middleware/auth');
 const { streamReporteOriginalesPdf } = require('../service/reporteOriginalesPdf');
 const { streamReporteVentasAsesoresPdf } = require('../service/reporteVentasAsesoresPdf');
 const { streamReporteOrdenesAbiertasPdf } = require('../service/reporteOrdenesAbiertasPdf');
@@ -594,6 +595,15 @@ router.get('/garantias-pdf', async (req, res) => {
 
 const TIPOS_COMPROBANTE_CAJA = ['NOTA_VENTA', 'REMISION'];
 
+// diaKey (YYYY-MM-DD) si el rango es UN solo día que ya terminó — el único caso
+// que se congela —; null si abarca varios días o toca hoy (siempre en vivo).
+function diaKeyCongelable(desde, hasta) {
+  const diaKey = dayjsFecha(new Date(desde)).format('YYYY-MM-DD');
+  if (diaKey !== dayjsFecha(new Date(hasta)).format('YYYY-MM-DD')) return null;
+  const hoyKey = dayjsFecha(new Date()).format('YYYY-MM-DD');
+  return diaKey < hoyKey ? diaKey : null;
+}
+
 // ===== Reporte Diario de Remisiones (formato clásico de 9 columnas) =====
 // Sirve un Reporte Diario de Ingresos (Remisiones o Facturas) congelado para
 // cualquier día que ya haya terminado: se calcula (con `builder`) la primera
@@ -604,15 +614,15 @@ const TIPOS_COMPROBANTE_CAJA = ['NOTA_VENTA', 'REMISION'];
 // reabre uno que ya cerró. Un rango de más de un día, o cualquier rango que
 // toque el día de hoy (todavía en curso), siempre se calcula en vivo: nunca
 // se cachea "hoy" a medias.
+//
+// Si algo llega tarde y pertenece a un día ya congelado (p. ej. una Factura
+// Global de ese día que se timbró días después), un admin puede regenerar ese
+// día a mano con su motivo: POST /cajas-ingresos/regenerar (más abajo).
 async function reporteDiaConCache(tipo, desde, hasta, builder) {
   const d = new Date(desde);
   const h = new Date(hasta);
-  const esUnDia = dayjsFecha(d).format('YYYY-MM-DD') === dayjsFecha(h).format('YYYY-MM-DD');
-  if (!esUnDia) return builder({ desde, hasta });
-
-  const diaKey = dayjsFecha(d).format('YYYY-MM-DD');
-  const hoyKey = dayjsFecha(new Date()).format('YYYY-MM-DD');
-  if (diaKey >= hoyKey) return builder({ desde, hasta });
+  const diaKey = diaKeyCongelable(desde, hasta);
+  if (!diaKey) return builder({ desde, hasta });
 
   const existente = await ReporteCajasSnapshot.findOne({ tipo, diaKey }).lean();
   if (existente) return existente.data;
@@ -631,6 +641,23 @@ async function reporteDiaConCache(tipo, desde, hasta, builder) {
     console.error('No se pudo guardar el snapshot del reporte de caja:', err);
   }
   return data;
+}
+
+// Lo que hay que REVERTIR cuando una Remisión se cancela para pasar a factura:
+// exactamente lo que esa remisión aportó al reporte el día que se creó (misma
+// cuenta que la rama "vigente" de buildReporteRemisionesDiarioImpl) — venta,
+// ingreso de contado y, lo que no se cobró en ese momento, cuentas por cobrar.
+// Sin revertir el contado, un cobro ya contado el día de la remisión volvería a
+// contarse el día que se factura (la factura lo trae otra vez como ingreso de
+// contado). Una Remisión a Crédito se guarda con monto 0 (o con solo lo
+// cobrado): la venta a revertir es el total de la orden. Un anticipo o abono
+// cancelado nunca aportó "ingreso de contado", así que no lo revierte.
+function reversaRemisionCancelada(orden, pago) {
+  const esCredito = pago.remisionTipoAntesCancelar === 'Credito';
+  const venta = esCredito ? calcularTotalesOrden(orden).totalOrden : pago.monto || 0;
+  const esVenta = pago.tipoPago !== 'ANTICIPO' && pago.tipoPago !== 'ABONO';
+  const contado = esVenta ? pago.monto || 0 : 0;
+  return { venta, contado, porCobrar: Math.max(0, venta - contado) };
 }
 
 // Reconstruye, a partir de pagos[] (comprobante=REMISION), las 4 secciones
@@ -720,12 +747,9 @@ async function buildReporteRemisionesDiarioImpl({ desde, hasta }) {
         p.remision?.tipo === 'Cancelada' && (!p.canceladoEn || new Date(p.canceladoEn) <= h);
 
       if (canceladaParaEsteDia) {
-        // Una Remisión a Crédito se guarda con monto 0 (ver Cajas): lo que de
-        // verdad hay que revertir es el total de la orden que se reportó el
-        // día que se creó (mismo cálculo que la rama "vigente" de abajo), no
-        // p.monto.
-        const esCreditoCancelada = p.remisionTipoAntesCancelar === 'Credito';
-        const montoOriginal = esCreditoCancelada ? calcularTotalesOrden(o).totalOrden : p.monto;
+        // Se revierte lo que se reportó el día que se creó (mismo cálculo que la
+        // rama "vigente" de abajo): ver reversaRemisionCancelada.
+        const reversa = reversaRemisionCancelada(o, p);
         // Si se canceló el MISMO día en que se creó (p. ej. se facturó de
         // inmediato), el neto de ese día es cero: no debe aparecer ningún
         // importe (columnas vacías), ni afectar los totales. Si se canceló un
@@ -735,8 +759,9 @@ async function buildReporteRemisionesDiarioImpl({ desde, hasta }) {
           !!p.canceladoEn &&
           dayjsFecha(p.fecha).format('YYYY-MM-DD') === dayjsFecha(p.canceladoEn).format('YYYY-MM-DD');
         if (!canceladaMismoDia) {
-          totalVentaDia -= montoOriginal;
-          totalPorCobrar -= montoOriginal;
+          totalVentaDia -= reversa.venta;
+          totalContado -= reversa.contado;
+          totalPorCobrar -= reversa.porCobrar;
         }
         // La leyenda de la fila ya dice que se canceló (y, más abajo, a qué
         // factura): no repetir "se cancela..."/"pasa a..." como texto suelto
@@ -748,8 +773,9 @@ async function buildReporteRemisionesDiarioImpl({ desde, hasta }) {
               ...base,
               cliente: 'SE CANCELA REMISIÓN Y PASA A FACTURA',
               notas: notasCancel,
-              ventaDia: -montoOriginal,
-              cuentasPorCobrar: -montoOriginal,
+              ventaDia: -reversa.venta,
+              ingresoContado: reversa.contado ? -reversa.contado : undefined,
+              cuentasPorCobrar: reversa.porCobrar ? -reversa.porCobrar : undefined,
             };
         // Creada y cancelada el MISMO día: va con las remisiones del día, sin
         // ningún importe (neto cero). Si se creó en un día anterior del rango
@@ -841,20 +867,20 @@ async function buildReporteRemisionesDiarioImpl({ desde, hasta }) {
 
       const notasOriginales = notasDePagoCancelado(p);
       const notasCancel = /se cancela|pasa a/i.test(notasOriginales) ? '' : notasOriginales;
-      // Igual que la reversa de la rama de arriba: una Remisión a Crédito se
-      // guarda con monto 0, lo que se revierte es el total de la orden.
-      const esCreditoCancelada = p.remisionTipoAntesCancelar === 'Credito';
-      const montoOriginal = esCreditoCancelada ? calcularTotalesOrden(o).totalOrden : p.monto || 0;
-      totalVentaDia -= montoOriginal;
-      totalPorCobrar -= montoOriginal;
+      // Igual que la reversa de la rama de arriba (ver reversaRemisionCancelada).
+      const reversa = reversaRemisionCancelada(o, p);
+      totalVentaDia -= reversa.venta;
+      totalContado -= reversa.contado;
+      totalPorCobrar -= reversa.porCobrar;
       const filaCancel = {
         folio: p.remision?.numero ?? null,
         ordenServicio: o.ordenServicio || '',
         cliente: 'SE CANCELA REMISIÓN Y PASA A FACTURA',
         fecha: p.canceladoEn,
         notas: notasCancel,
-        ventaDia: -montoOriginal,
-        cuentasPorCobrar: -montoOriginal,
+        ventaDia: -reversa.venta,
+        ingresoContado: reversa.contado ? -reversa.contado : undefined,
+        cuentasPorCobrar: reversa.porCobrar ? -reversa.porCobrar : undefined,
       };
       canceladas.push(filaCancel);
       const pagoDestino =
@@ -2024,6 +2050,91 @@ router.get('/cajas-ingresos-dias', async (req, res) => {
   }
 });
 
+// Info del snapshot de un día ya congelado, para que la pantalla sepa si puede
+// ofrecer "Regenerar día" y mostrar la última regeneración. null si el rango no
+// es un día ya terminado (o todavía no quedó guardado).
+async function metaSnapshotDia(tipo, desde, hasta) {
+  const diaKey = diaKeyCongelable(desde, hasta);
+  if (!diaKey) return null;
+  const snap = await ReporteCajasSnapshot.findOne({ tipo, diaKey })
+    .select('generadoEn regeneraciones')
+    .lean();
+  if (!snap) return null;
+  const regs = snap.regeneraciones || [];
+  const ultima = regs[regs.length - 1];
+  return {
+    generadoEn: snap.generadoEn,
+    regeneraciones: regs.length,
+    ultimaRegeneracion: ultima
+      ? { fecha: ultima.fecha, usuario: ultima.usuario, motivo: ultima.motivo }
+      : null,
+  };
+}
+
+// POST /api/reportes/cajas-ingresos/regenerar   body: { desde, hasta, tipo, motivo }
+// Solo admin, con motivo obligatorio. Descarta la foto de UN día que ya
+// terminó y lo recalcula con los datos de hoy (p. ej. una Factura Global de ese
+// día se timbró después de que el reporte se congeló). Recalcula el día
+// COMPLETO, no solo agrega lo que faltaba: cualquier otro cambio posterior que
+// afecte a ese día también entra. Deja la bitácora en el propio snapshot
+// (quién, cuándo, motivo, totales de antes y de después).
+router.post('/cajas-ingresos/regenerar', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { desde, hasta, tipo } = req.body || {};
+    const motivo = String(req.body?.motivo || '').trim().slice(0, 300);
+    if (!desde || !hasta) {
+      return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
+    }
+    if (!TIPOS_COMPROBANTE_CAJA.includes(tipo)) {
+      return res.status(400).json({ ok: false, msg: 'Parámetro tipo inválido' });
+    }
+    if (!motivo) {
+      return res.status(400).json({ ok: false, msg: 'Captura el motivo para regenerar el reporte.' });
+    }
+    const diaKey = diaKeyCongelable(desde, hasta);
+    if (!diaKey) {
+      return res.status(400).json({
+        ok: false,
+        msg: 'Solo se puede regenerar el reporte de un día que ya terminó. Un rango de varios días o el de hoy siempre se calcula en vivo.',
+      });
+    }
+
+    const builder = tipo === 'REMISION' ? buildReporteRemisionesDiarioImpl : buildReporteFacturasDiarioImpl;
+    const data = await builder({ desde, hasta });
+    const previo = await ReporteCajasSnapshot.findOne({ tipo, diaKey }).select('data.totales').lean();
+    const totalesAntes = previo?.data?.totales || null;
+
+    await ReporteCajasSnapshot.findOneAndUpdate(
+      { tipo, diaKey },
+      {
+        $set: { desde: new Date(desde), hasta: new Date(hasta), data, generadoEn: new Date() },
+        $push: {
+          regeneraciones: {
+            fecha: new Date(),
+            usuario: req.user?.name || req.user?.username || '',
+            usuarioId: req.user?._id || null,
+            motivo,
+            totalesAntes,
+            totalesDespues: data.totales || null,
+          },
+        },
+      },
+      { upsert: true, setDefaultsOnInsert: true }
+    );
+
+    return res.json({
+      ok: true,
+      tipo,
+      ...data,
+      cache: await metaSnapshotDia(tipo, desde, hasta),
+      cambio: { antes: totalesAntes, despues: data.totales || null },
+    });
+  } catch (err) {
+    console.error('Error regenerando reporte cajas ingresos:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
 // GET /api/reportes/cajas-ingresos?desde=...&hasta=...&tipo=NOTA_VENTA|REMISION
 router.get('/cajas-ingresos', async (req, res) => {
   try {
@@ -2037,11 +2148,11 @@ router.get('/cajas-ingresos', async (req, res) => {
 
     if (tipo === 'REMISION') {
       const resultado = await buildReporteRemisionesDiario({ desde, hasta });
-      return res.json({ ok: true, tipo, ...resultado });
+      return res.json({ ok: true, tipo, ...resultado, cache: await metaSnapshotDia(tipo, desde, hasta) });
     }
 
     const resultado = await buildReporteFacturasDiario({ desde, hasta });
-    return res.json({ ok: true, tipo, ...resultado });
+    return res.json({ ok: true, tipo, ...resultado, cache: await metaSnapshotDia(tipo, desde, hasta) });
   } catch (err) {
     console.error('Error reporte cajas ingresos:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
