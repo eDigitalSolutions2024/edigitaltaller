@@ -52,7 +52,9 @@ function calcularRango(periodo, soloDia) {
   return null;
 }
 
-export default function PeriodoSelector({ onBuscar, cargando, soloDia = false }) {
+// `acciones` (opcional): botones extra que se pintan al extremo derecho de la
+// misma barra que "Generar reporte" (p. ej. "Regenerar día" en Reporte de Cajas).
+export default function PeriodoSelector({ onBuscar, cargando, soloDia = false, acciones = null }) {
   const [periodo, setPeriodo] = useState('mensual');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -135,6 +137,8 @@ export default function PeriodoSelector({ onBuscar, cargando, soloDia = false })
               )}
             </button>
           </div>
+
+          {acciones && <div className="ms-auto">{acciones}</div>}
         </div>
 
         {error && <div className="text-danger small mt-1">{error}</div>}
