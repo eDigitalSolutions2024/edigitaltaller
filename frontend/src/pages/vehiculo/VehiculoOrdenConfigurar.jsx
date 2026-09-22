@@ -1,15 +1,18 @@
 // src/pages/vehiculo/VehiculoOrdenConfigurar.jsx
 import React, { useState } from "react";
-import { restoreOrden, cambiarAsesorOrden, cambiarClienteOrden } from "../../api/vehiculos";
+import { restoreOrden, cambiarAsesorOrden, cambiarClienteOrden, cambiarTipoOrden } from "../../api/vehiculos";
 import ModalCambiarAsesor from "./ModalCambiarAsesor";
 import ModalCambiarCliente from "./ModalCambiarCliente";
+import ModalCambiarTipoOrden from "./ModalCambiarTipoOrden";
 
-export default function VehiculoOrdenConfigurar({ orden, onRestored, onAsesorCambiado, onClienteCambiado }) {
+export default function VehiculoOrdenConfigurar({ orden, onRestored, onAsesorCambiado, onClienteCambiado, onTipoCambiado }) {
   const [restableciendo, setRestableciendo] = useState(false);
   const [modalAbierto, setModalAbierto] = useState(false);
   const [guardandoAsesor, setGuardandoAsesor] = useState(false);
   const [modalClienteAbierto, setModalClienteAbierto] = useState(false);
   const [guardandoCliente, setGuardandoCliente] = useState(false);
+  const [modalTipoAbierto, setModalTipoAbierto] = useState(false);
+  const [guardandoTipo, setGuardandoTipo] = useState(false);
 
   if (!orden) return null;
 
@@ -69,6 +72,20 @@ export default function VehiculoOrdenConfigurar({ orden, onRestored, onAsesorCam
     }
   };
 
+  const handleConfirmarCambioTipo = async (payload) => {
+    try {
+      setGuardandoTipo(true);
+      const res = await cambiarTipoOrden(orden._id, payload);
+      if (onTipoCambiado) onTipoCambiado(res.data.vehiculo);
+      setModalTipoAbierto(false);
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.msg || "Error al cambiar el tipo de la orden.");
+    } finally {
+      setGuardandoTipo(false);
+    }
+  };
+
   return (
     <div className="card card-body mb-4">
       <h4 className="mb-3">CONFIGURACIÓN DE LA ORDEN</h4>
@@ -115,6 +132,21 @@ export default function VehiculoOrdenConfigurar({ orden, onRestored, onAsesorCam
             Cambiar cliente
           </button>
         </div>
+
+        <div className="border rounded p-3">
+          <div className="fw-semibold mb-1">Cambiar tipo de orden</div>
+          <p className="text-muted small mb-2">
+            Corrige el tipo cuando la orden se abrió por error, por ejemplo como Garantía cuando
+            no debía serlo (o al revés).
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => setModalTipoAbierto(true)}
+          >
+            Cambiar tipo de orden
+          </button>
+        </div>
       </div>
 
       {modalAbierto && (
@@ -132,6 +164,15 @@ export default function VehiculoOrdenConfigurar({ orden, onRestored, onAsesorCam
           guardando={guardandoCliente}
           onClose={() => !guardandoCliente && setModalClienteAbierto(false)}
           onConfirm={handleConfirmarCambioCliente}
+        />
+      )}
+
+      {modalTipoAbierto && (
+        <ModalCambiarTipoOrden
+          orden={orden}
+          guardando={guardandoTipo}
+          onClose={() => !guardandoTipo && setModalTipoAbierto(false)}
+          onConfirm={handleConfirmarCambioTipo}
         />
       )}
     </div>

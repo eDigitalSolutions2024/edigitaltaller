@@ -2287,6 +2287,144 @@ router.put('/:id/cambiar-cliente', proteger, requiereRol('admin'), async (req, r
   }
 });
 
+// PUT /api/vehiculos/:id/cambiar-tipo -> (solo admin) corrige el tipo de la
+// orden cuando se abrió por error: la convierte en orden de Garantía
+// (ligándola a la orden anterior cerrada, igual que garantiaSolicitud al
+// crear) o revierte una Garantía mal marcada de vuelta a orden normal. Solo
+// se permite revertir mientras la solicitud sigue PENDIENTE y sin ticket ni
+// autorización en curso; una vez resuelta hay que usar el flujo de
+// Solicitudes de Garantía (routes/garantias.js).
+router.put('/:id/cambiar-tipo', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { tipo, ordenAnteriorId, motivo } = req.body;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ ok: false, msg: 'Orden inválida.' });
+    }
+    if (!['GARANTIA', 'NORMAL'].includes(tipo)) {
+      return res.status(400).json({ ok: false, msg: 'Tipo de orden inválido.' });
+    }
+
+    const vehiculo = await Vehiculo.findById(id);
+    if (!vehiculo) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+
+    const motivoLimpio = typeof motivo === 'string' ? motivo.trim() : '';
+    const u = req.user;
+    let de;
+    let a;
+
+    if (tipo === 'GARANTIA') {
+      if (vehiculo.garantia) {
+        return res.status(400).json({ ok: false, msg: 'La orden ya es de garantía.' });
+      }
+      if (!ordenAnteriorId || !mongoose.isValidObjectId(ordenAnteriorId)) {
+        return res.status(400).json({ ok: false, msg: 'Selecciona la orden anterior sobre la que aplica la garantía.' });
+      }
+      if (String(ordenAnteriorId) === String(vehiculo._id)) {
+        return res.status(400).json({ ok: false, msg: 'La orden anterior no puede ser la misma orden.' });
+      }
+      if (!motivoLimpio) {
+        return res.status(400).json({ ok: false, msg: 'El motivo de la garantía es obligatorio.' });
+      }
+
+      const ordenAnterior = await Vehiculo.findById(ordenAnteriorId).select('ordenServicio estadoOrden');
+      if (!ordenAnterior) {
+        return res.status(400).json({ ok: false, msg: 'La orden anterior indicada no existe.' });
+      }
+      if (ordenAnterior.estadoOrden !== 'CERRADA') {
+        return res.status(400).json({
+          ok: false,
+          msg: `La orden ${ordenAnterior.ordenServicio} aún no está cerrada; solo se puede aplicar garantía sobre órdenes cerradas.`,
+        });
+      }
+
+      // Misma regla que al crear: una orden solo puede ser origen de una
+      // garantía (pendiente o autorizada) a la vez.
+      const solicitudExistente = await Vehiculo.findOne({
+        _id: { $ne: vehiculo._id },
+        'garantia.ordenAnterior': ordenAnterior._id,
+        'garantia.estado': { $in: ['PENDIENTE', 'APROBADA'] },
+      }).select('ordenServicio');
+      if (solicitudExistente) {
+        return res.status(409).json({
+          ok: false,
+          msg: `La orden ${ordenAnterior.ordenServicio} ya fue utilizada en una garantía (orden ${solicitudExistente.ordenServicio}).`,
+        });
+      }
+
+      vehiculo.garantia = {
+        estado: 'PENDIENTE',
+        motivo: motivoLimpio,
+        ordenAnterior: ordenAnterior._id,
+        ordenAnteriorFolio: ordenAnterior.ordenServicio || '',
+        fechaSolicitud: new Date(),
+      };
+      de = 'Orden normal';
+      a = `Garantía (orden anterior ${ordenAnterior.ordenServicio || ''})`;
+    } else {
+      if (!vehiculo.garantia) {
+        return res.status(400).json({ ok: false, msg: 'La orden no es de garantía.' });
+      }
+      if (vehiculo.garantia.estado !== 'PENDIENTE') {
+        return res.status(409).json({
+          ok: false,
+          msg: 'Esta solicitud de garantía ya fue resuelta; no se puede revertir desde aquí.',
+        });
+      }
+      if (vehiculo.garantia.ticketPendiente || vehiculo.garantia.autorizacionSolicitada) {
+        return res.status(409).json({
+          ok: false,
+          msg: 'Esta garantía tiene un ticket o una autorización en curso; resuélvela primero desde Solicitudes de Garantía.',
+        });
+      }
+
+      de = `Garantía (orden anterior ${vehiculo.garantia.ordenAnteriorFolio || ''})`;
+      a = 'Orden normal';
+      vehiculo.garantia = null;
+    }
+
+    await vehiculo.save();
+
+    // Bitácora permanente de la orden (historialEstados) + log rodante, igual
+    // que PUT /:id/cambiar-cliente. El estado de la orden no cambia.
+    Vehiculo.updateOne(
+      { _id: vehiculo._id },
+      {
+        $push: {
+          historialEstados: {
+            de,
+            a,
+            accion: 'CAMBIO_TIPO_ORDEN',
+            por: (u && (u.name || u.username || u.email)) || '',
+            porId: (u && u._id) || null,
+            motivo: motivoLimpio,
+            ruta: 'PUT /:id/cambiar-tipo',
+            fecha: new Date(),
+          },
+        },
+      }
+    ).catch((err) => console.error('historialEstados (no crítico):', err.message));
+
+    registrarAccion(req, {
+      accion: 'ORDEN_CAMBIAR_TIPO',
+      entidadId: vehiculo._id,
+      referencia: vehiculo.ordenServicio || '',
+      detalle: { de, a, motivo: motivoLimpio },
+    });
+
+    const vehiculoActualizado = await Vehiculo.findById(vehiculo._id)
+      .populate('cliente', POPULATE_CLIENTE)
+      .populate(POPULATE_GRUPO);
+    return res.json({ ok: true, vehiculo: vehiculoActualizado });
+  } catch (err) {
+    console.error('Error cambiando el tipo de la orden:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
 // GET /api/vehiculos/:id/presupuesto-pdf
 router.get('/:id/presupuesto-pdf', async (req, res) => {
   try {

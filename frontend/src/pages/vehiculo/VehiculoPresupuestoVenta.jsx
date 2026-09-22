@@ -520,6 +520,24 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     // ya están incluidas en la línea del servicio que las agrupa.
     const autorizadasParaVenta = autorizadas.filter((r) => !esHijoDeGrupo(r));
 
+    // Partidas con Precio de Venta en $0: puede ser que el asesor olvidó
+    // capturarlo o que pulsó "Enviar a Venta" por error. Se bloquea el envío
+    // (incluida la solicitud de autorización de garantía, más abajo) hasta
+    // que confirme explícitamente que el importe en $0 es correcto.
+    const partidasEnCero = autorizadasParaVenta.filter(
+      (r) => Number(r.precioVenta || 0) <= 0
+    );
+    if (partidasEnCero.length > 0) {
+      const conceptos = partidasEnCero
+        .map((r) => r.concepto || r.refaccion || "Partida sin concepto")
+        .join("\n- ");
+      const confirmar = window.confirm(
+        `Las siguientes partidas tienen Precio de Venta en $0:\n- ${conceptos}\n\n` +
+          "¿Confirmas que el importe es correcto y quieres continuar?"
+      );
+      if (!confirmar) return;
+    }
+
     const nuevasVentas = autorizadasParaVenta.map((r) => ({
       cant: r.cant,
       concepto: r.concepto || r.refaccion || "",

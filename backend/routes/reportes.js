@@ -21,6 +21,7 @@ const { streamReportePendientesFacturaPdf } = require('../service/reportePendien
 const { streamReporteClientesAnticiposPdf } = require('../service/reporteClientesAnticiposPdf');
 const { calcImporteHoras } = require('../utils/manoObra');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
+const { esAbonoSobreRemisionCredito } = require('../utils/anticiposAlFacturar');
 const { abreviaturaFormaPago, joinMetodos } = require('../utils/abreviaturaFormaPago');
 const { FILTRO_SERVICOMPACTO } = require('../utils/lineaNegocio');
 const { dayjsFecha } = require('../utils/fechas');
@@ -83,17 +84,6 @@ function desgloseMontosCombinado(combinado, fmtMonto, dolaresPesos = 0) {
     );
   }
   return joinMetodos(partes);
-}
-
-// Fecha en el estilo del reporte en papel: "17 JULIO 2026" (día, mes en
-// mayúsculas, año). Se usa en la columna Notas de los anticipos cancelados.
-const MESES_ES = [
-  'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
-  'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE',
-];
-function fechaLargaEs(valor) {
-  const f = dayjsFecha(valor);
-  return `${f.date()} ${MESES_ES[f.month()]} ${f.year()}`;
 }
 
 // Notas de la banda "Anticipos" del Reporte de Facturas: solo cómo se cobró el
@@ -1242,6 +1232,45 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
     }
   }
 
+  // ---- 1c: Abonos capturados sobre una Remisión a Crédito ----
+  // La orden ya tiene un comprobante (la Remisión, a crédito, con monto 0), así
+  // que el cajero paga lo adelantado con "Abonar" en vez de "Anticipo" (esa
+  // opción es para antes de cualquier comprobante). Es dinero real cobrado
+  // antes de facturar: se reporta igual que un anticipo (ver
+  // esAbonoSobreRemisionCredito en utils/anticiposAlFacturar.js, que también
+  // decide su cancelación al facturar).
+  const ordenesAbonoRemisionCredito = await Vehiculo.find({
+    pagos: {
+      $elemMatch: {
+        comprobante: 'RECIBO_PROVISIONAL',
+        tipoPago: 'ABONO',
+        cancelado: { $ne: true },
+        fecha: { $gte: d, $lte: h },
+      },
+    },
+  })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
+
+  for (const o of ordenesAbonoRemisionCredito) {
+    for (const p of o.pagos || []) {
+      if (!esAbonoSobreRemisionCredito(p, o.pagos) || p.cancelado) continue;
+      const f = new Date(p.fecha);
+      if (f < d || f > h) continue;
+
+      anticipos.push({
+        folio: 'ANT',
+        ordenServicio: o.ordenServicio || '',
+        cliente: nombreCliente(o.cliente),
+        fecha: p.fecha,
+        anticipo: p.monto,
+        notas: notaAnticipoFactura(p),
+      });
+      totalAnticipo += p.monto;
+      sumarDepositoReciboProvisional(sumarDeposito, p);
+    }
+  }
+
   // ---- 2: Anticipos y remisiones cancelados que pasaron a factura ----
   // A diferencia de la sección anterior, se filtran por la fecha en que se
   // canceló el comprobante (cuando se facturó la orden), no la fecha en que
@@ -1270,9 +1299,13 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       if (p.motivoCancelacionTipo === 'ERROR') continue;
       // Un anticipo puede documentarse con Nota de Venta (histórico) o con
       // Recibo Provisional (ver anticipoDestino en cajas.js); ambos cuentan
-      // igual aquí. Un Recibo Provisional de un ABONO (no anticipo) no.
+      // igual aquí. Un Recibo Provisional de un ABONO cuenta también, pero
+      // solo si es de los que se tratan como anticipo: uno capturado sobre
+      // una Remisión a Crédito (ver esAbonoSobreRemisionCredito, sección 1c
+      // arriba) — cualquier otro Abono sigue sin pertenecer a esta banda.
       const esAnticipo =
-        (p.comprobante === 'NOTA_VENTA' || p.comprobante === 'RECIBO_PROVISIONAL') && p.tipoPago === 'ANTICIPO';
+        ((p.comprobante === 'NOTA_VENTA' || p.comprobante === 'RECIBO_PROVISIONAL') && p.tipoPago === 'ANTICIPO') ||
+        esAbonoSobreRemisionCredito(p, o.pagos);
       const esRemision = p.comprobante === 'REMISION';
       if (!esAnticipo && !esRemision) continue;
       const fechaEvento = new Date(p.canceladoEn || p.fecha);
@@ -1357,9 +1390,9 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       // queda documentada en el Reporte de Remisiones, no aquí.
       if (esRemision) continue;
 
-      // Notas del anticipo cancelado: "TIPO DE PAGO  FECHA  NOMBRE CLIENTE"
-      // (formato acordado con el cliente), p. ej. "EFECTIVO 17 JULIO 2026
-      // MANUEL MATEO REYES". La fecha es la del anticipo original.
+      // Notas del anticipo cancelado: solo la forma de pago (p. ej.
+      // "EFECTIVO" o "AE-C"). Sin fecha ni nombre del cliente — ya están la
+      // orden y el folio de la factura en las otras columnas.
       const formaPagoDesc = p.comprobante === 'RECIBO_PROVISIONAL' ? p.reciboProvisional : p.notaVenta;
       const tipoPagoTxt = abreviaturaFormaPago(formaPagoDesc);
       anticiposCancelados.push({
@@ -1368,10 +1401,7 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
         cliente: `SE CANCELÓ ANTICIPO Y PASA A FACTURA ${folioCfdi}`,
         fecha: fechaEvento,
         anticipo: -p.monto,
-        notas: [tipoPagoTxt, fechaLargaEs(p.fecha), nombreCliente(o.cliente)]
-          .filter(Boolean)
-          .join(' ')
-          .toUpperCase(),
+        notas: (tipoPagoTxt || '').toUpperCase(),
       });
       totalAnticipo -= p.monto;
     }
@@ -1811,6 +1841,10 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       const key = String(p.facturaGlobalId);
       if (!notasDelDiaPorFacturaGlobal.has(key)) notasDelDiaPorFacturaGlobal.set(key, new Map());
       notasDelDiaPorFacturaGlobal.get(key).set(num, {
+        // _id de este mismo pago (Nota de Venta): así se cruza el anticipo que
+        // haya quedado ligado a ÉL (pago.notaVentaLigadaId), ver
+        // anticiposPorNotaLigada más abajo.
+        pagoId: String(p._id),
         fecha: p.fecha,
         metodo: abreviaturaFormaPago(p.notaVenta),
         // Si la nota se pagó Combinado, se guarda el desglose crudo para
@@ -1825,6 +1859,24 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
         tipoCambio: Number(p.tipoCambio) || 0,
         reciboDolaresNumero: p.reciboDolares?.numero ?? null,
       });
+    }
+  }
+
+  // Anticipos que pasaron a una Factura Global al generarla (ver
+  // generar_xml.js / utils/anticiposAlFacturar.js): parte de la misma venta
+  // que la Nota de Venta a la que quedaron ligados al registrarse (ver
+  // notaVentaLigadaId en models/Vehiculo.js, se pone sola en POST
+  // /api/cajas/:id/pagos si la orden ya tenía el anticipo vigente). Se busca
+  // por ese link, NO por "cualquier anticipo cancelado de la misma orden": una
+  // orden puede tener más de una Nota de Venta y el anticipo es de UNA sola.
+  // pago._id de la Nota de Venta -> monto del anticipo ligado a ella.
+  const anticiposPorNotaLigada = new Map();
+  for (const v of vehiculosNotasGlobalDia) {
+    for (const p of v.pagos || []) {
+      if (!p.cancelado || p.tipoPago !== 'ANTICIPO' || p.comprobante !== 'RECIBO_PROVISIONAL') continue;
+      if (p.motivoCancelacionTipo !== 'PASA_A_FACTURA' || !p.notaVentaLigadaId) continue;
+      const key = String(p.notaVentaLigadaId);
+      anticiposPorNotaLigada.set(key, (anticiposPorNotaLigada.get(key) || 0) + (Number(p.monto) || 0));
     }
   }
 
@@ -1847,9 +1899,24 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       const notasDia = (f.notasVenta || []).filter((n) => infoPorNota?.has(n.numero));
       if (!notasDia.length) continue;
 
-      // "Venta del día" debe cuadrar centavo a centavo con el desglose que
-      // se muestra junto a ella (columna Cliente): la suma de lo realmente
-      // cobrado por las notas de venta de este día.
+      // El anticipo que quedó ligado a una de estas notas (notaVentaLigadaId)
+      // pasó a esta Global junto con ella. `n.monto` (FacturaCfdi.notasVenta,
+      // ver POST /api/facturacion/notas-venta-pendientes) YA lo trae sumado
+      // desde que se generó la Global — aquí solo se recupera CUÁNTO de ese
+      // monto es anticipo, para el desglose de abajo (texto y "lo cobrado con
+      // la nota" = n.monto − anticipo). Una Global vieja, de antes de este
+      // cambio, no traía el anticipo sumado en n.monto: para esas, el
+      // anticipo simplemente no se desglosa (queda como si no lo tuviera).
+      const anticipoPorNota = new Map(); // numero de nota -> monto del anticipo
+      for (const n of notasDia) {
+        const pagoIdNota = infoPorNota.get(n.numero)?.pagoId;
+        const montoAnticipo = pagoIdNota ? anticiposPorNotaLigada.get(pagoIdNota) || 0 : 0;
+        if (montoAnticipo > 0) anticipoPorNota.set(n.numero, montoAnticipo);
+      }
+
+      // "Venta del día" debe cuadrar centavo a centavo con el desglose que se
+      // muestra junto a ella (columna Cliente): la suma de lo que cada nota
+      // ya trae en su propio monto (nota + su anticipo, si tiene).
       const total = notasDia.reduce((s, n) => s + (Number(n.monto) || 0), 0);
       const esPue = (f.cfdi?.metodoPago || 'PUE') !== 'PPD';
       totalVentaDia += total;
@@ -1878,21 +1945,50 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
           ? Math.round(info.montoDolares * info.tipoCambio * 100) / 100
           : 0;
 
+      // Cada línea: primero la orden y el monto COMPLETO de esa nota (lo
+      // capturado con ella + su anticipo, si tiene uno ligado), y hasta
+      // después el desglose de cómo se pagó — nunca al revés. Solo lleva
+      // coma (deja de ser una sola frase) cuando hay algo que enumerar:
+      // varios métodos (Combinado) y/o un anticipo. Un pago simple sin
+      // anticipo no repite el monto, ya salió en el total.
+      //   • Simple, sin anticipo:      "(A-37 $2,592.00 CON EFECTIVO)"
+      //   • Combinado, sin anticipo:   "(A-47 $2,592.00, $174.00 EFECTIVO,
+      //                                  $1,000.00 BB-C, $500.00 BR-D Y
+      //                                  $918.00 SPEI-BN)"
+      //   • Simple, con anticipo:      "(A-43 $904.00, $500.00 CON ANTICIPO
+      //                                  CANCELADO ANTES MENCIONADO Y
+      //                                  $404.00 CON EFECTIVO)"
       const partes = notasDia.map((n) => {
         const info = infoPorNota.get(n.numero);
-        const folio = n.numero != null ? `P${n.numero}` : 'S/N';
+        const orden = n.ordenServicio || (n.numero != null ? `P${n.numero}` : 'S/N');
         const dolaresPesos = dolaresEnPesos(info);
+        // n.monto es el total de esta nota (lo capturado con ella + su
+        // anticipo, si tiene uno ligado, ver arriba); lo que de verdad se
+        // cobró CON la nota (lo que va después de "CON …") es sin el
+        // anticipo.
+        const anticipo = anticipoPorNota.get(n.numero) || 0;
+        const propioNota = (Number(n.monto) || 0) - anticipo;
         // Combinado: en vez de "$total CON EFECTIVO Y BR-C" (que no dice
-        // cuánto fue de cada uno), se desglosa el monto por método.
-        if (info?.combinado) {
-          return `(${folio} ${desgloseMontosCombinado(info.combinado, fmtMonto, dolaresPesos)})`;
+        // cuánto fue de cada uno), se desglosa el monto por método. Pago
+        // simple con parte en dólares (solo puede ser Efectivo): propioNota
+        // ya trae los dólares convertidos, así que sale como un Efectivo por
+        // el total; los dólares en sí van en Notas.
+        const cobroCombinado = info?.combinado
+          ? desgloseMontosCombinado(info.combinado, fmtMonto, dolaresPesos)
+          : null;
+
+        let desglose = null;
+        if (anticipo) {
+          const cobro = cobroCombinado || (info?.metodo ? `$${fmtMonto(propioNota)} CON ${info.metodo}` : `$${fmtMonto(propioNota)}`);
+          desglose = `$${fmtMonto(anticipo)} CON ANTICIPO CANCELADO ANTES MENCIONADO Y ${cobro}`;
+        } else if (cobroCombinado) {
+          desglose = cobroCombinado;
         }
-        // Pago simple con parte en dólares (solo puede ser Efectivo): n.monto ya
-        // trae los dólares convertidos, así que sale como un Efectivo por el
-        // total; los dólares en sí van en Notas.
-        return info?.metodo
-          ? `(${folio} $${fmtMonto(n.monto)} CON ${info.metodo})`
-          : `(${folio} $${fmtMonto(n.monto)})`;
+
+        const totalTxt = `$${fmtMonto(n.monto)}`;
+        if (desglose) return `(${orden} ${totalTxt}, ${desglose})`;
+        if (info?.metodo) return `(${orden} ${totalTxt} CON ${info.metodo})`;
+        return `(${orden} ${totalTxt})`;
       });
 
       // Notas: el Recibo de Dólares y la cantidad en USD de las notas que

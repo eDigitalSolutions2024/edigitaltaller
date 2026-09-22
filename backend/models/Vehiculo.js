@@ -699,6 +699,17 @@ pendienteCierre: { type: Boolean, default: false },
         // vocabulario que `comprobante` aunque el anticipo se documente con
         // Recibo Provisional, no con Nota de Venta/Remisión real.
         anticipoDestino: { type: String, enum: ['NOTA_VENTA', 'REMISION'], default: null },
+        // Solo cuando tipoPago === 'ANTICIPO' (Recibo Provisional): la Nota de
+        // Venta (su pago._id, dentro de este mismo `pagos[]`) a la que este
+        // anticipo quedó ligado. Se pone sola, en cuanto se registra esa Nota
+        // de Venta, si la orden ya tenía este anticipo vigente (ver POST
+        // /:id/pagos) — el cajero no elige nada, no es editable. Con el link,
+        // al facturar esa nota en una Factura Global el anticipo se cancela y
+        // pasa a ella (ver esAnticipoParaFacturaGlobal en
+        // utils/anticiposAlFacturar.js), y el Reporte de Facturas lo muestra
+        // desglosado junto con esa nota, como un pago combinado (ver banda
+        // "Factura global" en routes/reportes.js).
+        notaVentaLigadaId: { type: Schema.Types.ObjectId, default: null },
         // Solo cuando tipoPago === 'ANTICIPO': el dinero se guardó como saldo a
         // favor del cliente (Cliente.saldoAFavor, vía un movimiento
         // AnticipoCliente tipo DEPOSITO) en vez de abonarse a la orden — no

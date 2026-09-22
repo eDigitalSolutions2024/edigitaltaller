@@ -1045,12 +1045,29 @@ router.get("/notas-venta-pendientes", async (req, res) => {
     const notas = [];
     for (const v of vehiculos) {
       const ivaPct = Number(v.ivaVenta || 8);
+
+      // Anticipo (Recibo Provisional) vigente de esta orden que ya quedó
+      // ligado a una Nota de Venta (notaVentaLigadaId, ver POST
+      // /api/cajas/:id/pagos): pago.pagoId de la nota -> monto del anticipo.
+      // El total de esa nota debe incluirlo — es el mismo pedido, solo que
+      // dividido en dos cobros — para que la Global se timbre por el total
+      // real de la orden, no solo lo capturado con la nota (ver
+      // [[project_anticipo_en_factura_global]]).
+      const anticipoPorNotaPagoId = new Map();
+      for (const p of v.pagos || []) {
+        if (p.comprobante !== "RECIBO_PROVISIONAL" || p.tipoPago !== "ANTICIPO") continue;
+        if (p.cancelado || !p.notaVentaLigadaId) continue;
+        anticipoPorNotaPagoId.set(String(p.notaVentaLigadaId), p);
+      }
+
       for (const p of v.pagos || []) {
         if (p.comprobante !== "NOTA_VENTA" || p.cancelado) continue;
         if (!p.notaVenta || typeof p.notaVenta.numero !== "number") continue;
         if (p.facturaGlobalId) continue; // ya está en otra factura global
 
-        const monto = Number(p.monto || 0);
+        const montoPropio = Number(p.monto || 0);
+        const anticipo = anticipoPorNotaPagoId.get(String(p._id)) || null;
+        const monto = montoPropio + (anticipo ? Number(anticipo.monto) || 0 : 0);
         const montoSinIva = ivaPct > 0 ? monto / (1 + ivaPct / 100) : monto;
 
         notas.push({
@@ -1059,7 +1076,10 @@ router.get("/notas-venta-pendientes", async (req, res) => {
           ordenServicio: v.ordenServicio || "",
           numero: p.notaVenta.numero,
           fecha: p.fecha,
+          // Total de la orden que se factura con esta nota: lo capturado con
+          // ella (montoPropio) más el anticipo ligado, si hay uno.
           monto,
+          montoPropio,
           ivaPct,
           montoSinIva,
           cliente: nombreClienteDisplay(v.cliente),
@@ -1068,6 +1088,15 @@ router.get("/notas-venta-pendientes", async (req, res) => {
           // + etiqueta corta legible.
           formaPagoSat: formaPagoSatDeNotaVenta(p.notaVenta),
           formaPagoLabel: abreviaturaFormaPago(p.notaVenta),
+          // Solo informativo (Nueva Factura lo muestra junto al monto): el
+          // anticipo ya sumado arriba, con su folio y forma de pago.
+          anticipoLigado: anticipo
+            ? {
+                monto: Number(anticipo.monto) || 0,
+                numero: anticipo.reciboProvisional?.numero ?? null,
+                formaPagoLabel: abreviaturaFormaPago(anticipo.reciboProvisional),
+              }
+            : null,
         });
       }
     }

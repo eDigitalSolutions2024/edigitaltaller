@@ -335,6 +335,11 @@ export default function SolicitudesGarantia() {
   const [histTotal, setHistTotal] = useState(0);
   const [histPage, setHistPage] = useState(1);
   const [histFiltro, setHistFiltro] = useState(""); // "" = todas las resueltas
+  // El historial arranca colapsado para no saturar la pantalla con lo ya
+  // resuelto; el admin lo despliega solo cuando lo necesita consultar (o
+  // automáticamente si la solicitud notificada por un ticket vive ahí, ver
+  // cargar()).
+  const [mostrarHistorial, setMostrarHistorial] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -430,9 +435,17 @@ export default function SolicitudesGarantia() {
         autoExpandRef.current = false;
       }
 
-      // Expande la solicitud notificada por un ticket de garantía
-      if (highlightParam && todos.some((v) => v._id === highlightParam)) {
-        setExpandida(highlightParam);
+      // La solicitud notificada por un ticket de garantía solo se resalta
+      // (borde + scroll, ver highlightedId) y NO se auto-expande: si vive en
+      // el historial (ej. NO_APLICA pendiente de cancelar), hay que
+      // desplegar esa sección para que sea visible; su detalle interno
+      // queda colapsado igual que cualquier otra tarjeta.
+      if (
+        highlightParam &&
+        !pend.some((v) => v._id === highlightParam) &&
+        hist.some((v) => v._id === highlightParam)
+      ) {
+        setMostrarHistorial(true);
       }
     } catch (err) {
       console.error("Error cargando solicitudes de garantía:", err);
@@ -691,34 +704,47 @@ export default function SolicitudesGarantia() {
         </div>
 
         <footer className="gar-card__foot">
-          {puedeResolver ? (
-            <div className="d-flex gap-2 flex-wrap">
-              <button
-                type="button"
-                className="btn btn-success btn-sm"
-                disabled={procesando === v._id}
-                onClick={() => handleAutorizar(v)}
-              >
-                Autorizar
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger btn-sm"
-                disabled={procesando === v._id}
-                onClick={() => handleNegar(v)}
-              >
-                Negar y cancelar
-              </button>
-              <button
-                type="button"
-                className="btn btn-outline-danger btn-sm"
-                disabled={procesando === v._id}
-                onClick={() => handleNoAplica(v)}
-              >
-                No aplica
-              </button>
-            </div>
-          ) : (
+          {puedeResolver ? (() => {
+            const sinMotivo = !String(e.motivo || "").trim();
+            const procesandoEsta = procesando === v._id;
+            return (
+              <div className="d-flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  className="btn btn-success btn-sm"
+                  disabled={procesandoEsta || !e.autorizaCarreon || sinMotivo}
+                  title={
+                    !e.autorizaCarreon
+                      ? "Marca la casilla de confirmación para poder autorizar"
+                      : sinMotivo
+                      ? "Captura el motivo para poder autorizar"
+                      : undefined
+                  }
+                  onClick={() => handleAutorizar(v)}
+                >
+                  Autorizar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger btn-sm"
+                  disabled={procesandoEsta || sinMotivo}
+                  title={sinMotivo ? "Captura el motivo para poder negar la garantía" : undefined}
+                  onClick={() => handleNegar(v)}
+                >
+                  Negar y cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline-danger btn-sm"
+                  disabled={procesandoEsta || sinMotivo}
+                  title={sinMotivo ? 'Captura el motivo para poder marcar "No aplica"' : undefined}
+                  onClick={() => handleNoAplica(v)}
+                >
+                  No aplica
+                </button>
+              </div>
+            );
+          })() : (
             <small className="text-muted">
               Pendiente de autorización por un administrador.
             </small>
@@ -887,62 +913,72 @@ export default function SolicitudesGarantia() {
         pendientesOrdenadas.map(renderPendiente)
       )}
 
-      {/* ===== SECCIÓN 2 — HISTORIAL ===== */}
+      {/* ===== SECCIÓN 2 — HISTORIAL (colapsado por defecto) ===== */}
       <div className="gar-sec-head">
         <h5>Resueltas y canceladas</h5>
         <span className="gar-count">{histTotal}</span>
-        <div className="ms-auto" style={{ minWidth: 180 }}>
-          <Dropdown
-            className="form-select-sm"
-            value={histFiltro}
-            onChange={(e) => {
-              setHistFiltro(e.target.value);
-              setHistPage(1);
-            }}
-          >
-            <Dropdown.Option value="">Todas las resueltas</Dropdown.Option>
-            <Dropdown.Option value="APROBADA">Autorizadas</Dropdown.Option>
-            <Dropdown.Option value="NEGADA">Negadas</Dropdown.Option>
-            <Dropdown.Option value="NO_APLICA">No aplica</Dropdown.Option>
-          </Dropdown>
-        </div>
+        <button
+          type="button"
+          className="btn btn-outline-secondary btn-sm"
+          onClick={() => setMostrarHistorial((v) => !v)}
+        >
+          {mostrarHistorial ? "Ocultar ▲" : "Mostrar ▼"}
+        </button>
+        {mostrarHistorial && (
+          <div className="ms-auto" style={{ minWidth: 180 }}>
+            <Dropdown
+              className="form-select-sm"
+              value={histFiltro}
+              onChange={(e) => {
+                setHistFiltro(e.target.value);
+                setHistPage(1);
+              }}
+            >
+              <Dropdown.Option value="">Todas las resueltas</Dropdown.Option>
+              <Dropdown.Option value="APROBADA">Autorizadas</Dropdown.Option>
+              <Dropdown.Option value="NEGADA">Negadas</Dropdown.Option>
+              <Dropdown.Option value="NO_APLICA">No aplica</Dropdown.Option>
+            </Dropdown>
+          </div>
+        )}
       </div>
 
-      {loading && historial.length === 0 ? (
-        <div className="gar-empty">Cargando historial…</div>
-      ) : historial.length === 0 ? (
-        <div className="gar-empty">Aún no hay garantías resueltas ni canceladas.</div>
-      ) : (
-        <>
-          {historial.map(renderHistorial)}
-          <div className="gar-pager">
-            <small className="text-muted">
-              {histTotal} registro{histTotal !== 1 ? "s" : ""}
-            </small>
-            <div className="btn-group">
-              <button
-                type="button"
-                className="btn btn-sm btn-outline-secondary"
-                disabled={histPage <= 1 || loading}
-                onClick={() => setHistPage((p) => p - 1)}
-              >
-                Anterior
-              </button>
-              <span className="btn btn-sm btn-outline-secondary disabled">
-                {histPage} / {histTotalPages}
-              </span>
-              <button
-                type="button"
-                className="btn btn-sm btn-outline-secondary"
-                disabled={histPage >= histTotalPages || loading}
-                onClick={() => setHistPage((p) => p + 1)}
-              >
-                Siguiente
-              </button>
+      {mostrarHistorial &&
+        (loading && historial.length === 0 ? (
+          <div className="gar-empty">Cargando historial…</div>
+        ) : historial.length === 0 ? (
+          <div className="gar-empty">Aún no hay garantías resueltas ni canceladas.</div>
+        ) : (
+          <>
+            {historial.map(renderHistorial)}
+            <div className="gar-pager">
+              <small className="text-muted">
+                {histTotal} registro{histTotal !== 1 ? "s" : ""}
+              </small>
+              <div className="btn-group">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-secondary"
+                  disabled={histPage <= 1 || loading}
+                  onClick={() => setHistPage((p) => p - 1)}
+                >
+                  Anterior
+                </button>
+                <span className="btn btn-sm btn-outline-secondary disabled">
+                  {histPage} / {histTotalPages}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-secondary"
+                  disabled={histPage >= histTotalPages || loading}
+                  onClick={() => setHistPage((p) => p + 1)}
+                >
+                  Siguiente
+                </button>
+              </div>
             </div>
-          </div>
-        </>
-      )}
+          </>
+        ))}
 
       {cancelObjetivo && (
         <ModalCancelarGarantia
