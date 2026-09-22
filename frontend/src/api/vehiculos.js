@@ -84,6 +84,12 @@ export const cambiarAsesorOrden = (id, asesorId) =>
 export const cambiarClienteOrden = (id, clienteId, motivo = "") =>
   http.put(`/vehiculos/${id}/cambiar-cliente`, { clienteId, motivo });
 
+// Cambia el tipo de la orden: payload { tipo: 'GARANTIA', ordenAnteriorId, motivo }
+// para marcarla como garantía, o { tipo: 'NORMAL', motivo } para revertirla
+// (solo admin; solo mientras la solicitud de garantía sigue PENDIENTE).
+export const cambiarTipoOrden = (id, payload) =>
+  http.put(`/vehiculos/${id}/cambiar-tipo`, payload);
+
 export const getVentaClientePdfUrl = (id) => `${API}/vehiculos/${id}/venta-cliente-pdf`;
 
 export const marcarSurtidas = (id, presupuesto) =>

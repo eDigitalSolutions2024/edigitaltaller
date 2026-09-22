@@ -877,6 +877,39 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       } catch (errLink) {
         console.error('Error ligando la remisión cancelada con su Nota de Venta:', errLink);
       }
+
+      // Si la orden ya tenía un anticipo vigente (Recibo Provisional) sin
+      // ligar a ninguna otra Nota de Venta, se liga solo a ESTA — el cajero no
+      // elige nada (ver notaVentaLigadaId en models/Vehiculo.js). El más
+      // antiguo, si hubiera más de uno. `ordenExistente` es el estado ANTES
+      // de este $push, así que nunca puede encontrarse a sí mismo.
+      const anticipoVigente = (ordenExistente.pagos || [])
+        .filter(
+          (p) =>
+            p.comprobante === 'RECIBO_PROVISIONAL' &&
+            p.tipoPago === 'ANTICIPO' &&
+            !p.cancelado &&
+            !p.notaVentaLigadaId
+        )
+        .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))[0];
+      if (anticipoVigente) {
+        try {
+          const linkAnt = await Vehiculo.updateOne(
+            { _id: req.params.id },
+            { $set: { 'pagos.$[ant].notaVentaLigadaId': pagoId } },
+            {
+              arrayFilters: [
+                { 'ant._id': anticipoVigente._id, 'ant.cancelado': { $ne: true }, 'ant.notaVentaLigadaId': null },
+              ],
+            }
+          );
+          if (linkAnt.modifiedCount) {
+            vehiculo = await Vehiculo.findById(req.params.id).populate('cliente', POPULATE_CLIENTE);
+          }
+        } catch (errLinkAnt) {
+          console.error('Error ligando el anticipo vigente con la nueva Nota de Venta:', errLinkAnt);
+        }
+      }
     }
 
     // Nota de Venta con forma de pago SIMPLE con tarjeta: cada tarjeta usada

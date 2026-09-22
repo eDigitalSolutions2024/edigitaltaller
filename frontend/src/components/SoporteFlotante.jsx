@@ -217,12 +217,14 @@ export default function SoporteFlotante() {
     cerrarModal();
     // RESTABLECER_COBRO manda a Cajas (con la orden ya cargada): ahí es donde
     // el admin ve el historial de pagos y cancela el abono/anticipo/remisión/
-    // nota de venta puntual. GARANTIA_NO_APLICA manda a Solicitudes de
-    // Garantía con esa fila resaltada.
+    // nota de venta puntual. GARANTIA_NO_APLICA y GARANTIA_AUTORIZACION
+    // mandan a Solicitudes de Garantía con esa fila resaltada, para
+    // resolver la garantía desde ahí (mismo patrón que OrdenServicioTicketLink).
     const destino =
       ticketSeleccionado.tipoProblema === 'RESTABLECER_COBRO'
         ? `/cajas/orden/${ordenId}`
-        : ticketSeleccionado.tipoProblema === 'GARANTIA_NO_APLICA'
+        : ticketSeleccionado.tipoProblema === 'GARANTIA_NO_APLICA' ||
+          ticketSeleccionado.tipoProblema === 'GARANTIA_AUTORIZACION'
         ? `/garantias?highlight=${ordenId}`
         : `/vehiculo/orden/${ordenId}?tab=general`;
     navigate(destino);
@@ -357,7 +359,8 @@ export default function SoporteFlotante() {
 
                   {ticketSeleccionado.ordenServicio?._id && (
                     <button type="button" className="btn btn-outline-primary btn-sm w-100" onClick={irAOrden}>
-                      {ticketSeleccionado.tipoProblema === 'GARANTIA_NO_APLICA'
+                      {ticketSeleccionado.tipoProblema === 'GARANTIA_NO_APLICA' ||
+                      ticketSeleccionado.tipoProblema === 'GARANTIA_AUTORIZACION'
                         ? `Ir a la solicitud de garantía ${ticketSeleccionado.folioOrdenServicio || ''} →`
                         : `Ir a la orden de servicio ${ticketSeleccionado.folioOrdenServicio || ''} →`}
                     </button>

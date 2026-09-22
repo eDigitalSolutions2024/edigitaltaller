@@ -66,6 +66,20 @@ const MONTOS_COMBINADO_PESOS = ["EFECTIVO", "CREDITO", "DEBITO", "CHEQUE", "TRAN
 
 const MSG_MONTO_REQUERIDO = "Captura una cantidad en pesos, en dólares, o de saldo a favor, mayor a 0.";
 
+// "Cómo se hizo" un recibo/anticipo: forma de pago con la que entró (+
+// terminal, si fue tarjeta) — mismo catálogo que la Nota de Venta/Recibo
+// Provisional (Vehiculo.js FORMAS_PAGO_CAJA). Lo usan tanto el bloque
+// "Aplicar anticipo del cliente" (anticiposDisponibles) como el aviso del
+// anticipo de ESTA orden ya ligado a la Nota de Venta (anticipoVigente).
+const FORMA_PAGO_RECIBO_LABEL = {
+  EFECTIVO: "Efectivo",
+  TRANSFERENCIA: "Transferencia",
+  CHEQUE: "Cheque",
+  CREDITO: "Crédito",
+  DEBITO: "Débito",
+  COMBINADO: "Combinado",
+};
+
 const TOTAL_PASOS = 3;
 const TITULOS_PASO = ["", "Tipo de pago", "Forma de pago y montos", "Vale de salida (opcional)"];
 
@@ -194,6 +208,28 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     (p) => p.comprobante === "REMISION" && !p.cancelado
   );
   const tieneRemisionActiva = !!remisionActiva;
+
+  // Anticipo (Recibo Provisional) vigente de esta orden que aún no está ligado
+  // a ninguna Nota de Venta. Al registrar una Nota de Venta se liga solo a
+  // ella (ver notaVentaLigadaId, POST /:id/pagos) — no es una elección del
+  // cajero, solo se muestra para que sepa que ya está incluido. Con el link,
+  // al facturar esa nota en una Factura Global el anticipo se cancela y pasa a
+  // ella, y el Reporte de Facturas lo desglosa junto con esa nota, como un
+  // pago combinado. El más antiguo, si hubiera más de uno vigente.
+  const anticipoVigente = [...(orden.pagos || [])]
+    .filter(
+      (p) =>
+        p.comprobante === "RECIBO_PROVISIONAL" &&
+        p.tipoPago === "ANTICIPO" &&
+        !p.cancelado &&
+        !p.notaVentaLigadaId
+    )
+    .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))[0];
+  const formaPagoAnticipoVigente = (p) => {
+    const rp = p?.reciboProvisional || {};
+    const base = FORMA_PAGO_RECIBO_LABEL[rp.formaPago] || rp.formaPago || "—";
+    return rp.banco ? `${base} · ${rp.banco}` : base;
+  };
 
   // Estos derivados de Montos se calculan aquí arriba (antes de los efectos)
   // porque el efecto de abajo que limpia el aviso de "Liquidar debe cubrir…"
@@ -1334,17 +1370,6 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     return `${folio}${os}${f}`;
   };
 
-  // "Cómo se hizo" ese recibo: forma de pago con la que entró el anticipo (+
-  // terminal, si fue tarjeta) — mismo catálogo que la Nota de Venta/Recibo
-  // Provisional (Vehiculo.js FORMAS_PAGO_CAJA).
-  const FORMA_PAGO_RECIBO_LABEL = {
-    EFECTIVO: "Efectivo",
-    TRANSFERENCIA: "Transferencia",
-    CHEQUE: "Cheque",
-    CREDITO: "Crédito",
-    DEBITO: "Débito",
-    COMBINADO: "Combinado",
-  };
   const formaPagoRecibo = (a) => {
     const base = FORMA_PAGO_RECIBO_LABEL[a.formaPago] || a.formaPago || "—";
     return a.banco ? `${base} · ${a.banco}` : base;
@@ -1547,10 +1572,29 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
             <span>{formatMoney(montoSaldo)}</span>
           </p>
         )}
+        {comprobante === "NOTA_VENTA" && anticipoVigente && (
+          <p className="d-flex justify-content-between mb-1">
+            <span className="text-muted">
+              Anticipo ya registrado <small>(Recibo N°{anticipoVigente.reciboProvisional?.numero ?? "—"})</small>
+            </span>
+            <span>{formatMoney(anticipoVigente.monto)}</span>
+          </p>
+        )}
         <hr className="my-1" />
         <p className="d-flex justify-content-between fw-bold mb-0">
-          <span>Total {montoSaldo > 0 ? "(con saldo)" : "Recibido"}</span>
-          <span>{formatMoney(totalConSaldo)}</span>
+          <span>
+            Total{" "}
+            {comprobante === "NOTA_VENTA" && anticipoVigente
+              ? "(con anticipo)"
+              : montoSaldo > 0
+              ? "(con saldo)"
+              : "Recibido"}
+          </span>
+          <span>
+            {formatMoney(
+              totalConSaldo + (comprobante === "NOTA_VENTA" && anticipoVigente ? Number(anticipoVigente.monto) || 0 : 0)
+            )}
+          </span>
         </p>
         {faltanteLiquidar > 0.005 && (
           <p className="d-flex justify-content-between fw-bold text-danger mb-0 mt-1">
@@ -1855,6 +1899,16 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
                         <small className="text-muted">
                           Por defecto hoy; cámbiala si el comprobante es de otro día (no se permiten fechas futuras).
                         </small>
+                      </div>
+                    )}
+
+                    {comprobante === "NOTA_VENTA" && anticipoVigente && (
+                      <div className="alert alert-info py-2 px-2 small mb-3">
+                        Esta orden ya tiene un <strong>anticipo de {formatMoney(anticipoVigente.monto)}</strong>{" "}
+                        (Recibo Provisional N°{anticipoVigente.reciboProvisional?.numero ?? "—"} ·{" "}
+                        {formaPagoAnticipoVigente(anticipoVigente)}). Se suma solo al Total Recibido de este pago
+                        (no se puede quitar) y, al facturar esta nota en una Factura Global, aparecerá desglosado
+                        junto con ella, como un pago combinado.
                       </div>
                     )}
 

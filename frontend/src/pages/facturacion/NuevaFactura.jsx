@@ -169,6 +169,28 @@ const formaSatMayor = (sumas) => {
   }
   return mejor;
 };
+// Un Abono capturado sobre una orden con Remisión a Crédito es, en el fondo,
+// un anticipo: el cliente pagó antes de que la orden se facturara — solo que
+// el cajero usó "Abonar" (no "Anticipo") porque la orden ya tenía un
+// comprobante (la Remisión). `remisionTipoAntesCancelar` cubre el caso en que
+// esa Remisión ya se canceló (p. ej. al facturar otra orden de la misma
+// pantalla): sigue contando como "sobre una remisión a crédito".
+const esAbonoSobreRemisionCredito = (p, pagosOrden) =>
+  p.comprobante === "RECIBO_PROVISIONAL" &&
+  p.tipoPago === "ABONO" &&
+  (pagosOrden || []).some(
+    (r) =>
+      r.comprobante === "REMISION" &&
+      (r.remision?.tipo === "Credito" || r.remisionTipoAntesCancelar === "Credito")
+  );
+
+// Igual que "tipoPago ANTICIPO o comprobante REMISION" (lo que hay que
+// resolver al facturar, ver comprobantesCajas), pero incluyendo también ese
+// Abono. Ver backend/utils/anticiposAlFacturar.js (mismo criterio del lado
+// del servidor).
+const esComprobanteCajaVigente = (p, pagosOrden) =>
+  p.tipoPago === "ANTICIPO" || p.comprobante === "REMISION" || esAbonoSobreRemisionCredito(p, pagosOrden);
+
 const PAGO_LIQUIDAR_VACIO = {
   formaPago: "EFECTIVO",
   chequeNumero: "",
@@ -1806,7 +1828,7 @@ export default function NuevaFactura() {
         (o.pagos || [])
           .filter(
             (p) =>
-              (p.tipoPago === "ANTICIPO" || p.comprobante === "REMISION") &&
+              esComprobanteCajaVigente(p, o.pagos) &&
               (!p.cancelado || p.motivoCancelacionTipo === "PASA_A_FACTURA")
           )
           .map((p) => ({ ordenId: o._id, ordenServicio: o.ordenServicio, pago: p }))
@@ -1860,7 +1882,7 @@ export default function NuevaFactura() {
       if (facturasPreviasPorOrden[o._id]?.heredaCobro) return false;
       const cubierta = (o.pagos || []).some(
         (p) =>
-          (p.tipoPago === "ANTICIPO" || p.comprobante === "REMISION") &&
+          esComprobanteCajaVigente(p, o.pagos) &&
           !p.cancelado &&
           accionDe(p._id) === "INCLUIR" &&
           !esRemisionCredito(p)
@@ -1993,7 +2015,7 @@ export default function NuevaFactura() {
       (o.pagos || []).forEach((p) => {
         if (p.facturaId || p.facturaGlobalId) return;
         if (p.cancelado && p.motivoCancelacionTipo !== "PASA_A_FACTURA") return;
-        if ((p.tipoPago === "ANTICIPO" || p.comprobante === "REMISION") && accionDe(p._id) !== "INCLUIR") return;
+        if (esComprobanteCajaVigente(p, o.pagos) && accionDe(p._id) !== "INCLUIR") return;
         const montos = montosPorFormaSatDePago(p);
         if (!montos) return;
         for (const [sat, monto] of Object.entries(montos)) sumas[sat] = (sumas[sat] || 0) + monto;
@@ -2974,7 +2996,15 @@ export default function NuevaFactura() {
                               <td>{fechaCorta(n.fecha)}</td>
                               <td>{n.ordenServicio || "—"}</td>
                               <td>{n.cliente || "—"}</td>
-                              <td className="text-end">{money(n.monto)}</td>
+                              <td className="text-end">
+                                {money(n.monto)}
+                                {n.anticipoLigado && (
+                                  <small className="text-muted d-block">
+                                    incluye anticipo {money(n.anticipoLigado.monto)}
+                                    {n.anticipoLigado.numero != null ? ` (Rec. N°${n.anticipoLigado.numero})` : ""}
+                                  </small>
+                                )}
+                              </td>
                               <td className="text-end">{money(n.montoSinIva)}</td>
                             </tr>
                           ))}

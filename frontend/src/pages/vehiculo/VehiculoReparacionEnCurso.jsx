@@ -82,7 +82,13 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral,
   );
 
   const refacciones = (orden.presupuesto || []).filter((p) => p.autorizado);
-  const todasSurtidas = refacciones.length === 0 || refacciones.every((p) => p.surtida);
+  // Las partidas de servicio/mano de obra y de grúa no pasan por
+  // refaccionaria: no deben contar como "pendientes de surtir" aunque su
+  // campo `surtida` nunca se haya marcado (mismo criterio que ya aplica el
+  // backend en PUT /:id/presupuesto-venta y PUT /:id/surtir).
+  const refaccionesFisicas = refacciones.filter((p) => !p.esServicio && !p.esGrua);
+  const todasSurtidas =
+    refaccionesFisicas.length === 0 || refaccionesFisicas.every((p) => p.surtida);
 
   const manoObra = orden.manoObra || [];
 
@@ -214,7 +220,7 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral,
                   <thead className="table-light">
                     <tr>
                       <th className="ps-2">Reparación y/o Servicio</th>
-                      <th>Mecánico/Carrocero</th>
+                      <th>Mecánico / Carrocero</th>
                       <th className="text-center">Horas</th>
                       <th className="text-end pe-2">
                         Total x Horas ({formatMoney(TARIFA_HORA)} / hora)
