@@ -617,7 +617,13 @@ router.get('/ordenes', proteger, async (req, res) => {
       // Además del estado pedido, se incluyen todas las órdenes de garantía
       // sin importar en qué estado se encuentren (p. ej. Cajas también debe
       // poder localizar una orden de garantía ya cerrada o en cualquier otro paso).
-      andConditions.push({ $or: [{ estadoOrden: estado }, { garantia: { $ne: null } }] });
+      // Las garantías "No aplica" ya son órdenes normales y no se incluyen.
+      andConditions.push({
+        $or: [
+          { estadoOrden: estado },
+          { garantia: { $ne: null }, 'garantia.estado': { $ne: 'NO_APLICA' } },
+        ],
+      });
     } else if (estado) {
       q.estadoOrden = estado;
     }
@@ -785,7 +791,7 @@ router.get('/mis-ordenes', proteger, requiereRol('asesor_servicio', 'admin'), as
       estadoOrden: { $nin: ['CERRADA', 'CANCELADA'] },
       ...condicionPropias,
     })
-      .select('ordenServicio estadoOrden marca modelo anio color createdAt cliente creadoPor creadoPorId grupoId lineaNegocio')
+      .select('ordenServicio ordenServicioPendiente estadoOrden marca modelo anio color createdAt cliente creadoPor creadoPorId grupoId lineaNegocio')
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
       .sort({ createdAt: -1 })

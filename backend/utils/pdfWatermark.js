@@ -8,8 +8,10 @@ function esOrdenCancelada(orden) {
   return (orden?.estadoOrden || '').toUpperCase() === 'CANCELADA';
 }
 
+// Una garantía resuelta como "No aplica" ya no es una orden de garantía: la
+// orden se imprime con el formato normal.
 function esOrdenGarantia(orden) {
-  return !!orden?.garantia;
+  return !!orden?.garantia && orden.garantia.estado !== 'NO_APLICA';
 }
 
 function esPagoCancelado(pago) {

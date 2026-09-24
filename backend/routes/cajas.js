@@ -121,7 +121,10 @@ router.get('/', proteger, async (req, res) => {
     const comprobanteVista = COMPROBANTE_POR_VISTA[vista] || null;
 
     if (vista === 'garantias') {
+      // Una garantía "No aplica" ya es una orden normal (ver esOrdenGarantia
+      // en utils/pdfWatermark.js): no se lista en la vista de garantías.
       q.garantia = { $ne: null };
+      q['garantia.estado'] = { $ne: 'NO_APLICA' };
     } else if (vista === 'pendientes_factura') {
       q.pendienteFactura = true;
     } else if (comprobanteVista) {
@@ -461,7 +464,7 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       'cliente garantia pagos ventaCliente ivaVenta descuentos'
     );
     if (!ordenExistente) return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
-    if (ordenExistente.garantia) {
+    if (ordenExistente.garantia && ordenExistente.garantia.estado !== 'NO_APLICA') {
       return res.status(400).json({ ok: false, msg: 'No se puede registrar un pago para una orden de garantía.' });
     }
     clienteParaRevertirSaldo = ordenExistente.cliente;

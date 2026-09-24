@@ -1,5 +1,6 @@
 const Vehiculo = require('../models/Vehiculo');
 const ContratoOrdenServicio = require('../models/ContratoOrdenServicio');
+const Grupo = require('../models/Grupo');
 const { normalizaLineaNegocio } = require('./lineaNegocio');
 
 // Campos de la orden de garantía que se copian a la orden de reemplazo
@@ -34,6 +35,68 @@ async function aplicarGarantia(ordenId) {
   return vehiculo;
 }
 
+// Crea la orden de reemplazo (normal, sin garantía) de una garantía "No
+// aplica" o negada (`razon` solo cambia el texto de las observaciones
+// internas): mismos datos de ingreso que la orden original, sin servicios ni
+// refacciones, y con el número de OS pendiente de capturar (queda sin folio;
+// ver el guard de ordenServicioPendiente en el pre('save') de Vehiculo).
+// Se asigna a `asesor` (documento User con role asesor_servicio) o, si no se
+// indica, al mismo asesor de la orden original. El grupo de trabajo se
+// re-timbra con el mismo criterio que reasignarAsesorOrden.
+async function crearOrdenReemplazo(ordenGarantia, asesor, { razon = 'no aplicada' } = {}) {
+  const vehiculoData = {};
+  for (const campo of CAMPOS_VEHICULO) vehiculoData[campo] = ordenGarantia[campo] || '';
+
+  const servicioReparacion = {};
+  for (const campo of CAMPOS_SERVICIO_REPARACION) {
+    servicioReparacion[campo] = ordenGarantia.servicioReparacion?.[campo] || '';
+  }
+
+  const ahora = new Date();
+  const horaRecepcion = `${String(ahora.getHours()).padStart(2, '0')}:${String(ahora.getMinutes()).padStart(2, '0')}`;
+
+  // Misma regla que POST /api/vehiculos: la orden nueva se fija a la versión
+  // del contrato vigente al crearla, no a la última en el momento de imprimir.
+  const contratoVigente = await ContratoOrdenServicio.getOrCreate();
+
+  let creadoPor = ordenGarantia.creadoPor || '';
+  let creadoPorId = ordenGarantia.creadoPorId || null;
+  let grupoId = ordenGarantia.grupoId || null;
+  if (asesor) {
+    creadoPor = asesor.name;
+    creadoPorId = asesor._id;
+    const grupoActivo = await Grupo.findOne({
+      activo: true,
+      rol: asesor.role,
+      miembros: asesor._id,
+    }).select('_id');
+    grupoId = grupoActivo ? grupoActivo._id : null;
+  }
+
+  const ordenReemplazo = new Vehiculo({
+    cliente: ordenGarantia.cliente,
+    sinVehiculo: ordenGarantia.sinVehiculo,
+    ...vehiculoData,
+    inspeccionFisica: ordenGarantia.inspeccionFisica || {},
+    servicioReparacion,
+    estadoOrden: 'INGRESO',
+    fechaRecepcion: ahora,
+    horaRecepcion,
+    creadoPor,
+    creadoPorId,
+    grupoId,
+    // La orden de reemplazo hereda la línea de negocio de la orden original.
+    lineaNegocio: normalizaLineaNegocio(ordenGarantia.lineaNegocio),
+    contratoOrdenServicio: contratoVigente._id,
+    ordenServicio: '',
+    ordenServicioPendiente: true,
+    observacionesInternas: `Orden de reemplazo por garantía ${razon} sobre la orden ${ordenGarantia.ordenServicio}.`,
+  });
+  await ordenReemplazo.save();
+
+  return ordenReemplazo;
+}
+
 // Resuelve un ticket GARANTIA_NO_APLICA como "No aplica": marca la garantía
 // como NO_APLICA, cancela la orden (mismo efecto combinado que hoy hacen
 // PUT /api/garantias/:id/resolver [NO_APLICA] + PUT /api/garantias/:id/cancelar
@@ -64,51 +127,9 @@ async function noAplicaGarantia(ordenId, resueltoPor) {
   ordenGarantia.estadoOrden = 'CANCELADA';
   await ordenGarantia.save();
 
-  const vehiculoData = {};
-  for (const campo of CAMPOS_VEHICULO) vehiculoData[campo] = ordenGarantia[campo] || '';
-
-  const servicioReparacion = {};
-  for (const campo of CAMPOS_SERVICIO_REPARACION) {
-    servicioReparacion[campo] = ordenGarantia.servicioReparacion?.[campo] || '';
-  }
-
-  const ahora = new Date();
-  const horaRecepcion = `${String(ahora.getHours()).padStart(2, '0')}:${String(ahora.getMinutes()).padStart(2, '0')}`;
-
-  // Misma regla que POST /api/vehiculos: la orden nueva se fija a la versión
-  // del contrato vigente al crearla, no a la última en el momento de imprimir.
-  const contratoVigente = await ContratoOrdenServicio.getOrCreate();
-
-  const ordenReemplazo = new Vehiculo({
-    cliente: ordenGarantia.cliente,
-    sinVehiculo: ordenGarantia.sinVehiculo,
-    ...vehiculoData,
-    inspeccionFisica: ordenGarantia.inspeccionFisica || {},
-    servicioReparacion,
-    estadoOrden: 'INGRESO',
-    fechaRecepcion: ahora,
-    horaRecepcion,
-    creadoPor: ordenGarantia.creadoPor || '',
-    creadoPorId: ordenGarantia.creadoPorId || null,
-    grupoId: ordenGarantia.grupoId || null,
-    // La orden de reemplazo hereda la línea de negocio de la orden original.
-    lineaNegocio: normalizaLineaNegocio(ordenGarantia.lineaNegocio),
-    contratoOrdenServicio: contratoVigente._id,
-    observacionesInternas: `Orden de reemplazo por garantía no aplicada sobre la orden ${ordenGarantia.ordenServicio}.`,
-  });
-  // El pre('save') de Vehiculo genera un folio temporal si ordenServicio
-  // viene vacío; se limpia justo después con findByIdAndUpdate (no dispara
-  // ese hook), mismo mecanismo que ya tolera PUT /vehiculos/:id/datos para
-  // dejar el folio en blanco.
-  await ordenReemplazo.save();
-  await Vehiculo.findByIdAndUpdate(ordenReemplazo._id, {
-    ordenServicio: '',
-    ordenServicioPendiente: true,
-  });
-  ordenReemplazo.ordenServicio = '';
-  ordenReemplazo.ordenServicioPendiente = true;
+  const ordenReemplazo = await crearOrdenReemplazo(ordenGarantia);
 
   return { ordenGarantia, ordenReemplazo };
 }
 
-module.exports = { aplicarGarantia, noAplicaGarantia };
+module.exports = { aplicarGarantia, noAplicaGarantia, crearOrdenReemplazo };
