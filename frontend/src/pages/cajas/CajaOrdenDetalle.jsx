@@ -21,6 +21,7 @@ import usePdfModal from "../../hooks/usePdfModal";
 import { getUser } from "../../auth";
 import { formatFecha } from "../../utils/fechas";
 import { calcularTotalesOrden } from "../../utils/cajaTotales";
+import { esGarantiaActiva } from "../../utils/garantia";
 import CajaCostoVentaTable from "./components/CajaCostoVentaTable";
 import CajaHistorialPagos from "./components/CajaHistorialPagos";
 import CajaModalPago from "./components/CajaModalPago";
@@ -249,7 +250,7 @@ export default function CajaOrdenDetalle() {
       : c.gobierno?.nombreGobierno || c.nombre || "-";
 
   const ventaRows = orden.ventaCliente || [];
-  const esGarantia = !!orden.garantia;
+  const esGarantia = esGarantiaActiva(orden);
 
   return (
     <div>

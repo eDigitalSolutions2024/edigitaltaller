@@ -4,6 +4,7 @@ import { FaSearch, FaTimes } from "react-icons/fa";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { listOrdenesCaja } from "../../api/cajas";
 import { formatFecha } from "../../utils/fechas";
+import { esGarantiaActiva } from "../../utils/garantia";
 
 const PAGE_SIZE = 10;
 const DEBOUNCE_MS = 600;
@@ -299,7 +300,7 @@ export default function CajasBuscarOrden() {
                     )}
                   </td>
                   <td className="text-center">
-                    {r.garantia && (
+                    {esGarantiaActiva(r) && (
                       <span className="badge bg-info text-dark me-1">Garantía</span>
                     )}
                     {ESTADO_LABELS[r.estadoOrden] || r.estadoOrden || "-"}

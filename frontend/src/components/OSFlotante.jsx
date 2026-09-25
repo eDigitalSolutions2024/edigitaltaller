@@ -228,7 +228,12 @@ export default function OSFlotante() {
                   onClick={() => navigate(`/vehiculo/orden/${os._id}`)}
                 >
                   <div className="os-flotante__item-top">
-                    <span className="os-flotante__num">{os.ordenServicio}</span>
+                    <span className="os-flotante__num">
+                      {os.ordenServicio || "Sin número"}
+                      {os.ordenServicioPendiente && (
+                        <span className="badge bg-warning text-dark ms-1">Capturar número</span>
+                      )}
+                    </span>
                     <span
                       className="os-flotante__estado"
                       style={{ backgroundColor: ESTADO_COLOR[os.estadoOrden] || '#6c757d' }}

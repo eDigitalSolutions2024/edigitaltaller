@@ -25,6 +25,7 @@ export default function ModalCancelarGarantia({ solicitud, guardando, onClose, o
   if (!solicitud) return null;
 
   const g = solicitud.garantia || {};
+  const sinNumero = !nuevaOrdenServicio.trim();
 
   const handleConfirmar = () => {
     if (!seleccionado || guardando) return;
@@ -91,13 +92,23 @@ export default function ModalCancelarGarantia({ solicitud, guardando, onClose, o
               disabled={guardando}
             />
             <small className="text-muted d-block mt-1">
-              Al confirmar se cancelará la orden y podrás continuar con una
-              nueva orden prellenada con los mismos datos del cliente, el
-              vehículo, las fallas reportadas y la inspección física
-              (accesorios, daños e indicadores del tablero), sin los
-              servicios ni las refacciones solicitadas. Si capturas aquí el
-              número de orden, aparecerá listo en esa pantalla (puedes
-              cambiarlo antes de guardar).
+              La nueva orden lleva los mismos datos del cliente, el vehículo,
+              las fallas reportadas y la inspección física (accesorios, daños
+              e indicadores del tablero), sin los servicios ni las
+              refacciones solicitadas, y es una orden normal (no de garantía).
+              {sinNumero ? (
+                <>
+                  {" "}<strong>Al no capturar el número de orden</strong>, se
+                  creará la orden nueva de inmediato, asignada al asesor
+                  elegido, y él deberá capturar el número desde su menú.
+                </>
+              ) : (
+                <>
+                  {" "}Al confirmar podrás continuar en la pantalla de Nueva
+                  Orden con el número ya capturado (puedes cambiarlo antes de
+                  guardar).
+                </>
+              )}
             </small>
           </div>
 
@@ -111,7 +122,11 @@ export default function ModalCancelarGarantia({ solicitud, guardando, onClose, o
               onClick={handleConfirmar}
               disabled={!seleccionado || guardando}
             >
-              {guardando ? "Cancelando..." : "Cancelar orden y continuar"}
+              {guardando
+                ? "Cancelando..."
+                : sinNumero
+                ? "Cancelar orden y crear nueva"
+                : "Cancelar orden y continuar"}
             </button>
           </div>
         </div>

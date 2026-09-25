@@ -942,9 +942,11 @@ vehiculoSchema.index({ 'pagos.remision.numero': 1 }, { unique: true, sparse: tru
 vehiculoSchema.index({ 'pagos.reciboProvisional.numero': 1 }, { unique: true, sparse: true });
 vehiculoSchema.index({ 'pagos.reciboDolares.numero': 1 }, { unique: true, sparse: true });
 
-// Generar número de Orden de Servicio automáticamente si no viene
+// Generar número de Orden de Servicio automáticamente si no viene. Las órdenes
+// con ordenServicioPendiente (reemplazo de una garantía "No aplica") se dejan
+// sin folio a propósito: el asesor asignado lo captura después.
 vehiculoSchema.pre('save', function (next) {
-  if (!this.ordenServicio || this.ordenServicio === "") {
+  if ((!this.ordenServicio || this.ordenServicio === "") && !this.ordenServicioPendiente) {
     const ahora = new Date();
     const yyyy = ahora.getFullYear();
     const mm = String(ahora.getMonth() + 1).padStart(2, '0');

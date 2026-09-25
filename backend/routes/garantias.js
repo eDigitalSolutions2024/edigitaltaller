@@ -6,8 +6,10 @@ const router = express.Router();
 
 const Vehiculo = require('../models/Vehiculo');
 const Ticket = require('../models/Ticket');
+const User = require('../models/User');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { regexBusquedaOS } = require('../utils/ordenServicio');
+const { crearOrdenReemplazo } = require('../utils/resolverGarantiaTicket');
 
 // Al pulsar "Enviar a Venta" en una orden de garantía todavía PENDIENTE se
 // abre un ticket GARANTIA_AUTORIZACION y la orden queda bloqueada
@@ -223,8 +225,9 @@ router.put('/:id/resolver', proteger, requiereRol('admin', 'jefe'), async (req, 
       }
       // Defensivo: nunca debe existir fila garantía sin aprobación
       vehiculo.ventaCliente = (vehiculo.ventaCliente || []).filter((r) => !r.esGarantia);
-      // Garantía negada => la orden nueva no procede: se cancela (mismo efecto
-      // que el flujo "No aplica" + PUT /:id/cancelar, sin crear reemplazo).
+      // Garantía negada => la orden nueva no procede: se cancela y, después de
+      // guardar (más abajo), se crea la orden de reemplazo normal para el mismo
+      // asesor con el número de OS pendiente.
       if (vehiculo.estadoOrden !== 'CANCELADA') {
         vehiculo.estadoAnterior = vehiculo.estadoOrden;
         vehiculo.estadoOrden = 'CANCELADA';
@@ -295,11 +298,30 @@ router.put('/:id/resolver', proteger, requiereRol('admin', 'jefe'), async (req, 
       resueltoPor
     );
 
+    // Garantía negada: la orden ya quedó cancelada; se abre la orden de
+    // reemplazo (normal, mismos datos de ingreso, mismo asesor, sin folio). Si
+    // falla, la negativa ya está guardada: se avisa para crearla a mano.
+    let ordenReemplazo = null;
+    let reemplazoError = false;
+    if (accion === 'NEGAR') {
+      try {
+        const reemplazo = await crearOrdenReemplazo(vehiculo, null, { razon: 'negada' });
+        ordenReemplazo = {
+          _id: reemplazo._id,
+          ordenServicioPendiente: true,
+          asesor: reemplazo.creadoPor || '',
+        };
+      } catch (errReemplazo) {
+        console.error('Garantía negada: no se pudo crear la orden de reemplazo:', errReemplazo);
+        reemplazoError = true;
+      }
+    }
+
     const actualizado = await Vehiculo.findById(vehiculo._id)
       .populate('cliente', POPULATE_CLIENTE)
       .populate('garantia.ordenAnterior', POPULATE_ORDEN_ANTERIOR);
 
-    return res.json({ ok: true, vehiculo: actualizado });
+    return res.json({ ok: true, vehiculo: actualizado, ordenReemplazo, reemplazoError });
   } catch (err) {
     console.error('Error resolviendo garantía:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
@@ -309,8 +331,14 @@ router.put('/:id/resolver', proteger, requiereRol('admin', 'jefe'), async (req, 
 // PUT /api/garantias/:id/cancelar — cancela la orden nueva de una solicitud
 // marcada como "No aplica" (solo admin, mismo rol que puede reasignar el
 // asesor de la orden de reemplazo en /vehiculos/:id/cambiar-asesor).
+// Con { crearReemplazo: true, asesorId } (el admin no capturó el número de la
+// orden nueva) además crea aquí mismo la orden de reemplazo, normal y sin
+// folio, asignada a ese asesor para que él lo capture; sin esa bandera el
+// frontend sigue con el formulario prellenado de Nueva Orden.
 router.put('/:id/cancelar', proteger, requiereRol('admin'), async (req, res) => {
   try {
+    const { crearReemplazo, asesorId } = req.body || {};
+
     const vehiculo = await Vehiculo.findById(req.params.id);
     if (!vehiculo || !vehiculo.garantia) {
       return res.status(404).json({ ok: false, msg: 'Solicitud de garantía no encontrada' });
@@ -325,15 +353,48 @@ router.put('/:id/cancelar', proteger, requiereRol('admin'), async (req, res) => 
       return res.status(400).json({ ok: false, msg: 'Esta orden ya está cancelada.' });
     }
 
-    vehiculo.estadoAnterior = vehiculo.estadoOrden;
+    let asesor = null;
+    if (crearReemplazo) {
+      if (!asesorId || !mongoose.isValidObjectId(asesorId)) {
+        return res.status(400).json({ ok: false, msg: 'Selecciona el asesor al que se asignará la orden nueva.' });
+      }
+      asesor = await User.findOne({ _id: asesorId, role: 'asesor_servicio', isActive: true });
+      if (!asesor) {
+        return res.status(404).json({ ok: false, msg: 'Asesor no encontrado o inactivo.' });
+      }
+    }
+
+    const estadoPrevio = vehiculo.estadoOrden;
+    const anteriorPrevio = vehiculo.estadoAnterior;
+    vehiculo.estadoAnterior = estadoPrevio;
     vehiculo.estadoOrden = 'CANCELADA';
     await vehiculo.save();
+
+    let ordenReemplazo = null;
+    if (crearReemplazo) {
+      try {
+        ordenReemplazo = await crearOrdenReemplazo(vehiculo, asesor);
+      } catch (errReemplazo) {
+        // Sin reemplazo no se deja cancelada la original: se restaura para
+        // poder reintentar.
+        vehiculo.estadoOrden = estadoPrevio;
+        vehiculo.estadoAnterior = anteriorPrevio;
+        await vehiculo.save();
+        throw errReemplazo;
+      }
+    }
 
     const actualizado = await Vehiculo.findById(vehiculo._id)
       .populate('cliente', POPULATE_CLIENTE)
       .populate('garantia.ordenAnterior', POPULATE_ORDEN_ANTERIOR);
 
-    return res.json({ ok: true, vehiculo: actualizado });
+    return res.json({
+      ok: true,
+      vehiculo: actualizado,
+      ordenReemplazo: ordenReemplazo
+        ? { _id: ordenReemplazo._id, ordenServicioPendiente: true, asesor: asesor?.name || '' }
+        : null,
+    });
   } catch (err) {
     console.error('Error cancelando orden de garantía:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });

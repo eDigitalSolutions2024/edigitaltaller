@@ -1,5 +1,6 @@
 // src/pages/vehiculo/ModalCancelarOrden.jsx
 import React, { useEffect, useState } from "react";
+import { esGarantiaActiva } from "../../utils/garantia";
 
 const MOTIVO_NO_APLICA_GARANTIA = "No aplica garantía";
 
@@ -18,7 +19,7 @@ export default function ModalCancelarOrden({ show, orden, procesando, notificand
 
   if (!show) return null;
 
-  const esGarantia = !!orden?.garantia;
+  const esGarantia = esGarantiaActiva(orden);
   const ocupado = !!procesando || !!notificando;
   const motivoListo = motivo.trim().length > 0;
   const soloNotificar = esGarantia && !puedeCancelarDirecto;

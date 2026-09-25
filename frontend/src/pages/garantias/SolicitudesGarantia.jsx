@@ -533,18 +533,34 @@ export default function SolicitudesGarantia() {
     }
 
     const ok = window.confirm(
-      `¿Negar la garantía de la orden ${v.ordenServicio}? La orden se cancelará automáticamente.`
+      `¿Negar la garantía de la orden ${v.ordenServicio}? La orden se cancelará automáticamente y se ` +
+        "creará una orden nueva (normal) con los mismos datos de ingreso para el mismo asesor, " +
+        "que deberá capturar su número de orden."
     );
     if (!ok) return;
 
     try {
       setProcesando(v._id);
-      await resolverGarantia(v._id, {
+      const res = await resolverGarantia(v._id, {
         accion: "NEGAR",
         motivo: e.motivo.trim(),
       });
       await cargar();
-      alert("Garantía negada. La orden fue cancelada.");
+      const { ordenReemplazo, reemplazoError } = res.data || {};
+      if (ordenReemplazo) {
+        alert(
+          "Garantía negada. La orden fue cancelada y se creó una orden nueva " +
+            `${ordenReemplazo.asesor ? `asignada a ${ordenReemplazo.asesor}, ` : ""}` +
+            "con los mismos datos de ingreso. Deberá capturar el número de orden desde su menú."
+        );
+      } else if (reemplazoError) {
+        alert(
+          "Garantía negada y orden cancelada, pero NO se pudo crear la orden nueva. " +
+            "Créala manualmente desde Entrada."
+        );
+      } else {
+        alert("Garantía negada. La orden fue cancelada.");
+      }
     } catch (err) {
       console.error(err);
       alert(err.response?.data?.msg || "Error al negar la garantía.");
@@ -585,6 +601,26 @@ export default function SolicitudesGarantia() {
     if (!cancelObjetivo) return;
     try {
       setCancelando(true);
+
+      // Sin número de orden nuevo: el backend crea la orden de reemplazo de
+      // inmediato, asignada al asesor elegido, y él captura el número desde
+      // su menú. Con número se sigue con el formulario prellenado de Entrada.
+      if (!String(nuevaOrdenServicio || "").trim()) {
+        await cancelarOrdenGarantia(cancelObjetivo._id, {
+          crearReemplazo: true,
+          asesorId: asesor?._id,
+        });
+        const folioCancelado = cancelObjetivo.ordenServicio;
+        setCancelObjetivo(null);
+        await cargar();
+        alert(
+          `Se canceló la orden ${folioCancelado} y se creó una orden nueva asignada a ` +
+            `${asesor?.name || "el asesor elegido"}, con los mismos datos de ingreso. ` +
+            "Deberá capturar el número de orden desde su menú."
+        );
+        return;
+      }
+
       const res = await cancelarOrdenGarantia(cancelObjetivo._id);
       const vehiculoActualizado = res.data?.vehiculo;
 
