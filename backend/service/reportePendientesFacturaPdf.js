@@ -7,6 +7,7 @@ const dayjs = require('dayjs');
 require('dayjs/locale/es');
 dayjs.locale('es');
 const { dayjsFecha } = require('../utils/fechas');
+const { getSitioConfig } = require('../utils/sitioConfig');
 
 function fmtFecha(iso) {
   return iso ? dayjsFecha(iso).format('DD-MMM-YY') : '';
@@ -27,7 +28,7 @@ function esc(str) {
     .replace(/>/g, '&gt;');
 }
 
-function buildHtml(resultado, desde, hasta) {
+function buildHtml(resultado, desde, hasta, sitio) {
   const filas = resultado.data
     .map(
       (it) => `
@@ -110,8 +111,8 @@ function buildHtml(resultado, desde, hasta) {
 <body>
 
   <table class="header-table">
-    <tr><td class="cell-nombre">SERVICOMPACTOS DE JUAREZ</td></tr>
-    <tr><td class="cell-dir">PASEO TRIUNFO DE LA REPÚBLICA #322&nbsp;&nbsp;SAN LORENZO</td></tr>
+    <tr><td class="cell-nombre">${esc(sitio.nombre)}</td></tr>
+    <tr><td class="cell-dir">${esc(sitio.direccionCorta)}</td></tr>
   </table>
 
   <div class="titulo-row">
@@ -156,7 +157,8 @@ function buildHtml(resultado, desde, hasta) {
 }
 
 async function streamReportePendientesFacturaPdf(res, resultado, desde, hasta) {
-  const html = buildHtml(resultado, desde, hasta);
+  const sitio = await getSitioConfig();
+  const html = buildHtml(resultado, desde, hasta, sitio);
 
   const browser = await puppeteer.launch({
     headless: 'new',

@@ -73,7 +73,7 @@ const TIPO_FACTURA_LABEL = {
 };
 
 function facturaFolioLabel(f) {
-  return [f.serie, f.folio].filter(Boolean).join("-") || "-";
+  return [f.serie, f.folio].filter(Boolean).join("") || "-";
 }
 
 export default function CajaHistorialPagos({

@@ -77,6 +77,14 @@ export const getOrdenCompraContador = () =>
 export const actualizarOrdenCompraContador = (valor) =>
   http.put('/configuracion/orden-compra-contador', { valor }).then(r => r.data);
 
+// Folio propio de la Nota de crédito CFDI (serie fija "NC"), independiente del folio
+// compartido por Factura/Complemento/Global.
+export const getNotaCreditoContador = () =>
+  http.get('/configuracion/nota-credito-contador').then(r => r.data);
+
+export const actualizarNotaCreditoContador = (valor) =>
+  http.put('/configuracion/nota-credito-contador', { valor }).then(r => r.data);
+
 export const getFondoCaja = () =>
   http.get('/configuracion/fondo-caja').then(r => r.data);
 
@@ -89,6 +97,14 @@ export const getExigirUuid = () =>
 
 export const actualizarExigirUuid = (valor) =>
   http.put('/configuracion/exigir-uuid', { valor }).then(r => r.data);
+
+// Datos del sitio/sucursal (nombre, dirección, teléfono, si es matriz) que
+// se imprimen en reportes y documentos.
+export const getSitioConfig = () =>
+  http.get('/configuracion/sitio').then(r => r.data);
+
+export const actualizarSitioConfig = (payload) =>
+  http.put('/configuracion/sitio', payload).then(r => r.data);
 
 export const getContratoOrdenServicio = () =>
   http.get('/configuracion/contrato-orden-servicio').then(r => r.data);

@@ -5,6 +5,7 @@ const fs = require('fs');
 const { dayjsFecha } = require('../utils/fechas');
 const { WATERMARK_CSS, watermarkHtml } = require('../utils/pdfWatermark');
 const { logoParaLinea } = require('../utils/logoOrden');
+const { getSitioConfig } = require('../utils/sitioConfig');
 
 const assetPath = (...parts) =>
   path.join(__dirname, '..', 'assets', 'pdf', ...parts);
@@ -78,6 +79,8 @@ exports.generarPresupuestoPDF = async (res, orden) => {
     });
 
     const page = await browser.newPage();
+
+    const sitio = await getSitioConfig();
 
     const fechaActual = dayjs().format('DD/MM/YYYY');
     const horaRecepcion = orden.horaRecepcion || '';
@@ -329,8 +332,8 @@ ${WATERMARK_CSS}
 
   <div class="title">PRESUPUESTO</div>
   <div class="address">
-    Paseo Triunfo de la República No. 322-B, Cd. Juárez Chihuahua, Col. San Lorenzo, CP. 32320
-    Tels: (656) 6 23 56 51 al 54
+    ${escapeHtml(sitio.direccionLinea1)}, ${escapeHtml(sitio.direccionLinea2)}
+    Tels: ${escapeHtml(sitio.telefono)}
   </div>
 
   <table class="data-table">

@@ -23,12 +23,16 @@ import {
   actualizarValeCajaContador,
   getOrdenCompraContador,
   actualizarOrdenCompraContador,
+  getNotaCreditoContador,
+  actualizarNotaCreditoContador,
   getFondoCaja,
   actualizarFondoCaja,
   getExigirUuid,
   actualizarExigirUuid,
   getContratoOrdenServicio,
   actualizarContratoOrdenServicio,
+  getSitioConfig,
+  actualizarSitioConfig,
 } from "../../api/configuracion";
 import TipoCambioHistorialModal from "./components/TipoCambioHistorialModal";
 import ContratoHistorialModal from "./components/ContratoHistorialModal";
@@ -53,6 +57,7 @@ export default function Configuracion() {
   const [notaVentaContador, setNotaVentaContador] = useState(0);
   const [remisionContador, setRemisionContador] = useState(0);
   const [ordenCompraContador, setOrdenCompraContador] = useState(0);
+  const [notaCreditoContador, setNotaCreditoContador] = useState(0);
   const [fondoCaja, setFondoCaja] = useState(0);
   // Facturación: ¿se exige el UUID real al relacionar facturas? (default sí; ver hooks/useExigirUuid)
   const [exigirUuid, setExigirUuid] = useState(true);
@@ -70,10 +75,21 @@ export default function Configuracion() {
   const [notaVentaForm, setNotaVentaForm] = useState("");
   const [remisionForm, setRemisionForm] = useState("");
   const [ordenCompraForm, setOrdenCompraForm] = useState("");
+  const [notaCreditoForm, setNotaCreditoForm] = useState("");
   const [fondoCajaForm, setFondoCajaForm] = useState("");
 
   const [unidadForm, setUnidadForm] = useState({
     nombre: "",
+  });
+
+  const [cargandoSitio, setCargandoSitio] = useState(true);
+  const [sitioForm, setSitioForm] = useState({
+    nombre: "",
+    direccionCorta: "",
+    direccionLinea1: "",
+    direccionLinea2: "",
+    telefono: "",
+    esMatriz: true,
   });
 
   const [cargandoContrato, setCargandoContrato] = useState(true);
@@ -92,7 +108,7 @@ export default function Configuracion() {
       setLoading(true);
       setError("");
 
-      const [tipos, unidadesData, mecanicosData, ordenServicioData, valeData, valeCajaData, devolucionData, notaVentaData, remisionData, ordenCompraData, fondoCajaData] = await Promise.all([
+      const [tipos, unidadesData, mecanicosData, ordenServicioData, valeData, valeCajaData, devolucionData, notaVentaData, remisionData, ordenCompraData, notaCreditoData, fondoCajaData] = await Promise.all([
         getTiposCambio(),
         getUnidadesMedida(),
         getMecanicos(),
@@ -103,6 +119,7 @@ export default function Configuracion() {
         getNotaVentaContador(),
         getRemisionContador(),
         getOrdenCompraContador(),
+        getNotaCreditoContador(),
         getFondoCaja(),
       ]);
 
@@ -116,6 +133,7 @@ export default function Configuracion() {
       setNotaVentaContador(notaVentaData?.valor || 0);
       setRemisionContador(remisionData?.valor || 0);
       setOrdenCompraContador(ordenCompraData?.valor || 0);
+      setNotaCreditoContador(notaCreditoData?.valor || 0);
       setFondoCaja(fondoCajaData?.valor || 0);
     } catch (err) {
       setError(err.message || "Error al cargar configuración");
@@ -222,6 +240,29 @@ export default function Configuracion() {
         setTipoCambioSie(null);
       } finally {
         setCargandoSie(false);
+      }
+    })();
+  }, []);
+
+  // Se carga aparte de cargarDatos, mismo motivo que el contrato: no pisar
+  // lo que el admin esté escribiendo en este formulario.
+  useEffect(() => {
+    (async () => {
+      try {
+        setCargandoSitio(true);
+        const data = await getSitioConfig();
+        setSitioForm({
+          nombre: data?.nombre || "",
+          direccionCorta: data?.direccionCorta || "",
+          direccionLinea1: data?.direccionLinea1 || "",
+          direccionLinea2: data?.direccionLinea2 || "",
+          telefono: data?.telefono || "",
+          esMatriz: data?.esMatriz !== false,
+        });
+      } catch (err) {
+        setError(err.message || "Error al cargar la configuración del sitio");
+      } finally {
+        setCargandoSitio(false);
       }
     })();
   }, []);
@@ -421,6 +462,22 @@ export default function Configuracion() {
     }
   };
 
+  const handleGuardarNotaCreditoContador = async (e) => {
+    e.preventDefault();
+
+    try {
+      setError("");
+
+      const res = await actualizarNotaCreditoContador(notaCreditoForm);
+      setNotaCreditoContador(res?.valor || 0);
+      setNotaCreditoForm("");
+
+      mostrarMensaje("Número actual de Nota de Crédito actualizado correctamente");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   useEffect(() => {
     getExigirUuid()
       .then((data) => setExigirUuid(data?.valor !== false))
@@ -551,6 +608,33 @@ export default function Configuracion() {
     }
   };
 
+  const handleGuardarSitio = async (e) => {
+    e.preventDefault();
+
+    try {
+      setError("");
+
+      if (!sitioForm.nombre.trim()) {
+        setError("El nombre del sitio es obligatorio");
+        return;
+      }
+
+      const res = await actualizarSitioConfig(sitioForm);
+      setSitioForm({
+        nombre: res?.nombre || "",
+        direccionCorta: res?.direccionCorta || "",
+        direccionLinea1: res?.direccionLinea1 || "",
+        direccionLinea2: res?.direccionLinea2 || "",
+        telefono: res?.telefono || "",
+        esMatriz: res?.esMatriz !== false,
+      });
+
+      mostrarMensaje("Datos del sitio actualizados correctamente");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const toggleMecanico = async (mecanico) => {
     try {
       await cambiarEstadoMecanico(mecanico._id, !mecanico.activo);
@@ -578,6 +662,93 @@ export default function Configuracion() {
         <div className="config-loading">Cargando configuración...</div>
       ) : (
         <div className="config-grid">
+          {/* Datos del sitio */}
+          <section className="config-card config-card-full">
+            <div className="config-card-header">
+              <div>
+                <h2>Datos del sitio</h2>
+                <span>
+                  Nombre, dirección y teléfono que se imprimen en reportes y documentos. Al
+                  manejar varias sucursales, cada instalación configura aquí sus propios datos.
+                </span>
+              </div>
+              <div className="config-icon">🏢</div>
+            </div>
+
+            {cargandoSitio ? (
+              <p className="text-muted small mb-2">Cargando datos del sitio...</p>
+            ) : (
+              <form onSubmit={handleGuardarSitio} className="config-form">
+                <label>
+                  Nombre del sitio
+                  <input
+                    type="text"
+                    value={sitioForm.nombre}
+                    onChange={(e) => setSitioForm({ ...sitioForm, nombre: e.target.value })}
+                    placeholder="Ej. SERVICOMPACTOS DE JUAREZ"
+                    required
+                  />
+                </label>
+
+                <label>
+                  Dirección corta (encabezado de reportes)
+                  <input
+                    type="text"
+                    value={sitioForm.direccionCorta}
+                    onChange={(e) => setSitioForm({ ...sitioForm, direccionCorta: e.target.value })}
+                    placeholder="Ej. PASEO TRIUNFO DE LA REPÚBLICA #322, SAN LORENZO"
+                  />
+                </label>
+
+                <label>
+                  Dirección — calle y número
+                  <input
+                    type="text"
+                    value={sitioForm.direccionLinea1}
+                    onChange={(e) => setSitioForm({ ...sitioForm, direccionLinea1: e.target.value })}
+                    placeholder="Ej. PASEO TRIUNFO DE LA REPÚBLICA #322-B"
+                  />
+                </label>
+
+                <label>
+                  Dirección — colonia, C.P., ciudad y estado
+                  <input
+                    type="text"
+                    value={sitioForm.direccionLinea2}
+                    onChange={(e) => setSitioForm({ ...sitioForm, direccionLinea2: e.target.value })}
+                    placeholder="Ej. COL. SAN LORENZO, C.P. 32320, CD. JUÁREZ, CHIH."
+                  />
+                </label>
+
+                <label>
+                  Teléfono
+                  <input
+                    type="text"
+                    value={sitioForm.telefono}
+                    onChange={(e) => setSitioForm({ ...sitioForm, telefono: e.target.value })}
+                    placeholder="Ej. (656) 626-5651 AL 54"
+                  />
+                </label>
+
+                <div className="form-check form-switch mb-2">
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    className="form-check-input"
+                    id="sitioEsMatriz"
+                    checked={sitioForm.esMatriz}
+                    onChange={(e) => setSitioForm({ ...sitioForm, esMatriz: e.target.checked })}
+                  />
+                  <label className="form-check-label" htmlFor="sitioEsMatriz">
+                    Es matriz (muestra "Matriz" en el reporte de Facturas y Remisiones del día)
+                  </label>
+                </div>
+
+                <button type="submit">Guardar</button>
+              </form>
+            )}
+          </section>
+
           {/* Tipo de cambio */}
           <section className="config-card">
             <div className="config-card-header">
@@ -982,6 +1153,45 @@ export default function Configuracion() {
                   value={ordenCompraForm}
                   onChange={(e) => setOrdenCompraForm(e.target.value)}
                   placeholder={`Ej. ${ordenCompraContador}`}
+                  required
+                />
+              </label>
+
+              <button type="submit">Guardar</button>
+            </form>
+          </section>
+
+          {/* Contador de Nota de Crédito (CFDI) — folio propio, no comparte
+              numeración con Factura/Complemento/Global. */}
+          <section className="config-card">
+            <div className="config-card-header">
+              <div>
+                <h2>Folio de Nota de Crédito</h2>
+                <span>Serie fija "NC"; independiente del folio de las demás facturas.</span>
+              </div>
+              <div className="config-icon">🧾</div>
+            </div>
+
+            <div className="config-current">
+              <span>Número actual</span>
+              <strong>{notaCreditoContador}</strong>
+            </div>
+
+            <p className="text-muted small mb-2">
+              La próxima nota de crédito se emitirá con folio{" "}
+              <strong>NC{Number(notaCreditoContador) + 1}</strong>.
+            </p>
+
+            <form onSubmit={handleGuardarNotaCreditoContador} className="config-form">
+              <label>
+                Redefinir número actual
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={notaCreditoForm}
+                  onChange={(e) => setNotaCreditoForm(e.target.value)}
+                  placeholder={`Ej. ${notaCreditoContador}`}
                   required
                 />
               </label>

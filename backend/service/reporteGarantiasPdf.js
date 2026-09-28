@@ -6,6 +6,7 @@ const dayjs = require('dayjs');
 require('dayjs/locale/es');
 dayjs.locale('es');
 const { dayjsFecha } = require('../utils/fechas');
+const { getSitioConfig } = require('../utils/sitioConfig');
 
 function fmtFecha(iso) {
   return dayjsFecha(iso).format('DD-MMM-YY');
@@ -38,7 +39,7 @@ function observacionesGarantia(o) {
   return lineas.join('<br>');
 }
 
-function buildHtml(resultado, desde, hasta, asesor) {
+function buildHtml(resultado, desde, hasta, asesor, sitio) {
   const grupos = resultado.data
     .map((grupo) => {
       const filas = grupo.ordenes
@@ -178,8 +179,8 @@ function buildHtml(resultado, desde, hasta, asesor) {
 <body>
 
   <table class="header-table">
-    <tr><td class="cell-nombre">SERVICOMPACTOS DE JUAREZ</td></tr>
-    <tr><td class="cell-dir">PASEO TRIUNFO DE LA REPÚBLICA #322&nbsp;&nbsp;SAN LORENZO</td></tr>
+    <tr><td class="cell-nombre">${esc(sitio.nombre)}</td></tr>
+    <tr><td class="cell-dir">${esc(sitio.direccionCorta)}</td></tr>
   </table>
 
   <div class="titulo-row">
@@ -208,7 +209,8 @@ function buildHtml(resultado, desde, hasta, asesor) {
 }
 
 async function streamReporteGarantiasPdf(res, resultado, desde, hasta, asesor) {
-  const html = buildHtml(resultado, desde, hasta, asesor);
+  const sitio = await getSitioConfig();
+  const html = buildHtml(resultado, desde, hasta, asesor, sitio);
 
   const browser = await puppeteer.launch({
     headless: 'new',

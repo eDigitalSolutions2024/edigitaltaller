@@ -3,6 +3,7 @@ const dayjs = require('dayjs');
 require('dayjs/locale/es');
 dayjs.locale('es');
 const { logoParaLinea } = require('../utils/logoOrden');
+const { getSitioConfig } = require('../utils/sitioConfig');
 
 function esc(str) {
   if (str === null || str === undefined) return '';
@@ -23,7 +24,7 @@ function emojiSlot(estatus) {
   return 3;
 }
 
-function buildHtml(vale) {
+function buildHtml(vale, sitio) {
   const noVale = `${vale.noVale ?? ''}-${vale.dig ?? 0}`;
   const slotActivo = emojiSlot(vale.estatus);
   const logoDataUrl = logoParaLinea(vale.vehiculo?.lineaNegocio);
@@ -100,12 +101,12 @@ function buildHtml(vale) {
           ${logoDataUrl ? `<img src="${logoDataUrl}" />` : '<span class="encabezado__logo-txt">Servi compactos</span>'}
         </div>
         <div class="encabezado__dir">
-          PASEO TRIUNFO DE LA REPUBLICA # 322 - B<br/>
-          COL.: SAN LORENZO, C.P.: 32320 CD. JUAREZ, CHIH., MEXICO
+          ${esc(sitio.direccionLinea1)}<br/>
+          ${esc(sitio.direccionLinea2)}
         </div>
       </div>
       <div class="encabezado__der">
-        <div class="encabezado__barra">SERVICOMPACTOS DE JUAREZ</div>
+        <div class="encabezado__barra">${esc(sitio.nombre)}</div>
         <div class="encabezado__fila-col">
           <div class="encabezado__fila-label">No. de Vale de salida</div>
           <div class="encabezado__fila-valor rojo">${esc(noVale)}</div>
@@ -216,7 +217,8 @@ function buildHtml(vale) {
 }
 
 async function streamValeSalidaPdf(res, vale) {
-  const html = buildHtml(vale);
+  const sitio = await getSitioConfig();
+  const html = buildHtml(vale, sitio);
 
   const browser = await puppeteer.launch({
     headless: 'new',

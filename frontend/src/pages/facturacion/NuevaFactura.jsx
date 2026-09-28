@@ -848,7 +848,8 @@ export default function NuevaFactura() {
     } else if (t.value === "notaCredito") {
       setUsoCfdi("G02");
       setMetodoPago("PUE");
-      setFormaPago("15");
+      // Sin forma de pago por defecto: se elige a mano (mismo criterio que Factura).
+      setFormaPago("");
     } else if (t.value === "facturaGlobal") {
       // Público en general: uso S01, IVA fijo 8%. La forma de pago la fija sola
       // la regla SAT (nota de mayor monto); el método de pago se elige a mano
@@ -860,7 +861,8 @@ export default function NuevaFactura() {
     } else {
       setUsoCfdi("CP01");
       setMetodoPago("PUE");
-      setFormaPago("03");
+      // Sin forma de pago por defecto: se elige a mano (mismo criterio que Factura).
+      setFormaPago("");
       setFechaPago(hoyISO());
     }
   };
@@ -1720,6 +1722,10 @@ export default function NuevaFactura() {
   );
   const total = useMemo(() => baseGravable + iva - isr, [baseGravable, iva, isr]);
 
+  // Tipos cuya forma de pago no tiene default: el usuario debe elegirla a mano
+  // (Factura Global la fija sola con la regla SAT del mayor monto).
+  const requiereElegirFormaPago = esFactura || esNotaCredito || esComplementoPago;
+
   /* Forma de pago "99 - Por definir" obliga a método PPD: no se puede documentar
      como pago en una sola exhibición algo cuya forma de pago aún no se conoce. */
   useEffect(() => {
@@ -2140,8 +2146,9 @@ export default function NuevaFactura() {
     // Factura global: el método de pago (PUE/PPD) se elige a mano.
     if (esFacturaGlobal && !metodoPago) return false;
 
-    // Factura: la forma de pago no tiene valor por defecto, hay que elegirla.
-    if (esFactura && !formaPago) return false;
+    // Factura / Nota de crédito / Complemento: la forma de pago no tiene valor
+    // por defecto, hay que elegirla (Factura Global la fija sola).
+    if (requiereElegirFormaPago && !formaPago) return false;
 
     // Nota de crédito: CfdiRelacionados exige el UUID real de cada factura
     // acreditada; sin él el XML quedaría inválido para el SAT.
@@ -2186,6 +2193,7 @@ export default function NuevaFactura() {
     esRefacturacion,
     esAdmin,
     uuidValido,
+    requiereElegirFormaPago,
   ]);
 
   /* ==========
@@ -2576,7 +2584,7 @@ export default function NuevaFactura() {
     if (n === 4) {
       if (moneda === "USD" && !(Number(tipoCambio || 0) > 0)) return false;
       if (esFacturaGlobal && !metodoPago) return false;
-      if (esFactura && !formaPago) return false;
+      if (requiereElegirFormaPago && !formaPago) return false;
       if (faltaCapturarLiquidar) return false;
       return true;
     }
@@ -4156,17 +4164,21 @@ export default function NuevaFactura() {
                 <div className="col-12 col-md-5">
                   <label className="form-label">Forma de pago</label>
                   <Dropdown
-                    className="form-select"
+                    className={`form-select${!formaPago ? " is-invalid border-danger" : ""}`}
                     value={formaPago}
                     disabled={disabledSteps}
                     onChange={(e) => setFormaPago(e.target.value)}
                   >
+                    <Dropdown.Option value="">— Selecciona —</Dropdown.Option>
                     {FORMA_PAGO.map((x) => (
                       <Dropdown.Option key={x.value} value={x.value}>
                         {x.label}
                       </Dropdown.Option>
                     ))}
                   </Dropdown>
+                  {!formaPago && (
+                    <small className="text-danger d-block">Elige la forma de pago para continuar.</small>
+                  )}
                 </div>
 
                 <div className="col-12 col-md-2">
@@ -4263,7 +4275,7 @@ export default function NuevaFactura() {
                 <div className="col-12 col-md-4">
                   <label className="form-label">Forma de pago</label>
                   <Dropdown
-                    className={`form-select${esFactura && !formaPago ? " is-invalid border-danger" : ""}`}
+                    className={`form-select${requiereElegirFormaPago && !formaPago ? " is-invalid border-danger" : ""}`}
                     value={formaPago}
                     disabled={disabledSteps || esFacturaGlobal || (capturaPagoActiva && pagoCombinado)}
                     onChange={(e) => {
@@ -4271,14 +4283,14 @@ export default function NuevaFactura() {
                       setFormaPago(e.target.value);
                     }}
                   >
-                    {esFactura && <Dropdown.Option value="">— Selecciona —</Dropdown.Option>}
+                    {requiereElegirFormaPago && <Dropdown.Option value="">— Selecciona —</Dropdown.Option>}
                     {FORMA_PAGO.map((x) => (
                       <Dropdown.Option key={x.value} value={x.value}>
                         {x.label}
                       </Dropdown.Option>
                     ))}
                   </Dropdown>
-                  {esFactura && !formaPago && (
+                  {requiereElegirFormaPago && !formaPago && (
                     <small className="text-danger d-block">Elige la forma de pago para continuar.</small>
                   )}
                   {esFacturaGlobal && notaMayorGlobal && (

@@ -184,7 +184,7 @@ function FacturaDetalleModal({ factura: f, onClose }) {
   const cli = f.cliente || {};
   const t = f.totales || {};
   const dir = cli.direccion || {};
-  const folio = [f.serie, f.folio].filter(Boolean).join("-") || "—";
+  const folio = [f.serie, f.folio].filter(Boolean).join("") || "—";
   const condicion = c.metodoPago === "PPD" ? "Crédito" : "Contado";
   const ivaPct = c.ivaRate != null ? `${Math.round(Number(c.ivaRate) * 100)}%` : "—";
   const dirTxt = [
@@ -480,7 +480,7 @@ export default function ConsultarFacturas() {
       const res = await getFacturaCfdiPdf(f._id);
       const blob = new Blob([res.data], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
-      const folio = [f.serie, f.folio].filter(Boolean).join("-");
+      const folio = [f.serie, f.folio].filter(Boolean).join("");
       abrirPdf(
         url,
         `factura_${folio.replace(/[^\w-]/g, "") || "cfdi"}.pdf`,
@@ -521,7 +521,7 @@ export default function ConsultarFacturas() {
       if (next[f._id]) {
         delete next[f._id];
       } else {
-        next[f._id] = [f.serie, f.folio].filter(Boolean).join("-") || "—";
+        next[f._id] = [f.serie, f.folio].filter(Boolean).join("") || "—";
       }
       return next;
     });
@@ -767,7 +767,7 @@ export default function ConsultarFacturas() {
                     style={{ cursor: "pointer" }}
                     onClick={() => (modoSeleccion ? toggleFactura(f) : abrirDetalle(f))}
                   >
-                    <td>{[f.serie, f.folio].filter(Boolean).join("-") || "—"}</td>
+                    <td>{[f.serie, f.folio].filter(Boolean).join("") || "—"}</td>
                     <td>
                       {f.cliente?.nombre || "—"}
                       {f.notaFacturacion && (
