@@ -1390,18 +1390,19 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       // queda documentada en el Reporte de Remisiones, no aquí.
       if (esRemision) continue;
 
-      // Notas del anticipo cancelado: solo la forma de pago (p. ej.
-      // "EFECTIVO" o "AE-C"). Sin fecha ni nombre del cliente — ya están la
-      // orden y el folio de la factura en las otras columnas.
+      // Notas del anticipo cancelado: forma de pago + fecha en que se hizo el anticipo (p. ej.
+      // "EFECTIVO 17/09/2026"). Sin nombre del cliente — ya está la orden en otra columna. La
+      // fecha es la del anticipo original (p.fecha), no la de esta cancelación (fechaEvento).
       const formaPagoDesc = p.comprobante === 'RECIBO_PROVISIONAL' ? p.reciboProvisional : p.notaVenta;
       const tipoPagoTxt = abreviaturaFormaPago(formaPagoDesc);
+      const fechaAnticipoTxt = dayjsFecha(p.fecha).format('DD/MM/YYYY');
       anticiposCancelados.push({
         folio: 'ANT',
         ordenServicio: o.ordenServicio || '',
         cliente: `SE CANCELÓ ANTICIPO Y PASA A FACTURA ${folioCfdi}`,
         fecha: fechaEvento,
         anticipo: -p.monto,
-        notas: (tipoPagoTxt || '').toUpperCase(),
+        notas: [tipoPagoTxt, fechaAnticipoTxt].filter(Boolean).join(' ').toUpperCase(),
       });
       totalAnticipo -= p.monto;
     }
@@ -1960,7 +1961,10 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       //                                  $404.00 CON EFECTIVO)"
       const partes = notasDia.map((n) => {
         const info = infoPorNota.get(n.numero);
-        const orden = n.ordenServicio || (n.numero != null ? `P${n.numero}` : 'S/N');
+        // Referencia de cada nota dentro del desglose: el folio de la Nota de Venta (P#), no la
+        // orden de servicio — una Factura Global puede agrupar notas de varias órdenes, y este
+        // texto es "por nota", no "por orden" (la columna No. Orden ya lista las órdenes).
+        const orden = n.numero != null ? String(n.numero) : 'S/N';
         const dolaresPesos = dolaresEnPesos(info);
         // n.monto es el total de esta nota (lo capturado con ella + su
         // anticipo, si tiene uno ligado, ver arriba); lo que de verdad se

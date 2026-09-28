@@ -7,6 +7,7 @@ const UnidadMedida = require('../models/UnidadMedida');
 const Mecanico = require('../models/Mecanico');
 const Contador = require('../models/Contador');
 const ContratoOrdenServicio = require('../models/ContratoOrdenServicio');
+const SitioConfig = require('../models/SitioConfig');
 const { streamContratoOrdenServicioPdf } = require('../service/ContratoOrdenServicioPdf');
 const banxicoService = require('../service/banxicoService');
 const { EXIGIR_UUID_CONTADOR, exigirUuidActivo } = require('../utils/configuracionUuid');
@@ -510,6 +511,47 @@ router.put('/orden-compra-contador', proteger, requiereRol('admin'), async (req,
 });
 
 // ===============================
+// CONTADOR DE NOTA DE CRÉDITO (CFDI) — folio propio, independiente del folio
+// interno compartido por Factura/Complemento/Global (FiscalConfig.folioInterno).
+// Serie fija "NC" (ver routes/generar_xml.js): folio 1 se imprime como "NC1".
+// ===============================
+
+// Debe coincidir con NOTA_CREDITO_CFDI_CONTADOR en routes/generar_xml.js
+const NOTA_CREDITO_CFDI_CONTADOR = 'notaCreditoCfdi';
+
+// GET /api/configuracion/nota-credito-contador
+router.get('/nota-credito-contador', proteger, async (req, res) => {
+  try {
+    const contador = await Contador.findOne({ nombre: NOTA_CREDITO_CFDI_CONTADOR });
+    res.json({ valor: contador?.valor || 0 });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener el contador de notas de crédito', error: error.message });
+  }
+});
+
+// PUT /api/configuracion/nota-credito-contador
+router.put('/nota-credito-contador', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { valor } = req.body;
+    const valorNum = Number(valor);
+
+    if (valor === undefined || valor === null || Number.isNaN(valorNum) || valorNum < 0) {
+      return res.status(400).json({ message: 'El valor debe ser un número mayor o igual a 0' });
+    }
+
+    const contador = await Contador.findOneAndUpdate(
+      { nombre: NOTA_CREDITO_CFDI_CONTADOR },
+      { $set: { valor: valorNum } },
+      { new: true, upsert: true }
+    );
+
+    res.json({ valor: contador.valor });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al actualizar el contador de notas de crédito', error: error.message });
+  }
+});
+
+// ===============================
 // FONDO DE CAJA (monto fijo que se deja en caja, usado en Gestión de Caja)
 // ===============================
 
@@ -578,6 +620,48 @@ router.put('/exigir-uuid', proteger, requiereRol('admin'), async (req, res) => {
     res.json({ valor });
   } catch (error) {
     res.status(500).json({ message: 'Error al actualizar la configuración de UUID', error: error.message });
+  }
+});
+
+// ===============================
+// SITIO (nombre, dirección, teléfono, matriz)
+// ===============================
+// Datos de la sucursal que se imprimen en reportes y documentos. No son
+// datos fiscales (para eso existe /fiscal-config): sirven para que, al
+// operar varias sucursales, cada instalación muestre su propia dirección,
+// teléfono y si es matriz o no en los reportes.
+
+// GET /api/configuracion/sitio
+router.get('/sitio', proteger, async (req, res) => {
+  try {
+    const sitio = await SitioConfig.getOrCreate();
+    res.json(sitio);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener la configuración del sitio', error: error.message });
+  }
+});
+
+// PUT /api/configuracion/sitio
+router.put('/sitio', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { nombre, direccionCorta, direccionLinea1, direccionLinea2, telefono, esMatriz } = req.body || {};
+
+    if (!nombre || !String(nombre).trim()) {
+      return res.status(400).json({ message: 'El nombre del sitio es obligatorio' });
+    }
+
+    const actual = await SitioConfig.getOrCreate();
+    actual.nombre = String(nombre).trim();
+    actual.direccionCorta = String(direccionCorta || '').trim();
+    actual.direccionLinea1 = String(direccionLinea1 || '').trim();
+    actual.direccionLinea2 = String(direccionLinea2 || '').trim();
+    actual.telefono = String(telefono || '').trim();
+    actual.esMatriz = Boolean(esMatriz);
+    await actual.save();
+
+    res.json(actual);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al actualizar la configuración del sitio', error: error.message });
   }
 });
 

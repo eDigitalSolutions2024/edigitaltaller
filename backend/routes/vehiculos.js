@@ -2201,7 +2201,7 @@ router.put('/:id/cambiar-cliente', proteger, requiereRol('admin'), async (req, r
     ]);
 
     if (factura) {
-      const ref = [factura.serie, factura.folio].filter(Boolean).join('-') || 'CFDI';
+      const ref = [factura.serie, factura.folio].filter(Boolean).join('') || 'CFDI';
       return res.status(409).json({
         ok: false,
         msg: `No se puede cambiar el cliente: la orden ya está facturada (${ref}).`,

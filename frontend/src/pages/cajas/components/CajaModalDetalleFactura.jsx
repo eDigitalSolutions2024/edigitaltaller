@@ -39,7 +39,7 @@ const TIPO_FACTURA_LABEL = {
 };
 
 function facturaFolioLabel(f) {
-  return [f.serie, f.folio].filter(Boolean).join("-") || "-";
+  return [f.serie, f.folio].filter(Boolean).join("") || "-";
 }
 
 // Detalle de solo lectura de una factura del historial de Cajas: muestra los
@@ -143,7 +143,7 @@ export default function CajaModalDetalleFactura({ show, factura, pagos = [], veh
                       <tbody>
                         {factura.relacionadas.map((r, i) => (
                           <tr key={i} className="text-center">
-                            <td>{[r.serie, r.folio].filter(Boolean).join("-") || "-"}</td>
+                            <td>{[r.serie, r.folio].filter(Boolean).join("") || "-"}</td>
                             <td className="text-end">{formatMoney(r.saldoAnterior)}</td>
                             <td className="text-end">{formatMoney(r.importePagado)}</td>
                             <td className="text-end">{formatMoney(r.saldoInsoluto)}</td>

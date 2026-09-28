@@ -13,6 +13,7 @@ const FacturaCfdi = require("../models/FacturaCfdi");
 const Vehiculo = require("../models/Vehiculo");
 const { formaPagoSatDeNotaVenta } = require("../utils/formaPagoSat");
 const { abreviaturaFormaPago } = require("../utils/abreviaturaFormaPago");
+const { getSitioConfig } = require("../utils/sitioConfig");
 
 const router = express.Router();
 
@@ -48,10 +49,9 @@ function formatDireccion(direccion, pais) {
   return { linea1: linea1 || "—", linea2: linea2 || "—" };
 }
 // Domicilio impreso del emisor: no vive en FiscalConfig (que solo guarda el CP
-// de expedición), así que se usa el mismo domicilio fijo que ya imprimen las
-// demás plantillas del sistema (orden de compra, vales de salida, reportes).
-const EMISOR_DIRECCION_LINEA1 = "PASEO TRIUNFO DE LA REPÚBLICA #322-B";
-const EMISOR_DIRECCION_LINEA2 = "COL. SAN LORENZO, C.P. 32320, CD. JUÁREZ, CHIH.";
+// de expedición), así que se usa el mismo domicilio configurado en Configuración
+// › Datos del sitio, que también imprimen las demás plantillas del sistema
+// (orden de compra, vales de salida, reportes).
 
 function fechaHora(d = new Date()) {
   return d.toLocaleString("es-MX", {
@@ -355,8 +355,8 @@ function drawHeaderComprobante(doc, ui, { emisor, tipoLabel, meta }) {
     align: "center",
   });
   doc.font("Helvetica").fontSize(7.5);
-  doc.text(EMISOR_DIRECCION_LINEA1, M + 8, emisorBoxY + 20, { width: 304, align: "center" });
-  doc.text(EMISOR_DIRECCION_LINEA2, M + 8, emisorBoxY + 30, { width: 304, align: "center" });
+  doc.text(safe(emisor.direccionLinea1), M + 8, emisorBoxY + 20, { width: 304, align: "center" });
+  doc.text(safe(emisor.direccionLinea2), M + 8, emisorBoxY + 30, { width: 304, align: "center" });
   doc.text(`Tel: ${safe(emisor.telefono) || "—"}`, M + 8, emisorBoxY + 42, {
     width: 304,
     align: "center",
@@ -483,8 +483,16 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
       const rel = listaRelacionadas[0];
       ui.kv(vx, vy, "Factura:", `${safe(rel.serie)}${safe(rel.folio)}`, 48, 150);
       vy += 13;
-      ui.kv(vx, vy, "UUID:", safe(rel.uuid) || "— (sin timbrar)", 48, 150);
-      vy += 13;
+      // El UUID (36 caracteres) no cabe en una sola línea junto a su etiqueta
+      // en los 102pt que quedan tras "UUID:" (48pt de labelW) — con ui.kv se
+      // envolvía a una 2ª línea que se encimaba con el renglón de Total. Va en
+      // su propia línea completa, a una fuente que sí entra en los 150pt del
+      // recuadro sin envolver.
+      doc.font("Helvetica-Bold").fontSize(8).text("UUID:", vx, vy, { width: 150 });
+      vy += 10;
+      doc.font("Helvetica").fontSize(6.5).text(safe(rel.uuid) || "— (sin timbrar)", vx, vy, { width: 150 });
+      doc.fontSize(8);
+      vy += 11;
       ui.kv(vx, vy, "Total:", money(rel.total), 48, 150);
     } else {
       // Varias facturas acreditadas: no cabe el detalle de cada una, así que se
@@ -1159,6 +1167,7 @@ router.post("/preview", async (req, res) => {
 
     // Emisor real desde la configuración fiscal (si existe)
     const cfg = await FiscalConfig.findOne().sort({ updatedAt: -1 }).lean().catch(() => null);
+    const sitio = await getSitioConfig();
     const emisor = {
       nombre: cfg?.nombre || "",
       rfc: cfg?.rfc || "",
@@ -1166,6 +1175,8 @@ router.post("/preview", async (req, res) => {
       lugarExpedicion: cfg?.lugarExpedicion || "",
       telefono: cfg?.telefono || "",
       noCertificado: cfg?.noCertificado || "",
+      direccionLinea1: sitio.direccionLinea1,
+      direccionLinea2: sitio.direccionLinea2,
     };
 
     // Totales (factura / nota de crédito / factura global).
@@ -1247,6 +1258,13 @@ async function cargarDatosFacturaPdf(id) {
       noCertificado: cfg?.noCertificado || "",
     };
   }
+  // El domicilio impreso no se guardaba en el snapshot de facturas viejas:
+  // si no viene, se completa con la configuración actual del sitio.
+  if (!safe(emisor.direccionLinea1) || !safe(emisor.direccionLinea2)) {
+    const sitio = await getSitioConfig();
+    emisor.direccionLinea1 = emisor.direccionLinea1 || sitio.direccionLinea1;
+    emisor.direccionLinea2 = emisor.direccionLinea2 || sitio.direccionLinea2;
+  }
 
   // La factura solo guarda la referencia de cada orden: se completan los datos
   // del vehículo. `ordenes` puede traer varias; las facturas viejas solo
@@ -1279,7 +1297,7 @@ async function cargarDatosFacturaPdf(id) {
     })
   );
 
-  const folioTxt = [safe(f.serie), safe(f.folio)].filter(Boolean).join("-") || "—";
+  const folioTxt = [safe(f.serie), safe(f.folio)].filter(Boolean).join("") || "—";
   const cancelada = f.estatus === "cancelada";
 
   const meta = buildMeta({

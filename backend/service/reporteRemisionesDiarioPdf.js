@@ -14,6 +14,7 @@ const path = require('path');
 require('dayjs/locale/es');
 dayjs.locale('es');
 const { dayjsFecha } = require('../utils/fechas');
+const { getSitioConfig } = require('../utils/sitioConfig');
 
 let LOGO_DATA_URL = '';
 try {
@@ -90,7 +91,7 @@ function banda(filas, folioDefault) {
     ${filas.map((r) => fila(r, folioDefault)).join('')}`;
 }
 
-function buildHtml(data, desde, hasta) {
+function buildHtml(data, desde, hasta, sitio) {
   const {
     anticipos = [],
     canceladas = [],
@@ -202,7 +203,7 @@ function buildHtml(data, desde, hasta) {
 
   <div class="marca">
     ${LOGO_DATA_URL ? `<img src="${LOGO_DATA_URL}" />` : '<span class="marca-txt">Servi compactos</span>'}
-    <div class="matriz">Matriz</div>
+    ${sitio.esMatriz ? '<div class="matriz">Matriz</div>' : ''}
   </div>
 
   <table class="data">
@@ -253,7 +254,8 @@ function buildHtml(data, desde, hasta) {
 }
 
 async function streamReporteRemisionesDiarioPdf(res, data, desde, hasta) {
-  const html = buildHtml(data, desde, hasta);
+  const sitio = await getSitioConfig();
+  const html = buildHtml(data, desde, hasta, sitio);
 
   const browser = await puppeteer.launch({
     headless: 'new',

@@ -4,6 +4,7 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const { getSitioConfig } = require('../utils/sitioConfig');
 
 const FILAS_EN_BLANCO = 10; // renglones vacíos para capturar piezas a mano cuando no hay lineas digitales
 
@@ -23,7 +24,7 @@ function esc(str) {
     .replace(/>/g, '&gt;');
 }
 
-function buildOrdenCompraHtml(oc) {
+function buildOrdenCompraHtml(oc, sitio) {
   const fechaOC = oc.createdAt
     ? new Date(oc.createdAt).toLocaleDateString('es-MX')
     : new Date().toLocaleDateString('es-MX');
@@ -216,9 +217,9 @@ function buildOrdenCompraHtml(oc) {
     <div class="encabezado__titulo">
       <h1>ORDEN DE COMPRA</h1>
       <div class="encabezado__direccion">
-        PASEO TRIUNFO DE LA REPUBLICA #322-B<br/>
-        COL. SAN LORENZO, C.P. 32320, CD. JUÁREZ, CHIH.<br/>
-        TEL. (656) 626-5651 AL 54
+        ${esc(sitio.direccionLinea1)}<br/>
+        ${esc(sitio.direccionLinea2)}<br/>
+        TEL. ${esc(sitio.telefono)}
       </div>
     </div>
     <div class="encabezado__folio">
@@ -307,7 +308,8 @@ function buildOrdenCompraHtml(oc) {
 }
 
 async function streamOrdenCompraPdf(res, ordenCompra) {
-  const html = buildOrdenCompraHtml(ordenCompra);
+  const sitio = await getSitioConfig();
+  const html = buildOrdenCompraHtml(ordenCompra, sitio);
 
   const browser = await puppeteer.launch({
     headless: 'new',

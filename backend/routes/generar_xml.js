@@ -125,6 +125,10 @@ const UUID_RE = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0
 const UUID_SIN_TIMBRAR = "00000000-0000-0000-0000-000000000000";
 const uuidParaXml = (u) => String(u || "").trim().toUpperCase() || UUID_SIN_TIMBRAR;
 
+// Folio propio de la Nota de crédito (serie fija "NC"), editable en Configuración — debe
+// coincidir con el nombre usado en routes/configuracion.js.
+const NOTA_CREDITO_CFDI_CONTADOR = "notaCreditoCfdi";
+
 // Catálogo SAT c_TipoRelacion (mismo en CFDI 3.3 y 4.0).
 const TIPO_RELACION_VALIDOS = ["01", "02", "03", "04", "05", "06", "07"];
 
@@ -1095,6 +1099,32 @@ router.post("/xml", proteger, async (req, res) => {
       notasLiberadasResueltas = resuelto.notas;
     }
 
+    // Nota de crédito / Complemento de pago: la pantalla NO manda órdenes propias (solo busca
+    // facturas ya emitidas para relacionar, ver `relacionadas`), así que el documento se quedaba
+    // sin `orden`/`ordenes` y el Reporte de Facturas mostraba "—" en No. Orden. Se toman de las
+    // facturas que relaciona (salvo la NC contra Global, que ya trae las suyas propias arriba).
+    let ordenesDeRelacionadas = [];
+    if ((esNotaCredito || esComplementoPago) && !notasLiberadasResueltas.length && Array.isArray(relacionadas)) {
+      const idsValidos = relacionadas
+        .map((r) => String(r?.facturaId || ""))
+        .filter((id) => /^[0-9a-fA-F]{24}$/.test(id));
+      if (idsValidos.length) {
+        const facturasRelacionadas = await FacturaCfdi.find({ _id: { $in: idsValidos } })
+          .select("orden ordenes")
+          .lean();
+        const vistos = new Set();
+        for (const f of facturasRelacionadas) {
+          for (const o of [f.orden, ...(f.ordenes || [])]) {
+            if (!o?.vehiculoId || !o?.ordenServicio) continue;
+            const clave = String(o.vehiculoId);
+            if (vistos.has(clave)) continue;
+            vistos.add(clave);
+            ordenesDeRelacionadas.push({ _id: o.vehiculoId, ordenServicio: o.ordenServicio });
+          }
+        }
+      }
+    }
+
     // Lee config fiscal
     const cfg = await FiscalConfig.findOne().sort({ updatedAt: -1 }).lean();
     if (!cfg) {
@@ -1155,15 +1185,21 @@ router.post("/xml", proteger, async (req, res) => {
           regimenFiscal: cliente.regimenFiscal,
         };
 
-    // Folio: se asigna automáticamente a partir del folio interno de la configuración fiscal
-    const folioActualNum = parseInt(cfg.folioInterno, 10) || 0;
+    // Folio: se asigna automáticamente a partir del folio interno de la configuración fiscal.
+    // Nota de crédito: folio PROPIO (serie fija "NC", Configuración › Folio de Nota de Crédito),
+    // independiente del folio compartido por Factura/Complemento/Global — así NC1, NC2… no se
+    // mezclan con la numeración de las demás facturas (ver también reportes.js / PDF, que ya
+    // arman el folio mostrado como serie+folio sin separador).
+    const folioActualNum = esNotaCredito
+      ? (await Contador.findOne({ nombre: NOTA_CREDITO_CFDI_CONTADOR }).lean())?.valor || 0
+      : parseInt(cfg.folioInterno, 10) || 0;
     const folioAsignado = folioActualNum + 1;
 
     // Defaults
     const cfdiFinal = {
       ...cfdi,
       lugarExpedicion: cfdi.lugarExpedicion || cfg.lugarExpedicion,
-      serie: cfdi.serie ?? cfg.serie ?? "",
+      serie: esNotaCredito ? "NC" : cfdi.serie ?? cfg.serie ?? "",
       folio: String(folioAsignado),
 
       moneda: cfdi.moneda || "MXN",
@@ -1310,7 +1346,18 @@ router.post("/xml", proteger, async (req, res) => {
     let persistWarning = "";
     let recibosDolares = [];
     try {
-      await FiscalConfig.findByIdAndUpdate(cfg._id, { folioInterno: String(folioAsignado) });
+      // Persiste el folio usado SOLO tras el éxito (mismo criterio que el folio compartido de
+      // abajo): si algo falla después, el folio no avanzó y el siguiente intento reintenta el
+      // mismo número, sin dejar huecos en la numeración fiscal.
+      if (esNotaCredito) {
+        await Contador.findOneAndUpdate(
+          { nombre: NOTA_CREDITO_CFDI_CONTADOR },
+          { $set: { valor: folioAsignado } },
+          { upsert: true }
+        );
+      } else {
+        await FiscalConfig.findByIdAndUpdate(cfg._id, { folioInterno: String(folioAsignado) });
+      }
 
       // Nombre de facturación editado (F3): si el CFDI se emitió con un nombre
       // distinto a la razón social fiscal del cliente, se deja constancia en el
@@ -1323,11 +1370,15 @@ router.post("/xml", proteger, async (req, res) => {
           : "";
 
       // Una NC contra Global guarda las órdenes de las notas que libera (para encontrarla por
-      // orden y para el Reporte de Facturas); el resto de los tipos, las que mandó la pantalla.
+      // orden y para el Reporte de Facturas); NC/Complemento normales, las de las facturas que
+      // relacionan (ver ordenesDeRelacionadas arriba); el resto de los tipos, las que mandó la
+      // pantalla.
       const ordenesDoc = notasLiberadasResueltas.length
         ? notasLiberadasResueltas
             .filter((n, i, a) => a.findIndex((x) => String(x.vehiculoId) === String(n.vehiculoId)) === i)
             .map((n) => ({ _id: n.vehiculoId, ordenServicio: n.ordenServicio }))
+        : esNotaCredito || esComplementoPago
+        ? ordenesDeRelacionadas
         : ordenes;
       const ordenPrincipalDoc = ordenesDoc[0] || null;
 
@@ -1438,7 +1489,7 @@ router.post("/xml", proteger, async (req, res) => {
             : "FACTURA_GENERAR",
         entidad: "generar-xml",
         entidadId: facturaDoc._id,
-        referencia: [cfdiFinal.serie, cfdiFinal.folio].filter(Boolean).join("-") || String(facturaDoc._id),
+        referencia: [cfdiFinal.serie, cfdiFinal.folio].filter(Boolean).join("") || String(facturaDoc._id),
         detalle: {
           tipoFactura,
           tipoComprobante: cfdiFinal.tipoComprobante,

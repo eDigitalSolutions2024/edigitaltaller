@@ -123,7 +123,7 @@
   color: #6b7280;
 }
 
-.config-form input {
+.config-form input:not([type="checkbox"]) {
   height: 36px;
   border: 0.5px solid #d1d5db;
   border-radius: 8px;
@@ -138,7 +138,7 @@
   color: #d1d5db;
 }
 
-.config-form input:focus {
+.config-form input:not([type="checkbox"]):focus {
   border-color: #9ca3af;
   box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
 }

@@ -6,6 +6,7 @@ require('dayjs/locale/es');
 dayjs.locale('es');
 const { dayjsFecha } = require('../utils/fechas');
 const { calcularTotalesCierre } = require('../utils/cierreCajaTotales');
+const { getSitioConfig } = require('../utils/sitioConfig');
 
 const TERMINALES_LABELS = [
   ['bancomer', 'TERMINAL BANCOMER'],
@@ -63,7 +64,7 @@ function filasConteo(items) {
     .join('');
 }
 
-function buildHtml(cierre, totales) {
+function buildHtml(cierre, totales, sitio) {
   const filasBilletes = filasConteo(cierre.billetes);
   const filasMonedas = filasConteo(cierre.monedas);
 
@@ -177,8 +178,8 @@ function buildHtml(cierre, totales) {
 <body>
 
   <table class="header-table">
-    <tr><td class="cell-nombre">SERVICOMPACTOS DE JUAREZ</td></tr>
-    <tr><td class="cell-dir">PASEO TRIUNFO DE LA REPÚBLICA #322&nbsp;&nbsp;SAN LORENZO</td></tr>
+    <tr><td class="cell-nombre">${esc(sitio.nombre)}</td></tr>
+    <tr><td class="cell-dir">${esc(sitio.direccionCorta)}</td></tr>
   </table>
 
   <div class="titulo-row">
@@ -256,7 +257,8 @@ function buildHtml(cierre, totales) {
 
 async function streamCierreCajaPdf(res, cierre) {
   const totales = calcularTotalesCierre(cierre);
-  const html = buildHtml(cierre, totales);
+  const sitio = await getSitioConfig();
+  const html = buildHtml(cierre, totales, sitio);
 
   const browser = await puppeteer.launch({
     headless: 'new',
