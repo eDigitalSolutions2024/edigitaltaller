@@ -24,6 +24,7 @@ const { calcularTotalesOrden } = require('../utils/cajaTotales');
 const { esAbonoSobreRemisionCredito } = require('../utils/anticiposAlFacturar');
 const { abreviaturaFormaPago, joinMetodos } = require('../utils/abreviaturaFormaPago');
 const { FILTRO_SERVICOMPACTO } = require('../utils/lineaNegocio');
+const { TERMINALES_TARJETA } = require('../utils/bancos');
 const { dayjsFecha } = require('../utils/fechas');
 
 // Adjunta a una nota la abreviatura del método de pago usado ("... BR-C"), a
@@ -1028,7 +1029,7 @@ function buildReporteRemisionesDiario({ desde, hasta }) {
 //   6. Factura global del día (FacturaCfdi tipoFactura=facturaGlobal, CFDI al
 //      público en general): banda propia al final, con el desglose de las
 //      notas de venta agrupadas ("PUBLICO GENERAL.=(P.. $.. CON ..)--(..)").
-const BANCOS_TARJETA_CD = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
+const BANCOS_TARJETA_CD = TERMINALES_TARJETA;
 // Catálogo SAT c_FormaPago usado en FacturaCfdi.pago.formaPago (complementos
 // de pago): solo se mapean los códigos que representan un depósito real.
 const SAT_FORMA_PAGO_A_DEPOSITO = {

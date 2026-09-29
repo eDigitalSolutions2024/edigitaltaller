@@ -4,7 +4,7 @@
 // (backend/routes/cajas.js) o de una orden sin comprobante facturada desde el
 // menú Factura (backend/routes/generar_xml.js): mismo catálogo de terminales
 // que TERMINALES_TARJETA en ambos archivos.
-const TERMINALES_TARJETA = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
+const { TERMINALES_TARJETA } = require('./bancos');
 
 // Limpia y valida un desglose [{ monto, terminal }] capturado en el
 // formulario: cada entrada necesita monto > 0 y una terminal válida, y la

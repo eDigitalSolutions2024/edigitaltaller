@@ -11,6 +11,7 @@ const { dayjsFecha } = require('../utils/fechas');
 const { cantidadConLetra } = require('../utils/numeroALetras');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
 const { WATERMARK_CSS, watermarkHtmlPago } = require('../utils/pdfWatermark');
+const { TERMINALES_TARJETA } = require('../utils/bancos');
 
 const assetPath = (...parts) => path.join(__dirname, '..', 'assets', 'pdf', ...parts);
 
@@ -37,8 +38,6 @@ const escapeHtml = (value = '') =>
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
 
-const TERMINALES_TARJETA_PDF = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
-
 // Texto legible de la forma de pago de una Nota de Venta. Vale tanto para las
 // nuevas (notaVenta.formaPago + combinado/terminal) como para las viejas, que
 // solo traían notaVenta.banco con el método o la terminal. En un pago
@@ -47,7 +46,7 @@ const TERMINALES_TARJETA_PDF = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANO
 function formaPagoNotaVentaTexto(nv = {}) {
   if (nv.formaPago === 'COMBINADO') return 'Combinado';
   const banco = nv.banco || '';
-  if (TERMINALES_TARJETA_PDF.includes(banco)) {
+  if (TERMINALES_TARJETA.includes(banco)) {
     const t = nv.formaPago === 'DEBITO' ? 'T. Débito' : nv.formaPago === 'CREDITO' ? 'T. Crédito' : 'Tarjeta';
     return `${t} — ${banco}`;
   }

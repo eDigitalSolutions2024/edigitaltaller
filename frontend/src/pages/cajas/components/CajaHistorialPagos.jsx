@@ -25,6 +25,11 @@ function tipoPagoLabel(p) {
   // único valor válido para SIN_COMPROBANTE (ver cajas.js), pero aquí no se
   // lee como abono parcial.
   if (p.comprobante === "SIN_COMPROBANTE" && p.facturaId) return "Liquidación";
+  // Mismo criterio: un Recibo Provisional creado al generar un Complemento de
+  // pago (pago.facturaId, ver crearPagosSinComprobante modo "ABONO" en
+  // generar_xml.js) — a diferencia de un Abono capturado a mano en Cajas, que
+  // nunca trae facturaId.
+  if (p.comprobante === "RECIBO_PROVISIONAL" && p.facturaId) return "Abono (Complemento)";
   return TIPO_PAGO_LABELS[p.tipoPago] || p.tipoPago;
 }
 
@@ -228,6 +233,17 @@ export default function CajaHistorialPagos({
                       → Saldo a favor
                     </span>
                   )}
+                  {p.comprobante === "RECIBO_PROVISIONAL" && p.facturaId && (() => {
+                    const f = facturas.find((x) => String(x._id) === String(p.facturaId));
+                    return (
+                      <span
+                        className="badge bg-info text-dark ms-1"
+                        title="Este abono se registró al generar un Complemento de pago"
+                      >
+                        → Complemento{f ? ` ${facturaFolioLabel(f)}` : ""}
+                      </span>
+                    );
+                  })()}
                   {p.cancelado && (() => {
                     const b = badgeCancelacion(p, pagos, facturas);
                     return (

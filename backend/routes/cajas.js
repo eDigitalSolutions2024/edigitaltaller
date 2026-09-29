@@ -17,6 +17,7 @@ const { generarReciboProvisionalPDF, generarReciboDolaresPDF } = require('../ser
 const { streamReporteFacturasDiarioPdf } = require('../service/reporteFacturasDiarioPdf');
 const { streamReporteRemisionesDiarioPdf } = require('../service/reporteRemisionesDiarioPdf');
 const { aplicarUso, aplicarUsoDeDeposito, aplicarDeposito, cancelarDeposito, revertirUso, calcularOrigenSaldo, SaldoInsuficienteError, ReciboSinSaldoError, sincronizarAnticiposAplicados } = require('../utils/anticiposCliente');
+const { TERMINALES_TARJETA } = require('../utils/bancos');
 
 // saldoAFavor: necesario para que Cajas muestre "Saldo disponible del
 // cliente" y pueda aplicarlo a un pago (ver POST /:id/pagos abajo).
@@ -346,8 +347,7 @@ router.post('/:id/pagos', proteger, async (req, res) => {
     // Si llega desde un cliente viejo se trata como 'Contado'.
     const tipoRemision = tipoRemisionRaw === 'Cancelada' ? 'Contado' : tipoRemisionRaw;
 
-    const TERMINALES_TARJETA = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
-    const TIPOS_TRANSFERENCIA = ['SPEI', 'TEF'];
+    const TIPOS_TRANSFERENCIA = ['SPEI', 'TEF', 'TERCERO'];
 
     if (!['COMPLETO', 'ABONO', 'ANTICIPO'].includes(tipoPago)) {
       return res.status(400).json({ ok: false, msg: 'Tipo de pago inválido.' });
@@ -437,7 +437,7 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       formaPago === 'TRANSFERENCIA' &&
       (!TIPOS_TRANSFERENCIA.includes(tipoTransferencia) || !TERMINALES_TARJETA.includes(bancoTransferencia))
     ) {
-      return res.status(400).json({ ok: false, msg: 'Selecciona el tipo de transferencia (SPEI o TEF) y el banco.' });
+      return res.status(400).json({ ok: false, msg: 'Selecciona el tipo de transferencia (SPEI, TEF o Pago cuenta tercero) y el banco.' });
     }
     if (
       ['NOTA_VENTA', 'RECIBO_PROVISIONAL', 'SIN_COMPROBANTE'].includes(comprobante) &&
@@ -445,7 +445,7 @@ router.post('/:id/pagos', proteger, async (req, res) => {
       (Number(combinado?.transferencia) || 0) > 0 &&
       (!TIPOS_TRANSFERENCIA.includes(combinado?.transferenciaTipo) || !TERMINALES_TARJETA.includes(combinado?.transferenciaBanco))
     ) {
-      return res.status(400).json({ ok: false, msg: 'Selecciona el tipo de transferencia (SPEI o TEF) y el banco de la parte por transferencia del pago combinado.' });
+      return res.status(400).json({ ok: false, msg: 'Selecciona el tipo de transferencia (SPEI, TEF o Pago cuenta tercero) y el banco de la parte por transferencia del pago combinado.' });
     }
     // Cheque en una Nota de Venta (simple o dentro de un combinado) necesita
     // su número. El Recibo Provisional ya lo valida en el front.

@@ -101,6 +101,13 @@ const FacturaCfdiSchema = new Schema(
       fechaPago: { type: Date, default: null },
       formaPago: { type: String, default: "" },
       monto: { type: Number, default: 0 },
+      // Banco/terminal con el que se cobró (de "Cobro en Cajas" al generar el
+      // complemento, ver generar_xml.js) — solo relevante cuando formaPago es
+      // transferencia ("03"): con eso el PDF resuelve el "RFC Banco Emisor" y
+      // "Num Cuenta" (ver utils/bancos.js y Configuración > Cuentas bancarias).
+      // '' cuando no se pagó por transferencia, o cuando la orden ya traía un
+      // pago propio en Cajas (no se capturó nada nuevo al generar este CFDI).
+      banco: { type: String, default: "" },
     },
 
     cliente: {

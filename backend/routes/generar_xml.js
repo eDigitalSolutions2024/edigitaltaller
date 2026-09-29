@@ -23,6 +23,7 @@ const { limpiarYValidarTarjetas } = require("../utils/tarjetasCaja");
 const { registrarAccion } = require("../utils/registrarAccion");
 const { ordenesEnFacturaGlobal } = require("../utils/ordenesEnFacturaGlobal");
 const { exigirUuidActivo } = require("../utils/configuracionUuid");
+const { TERMINALES_TARJETA } = require("../utils/bancos");
 const { resolverNotasLiberadas, liberarNotasDeGlobal } = require("../utils/notaCreditoGlobal");
 const {
   folioDe,
@@ -39,12 +40,15 @@ const router = express.Router();
 // Dólares (folio compartido, sin importar si el pago se dio de alta desde
 // Cajas o desde el menú Factura).
 const CONTADOR_RECIBO_DOLARES = "reciboDolares";
+// Folio del Recibo Provisional que genera un Complemento de pago sin comprobante
+// en Cajas (ver crearPagosSinComprobante, modo "ABONO") — debe coincidir con
+// CONTADOR_RECIBO_PROVISIONAL en routes/cajas.js.
+const CONTADOR_RECIBO_PROVISIONAL = "reciboProvisional";
 
 // Mismos catálogos que backend/routes/cajas.js usa para validar un pago
 // SIN_COMPROBANTE ("Liquidar") dado de alta desde Cajas.
 const FORMAS_PAGO_CAJA = ["EFECTIVO", "CREDITO", "DEBITO", "CHEQUE", "TRANSFERENCIA", "COMBINADO"];
-const TERMINALES_TARJETA = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER"];
-const TIPOS_TRANSFERENCIA = ["SPEI", "TEF"];
+const TIPOS_TRANSFERENCIA = ["SPEI", "TEF", "TERCERO"];
 
 // Valida una entrada de `pagosSinComprobante` (una orden de la factura que no
 // tiene ningún anticipo/remisión vigente): mismas reglas que cajas.js aplica
@@ -79,7 +83,7 @@ function errorPagoSinComprobante(p) {
     p.formaPago === "TRANSFERENCIA" &&
     (!TIPOS_TRANSFERENCIA.includes(p.tipoTransferencia) || !TERMINALES_TARJETA.includes(p.bancoTransferencia))
   ) {
-    return "Selecciona el tipo de transferencia (SPEI o TEF) y el banco de la orden sin comprobante en Cajas.";
+    return "Selecciona el tipo de transferencia (SPEI, TEF o Pago cuenta tercero) y el banco de la orden sin comprobante en Cajas.";
   }
   if (p.formaPago === "COMBINADO") {
     const c = p.combinado || {};
@@ -107,7 +111,7 @@ function errorPagoSinComprobante(p) {
       (Number(c.transferencia) || 0) > 0 &&
       (!TIPOS_TRANSFERENCIA.includes(c.transferenciaTipo) || !TERMINALES_TARJETA.includes(c.transferenciaBanco))
     ) {
-      return "Selecciona el tipo de transferencia (SPEI o TEF) y el banco de la parte por transferencia del pago combinado (orden sin comprobante en Cajas).";
+      return "Selecciona el tipo de transferencia (SPEI, TEF o Pago cuenta tercero) y el banco de la parte por transferencia del pago combinado (orden sin comprobante en Cajas).";
     }
   }
   return null;
@@ -307,13 +311,26 @@ function buildCfdiXmlUnsigned({ emisor, receptor, cfdi, conceptos, totales }) {
   const serieAttr = serie ? ` Serie="${escapeXml(String(serie))}"` : "";
   const folioAttr = folio ? ` Folio="${escapeXml(String(folio))}"` : "";
 
-  const relacionadosXml = relacion
-    ? `<cfdi:CfdiRelacionados TipoRelacion="${escapeXml(relacion.tipoRelacion)}">${(
-        (relacion.uuids || []).length ? relacion.uuids : [""]
-      )
-        .map((u) => `<cfdi:CfdiRelacionado UUID="${escapeXml(uuidParaXml(u))}"/>`)
-        .join("")}</cfdi:CfdiRelacionados>`
-    : "";
+  // `relacion` acepta un solo grupo { tipoRelacion, uuids } (factura/complemento: el
+  // grupo opcional de "Facturas relacionadas") o varios (nota de crédito: el grupo 01
+  // obligatorio de la factura que acredita, más el opcional si se capturó otro) — el
+  // SAT permite varios <cfdi:CfdiRelacionados>, uno por cada TipoRelacion distinto; si
+  // dos grupos comparten tipo se combinan en uno solo (no debería pasar en la práctica).
+  const gruposRelacion = Array.isArray(relacion) ? relacion : relacion ? [relacion] : [];
+  const uuidsPorTipo = new Map();
+  for (const g of gruposRelacion) {
+    if (!g?.tipoRelacion) continue;
+    const uuids = ((g.uuids || []).length ? g.uuids : [""]).map((u) => uuidParaXml(u));
+    uuidsPorTipo.set(g.tipoRelacion, [...(uuidsPorTipo.get(g.tipoRelacion) || []), ...uuids]);
+  }
+  const relacionadosXml = [...uuidsPorTipo.entries()]
+    .map(
+      ([tipo, uuids]) =>
+        `<cfdi:CfdiRelacionados TipoRelacion="${escapeXml(tipo)}">${uuids
+          .map((u) => `<cfdi:CfdiRelacionado UUID="${escapeXml(u)}"/>`)
+          .join("")}</cfdi:CfdiRelacionados>`
+    )
+    .join("");
 
   const tasaIva = tasaIva6(ivaRate);
   const tasaIsr = tasaIsr6(isrRate);
@@ -479,13 +496,25 @@ function buildCfdiXmlUnsigned({ emisor, receptor, cfdi, conceptos, totales }) {
    Complemento de pago 2.0 (pago20)
 ========================= */
 function buildPagoXmlUnsigned({ emisor, receptor, cfdi, pago, relacionadas }) {
-  const { serie, folio, lugarExpedicion, fecha } = cfdi;
+  const { serie, folio, lugarExpedicion, fecha, relacion = null } = cfdi;
 
   const fechaOk = fecha || cfdiFechaNow();
   const serieAttr = serie ? ` Serie="${escapeXml(String(serie))}"` : "";
   const folioAttr = folio ? ` Folio="${escapeXml(String(folio))}"` : "";
   const noCertAttr = emisor.noCertificado ? ` NoCertificado="${escapeXml(emisor.noCertificado)}"` : "";
   const certAttr = emisor.certificadoBase64 ? ` Certificado="${escapeXml(emisor.certificadoBase64)}"` : "";
+
+  // cfdi:CfdiRelacionados opcional (ver NuevaFactura "Facturas relacionadas"): la relación
+  // del complemento con las facturas que paga va aparte, en pago20:DoctoRelacionado (más
+  // abajo); esto es solo para el caso, poco común, de que el complemento en sí también se
+  // relacione con OTRO CFDI (sustitución, devolución, etc.).
+  const relacionadosXml = relacion?.tipoRelacion
+    ? `<cfdi:CfdiRelacionados TipoRelacion="${escapeXml(relacion.tipoRelacion)}">${(
+        (relacion.uuids || []).length ? relacion.uuids : [""]
+      )
+        .map((u) => `<cfdi:CfdiRelacionado UUID="${escapeXml(uuidParaXml(u))}"/>`)
+        .join("")}</cfdi:CfdiRelacionados>`
+    : "";
 
   const monto = relacionadas.reduce((s, r) => s + Number(r.importePagado || 0), 0);
 
@@ -526,6 +555,8 @@ function buildPagoXmlUnsigned({ emisor, receptor, cfdi, pago, relacionadas }) {
   Exportacion="01"
   LugarExpedicion="${escapeXml(lugarExpedicion)}"
   Sello="">
+
+  ${relacionadosXml}
 
   <cfdi:Emisor
     Rfc="${escapeXml(emisor.rfc)}"
@@ -623,7 +654,16 @@ function terminalLegacyDeTarjetas(tarjetas) {
   return tarjetas.length === 1 ? tarjetas[0].terminal : "";
 }
 
-async function crearPagosSinComprobante(pagosSinComprobante, facturaDoc, user = null) {
+// `opciones.modo`:
+//  - "LIQUIDAR" (default, Factura de ingreso): cubre el saldo completo de la orden,
+//    comprobante SIN_COMPROBANTE ("Liquidar" de Cajas), sin folio propio.
+//  - "ABONO" (Complemento de pago): cubre solo lo que ese complemento abona de esa
+//    factura (`entrada.monto` = importePagado, no el saldo completo), comprobante
+//    RECIBO_PROVISIONAL con folio propio — mismo documento que genera un abono
+//    dado de alta a mano en Cajas.
+async function crearPagosSinComprobante(pagosSinComprobante, facturaDoc, user = null, opciones = {}) {
+  const modo = opciones.modo === "ABONO" ? "ABONO" : "LIQUIDAR";
+  const folioFactura = `${facturaDoc.serie || ""}${facturaDoc.folio || ""}`;
   const recibosDolares = [];
   for (const entrada of Array.isArray(pagosSinComprobante) ? pagosSinComprobante : []) {
     if (!entrada?.vehiculoId) continue;
@@ -692,24 +732,40 @@ async function crearPagosSinComprobante(pagosSinComprobante, facturaDoc, user = 
           }
         : null;
 
+    // Folio propio (Recibo Provisional) solo en modo ABONO — Liquidar no genera folio.
+    let numeroReciboProvisional = null;
+    if (modo === "ABONO") {
+      const contadorProvisional = await Contador.findOneAndUpdate(
+        { nombre: CONTADOR_RECIBO_PROVISIONAL },
+        { $inc: { valor: 1 } },
+        { new: true, upsert: true }
+      );
+      numeroReciboProvisional = contadorProvisional.valor;
+    }
+
+    const subObjetoPago = {
+      formaPago,
+      chequeNumero: formaPago === "CHEQUE" ? entrada.chequeNumero || "" : "",
+      banco: ["CREDITO", "DEBITO"].includes(formaPago) ? terminalLegacyDeTarjetas(tarjetasSimpleLimpias) || terminal : "",
+      tipoTransferencia: formaPago === "TRANSFERENCIA" ? entrada.tipoTransferencia || "" : "",
+      bancoTransferencia: formaPago === "TRANSFERENCIA" ? entrada.bancoTransferencia || "" : "",
+      tarjetas: tarjetasSimpleLimpias,
+      ...(combinadoLimpio ? { combinado: combinadoLimpio } : {}),
+      ...(modo === "ABONO"
+        ? { numero: numeroReciboProvisional, concepto: `Complemento de pago ${folioFactura}`, recibio: "" }
+        : {}),
+    };
+
     const pago = {
       fecha,
-      tipoPago: "ABONO", // misma convención que "Liquidar" desde Cajas
-      comprobante: "SIN_COMPROBANTE",
+      tipoPago: "ABONO", // misma convención que "Liquidar"/"Abono" desde Cajas
+      comprobante: modo === "ABONO" ? "RECIBO_PROVISIONAL" : "SIN_COMPROBANTE",
       montoPesos,
       montoDolares,
       tipoCambio,
       monto,
       registradoPor: user?.name || user?.username || "",
-      liquidacion: {
-        formaPago,
-        chequeNumero: formaPago === "CHEQUE" ? entrada.chequeNumero || "" : "",
-        banco: ["CREDITO", "DEBITO"].includes(formaPago) ? terminalLegacyDeTarjetas(tarjetasSimpleLimpias) || terminal : "",
-        tipoTransferencia: formaPago === "TRANSFERENCIA" ? entrada.tipoTransferencia || "" : "",
-        bancoTransferencia: formaPago === "TRANSFERENCIA" ? entrada.bancoTransferencia || "" : "",
-        tarjetas: tarjetasSimpleLimpias,
-        ...(combinadoLimpio ? { combinado: combinadoLimpio } : {}),
-      },
+      ...(modo === "ABONO" ? { reciboProvisional: subObjetoPago } : { liquidacion: subObjetoPago }),
       facturaId: facturaDoc._id,
     };
 
@@ -921,7 +977,11 @@ router.post("/xml", proteger, async (req, res) => {
       }
     }
 
-    if (tipoFactura === "factura" && Array.isArray(pagosSinComprobante) && pagosSinComprobante.length) {
+    if (
+      ["factura", "complementoPago"].includes(tipoFactura) &&
+      Array.isArray(pagosSinComprobante) &&
+      pagosSinComprobante.length
+    ) {
       for (const p of pagosSinComprobante) {
         const err = errorPagoSinComprobante(p);
         if (err) return res.status(400).json({ ok: false, error: err });
@@ -1227,18 +1287,13 @@ router.post("/xml", proteger, async (req, res) => {
           }
         : null,
 
-      // Nota de crédito: CFDI relacionado con TipoRelacion 01 (nota de crédito de
-      // los documentos relacionados). El UUID es el real de cada factura
-      // acreditada (validado arriba); NUNCA se cae a serie+folio, que no es un
-      // UUID válido y dejaría el XML inválido para el SAT.
-      // Cualquier otro tipo (solo factura de ingreso): grupo opcional que
-      // captura la pantalla de "Facturas relacionadas" (ver cfdi.relacion).
-      relacion: esNotaCredito
-        ? {
-            tipoRelacion: "01",
-            uuids: relacionadas.map((r) => String(r.uuid || "").trim().toUpperCase()),
-          }
-        : cfdi.relacion
+      // Grupo OPCIONAL de "Facturas relacionadas" (cfdi.relacion, pantalla del paso
+      // Comprobante): disponible para factura, nota de crédito y complemento de pago. Es
+      // aparte de la relación OBLIGATORIA que ya trae toda nota de crédito (TipoRelacion 01
+      // con la factura acreditada, armada directo de `relacionadas` al construir el XML más
+      // abajo — nunca se guarda aquí, para no duplicarla) y de la que trae todo complemento
+      // (pago20:DoctoRelacionado, también de `relacionadas`, sin relación con este campo).
+      relacion: cfdi.relacion
         ? {
             tipoRelacion: cfdi.relacion.tipoRelacion,
             uuids: (cfdi.relacion.uuids || []).map((u) => String(u || "").trim().toUpperCase()),
@@ -1284,10 +1339,23 @@ router.post("/xml", proteger, async (req, res) => {
       // Descuento por concepto y base gravable = Importe - Descuento).
       const conceptosXml = repartirDescuentoEnConceptos(conceptos, Number(totales.descuento || 0));
 
+      // Nota de crédito: el XML SIEMPRE lleva el grupo obligatorio TipoRelacion 01 (la
+      // factura que acredita, UUID real validado arriba) — armado aquí directo de
+      // `relacionadas`, nunca desde cfdiFinal.relacion — más el grupo opcional de
+      // "Facturas relacionadas" si además se capturó uno (mismo UUID o de cualquier otro
+      // CFDI, por otro motivo). El SAT permite varios <cfdi:CfdiRelacionados>, uno por
+      // TipoRelacion (ver relacionadosXml en buildCfdiXmlUnsigned).
+      const relacionParaXml = esNotaCredito
+        ? [
+            { tipoRelacion: "01", uuids: relacionadas.map((r) => String(r.uuid || "").trim().toUpperCase()) },
+            ...(cfdiFinal.relacion ? [cfdiFinal.relacion] : []),
+          ]
+        : cfdiFinal.relacion;
+
       xmlUnsigned = buildCfdiXmlUnsigned({
         emisor,
         receptor,
-        cfdi: cfdiFinal,
+        cfdi: { ...cfdiFinal, relacion: relacionParaXml },
         conceptos: conceptosXml,
         totales,
       });
@@ -1382,6 +1450,23 @@ router.post("/xml", proteger, async (req, res) => {
         : ordenes;
       const ordenPrincipalDoc = ordenesDoc[0] || null;
 
+      // Banco usado en el "Cobro en Cajas" de este complemento (ver pagosSinComprobante
+      // arriba): solo se resuelve cuando la forma de pago es transferencia (03) — es lo
+      // único que el PDF necesita para el "RFC Banco Emisor"/"Num Cuenta" (ver utils/bancos.js
+      // y Configuración > Cuentas bancarias). Todas las entradas de pagosSinComprobante
+      // comparten el mismo banco (el reparto entre órdenes solo divide montos), así que basta
+      // la primera. Queda '' si no se capturó nada ahora (la orden ya traía su propio pago en
+      // Cajas) o si no fue transferencia.
+      const primeraEntradaPago = Array.isArray(pagosSinComprobante) ? pagosSinComprobante[0] : null;
+      const bancoPago =
+        esComplementoPago && pago?.formaPago === "03" && primeraEntradaPago
+          ? primeraEntradaPago.formaPago === "TRANSFERENCIA"
+            ? primeraEntradaPago.bancoTransferencia || ""
+            : primeraEntradaPago.formaPago === "COMBINADO"
+            ? primeraEntradaPago.combinado?.transferenciaBanco || ""
+            : ""
+          : "";
+
       const facturaDoc = await FacturaCfdi.create({
         tipoFactura,
         notasLiberadas: notasLiberadasResueltas,
@@ -1405,6 +1490,7 @@ router.post("/xml", proteger, async (req, res) => {
               fechaPago: new Date(pago.fechaPago),
               formaPago: pago.formaPago || "",
               monto: Number(totales.total),
+              banco: bancoPago,
             }
           : undefined,
         notaFacturacion,
@@ -1581,6 +1667,18 @@ router.post("/xml", proteger, async (req, res) => {
             )
           : pagosSinComprobante;
         recibosDolares = await crearPagosSinComprobante(pagosLiquidar, facturaDoc, req.user);
+      }
+
+      // Complemento de pago: cada factura relacionada sin forma de pago capturable en Cajas
+      // (ver ordenesDeRelacionadas arriba) registra, con lo que se capturó en el paso
+      // Comprobante, un Abono (Recibo Provisional) ligado a la orden de esa factura — mismo
+      // documento que un abono dado de alta a mano en Cajas, para que el Cierre de Caja y el
+      // saldo de la orden queden al día. NO exige cubrir el saldo completo (a diferencia del
+      // "Liquidar" de una Factura de ingreso): un complemento es justo un abono parcial.
+      if (tipoFactura === "complementoPago") {
+        recibosDolares = await crearPagosSinComprobante(pagosSinComprobante, facturaDoc, req.user, {
+          modo: "ABONO",
+        });
       }
 
       if (esFacturaGlobal) {
