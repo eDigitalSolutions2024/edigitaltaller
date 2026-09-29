@@ -11,9 +11,20 @@ const path = require("path");
 const FiscalConfig = require("../models/FiscalConfig");
 const FacturaCfdi = require("../models/FacturaCfdi");
 const Vehiculo = require("../models/Vehiculo");
+const CuentaBancaria = require("../models/CuentaBancaria");
 const { formaPagoSatDeNotaVenta } = require("../utils/formaPagoSat");
 const { abreviaturaFormaPago } = require("../utils/abreviaturaFormaPago");
 const { getSitioConfig } = require("../utils/sitioConfig");
+const { RFC_POR_BANCO } = require("../utils/bancos");
+
+// Número de cuenta del taller en `banco` (Configuración > Cuentas bancarias) — para el
+// "RFC Banco Emisor"/"Num Cuenta" del PDF de un Complemento de pago pagado por
+// transferencia. '' si no hay banco o no se ha capturado su cuenta todavía.
+async function numeroCuentaDelBanco(banco) {
+  if (!banco) return "";
+  const cuenta = await CuentaBancaria.findOne({ banco }).lean().catch(() => null);
+  return cuenta?.numeroCuenta || "";
+}
 
 const router = express.Router();
 
@@ -820,7 +831,7 @@ function drawComprobanteIngresoEgreso(doc, data) {
 ========================= */
 function drawReciboElectronicoPago(doc, data) {
   const ui = makeUi(doc);
-  const { emisor, cliente, pago, relacionadas, cfdi } = data;
+  const { emisor, cliente, pago, relacionadas, cfdi, numeroCuentaBanco = "" } = data;
   const m = data.meta || buildMeta();
 
   const monto = relacionadas.reduce((s, r) => s + Number(r.importePagado || 0), 0);
@@ -892,6 +903,46 @@ function drawReciboElectronicoPago(doc, data) {
   ui.box(M + 466, y + 5, 90, 17);
   doc.font("Helvetica-Bold").fontSize(9).text(money(monto), M + 470, y + 10, { width: 82, align: "right" });
   y += 34;
+
+  // ===== Tipo de Relación / Uuid Relacionado (opcional, "Facturas relacionadas" del
+  // paso Comprobante) y RFC Banco Ordenante/Emisor (solo si se pagó por transferencia,
+  // formaPago SAT "03") — se omite el recuadro entero si no aplica ninguno de los dos,
+  // igual que drawFilaCfdi hace para Factura/Nota de Crédito.
+  const relacionPago = cfdi?.relacion;
+  const uuidsRelacionPago = Array.isArray(relacionPago?.uuids) ? relacionPago.uuids.filter(Boolean) : [];
+  const tieneRelacionPago = !!relacionPago?.tipoRelacion && uuidsRelacionPago.length > 0;
+  const esTransferenciaPago = pago?.formaPago === "03";
+
+  if (tieneRelacionPago || esTransferenciaPago) {
+    const filas = (tieneRelacionPago ? 1 : 0) + (esTransferenciaPago ? 1 : 0);
+    const hBancos = filas * 14 + 8;
+    ui.box(M, y, W, hBancos);
+    let fy = y + 5;
+
+    if (tieneRelacionPago) {
+      ui.kv(M + 8, fy, "Tipo de Relación:", tipoRelacionLabel(relacionPago.tipoRelacion), 78, 260, 7);
+      doc.font("Helvetica-Bold").fontSize(7).text("Uuid Relacionado:", M + 300, fy, { width: 90 });
+      doc.font("Helvetica");
+      ui.oneLine(uuidsRelacionPago.join(", "), M + 300 + 78, fy, W + M - (M + 300 + 78) - 6, 7);
+      fy += 14;
+    }
+
+    if (esTransferenciaPago) {
+      // Ordenante (banco/cuenta del CLIENTE de donde salió el dinero): este sistema no
+      // lo captura en ningún lado — se imprime igual que un recibo sin ese dato.
+      ui.kv(M + 8, fy, "RFC Banco Ordenante:", "—", 95, 220, 7);
+      ui.kv(M + 240, fy, "Num Cuenta:", "0000000000", 60, 200, 7);
+      fy += 14;
+      // Emisor (banco/cuenta del TALLER que recibe): banco de "Cobro en Cajas" al
+      // generar el complemento (ver pago.banco) + su cuenta en Configuración > Cuentas
+      // bancarias (ver utils/bancos.js).
+      const rfcBancoEmisor = RFC_POR_BANCO[pago?.banco] || "";
+      ui.kv(M + 8, fy, "RFC Banco Emisor:", rfcBancoEmisor || "—", 95, 220, 7);
+      ui.kv(M + 240, fy, "Num Cuenta:", numeroCuentaBanco || "0000000000", 60, 200, 7);
+    }
+
+    y += hBancos + 6;
+  }
 
   // ===== Concepto fijo del CFDI de pago =====
   ui.fillRect(M, y, W, 14, GRAY);
@@ -1147,6 +1198,7 @@ router.post("/preview", async (req, res) => {
       orden = null,
       ordenes = [],
       informacionGlobal = null,
+      pagosSinComprobante = [],
     } = req.body;
 
     const esComplementoPago = tipoFactura === "complementoPago";
@@ -1201,7 +1253,26 @@ router.post("/preview", async (req, res) => {
     doc.pipe(res);
 
     if (esComplementoPago) {
-      drawReciboElectronicoPago(doc, { emisor, cliente, pago, relacionadas, cfdi });
+      // Mismo criterio que generar_xml.js: banco del "Cobro en Cajas" capturado en
+      // este complemento, solo relevante si la forma de pago resuelta es transferencia.
+      const primeraEntradaPago = Array.isArray(pagosSinComprobante) ? pagosSinComprobante[0] : null;
+      const bancoPagoPreview =
+        pago?.formaPago === "03" && primeraEntradaPago
+          ? primeraEntradaPago.formaPago === "TRANSFERENCIA"
+            ? primeraEntradaPago.bancoTransferencia || ""
+            : primeraEntradaPago.formaPago === "COMBINADO"
+            ? primeraEntradaPago.combinado?.transferenciaBanco || ""
+            : ""
+          : "";
+      const numeroCuentaBancoPreview = await numeroCuentaDelBanco(bancoPagoPreview);
+      drawReciboElectronicoPago(doc, {
+        emisor,
+        cliente,
+        pago: { ...pago, banco: bancoPagoPreview },
+        relacionadas,
+        cfdi,
+        numeroCuentaBanco: numeroCuentaBancoPreview,
+      });
     } else {
       drawComprobanteIngresoEgreso(doc, {
         emisor,
@@ -1327,6 +1398,10 @@ async function cargarDatosFacturaPdf(id) {
     totales = { ...totales, descuento: descuentoGuardado };
   }
 
+  // Solo aplica a un Complemento pagado por transferencia (ver f.pago.banco,
+  // generar_xml.js) — el resto de las formas de pago no llevan RFC Banco Emisor.
+  const numeroCuentaBanco = esComplementoPago ? await numeroCuentaDelBanco(f.pago?.banco) : "";
+
   return {
     f,
     emisor,
@@ -1338,11 +1413,12 @@ async function cargarDatosFacturaPdf(id) {
     informacionGlobal: f.informacionGlobal || null,
     esComplementoPago,
     esNotaCredito,
+    numeroCuentaBanco,
   };
 }
 
 function renderFacturaPdfDoc(data) {
-  const { f, emisor, ordenes, conceptos, totales, meta, informacionGlobal, esComplementoPago, esNotaCredito } = data;
+  const { f, emisor, ordenes, conceptos, totales, meta, informacionGlobal, esComplementoPago, esNotaCredito, numeroCuentaBanco } = data;
 
   const doc = new PDFDocument({ size: "LETTER", margin: M });
 
@@ -1365,6 +1441,7 @@ function renderFacturaPdfDoc(data) {
       },
       relacionadas: f.relacionadas || [],
       cfdi: f.cfdi,
+      numeroCuentaBanco,
       meta,
     });
   } else {

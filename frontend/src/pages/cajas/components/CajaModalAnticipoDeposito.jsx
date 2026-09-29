@@ -14,7 +14,20 @@ const FORMAS_PAGO = [
 // Terminales físicas (mismo catálogo que BANCO_A_TERMINAL en
 // backend/utils/cierreCajaTerminales.js): un depósito con tarjeta debe decir
 // en cuál se cobró para que el Cierre de Caja cuadre por terminal.
-const TERMINALES = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER"];
+const TERMINALES = [
+  "BANREGIO",
+  "AMERICAN EXPRESS",
+  "BANAMEX",
+  "BANORTE",
+  "BBVA BANCOMER",
+  "SANTANDER",
+  "HSBC",
+  "SCOTIABANK",
+  "AZTECA",
+  "BANCOPPEL",
+  "AFIRME",
+  "INBURSA",
+];
 
 // EFECTIVO/EFECTIVO_USD desglosan el efectivo en pesos y dólares (con
 // conversión, igual que "Cantidad en Pesos/Dólares"); los demás métodos del

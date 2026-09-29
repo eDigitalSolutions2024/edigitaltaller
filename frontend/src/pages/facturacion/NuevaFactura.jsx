@@ -71,12 +71,27 @@ const FORMAS_PAGO_CAJA = [
   { value: "TRANSFERENCIA", label: "Transferencia" },
   { value: "COMBINADO", label: "Combinado" },
 ];
-const TERMINALES_CAJA = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER"];
+const TERMINALES_CAJA = [
+  "BANREGIO",
+  "AMERICAN EXPRESS",
+  "BANAMEX",
+  "BANORTE",
+  "BBVA BANCOMER",
+  "SANTANDER",
+  "HSBC",
+  "SCOTIABANK",
+  "AZTECA",
+  "BANCOPPEL",
+  "AFIRME",
+  "INBURSA",
+];
 // Tipos de transferencia (mismo catálogo que TIPOS_TRANSFERENCIA_CAJA en
 // backend/models/Vehiculo.js).
 const TIPOS_TRANSFERENCIA = [
   { value: "SPEI", label: "SPEI" },
   { value: "TEF", label: "TEF" },
+  // Mismo tratamiento que SPEI/TEF: pide banco igual que las otras (ver TERMINALES).
+  { value: "TERCERO", label: "Pago cuenta tercero" },
 ];
 // Mismos nombres de campo que backend/routes/cajas.js espera en `combinado`
 // (pago.liquidacion.combinado): efectivo/efectivoDolares/credito/debito/
@@ -168,6 +183,116 @@ const formaSatMayor = (sumas) => {
     }
   }
   return mejor;
+};
+
+// Reparte `valorTotal` proporcionalmente según `pesos` (p. ej. el monto que le toca a cada
+// orden), redondeando a centavos — la ÚLTIMA parte absorbe el residuo del redondeo de las
+// demás, así la suma da SIEMPRE exacto (nunca sobra ni falta un centavo). Se usa en dos
+// sentidos para repartir la única captura de "Cobro en Cajas" de un Complemento de pago entre
+// las órdenes que abona (decisión del usuario: reparto proporcional): repartir un monto de
+// Cajas (Efectivo, T. Crédito…) entre las órdenes, o repartir el monto de UNA orden entre las
+// filas de su propio desglose de tarjetas (mismas proporciones que capturó el cajero).
+const repartirProporcionalExacto = (valorTotal, pesos) => {
+  const v = Number(valorTotal) || 0;
+  const total = pesos.reduce((s, p) => s + (Number(p) || 0), 0);
+  if (!pesos.length) return [];
+  if (!(total > 0) || !(v > 0)) return pesos.map(() => 0);
+  const partes = pesos.map((p) => Math.round(((v * (Number(p) || 0)) / total) * 100) / 100);
+  const sumaSinUltima = partes.slice(0, -1).reduce((s, x) => s + x, 0);
+  partes[partes.length - 1] = Math.round((v - sumaSinUltima) * 100) / 100;
+  return partes;
+};
+
+// Convierte la ÚNICA captura de "Cobro en Cajas" de un Complemento de pago (un solo
+// pagoLiquidar, bajo CLAVE_CAPTURA_COMPLEMENTO) en una entrada por cada orden real que abona —
+// el monto de cada orden YA se conoce (o.monto, ver ordenesComplementoSinComprobante); lo que
+// hay que repartir es el DESGLOSE (tarjetas/combinado) para que, si el cliente pagó con más de
+// un método o más de una tarjeta, cada orden se quede con una parte válida y consistente.
+// tarjetasCredito/tarjetasDebito de un Combinado se validan por separado del lado del backend
+// (ver errorPagoSinComprobante en generar_xml.js), así que se reparten aparte una de la otra.
+const repartirCapturaPorOrdenes = (p, ordenesDestino) => {
+  const pesos = ordenesDestino.map((o) => o.monto);
+  return ordenesDestino.map((o, i) => {
+    let pOrden = p;
+
+    if (["CREDITO", "DEBITO"].includes(p.formaPago) && (p.tarjetas || []).length > 1) {
+      const partes = repartirProporcionalExacto(o.monto, p.tarjetas.map((t) => t.monto));
+      pOrden = { ...pOrden, tarjetas: p.tarjetas.map((t, j) => ({ ...t, monto: partes[j] })) };
+    }
+
+    if (p.formaPago === "EFECTIVO" && Number(p.montoDolares) > 0) {
+      const partes = repartirProporcionalExacto(p.montoDolares, pesos);
+      pOrden = { ...pOrden, montoDolares: partes[i] };
+    }
+
+    if (p.formaPago === "COMBINADO") {
+      const c = p.combinado || {};
+      const nuevoCombinado = { ...c };
+      for (const campo of ["efectivo", "efectivoDolares", "credito", "debito", "cheque", "transferencia"]) {
+        const monto = Number(c[campo]) || 0;
+        if (monto > 0) nuevoCombinado[campo] = repartirProporcionalExacto(monto, pesos)[i];
+      }
+      const filasCredito = (c.tarjetas || []).filter((t) => t.tipo === "CREDITO");
+      const filasDebito = (c.tarjetas || []).filter((t) => t.tipo === "DEBITO");
+      if (filasCredito.length || filasDebito.length) {
+        const partesCredito = filasCredito.length
+          ? repartirProporcionalExacto(Number(nuevoCombinado.credito) || 0, filasCredito.map((t) => t.monto))
+          : [];
+        const partesDebito = filasDebito.length
+          ? repartirProporcionalExacto(Number(nuevoCombinado.debito) || 0, filasDebito.map((t) => t.monto))
+          : [];
+        nuevoCombinado.tarjetas = [
+          ...filasCredito.map((t, j) => ({ ...t, monto: partesCredito[j] })),
+          ...filasDebito.map((t, j) => ({ ...t, monto: partesDebito[j] })),
+        ];
+      }
+      pOrden = { ...pOrden, combinado: nuevoCombinado };
+    }
+
+    return { vehiculoId: o._id, p: pOrden, monto: o.monto };
+  });
+};
+
+// Arma una entrada de `pagosSinComprobante` (lo que espera generar_xml.js/crearPagosSinComprobante)
+// a partir de un pagoLiquidar (p) y el monto de la orden que le toca — misma entrada tanto para
+// una orden de Factura (captura propia) como, tras repartirCapturaPorOrdenes, para cada orden de
+// un Complemento de pago (captura repartida).
+const construirEntradaPagoSinComprobante = (vehiculoId, p, montoOrden, tipoCambio) => {
+  // Desglose de tarjetas de un pago SIMPLE: el monto de la única fila no se
+  // captura a mano (es el total de la orden) salvo que se haya dividido en
+  // más de una tarjeta, donde cada fila trae el suyo.
+  const tarjetasSimple = (p.tarjetas || []).length > 1
+    ? p.tarjetas.map((t) => ({ monto: Number(t.monto) || 0, terminal: t.terminal }))
+    : [{ monto: montoOrden, terminal: p.tarjetas?.[0]?.terminal || "" }];
+  // El backend espera el desglose de la parte de tarjeta del Combinado
+  // separado por tipo (tarjetasCredito/tarjetasDebito); en pantalla se
+  // captura como una sola lista con su propio tipo.
+  const combinadoPayload =
+    p.formaPago === "COMBINADO"
+      ? {
+          ...p.combinado,
+          tarjetasCredito: (p.combinado?.tarjetas || [])
+            .filter((t) => t.tipo === "CREDITO")
+            .map((t) => ({ monto: Number(t.monto) || 0, terminal: t.terminal })),
+          tarjetasDebito: (p.combinado?.tarjetas || [])
+            .filter((t) => t.tipo === "DEBITO")
+            .map((t) => ({ monto: Number(t.monto) || 0, terminal: t.terminal })),
+          tarjetas: undefined,
+        }
+      : null;
+  return {
+    vehiculoId,
+    monto: montoOrden,
+    formaPago: p.formaPago,
+    chequeNumero: p.formaPago === "CHEQUE" ? p.chequeNumero : "",
+    terminal: ["CREDITO", "DEBITO"].includes(p.formaPago) ? p.tarjetas?.[0]?.terminal || "" : "",
+    tarjetas: ["CREDITO", "DEBITO"].includes(p.formaPago) ? tarjetasSimple : [],
+    tipoTransferencia: p.formaPago === "TRANSFERENCIA" ? p.tipoTransferencia : "",
+    bancoTransferencia: p.formaPago === "TRANSFERENCIA" ? p.bancoTransferencia : "",
+    combinado: combinadoPayload,
+    montoDolares: p.formaPago === "EFECTIVO" ? Number(p.montoDolares) || 0 : 0,
+    tipoCambio,
+  };
 };
 // Un Abono capturado sobre una orden con Remisión a Crédito es, en el fondo,
 // un anticipo: el cliente pagó antes de que la orden se facturara — solo que
@@ -732,12 +857,13 @@ export default function NuevaFactura() {
   const setUuidRelacionada = (key, uuid) =>
     setRelacionadasExtra((prev) => prev.map((r) => (r.key === key ? { ...r, uuid } : r)));
 
-  /* Búsqueda de CFDI para relacionar (opcional, solo factura de ingreso). Solo
-     ayuda a ubicar un folio propio y su cliente; el UUID sigue siendo
-     editable a mano porque el timbrado (y por lo tanto el UUID real) ocurre
-     fuera de este sistema. */
+  /* Búsqueda de CFDI para relacionar (opcional: factura de ingreso, nota de
+     crédito o complemento de pago — panelFacturasRelacionadas). Solo ayuda a
+     ubicar un folio propio y su cliente; el UUID sigue siendo editable a
+     mano porque el timbrado (y por lo tanto el UUID real) ocurre fuera de
+     este sistema. */
   useEffect(() => {
-    if (!esFactura) return;
+    if (!esFactura && !esNotaCredito && !esComplementoPago) return;
 
     const t = setTimeout(async () => {
       const term = qRelacionada.trim();
@@ -760,7 +886,7 @@ export default function NuevaFactura() {
     }, 300);
 
     return () => clearTimeout(t);
-  }, [qRelacionada, esFactura, relacionadasExtra]); // eslint-disable-line
+  }, [qRelacionada, esFactura, esNotaCredito, esComplementoPago, relacionadasExtra]); // eslint-disable-line
 
   const nombreCompleto = (c) =>
     [c?.nombre, c?.apellidoPaterno, c?.apellidoMaterno].filter(Boolean).join(" ");
@@ -1860,6 +1986,14 @@ export default function NuevaFactura() {
 
   const TOLERANCIA_LIQUIDAR = 0.01;
 
+  // Clave falsa (no es un vehiculoId real) para capturar el "Cobro en Cajas"
+  // de un Complemento de pago UNA SOLA VEZ (el usuario pidió no repetir el
+  // mismo método de pago por cada orden que abona) reusando los mismos
+  // helpers pagoLiquidarDe/setCampoPagoLiquidar/etc. que ya usa Factura por
+  // orden — ver repartirCapturaPorOrdenes más abajo, que reparte esa única
+  // captura entre las órdenes reales al armar el payload.
+  const CLAVE_CAPTURA_COMPLEMENTO = "__complemento__";
+
   // Órdenes de esta factura que NO van a quedar cubiertas por ningún anticipo
   // o remisión (de Contado) vigente que pase a ella (ni lo hay, el usuario
   // eligió OTRA_FACTURA/VIGENTE para el único que había, o era una Remisión a
@@ -1898,6 +2032,63 @@ export default function NuevaFactura() {
     });
   }, [ordenes, esFactura, accionesComprobantes, montoPorOrden, facturasPreviasPorOrden]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // La orden de cada factura que paga un Complemento de pago (para poder capturar, igual que
+  // una Factura de ingreso, cómo entregó el cliente ese dinero — ver ordenesLiquidarActivas
+  // más abajo). Sale del `orden`/`ordenes` que ya trae el resultado de búsqueda (mismo dato
+  // que muestra "Orden: A-22" en la lista); si una factura no resuelve ninguna orden, ese
+  // abono no se puede ligar a Cajas y se deja fuera (no bloquea generar el complemento).
+  const ordenDeFacturaPago = (doc) => (doc?.orden?.vehiculoId ? doc.orden : doc?.ordenes?.[0]) || null;
+
+  const ordenesComplementoSinComprobante = useMemo(() => {
+    if (!esComplementoPago) return [];
+    const sumas = new Map(); // vehiculoId -> { ordenServicio, monto }
+    for (const f of facturasPago) {
+      const ord = ordenDeFacturaPago(f.doc);
+      if (!ord?.vehiculoId) continue;
+      const previo = sumas.get(ord.vehiculoId) || { ordenServicio: ord.ordenServicio, monto: 0 };
+      previo.monto += Number(f.importePagado) || 0;
+      sumas.set(ord.vehiculoId, previo);
+    }
+    return [...sumas.entries()]
+      .filter(([, v]) => v.monto > TOLERANCIA_LIQUIDAR)
+      .map(([_id, v]) => ({ _id, ordenServicio: v.ordenServicio, monto: v.monto }));
+  }, [esComplementoPago, facturasPago]);
+
+  // Total que abona este Complemento (suma de todas sus facturas relacionadas) — el usuario
+  // captura el "Cobro en Cajas" UNA sola vez por este total, no por cada orden (ver
+  // CLAVE_CAPTURA_COMPLEMENTO); repartirCapturaPorOrdenes reparte el dinero entre las órdenes
+  // reales al armar el payload.
+  const totalComplementoSinComprobante = ordenesComplementoSinComprobante.reduce(
+    (s, o) => s + o.monto,
+    0
+  );
+
+  // montoPorOrden lo puebla agregarOrden() para Factura (una vez, al agregar, con el _id real de
+  // cada orden); en un Complemento de pago se REEMPLAZA por completo con UNA sola entrada, bajo
+  // la clave falsa CLAVE_CAPTURA_COMPLEMENTO, con el total a capturar — mientras esComplementoPago
+  // está activo, montoPorOrden solo lo usa este flujo (resetTodo lo vacía al cambiar de tipo).
+  useEffect(() => {
+    if (!esComplementoPago) return;
+    setMontoPorOrden(
+      totalComplementoSinComprobante > TOLERANCIA_LIQUIDAR
+        ? { [CLAVE_CAPTURA_COMPLEMENTO]: totalComplementoSinComprobante }
+        : {}
+    );
+  }, [esComplementoPago, totalComplementoSinComprobante]);
+
+  // "Entradas" a capturar en el panel "Cobro en Cajas": una por cada orden sin comprobante para
+  // Factura, o — en un Complemento de pago — UNA sola (bajo CLAVE_CAPTURA_COMPLEMENTO, por el
+  // total) porque el cliente entrega un único pago que luego se reparte entre las órdenes que
+  // abona (ver ordenesComplementoSinComprobante y repartirCapturaPorOrdenes). El resto del panel
+  // (capturaPagoActiva, satMayorCombinado, faltaCapturarLiquidar, las tarjetas del formulario) no
+  // necesita saber la diferencia: itera esto igual en ambos casos.
+  const ordenesLiquidarActivas = useMemo(() => {
+    if (!esComplementoPago) return ordenesSinComprobante;
+    return totalComplementoSinComprobante > TOLERANCIA_LIQUIDAR
+      ? [{ _id: CLAVE_CAPTURA_COMPLEMENTO, ordenServicio: null, monto: totalComplementoSinComprobante }]
+      : [];
+  }, [esComplementoPago, ordenesSinComprobante, totalComplementoSinComprobante]);
+
   // Forma de pago de Cajas con la que se captura el cobro de esas órdenes: sale
   // de la forma de pago SAT elegida en el paso "Comprobante" (o "COMBINADO" si
   // se marcó que pagó con varios métodos). null = no aplica capturar nada:
@@ -1905,8 +2096,12 @@ export default function NuevaFactura() {
   // Cajas.
   const formaCajaSat = SAT_A_FORMA_CAJA[formaPago] || null;
   const formaCajaCaptura = formaCajaSat ? (pagoCombinado ? "COMBINADO" : formaCajaSat) : null;
-  const capturaPagoActiva = esFactura && ordenesSinComprobante.length > 0 && !!formaCajaCaptura;
+  const capturaPagoActiva =
+    (esFactura || esComplementoPago) && ordenesLiquidarActivas.length > 0 && !!formaCajaCaptura;
 
+  // Panel "Cobro en Cajas": se define aquí (no inline en el JSX) porque tanto la rama de
+  // Factura/NC/Global como la de Complemento de pago lo necesitan, y esas dos ramas son un
+  // if/else mutuamente excluyente más abajo — como variable, ambas pueden mostrarlo.
   // La forma de pago de cada captura no se guarda por orden: la impone la forma
   // de pago SAT de la factura (una sola para todas las órdenes).
   const pagoLiquidarDe = (vehiculoId) => ({
@@ -1994,7 +2189,7 @@ export default function NuevaFactura() {
   const satMayorCombinado = useMemo(() => {
     if (!capturaPagoActiva || !pagoCombinado) return null;
     const sumas = { "01": 0, "04": 0, "28": 0, "02": 0, "03": 0 };
-    ordenesSinComprobante.forEach((o) => {
+    ordenesLiquidarActivas.forEach((o) => {
       const c = pagosLiquidar[o._id]?.combinado || {};
       sumas["01"] += (Number(c.efectivo) || 0) + (Number(c.efectivoDolares) || 0) * tipoCambioLiquidar;
       sumas["04"] += Number(c.credito) || 0;
@@ -2003,7 +2198,7 @@ export default function NuevaFactura() {
       sumas["03"] += Number(c.transferencia) || 0;
     });
     return formaSatMayor(sumas);
-  }, [capturaPagoActiva, pagoCombinado, ordenesSinComprobante, pagosLiquidar, tipoCambioLiquidar]);
+  }, [capturaPagoActiva, pagoCombinado, ordenesLiquidarActivas, pagosLiquidar, tipoCambioLiquidar]);
 
   useEffect(() => {
     if (satMayorCombinado && satMayorCombinado !== formaPago) setFormaPago(satMayorCombinado);
@@ -2100,7 +2295,7 @@ export default function NuevaFactura() {
   };
 
   const faltaCapturarLiquidar =
-    capturaPagoActiva && ordenesSinComprobante.some((o) => !pagoLiquidarCompleto(o._id));
+    capturaPagoActiva && ordenesLiquidarActivas.some((o) => !pagoLiquidarCompleto(o._id));
 
   // Reemplaza los pagos de una orden con los que devuelve el backend tras
   // cancelar hacia otra factura, para que la tabla se vea al día sin recargar.
@@ -2137,7 +2332,16 @@ export default function NuevaFactura() {
       }
       // El complemento de pago (Pagos 2.0) exige el UUID real de cada
       // factura pagada (nodo pago20:DoctoRelacionado IdDocumento).
-      return facturasPago.every((f) => uuidValido(f.uuid));
+      if (!facturasPago.every((f) => uuidValido(f.uuid))) return false;
+      if (!formaPago) return false;
+      if (faltaCapturarLiquidar) return false;
+      // Si se agregó alguna relacionada (panelFacturasRelacionadas), hace falta el
+      // tipo de relación y que todos los UUID capturados tengan formato válido.
+      if (relacionadasExtra.length > 0) {
+        if (!tipoRelacion) return false;
+        if (!relacionadasExtra.every((r) => uuidValido(r.uuid))) return false;
+      }
+      return true;
     }
 
     if (conceptos.length === 0) return false;
@@ -2156,9 +2360,10 @@ export default function NuevaFactura() {
       return false;
     }
 
-    // Factura: si se agregó alguna relacionada, hace falta el tipo de
-    // relación y que todos los UUID capturados tengan formato válido.
-    if (esFactura && relacionadasExtra.length > 0) {
+    // Factura / Nota de crédito: si se agregó alguna relacionada (además, en NC, de la
+    // relación 01 automática con la factura acreditada), hace falta el tipo de relación
+    // y que todos los UUID capturados tengan formato válido.
+    if ((esFactura || esNotaCredito) && relacionadasExtra.length > 0) {
       if (!tipoRelacion) return false;
       if (!relacionadasExtra.every((r) => uuidValido(r.uuid))) return false;
     }
@@ -2166,10 +2371,10 @@ export default function NuevaFactura() {
     // Refacturación: solo admin, y con la factura original relacionada (sustitución 04).
     if (esRefacturacion && (!esAdmin || tipoRelacion !== "04" || relacionadasExtra.length === 0)) return false;
 
-    // Factura: toda orden sin comprobante vigente en Cajas necesita su cobro
-    // (Liquidar) capturado antes de poder generar/timbrar — salvo con forma de
-    // pago "Por definir", que no pide ninguno (ver capturaPagoActiva).
-    if (esFactura && faltaCapturarLiquidar) return false;
+    // Factura / Complemento: toda orden sin comprobante vigente en Cajas (o, en un
+    // Complemento, la de cada factura que abona) necesita su cobro capturado antes de
+    // poder generar/timbrar — salvo con forma de pago "Por definir" (ver capturaPagoActiva).
+    if ((esFactura || esComplementoPago) && faltaCapturarLiquidar) return false;
 
     return true;
   }, [
@@ -2287,47 +2492,18 @@ export default function NuevaFactura() {
     // Con forma de pago "Por definir" (o una sin equivalente en Cajas) no se
     // captura nada: la factura queda sin ningún pago de Cajas asociado, a
     // cobrar después.
-    const pagosSinComprobantePayload = capturaPagoActiva
-      ? ordenesSinComprobante.map((o) => {
-          const p = pagoLiquidarDe(o._id);
-          const montoOrden = montoPorOrden[o._id] || 0;
-          // Desglose de tarjetas de un pago SIMPLE: el monto de la única fila
-          // no se captura a mano (es el total de la orden) salvo que se haya
-          // dividido en más de una tarjeta, donde cada fila trae el suyo.
-          const tarjetasSimple = (p.tarjetas || []).length > 1
-            ? p.tarjetas.map((t) => ({ monto: Number(t.monto) || 0, terminal: t.terminal }))
-            : [{ monto: montoOrden, terminal: p.tarjetas?.[0]?.terminal || "" }];
-          // El backend espera el desglose de la parte de tarjeta del
-          // Combinado separado por tipo (tarjetasCredito/tarjetasDebito); en
-          // pantalla se captura como una sola lista con su propio tipo.
-          const combinadoPayload =
-            p.formaPago === "COMBINADO"
-              ? {
-                  ...p.combinado,
-                  tarjetasCredito: (p.combinado?.tarjetas || [])
-                    .filter((t) => t.tipo === "CREDITO")
-                    .map((t) => ({ monto: Number(t.monto) || 0, terminal: t.terminal })),
-                  tarjetasDebito: (p.combinado?.tarjetas || [])
-                    .filter((t) => t.tipo === "DEBITO")
-                    .map((t) => ({ monto: Number(t.monto) || 0, terminal: t.terminal })),
-                  tarjetas: undefined,
-                }
-              : null;
-          return {
-            vehiculoId: o._id,
-            monto: montoOrden,
-            formaPago: p.formaPago,
-            chequeNumero: p.formaPago === "CHEQUE" ? p.chequeNumero : "",
-            terminal: ["CREDITO", "DEBITO"].includes(p.formaPago) ? p.tarjetas?.[0]?.terminal || "" : "",
-            tarjetas: ["CREDITO", "DEBITO"].includes(p.formaPago) ? tarjetasSimple : [],
-            tipoTransferencia: p.formaPago === "TRANSFERENCIA" ? p.tipoTransferencia : "",
-            bancoTransferencia: p.formaPago === "TRANSFERENCIA" ? p.bancoTransferencia : "",
-            combinado: combinadoPayload,
-            montoDolares: p.formaPago === "EFECTIVO" ? Number(p.montoDolares) || 0 : 0,
-            tipoCambio: tipoCambioLiquidar,
-          };
-        })
-      : [];
+    // En Factura hay una entrada por orden (capturada por separado); en un
+    // Complemento de pago se capturó UNA sola vez (CLAVE_CAPTURA_COMPLEMENTO) y aquí se
+    // reparte entre las órdenes reales que abona (repartirCapturaPorOrdenes).
+    const pagosSinComprobantePayload = !capturaPagoActiva
+      ? []
+      : esComplementoPago
+      ? repartirCapturaPorOrdenes(pagoLiquidarDe(CLAVE_CAPTURA_COMPLEMENTO), ordenesComplementoSinComprobante).map(
+          ({ vehiculoId, p, monto }) => construirEntradaPagoSinComprobante(vehiculoId, p, monto, tipoCambioLiquidar)
+        )
+      : ordenesLiquidarActivas.map((o) =>
+          construirEntradaPagoSinComprobante(o._id, pagoLiquidarDe(o._id), montoPorOrden[o._id] || 0, tipoCambioLiquidar)
+        );
 
     return {
       tipoFactura,
@@ -2366,9 +2542,11 @@ export default function NuevaFactura() {
         comentarios,
         aplicarRetencionIsr: esFactura ? aplicarRetencionIsr : false,
         isrRate,
-        // CFDI 4.0 cfdi:CfdiRelacionados — opcional, solo factura de ingreso.
+        // CFDI 4.0 cfdi:CfdiRelacionados — opcional (panelFacturasRelacionadas): factura,
+        // nota de crédito (adicional a su relación 01 automática, que arma el backend
+        // solo) o complemento de pago.
         relacion:
-          esFactura && tipoRelacion && relacionadasExtra.length > 0
+          (esFactura || esNotaCredito || esComplementoPago) && tipoRelacion && relacionadasExtra.length > 0
             ? {
                 tipoRelacion,
                 uuids: relacionadasExtra.map((r) => (r.uuid || "").trim().toUpperCase()),
@@ -2534,6 +2712,630 @@ export default function NuevaFactura() {
      UI helpers
   ========== */
   const disabledSteps = !pasoBaseOk;
+
+  const panelCobroEnCajas =
+    (esFactura || esComplementoPago) && ordenesLiquidarActivas.length > 0 && !!formaPago && (
+      <div className="col-12">
+        {!capturaPagoActiva ? (
+          <div className="fw-cobro fw-cobro--nota">
+            <span aria-hidden="true">💳</span>
+            {formaPago === "99" ? (
+              <span>
+                <b>Por definir</b>: no se registra pago en Cajas.
+                {esFactura ? " La factura queda a crédito (PPD)." : ""}
+              </span>
+            ) : (
+              <span>
+                <b>{FORMA_PAGO.find((x) => x.value === formaPago)?.label || formaPago}</b>{" "}
+                no tiene equivalente en Cajas: no se registrará pago.
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="fw-cobro">
+            <div className="fw-cobro__head">
+              <div>
+                <div className="fw-cobro__title">💳 Cobro en Cajas</div>
+                <div className="fw-cobro__sub">
+                  {esComplementoPago
+                    ? "Sin comprobante en Cajas. Registra cómo entregó el cliente este abono."
+                    : "Sin comprobante en Cajas. Registra cómo pagó el cliente o elige “Por definir” si aún no paga."}
+                </div>
+              </div>
+              <div
+                className="form-check form-switch fw-cobro__switch"
+                title="Pagó con varios métodos: la forma de pago de la factura será la del método de mayor monto"
+              >
+                <input
+                  type="checkbox"
+                  role="switch"
+                  className="form-check-input"
+                  id="pagoCombinadoFactura"
+                  checked={pagoCombinado}
+                  disabled={disabledSteps}
+                  onChange={(e) => setPagoCombinado(e.target.checked)}
+                />
+                <label className="form-check-label" htmlFor="pagoCombinadoFactura">
+                  Combinado
+                </label>
+              </div>
+            </div>
+
+            {ordenesLiquidarActivas.map((o) => {
+              const p = pagoLiquidarDe(o._id);
+              const completo = pagoLiquidarCompleto(o._id);
+              return (
+                <div key={o._id} className={`fw-cobro__orden${completo ? " is-ok" : ""}`}>
+                  <div className="fw-cobro__orden-head">
+                    <span className="fw-cobro__folio">
+                      {esComplementoPago
+                        ? `Órdenes: ${ordenesComplementoSinComprobante.map((x) => x.ordenServicio).join(", ")}`
+                        : `Orden ${o.ordenServicio}`}
+                    </span>
+                    <span className="fw-cobro__meta">
+                      <span className="fw-chip fw-chip--forma">
+                        {FORMAS_PAGO_CAJA.find((f) => f.value === p.formaPago)?.label || p.formaPago}
+                      </span>
+                      <span className="fw-cobro__monto">{money(montoPorOrden[o._id])}</span>
+                      <span className={`fw-chip ${completo ? "fw-chip--ok" : "fw-chip--pend"}`}>
+                        {completo ? "✓ Completo" : "Falta capturar"}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="row g-2">
+                    {p.formaPago === "CHEQUE" && (
+                      <div className="col-12 col-sm-6">
+                        <label className="form-label mb-0 small text-muted">No. de Cheque</label>
+                        <input
+                          type="text"
+                          className="form-control form-control-sm"
+                          value={p.chequeNumero}
+                          onChange={(e) => setCampoPagoLiquidar(o._id, "chequeNumero", e.target.value)}
+                        />
+                      </div>
+                    )}
+
+                    {["CREDITO", "DEBITO"].includes(p.formaPago) && (
+                      <div className="col-12">
+                        <label className="form-label mb-0 small text-muted">
+                          {p.tarjetas.length > 1 ? "Tarjetas" : "Terminal"}
+                        </label>
+                        {p.tarjetas.map((t, idx) => (
+                          <div className="row g-2 align-items-center mb-1" key={idx}>
+                            {p.tarjetas.length > 1 && (
+                              <div className="col-5">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  className="form-control form-control-sm"
+                                  placeholder="Monto"
+                                  value={t.monto}
+                                  onChange={(e) => setTarjetaPagoLiquidar(o._id, idx, "monto", e.target.value)}
+                                />
+                              </div>
+                            )}
+                            <div className={p.tarjetas.length > 1 ? "col-6" : "col-11"}>
+                              <Dropdown
+                                className="form-select form-select-sm"
+                                value={t.terminal}
+                                onChange={(e) => setTarjetaPagoLiquidar(o._id, idx, "terminal", e.target.value)}
+                              >
+                                <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                                {TERMINALES_CAJA.map((term) => (
+                                  <Dropdown.Option key={term} value={term}>{term}</Dropdown.Option>
+                                ))}
+                              </Dropdown>
+                            </div>
+                            {p.tarjetas.length > 1 && (
+                              <div className="col-1 px-0">
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-outline-danger"
+                                  onClick={() => quitarTarjetaPagoLiquidar(o._id, idx)}
+                                  title="Quitar tarjeta"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-link px-0"
+                          onClick={() => agregarTarjetaPagoLiquidar(o._id)}
+                        >
+                          + Cobrar con más de una tarjeta
+                        </button>
+                        <small className="text-muted d-block">
+                          Obligatoria: en qué terminal se cobró (para el Cierre de Caja).
+                        </small>
+                      </div>
+                    )}
+
+                    {p.formaPago === "TRANSFERENCIA" && (
+                      <>
+                        <div className="col-6 col-sm-3">
+                          <label className="form-label mb-0 small text-muted">Tipo de transferencia</label>
+                          <Dropdown
+                            className="form-select form-select-sm"
+                            value={p.tipoTransferencia}
+                            onChange={(e) => setCampoPagoLiquidar(o._id, "tipoTransferencia", e.target.value)}
+                          >
+                            <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                            {TIPOS_TRANSFERENCIA.map((t) => (
+                              <Dropdown.Option key={t.value} value={t.value}>{t.label}</Dropdown.Option>
+                            ))}
+                          </Dropdown>
+                        </div>
+                        <div className="col-6 col-sm-3">
+                          <label className="form-label mb-0 small text-muted">Banco</label>
+                          <Dropdown
+                            className="form-select form-select-sm"
+                            value={p.bancoTransferencia}
+                            onChange={(e) => setCampoPagoLiquidar(o._id, "bancoTransferencia", e.target.value)}
+                          >
+                            <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                            {TERMINALES_CAJA.map((t) => (
+                              <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+                            ))}
+                          </Dropdown>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {p.formaPago === "EFECTIVO" && (
+                    <div className="row g-2 mt-1">
+                      <div className="col-6 col-md-4">
+                        <label className="form-label mb-0 small">Dólares (opcional)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control form-control-sm"
+                          value={p.montoDolares ?? ""}
+                          onChange={(e) => setCampoPagoLiquidar(o._id, "montoDolares", e.target.value)}
+                        />
+                      </div>
+                      {Number(p.montoDolares) > 0 && (
+                        <div className="col-6 col-md-4">
+                          <label className="form-label mb-0 small">Tipo de Cambio</label>
+                          <input
+                            type="number"
+                            className="form-control form-control-sm"
+                            value={tipoCambioLiquidar || ""}
+                            disabled
+                            readOnly
+                            title="Se toma del tipo de cambio definido en Configuración"
+                          />
+                          {tipoCambioLiquidar > 0 ? (
+                            <small className="text-muted d-block">
+                              ≈ {money(Number(p.montoDolares) * tipoCambioLiquidar)} MXN
+                            </small>
+                          ) : (
+                            <small className="text-danger d-block">
+                              Sin tipo de cambio en Configuración.
+                            </small>
+                          )}
+                        </div>
+                      )}
+                      {Number(p.montoDolares) > 0 && tipoCambioLiquidar > 0 && (
+                        <div className="col-12 col-md-4 d-flex align-items-end">
+                          <small className="text-muted">
+                            Resto en efectivo (pesos):{" "}
+                            <strong>
+                              {money(
+                                Math.max(
+                                  0,
+                                  (montoPorOrden[o._id] || 0) - Number(p.montoDolares) * tipoCambioLiquidar
+                                )
+                              )}
+                            </strong>
+                          </small>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {p.formaPago === "COMBINADO" && (
+                    <div className="row g-2 mt-1">
+                      <div className="col-6 col-md-3">
+                        <label className="form-label mb-0 small">Efectivo (Pesos)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control form-control-sm"
+                          value={p.combinado?.efectivo ?? ""}
+                          onChange={(e) => setCombinadoPagoLiquidar(o._id, "efectivo", e.target.value)}
+                        />
+                      </div>
+                      <div className="col-6 col-md-3">
+                        <label className="form-label mb-0 small">Efectivo (Dólares)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control form-control-sm"
+                          value={p.combinado?.efectivoDolares ?? ""}
+                          onChange={(e) => setCombinadoPagoLiquidar(o._id, "efectivoDolares", e.target.value)}
+                        />
+                        {Number(p.combinado?.efectivoDolares) > 0 &&
+                          (tipoCambioLiquidar > 0 ? (
+                            <small className="text-muted d-block">
+                              ≈ {money(Number(p.combinado.efectivoDolares) * tipoCambioLiquidar)} MXN
+                              (T.C. {tipoCambioLiquidar})
+                            </small>
+                          ) : (
+                            <small className="text-danger d-block">
+                              Sin tipo de cambio en Configuración.
+                            </small>
+                          ))}
+                      </div>
+                      <div className="col-6 col-md-3">
+                        <label className="form-label mb-0 small">T. Crédito</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control form-control-sm"
+                          value={p.combinado?.credito ?? ""}
+                          onChange={(e) => setCombinadoPagoLiquidar(o._id, "credito", e.target.value)}
+                        />
+                      </div>
+                      <div className="col-6 col-md-3">
+                        <label className="form-label mb-0 small">T. Débito</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control form-control-sm"
+                          value={p.combinado?.debito ?? ""}
+                          onChange={(e) => setCombinadoPagoLiquidar(o._id, "debito", e.target.value)}
+                        />
+                      </div>
+                      <div className="col-6 col-md-3">
+                        <label className="form-label mb-0 small">Cheque</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control form-control-sm"
+                          value={p.combinado?.cheque ?? ""}
+                          onChange={(e) => setCombinadoPagoLiquidar(o._id, "cheque", e.target.value)}
+                        />
+                      </div>
+                      <div className="col-6 col-md-3">
+                        <label className="form-label mb-0 small">Transferencia</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control form-control-sm"
+                          value={p.combinado?.transferencia ?? ""}
+                          onChange={(e) => setCombinadoPagoLiquidar(o._id, "transferencia", e.target.value)}
+                        />
+                      </div>
+                      {((Number(p.combinado?.credito) || 0) > 0 || (Number(p.combinado?.debito) || 0) > 0) && (
+                        <div className="col-12">
+                          {!(p.combinado?.tarjetas || []).length ? (
+                            <div className="row g-2 align-items-end">
+                              <div className="col-12 col-md-4">
+                                <label className="form-label mb-0 small">Terminal</label>
+                                <Dropdown
+                                  className="form-select form-select-sm"
+                                  value={p.combinado?.banco || ""}
+                                  onChange={(e) => setCombinadoPagoLiquidar(o._id, "banco", e.target.value)}
+                                >
+                                  <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                                  {TERMINALES_CAJA.map((t) => (
+                                    <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+                                  ))}
+                                </Dropdown>
+                              </div>
+                              <div className="col-12 col-md-4">
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-link px-0"
+                                  onClick={() => agregarTarjetaCombinadoPagoLiquidar(o._id)}
+                                >
+                                  + Cobrar con más de una tarjeta
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div>
+                              <label className="form-label mb-0 small fw-semibold d-block">Tarjetas</label>
+                              {p.combinado.tarjetas.map((t, idx) => (
+                                <div className="row g-2 align-items-center mb-1" key={idx}>
+                                  <div className="col-4 col-md-3">
+                                    <Dropdown
+                                      className="form-select form-select-sm"
+                                      value={t.tipo}
+                                      onChange={(e) => setTarjetaCombinadoPagoLiquidar(o._id, idx, "tipo", e.target.value)}
+                                    >
+                                      <Dropdown.Option value="CREDITO">T. Crédito</Dropdown.Option>
+                                      <Dropdown.Option value="DEBITO">T. Débito</Dropdown.Option>
+                                    </Dropdown>
+                                  </div>
+                                  <div className="col-4 col-md-3">
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      className="form-control form-control-sm"
+                                      placeholder="Monto"
+                                      value={t.monto}
+                                      onChange={(e) => setTarjetaCombinadoPagoLiquidar(o._id, idx, "monto", e.target.value)}
+                                    />
+                                  </div>
+                                  <div className="col-3 col-md-4">
+                                    <Dropdown
+                                      className="form-select form-select-sm"
+                                      value={t.terminal}
+                                      onChange={(e) => setTarjetaCombinadoPagoLiquidar(o._id, idx, "terminal", e.target.value)}
+                                    >
+                                      <Dropdown.Option value="">Terminal...</Dropdown.Option>
+                                      {TERMINALES_CAJA.map((term) => (
+                                        <Dropdown.Option key={term} value={term}>{term}</Dropdown.Option>
+                                      ))}
+                                    </Dropdown>
+                                  </div>
+                                  <div className="col-1 px-0">
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm btn-outline-danger"
+                                      onClick={() => quitarTarjetaCombinadoPagoLiquidar(o._id, idx)}
+                                      title="Quitar tarjeta"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-link px-0"
+                                onClick={() => agregarTarjetaCombinadoPagoLiquidar(o._id)}
+                              >
+                                + Agregar otra tarjeta
+                              </button>
+                              <small className="text-muted d-block">
+                                La suma de T. Crédito debe dar {money(p.combinado?.credito || 0)} y la de T. Débito{" "}
+                                {money(p.combinado?.debito || 0)}.
+                              </small>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {(Number(p.combinado?.transferencia) || 0) > 0 && (
+                        <>
+                          <div className="col-6 col-md-3">
+                            <label className="form-label mb-0 small">Tipo de transferencia</label>
+                            <Dropdown
+                              className="form-select form-select-sm"
+                              value={p.combinado?.transferenciaTipo || ""}
+                              onChange={(e) => setCombinadoPagoLiquidar(o._id, "transferenciaTipo", e.target.value)}
+                            >
+                              <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                              {TIPOS_TRANSFERENCIA.map((t) => (
+                                <Dropdown.Option key={t.value} value={t.value}>{t.label}</Dropdown.Option>
+                              ))}
+                            </Dropdown>
+                          </div>
+                          <div className="col-6 col-md-3">
+                            <label className="form-label mb-0 small">Banco (Transferencia)</label>
+                            <Dropdown
+                              className="form-select form-select-sm"
+                              value={p.combinado?.transferenciaBanco || ""}
+                              onChange={(e) => setCombinadoPagoLiquidar(o._id, "transferenciaBanco", e.target.value)}
+                            >
+                              <Dropdown.Option value="">Selecciona...</Dropdown.Option>
+                              {TERMINALES_CAJA.map((t) => (
+                                <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
+                              ))}
+                            </Dropdown>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Total capturado en vivo vs. el monto de la orden: no deja
+                          avanzar si falta o si se pasa (ver pagoLiquidarCompleto). */}
+                      <div className="col-12">
+                        {(() => {
+                          const diferencia = diferenciaLiquidar(o._id);
+                          const cuadra = Math.abs(diferencia) <= TOLERANCIA_LIQUIDAR;
+                          return (
+                            <div
+                              className={`d-flex justify-content-between align-items-center mt-1 pt-2 border-top small ${
+                                cuadra ? "text-success" : "text-danger"
+                              }`}
+                            >
+                              <span>
+                                Capturado: <strong>{money(totalCapturadoLiquidar(o._id))}</strong> de{" "}
+                                {money(montoPorOrden[o._id])}
+                              </span>
+                              <span className="fw-semibold">
+                                {cuadra
+                                  ? "✓ Cuadra exacto"
+                                  : diferencia > 0
+                                  ? `Sobran ${money(diferencia)}`
+                                  : `Faltan ${money(-diferencia)}`}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+
+  // CFDI 4.0 CfdiRelacionados opcional (Factura/Nota de crédito/Complemento): se define aquí
+  // (no inline) por el mismo motivo que panelCobroEnCajas — la rama de Complemento y la de
+  // Factura/NC/Global son un if/else mutuamente excluyente en el JSX del paso 4, y ambas lo
+  // necesitan. En Nota de crédito es ADICIONAL a la relación 01 obligatoria con la factura que
+  // acredita (esa se arma sola, con el UUID validado en el paso 2 — no se toca aquí).
+  const panelFacturasRelacionadas = (esFactura || esNotaCredito || esComplementoPago) && (
+    <div className="col-12">
+      <hr className="my-1" />
+      <label className="form-label mb-1">
+        Facturas relacionadas <span className="text-muted fw-normal">(opcional)</span>
+      </label>
+      <div className="text-muted small mb-2">
+        {esNotaCredito
+          ? "Además de la factura que esta nota acredita, si también se relaciona con algún otro CFDI (sustitución, devolución, etc.), indícalo aquí."
+          : esComplementoPago
+          ? "Si este complemento se relaciona con algún otro CFDI (sustitución, devolución, etc.) además de las facturas que paga, indícalo aquí."
+          : "Si esta factura sustituye, devuelve, aplica un anticipo o de cualquier otra forma se relaciona con uno o más CFDI previos, indícalo aquí."}
+      </div>
+      {esRefacturacion && (
+        <div className="alert alert-info py-2 px-3 small">
+          Refacturación: la relación es <b>04 - Sustitución</b>. Captura el UUID (folio fiscal) de
+          cada factura original que sustituyes.
+        </div>
+      )}
+
+      <div className="row g-3">
+        <div className="col-12 col-md-4">
+          <Dropdown
+            className="form-select"
+            value={tipoRelacion}
+            disabled={disabledSteps || esRefacturacion}
+            onChange={(e) => setTipoRelacion(e.target.value)}
+          >
+            <Dropdown.Option value="">Tipo de relación…</Dropdown.Option>
+            {TIPO_RELACION.map((x) => (
+              <Dropdown.Option key={x.value} value={x.value}>
+                {x.label}
+              </Dropdown.Option>
+            ))}
+          </Dropdown>
+          {relacionadasExtra.length > 0 && !tipoRelacion && (
+            <small className="text-danger">Selecciona el tipo de relación.</small>
+          )}
+        </div>
+
+        <div className="col-12 col-md-8 position-relative">
+          <input
+            className="form-control"
+            placeholder="Busca por folio o cliente, o pega el UUID completo…"
+            value={qRelacionada}
+            disabled={disabledSteps}
+            onChange={(e) => setQRelacionada(e.target.value)}
+            onFocus={() =>
+              (optsRelacionadas.length || qRelacionada.trim()) &&
+              setShowRelacionadas(true)
+            }
+            onBlur={() => setTimeout(() => setShowRelacionadas(false), 150)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && UUID_RE.test(qRelacionada.trim())) {
+                e.preventDefault();
+                agregarRelacionadaManual();
+              }
+            }}
+          />
+          {showRelacionadas && (
+            <div
+              className="list-group position-absolute w-100"
+              style={{ zIndex: 1050, maxHeight: 260, overflow: "auto" }}
+            >
+              {loadingRelacionadas && (
+                <div className="list-group-item">Buscando…</div>
+              )}
+              {!loadingRelacionadas &&
+                optsRelacionadas.map((d) => (
+                  <button
+                    type="button"
+                    key={d._id}
+                    className="list-group-item list-group-item-action"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => agregarRelacionadaDesdeBusqueda(d)}
+                  >
+                    <div className="d-flex justify-content-between">
+                      <span className="fw-bold">
+                        {(d.serie || "") + (d.folio || "") || "(sin folio)"}
+                      </span>
+                      <span>{money(d.totales?.total)}</span>
+                    </div>
+                    <div style={{ fontSize: 13, opacity: 0.8 }}>
+                      {d.cliente?.nombre || "Sin cliente"} · {fechaCorta(d.fecha)}
+                      {d.uuid ? ` · UUID: ${d.uuid}` : " · sin UUID capturado"}
+                    </div>
+                  </button>
+                ))}
+              {!loadingRelacionadas && UUID_RE.test(qRelacionada.trim()) && (
+                <button
+                  type="button"
+                  className="list-group-item list-group-item-action"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={agregarRelacionadaManual}
+                >
+                  Usar <b>“{qRelacionada.trim()}”</b> directamente como UUID
+                </button>
+              )}
+              {!loadingRelacionadas &&
+                optsRelacionadas.length === 0 &&
+                !UUID_RE.test(qRelacionada.trim()) && (
+                  <div className="list-group-item text-muted small">
+                    Sin coincidencias. Si ya tienes el UUID completo, pégalo aquí.
+                  </div>
+                )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {relacionadasExtra.length > 0 && (
+        <div className="table-responsive mt-2">
+          {avisoUuidPruebas}
+          <table className="table table-sm table-bordered align-middle mb-0">
+            <thead className="table-light">
+              <tr>
+                <th>Factura</th>
+                <th>UUID</th>
+                <th style={{ width: 90 }}>Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              {relacionadasExtra.map((r) => (
+                <tr key={r.key}>
+                  <td>
+                    {r.folio ? (
+                      <>
+                        <div className="fw-bold">{(r.serie || "") + r.folio}</div>
+                        <div className="text-muted small">{r.cliente || "—"}</div>
+                      </>
+                    ) : (
+                      <span className="text-muted">UUID capturado a mano</span>
+                    )}
+                  </td>
+                  <td>
+                    <input
+                      className={`form-control form-control-sm ${
+                        r.uuid && !uuidValido(r.uuid) ? "is-invalid" : ""
+                      }`}
+                      value={r.uuid}
+                      placeholder="00000000-0000-0000-0000-000000000000"
+                      disabled={disabledSteps}
+                      onChange={(e) => setUuidRelacionada(r.key, e.target.value)}
+                    />
+                  </td>
+                  <td>
+                    <button
+                      className="btn btn-sm btn-outline-danger"
+                      onClick={() => quitarRelacionada(r.key)}
+                    >
+                      Quitar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 
   /* ==========
      ASISTENTE POR PASOS
@@ -4191,6 +4993,10 @@ export default function NuevaFactura() {
                   <input className="form-control" value="MXN" disabled readOnly />
                 </div>
 
+                {panelCobroEnCajas}
+
+                {panelFacturasRelacionadas}
+
                 <div className="col-12">
                   <label className="form-label">Observaciones/Comentarios</label>
                   <textarea
@@ -4356,462 +5162,7 @@ export default function NuevaFactura() {
                   />
                 </div>
 
-                {/* Cobro en Cajas de las órdenes que no traen ningún comprobante
-                    vigente (ni anticipo ni Remisión de Contado): la forma de pago
-                    SAT de arriba decide qué campos se piden. Al generar la factura
-                    el backend crea con esta captura un pago "Liquidar (sin
-                    comprobante)" ligado a ella (ver Paso 5 del backend). Con "99 -
-                    Por definir" no se pide ningún pago. */}
-                {esFactura && ordenesSinComprobante.length > 0 && !!formaPago && (
-                  <div className="col-12">
-                    {!capturaPagoActiva ? (
-                      <div className="fw-cobro fw-cobro--nota">
-                        <span aria-hidden="true">💳</span>
-                        {formaPago === "99" ? (
-                          <span>
-                            <b>Por definir</b>: no se registra pago en Cajas. La factura queda a
-                            crédito (PPD).
-                          </span>
-                        ) : (
-                          <span>
-                            <b>{FORMA_PAGO.find((x) => x.value === formaPago)?.label || formaPago}</b>{" "}
-                            no tiene equivalente en Cajas: no se registrará pago.
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="fw-cobro">
-                        <div className="fw-cobro__head">
-                          <div>
-                            <div className="fw-cobro__title">💳 Cobro en Cajas</div>
-                            <div className="fw-cobro__sub">
-                              Sin comprobante en Cajas. Registra cómo pagó el cliente o elige “Por
-                              definir” si aún no paga.
-                            </div>
-                          </div>
-                          <div
-                            className="form-check form-switch fw-cobro__switch"
-                            title="Pagó con varios métodos: la forma de pago de la factura será la del método de mayor monto"
-                          >
-                            <input
-                              type="checkbox"
-                              role="switch"
-                              className="form-check-input"
-                              id="pagoCombinadoFactura"
-                              checked={pagoCombinado}
-                              disabled={disabledSteps}
-                              onChange={(e) => setPagoCombinado(e.target.checked)}
-                            />
-                            <label className="form-check-label" htmlFor="pagoCombinadoFactura">
-                              Combinado
-                            </label>
-                          </div>
-                        </div>
-
-                        {ordenesSinComprobante.map((o) => {
-                          const p = pagoLiquidarDe(o._id);
-                          const completo = pagoLiquidarCompleto(o._id);
-                          return (
-                            <div key={o._id} className={`fw-cobro__orden${completo ? " is-ok" : ""}`}>
-                              <div className="fw-cobro__orden-head">
-                                <span className="fw-cobro__folio">Orden {o.ordenServicio}</span>
-                                <span className="fw-cobro__meta">
-                                  <span className="fw-chip fw-chip--forma">
-                                    {FORMAS_PAGO_CAJA.find((f) => f.value === p.formaPago)?.label || p.formaPago}
-                                  </span>
-                                  <span className="fw-cobro__monto">{money(montoPorOrden[o._id])}</span>
-                                  <span className={`fw-chip ${completo ? "fw-chip--ok" : "fw-chip--pend"}`}>
-                                    {completo ? "✓ Completo" : "Falta capturar"}
-                                  </span>
-                                </span>
-                              </div>
-                              <div className="row g-2">
-                                {p.formaPago === "CHEQUE" && (
-                                  <div className="col-12 col-sm-6">
-                                    <label className="form-label mb-0 small text-muted">No. de Cheque</label>
-                                    <input
-                                      type="text"
-                                      className="form-control form-control-sm"
-                                      value={p.chequeNumero}
-                                      onChange={(e) => setCampoPagoLiquidar(o._id, "chequeNumero", e.target.value)}
-                                    />
-                                  </div>
-                                )}
-
-                                {["CREDITO", "DEBITO"].includes(p.formaPago) && (
-                                  <div className="col-12">
-                                    <label className="form-label mb-0 small text-muted">
-                                      {p.tarjetas.length > 1 ? "Tarjetas" : "Terminal"}
-                                    </label>
-                                    {p.tarjetas.map((t, idx) => (
-                                      <div className="row g-2 align-items-center mb-1" key={idx}>
-                                        {p.tarjetas.length > 1 && (
-                                          <div className="col-5">
-                                            <input
-                                              type="number"
-                                              step="0.01"
-                                              className="form-control form-control-sm"
-                                              placeholder="Monto"
-                                              value={t.monto}
-                                              onChange={(e) => setTarjetaPagoLiquidar(o._id, idx, "monto", e.target.value)}
-                                            />
-                                          </div>
-                                        )}
-                                        <div className={p.tarjetas.length > 1 ? "col-6" : "col-11"}>
-                                          <Dropdown
-                                            className="form-select form-select-sm"
-                                            value={t.terminal}
-                                            onChange={(e) => setTarjetaPagoLiquidar(o._id, idx, "terminal", e.target.value)}
-                                          >
-                                            <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-                                            {TERMINALES_CAJA.map((term) => (
-                                              <Dropdown.Option key={term} value={term}>{term}</Dropdown.Option>
-                                            ))}
-                                          </Dropdown>
-                                        </div>
-                                        {p.tarjetas.length > 1 && (
-                                          <div className="col-1 px-0">
-                                            <button
-                                              type="button"
-                                              className="btn btn-sm btn-outline-danger"
-                                              onClick={() => quitarTarjetaPagoLiquidar(o._id, idx)}
-                                              title="Quitar tarjeta"
-                                            >
-                                              ×
-                                            </button>
-                                          </div>
-                                        )}
-                                      </div>
-                                    ))}
-                                    <button
-                                      type="button"
-                                      className="btn btn-sm btn-link px-0"
-                                      onClick={() => agregarTarjetaPagoLiquidar(o._id)}
-                                    >
-                                      + Cobrar con más de una tarjeta
-                                    </button>
-                                    <small className="text-muted d-block">
-                                      Obligatoria: en qué terminal se cobró (para el Cierre de Caja).
-                                    </small>
-                                  </div>
-                                )}
-
-                                {p.formaPago === "TRANSFERENCIA" && (
-                                  <>
-                                    <div className="col-6 col-sm-3">
-                                      <label className="form-label mb-0 small text-muted">Tipo de transferencia</label>
-                                      <Dropdown
-                                        className="form-select form-select-sm"
-                                        value={p.tipoTransferencia}
-                                        onChange={(e) => setCampoPagoLiquidar(o._id, "tipoTransferencia", e.target.value)}
-                                      >
-                                        <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-                                        {TIPOS_TRANSFERENCIA.map((t) => (
-                                          <Dropdown.Option key={t.value} value={t.value}>{t.label}</Dropdown.Option>
-                                        ))}
-                                      </Dropdown>
-                                    </div>
-                                    <div className="col-6 col-sm-3">
-                                      <label className="form-label mb-0 small text-muted">Banco</label>
-                                      <Dropdown
-                                        className="form-select form-select-sm"
-                                        value={p.bancoTransferencia}
-                                        onChange={(e) => setCampoPagoLiquidar(o._id, "bancoTransferencia", e.target.value)}
-                                      >
-                                        <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-                                        {TERMINALES_CAJA.map((t) => (
-                                          <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
-                                        ))}
-                                      </Dropdown>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-
-                              {p.formaPago === "EFECTIVO" && (
-                                <div className="row g-2 mt-1">
-                                  <div className="col-6 col-md-4">
-                                    <label className="form-label mb-0 small">Dólares (opcional)</label>
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      className="form-control form-control-sm"
-                                      value={p.montoDolares ?? ""}
-                                      onChange={(e) => setCampoPagoLiquidar(o._id, "montoDolares", e.target.value)}
-                                    />
-                                  </div>
-                                  {Number(p.montoDolares) > 0 && (
-                                    <div className="col-6 col-md-4">
-                                      <label className="form-label mb-0 small">Tipo de Cambio</label>
-                                      <input
-                                        type="number"
-                                        className="form-control form-control-sm"
-                                        value={tipoCambioLiquidar || ""}
-                                        disabled
-                                        readOnly
-                                        title="Se toma del tipo de cambio definido en Configuración"
-                                      />
-                                      {tipoCambioLiquidar > 0 ? (
-                                        <small className="text-muted d-block">
-                                          ≈ {money(Number(p.montoDolares) * tipoCambioLiquidar)} MXN
-                                        </small>
-                                      ) : (
-                                        <small className="text-danger d-block">
-                                          Sin tipo de cambio en Configuración.
-                                        </small>
-                                      )}
-                                    </div>
-                                  )}
-                                  {Number(p.montoDolares) > 0 && tipoCambioLiquidar > 0 && (
-                                    <div className="col-12 col-md-4 d-flex align-items-end">
-                                      <small className="text-muted">
-                                        Resto en efectivo (pesos):{" "}
-                                        <strong>
-                                          {money(
-                                            Math.max(
-                                              0,
-                                              (montoPorOrden[o._id] || 0) - Number(p.montoDolares) * tipoCambioLiquidar
-                                            )
-                                          )}
-                                        </strong>
-                                      </small>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {p.formaPago === "COMBINADO" && (
-                                <div className="row g-2 mt-1">
-                                  <div className="col-6 col-md-3">
-                                    <label className="form-label mb-0 small">Efectivo (Pesos)</label>
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      className="form-control form-control-sm"
-                                      value={p.combinado?.efectivo ?? ""}
-                                      onChange={(e) => setCombinadoPagoLiquidar(o._id, "efectivo", e.target.value)}
-                                    />
-                                  </div>
-                                  <div className="col-6 col-md-3">
-                                    <label className="form-label mb-0 small">Efectivo (Dólares)</label>
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      className="form-control form-control-sm"
-                                      value={p.combinado?.efectivoDolares ?? ""}
-                                      onChange={(e) => setCombinadoPagoLiquidar(o._id, "efectivoDolares", e.target.value)}
-                                    />
-                                    {Number(p.combinado?.efectivoDolares) > 0 &&
-                                      (tipoCambioLiquidar > 0 ? (
-                                        <small className="text-muted d-block">
-                                          ≈ {money(Number(p.combinado.efectivoDolares) * tipoCambioLiquidar)} MXN
-                                          (T.C. {tipoCambioLiquidar})
-                                        </small>
-                                      ) : (
-                                        <small className="text-danger d-block">
-                                          Sin tipo de cambio en Configuración.
-                                        </small>
-                                      ))}
-                                  </div>
-                                  <div className="col-6 col-md-3">
-                                    <label className="form-label mb-0 small">T. Crédito</label>
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      className="form-control form-control-sm"
-                                      value={p.combinado?.credito ?? ""}
-                                      onChange={(e) => setCombinadoPagoLiquidar(o._id, "credito", e.target.value)}
-                                    />
-                                  </div>
-                                  <div className="col-6 col-md-3">
-                                    <label className="form-label mb-0 small">T. Débito</label>
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      className="form-control form-control-sm"
-                                      value={p.combinado?.debito ?? ""}
-                                      onChange={(e) => setCombinadoPagoLiquidar(o._id, "debito", e.target.value)}
-                                    />
-                                  </div>
-                                  <div className="col-6 col-md-3">
-                                    <label className="form-label mb-0 small">Cheque</label>
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      className="form-control form-control-sm"
-                                      value={p.combinado?.cheque ?? ""}
-                                      onChange={(e) => setCombinadoPagoLiquidar(o._id, "cheque", e.target.value)}
-                                    />
-                                  </div>
-                                  <div className="col-6 col-md-3">
-                                    <label className="form-label mb-0 small">Transferencia</label>
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      className="form-control form-control-sm"
-                                      value={p.combinado?.transferencia ?? ""}
-                                      onChange={(e) => setCombinadoPagoLiquidar(o._id, "transferencia", e.target.value)}
-                                    />
-                                  </div>
-                                  {((Number(p.combinado?.credito) || 0) > 0 || (Number(p.combinado?.debito) || 0) > 0) && (
-                                    <div className="col-12">
-                                      {!(p.combinado?.tarjetas || []).length ? (
-                                        <div className="row g-2 align-items-end">
-                                          <div className="col-12 col-md-4">
-                                            <label className="form-label mb-0 small">Terminal</label>
-                                            <Dropdown
-                                              className="form-select form-select-sm"
-                                              value={p.combinado?.banco || ""}
-                                              onChange={(e) => setCombinadoPagoLiquidar(o._id, "banco", e.target.value)}
-                                            >
-                                              <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-                                              {TERMINALES_CAJA.map((t) => (
-                                                <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
-                                              ))}
-                                            </Dropdown>
-                                          </div>
-                                          <div className="col-12 col-md-4">
-                                            <button
-                                              type="button"
-                                              className="btn btn-sm btn-link px-0"
-                                              onClick={() => agregarTarjetaCombinadoPagoLiquidar(o._id)}
-                                            >
-                                              + Cobrar con más de una tarjeta
-                                            </button>
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        <div>
-                                          <label className="form-label mb-0 small fw-semibold d-block">Tarjetas</label>
-                                          {p.combinado.tarjetas.map((t, idx) => (
-                                            <div className="row g-2 align-items-center mb-1" key={idx}>
-                                              <div className="col-4 col-md-3">
-                                                <Dropdown
-                                                  className="form-select form-select-sm"
-                                                  value={t.tipo}
-                                                  onChange={(e) => setTarjetaCombinadoPagoLiquidar(o._id, idx, "tipo", e.target.value)}
-                                                >
-                                                  <Dropdown.Option value="CREDITO">T. Crédito</Dropdown.Option>
-                                                  <Dropdown.Option value="DEBITO">T. Débito</Dropdown.Option>
-                                                </Dropdown>
-                                              </div>
-                                              <div className="col-4 col-md-3">
-                                                <input
-                                                  type="number"
-                                                  step="0.01"
-                                                  className="form-control form-control-sm"
-                                                  placeholder="Monto"
-                                                  value={t.monto}
-                                                  onChange={(e) => setTarjetaCombinadoPagoLiquidar(o._id, idx, "monto", e.target.value)}
-                                                />
-                                              </div>
-                                              <div className="col-3 col-md-4">
-                                                <Dropdown
-                                                  className="form-select form-select-sm"
-                                                  value={t.terminal}
-                                                  onChange={(e) => setTarjetaCombinadoPagoLiquidar(o._id, idx, "terminal", e.target.value)}
-                                                >
-                                                  <Dropdown.Option value="">Terminal...</Dropdown.Option>
-                                                  {TERMINALES_CAJA.map((term) => (
-                                                    <Dropdown.Option key={term} value={term}>{term}</Dropdown.Option>
-                                                  ))}
-                                                </Dropdown>
-                                              </div>
-                                              <div className="col-1 px-0">
-                                                <button
-                                                  type="button"
-                                                  className="btn btn-sm btn-outline-danger"
-                                                  onClick={() => quitarTarjetaCombinadoPagoLiquidar(o._id, idx)}
-                                                  title="Quitar tarjeta"
-                                                >
-                                                  ×
-                                                </button>
-                                              </div>
-                                            </div>
-                                          ))}
-                                          <button
-                                            type="button"
-                                            className="btn btn-sm btn-link px-0"
-                                            onClick={() => agregarTarjetaCombinadoPagoLiquidar(o._id)}
-                                          >
-                                            + Agregar otra tarjeta
-                                          </button>
-                                          <small className="text-muted d-block">
-                                            La suma de T. Crédito debe dar {money(p.combinado?.credito || 0)} y la de T. Débito{" "}
-                                            {money(p.combinado?.debito || 0)}.
-                                          </small>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                  {(Number(p.combinado?.transferencia) || 0) > 0 && (
-                                    <>
-                                      <div className="col-6 col-md-3">
-                                        <label className="form-label mb-0 small">Tipo de transferencia</label>
-                                        <Dropdown
-                                          className="form-select form-select-sm"
-                                          value={p.combinado?.transferenciaTipo || ""}
-                                          onChange={(e) => setCombinadoPagoLiquidar(o._id, "transferenciaTipo", e.target.value)}
-                                        >
-                                          <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-                                          {TIPOS_TRANSFERENCIA.map((t) => (
-                                            <Dropdown.Option key={t.value} value={t.value}>{t.label}</Dropdown.Option>
-                                          ))}
-                                        </Dropdown>
-                                      </div>
-                                      <div className="col-6 col-md-3">
-                                        <label className="form-label mb-0 small">Banco (Transferencia)</label>
-                                        <Dropdown
-                                          className="form-select form-select-sm"
-                                          value={p.combinado?.transferenciaBanco || ""}
-                                          onChange={(e) => setCombinadoPagoLiquidar(o._id, "transferenciaBanco", e.target.value)}
-                                        >
-                                          <Dropdown.Option value="">Selecciona...</Dropdown.Option>
-                                          {TERMINALES_CAJA.map((t) => (
-                                            <Dropdown.Option key={t} value={t}>{t}</Dropdown.Option>
-                                          ))}
-                                        </Dropdown>
-                                      </div>
-                                    </>
-                                  )}
-
-                                  {/* Total capturado en vivo vs. el monto de la orden: no deja
-                                      avanzar si falta o si se pasa (ver pagoLiquidarCompleto). */}
-                                  <div className="col-12">
-                                    {(() => {
-                                      const diferencia = diferenciaLiquidar(o._id);
-                                      const cuadra = Math.abs(diferencia) <= TOLERANCIA_LIQUIDAR;
-                                      return (
-                                        <div
-                                          className={`d-flex justify-content-between align-items-center mt-1 pt-2 border-top small ${
-                                            cuadra ? "text-success" : "text-danger"
-                                          }`}
-                                        >
-                                          <span>
-                                            Capturado: <strong>{money(totalCapturadoLiquidar(o._id))}</strong> de{" "}
-                                            {money(montoPorOrden[o._id])}
-                                          </span>
-                                          <span className="fw-semibold">
-                                            {cuadra
-                                              ? "✓ Cuadra exacto"
-                                              : diferencia > 0
-                                              ? `Sobran ${money(diferencia)}`
-                                              : `Faltan ${money(-diferencia)}`}
-                                          </span>
-                                        </div>
-                                      );
-                                    })()}
-                                  </div>
-                                </div>
-                              )}
-
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
+                {panelCobroEnCajas}
 
                 {/* Burbuja informativa: qué condición llevará la factura. */}
                 <div className="col-12">
@@ -4835,166 +5186,7 @@ export default function NuevaFactura() {
                   </div>
                 )}
 
-                {/* CFDI 4.0 CfdiRelacionados: opcional, solo factura de ingreso. */}
-                {esFactura && (
-                  <div className="col-12">
-                    <hr className="my-1" />
-                    <label className="form-label mb-1">
-                      Facturas relacionadas{" "}
-                      <span className="text-muted fw-normal">(opcional)</span>
-                    </label>
-                    <div className="text-muted small mb-2">
-                      Si esta factura sustituye, devuelve, aplica un anticipo o de cualquier
-                      otra forma se relaciona con uno o más CFDI previos, indícalo aquí.
-                    </div>
-                    {esRefacturacion && (
-                      <div className="alert alert-info py-2 px-3 small">
-                        Refacturación: la relación es <b>04 - Sustitución</b>. Captura el UUID (folio fiscal) de
-                        cada factura original que sustituyes.
-                      </div>
-                    )}
-
-                    <div className="row g-3">
-                      <div className="col-12 col-md-4">
-                        <Dropdown
-                          className="form-select"
-                          value={tipoRelacion}
-                          disabled={disabledSteps || esRefacturacion}
-                          onChange={(e) => setTipoRelacion(e.target.value)}
-                        >
-                          <Dropdown.Option value="">Tipo de relación…</Dropdown.Option>
-                          {TIPO_RELACION.map((x) => (
-                            <Dropdown.Option key={x.value} value={x.value}>
-                              {x.label}
-                            </Dropdown.Option>
-                          ))}
-                        </Dropdown>
-                        {relacionadasExtra.length > 0 && !tipoRelacion && (
-                          <small className="text-danger">Selecciona el tipo de relación.</small>
-                        )}
-                      </div>
-
-                      <div className="col-12 col-md-8 position-relative">
-                        <input
-                          className="form-control"
-                          placeholder="Busca por folio o cliente, o pega el UUID completo…"
-                          value={qRelacionada}
-                          disabled={disabledSteps}
-                          onChange={(e) => setQRelacionada(e.target.value)}
-                          onFocus={() =>
-                            (optsRelacionadas.length || qRelacionada.trim()) &&
-                            setShowRelacionadas(true)
-                          }
-                          onBlur={() => setTimeout(() => setShowRelacionadas(false), 150)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && UUID_RE.test(qRelacionada.trim())) {
-                              e.preventDefault();
-                              agregarRelacionadaManual();
-                            }
-                          }}
-                        />
-                        {showRelacionadas && (
-                          <div
-                            className="list-group position-absolute w-100"
-                            style={{ zIndex: 1050, maxHeight: 260, overflow: "auto" }}
-                          >
-                            {loadingRelacionadas && (
-                              <div className="list-group-item">Buscando…</div>
-                            )}
-                            {!loadingRelacionadas &&
-                              optsRelacionadas.map((d) => (
-                                <button
-                                  type="button"
-                                  key={d._id}
-                                  className="list-group-item list-group-item-action"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => agregarRelacionadaDesdeBusqueda(d)}
-                                >
-                                  <div className="d-flex justify-content-between">
-                                    <span className="fw-bold">
-                                      {(d.serie || "") + (d.folio || "") || "(sin folio)"}
-                                    </span>
-                                    <span>{money(d.totales?.total)}</span>
-                                  </div>
-                                  <div style={{ fontSize: 13, opacity: 0.8 }}>
-                                    {d.cliente?.nombre || "Sin cliente"} · {fechaCorta(d.fecha)}
-                                    {d.uuid ? ` · UUID: ${d.uuid}` : " · sin UUID capturado"}
-                                  </div>
-                                </button>
-                              ))}
-                            {!loadingRelacionadas && UUID_RE.test(qRelacionada.trim()) && (
-                              <button
-                                type="button"
-                                className="list-group-item list-group-item-action"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={agregarRelacionadaManual}
-                              >
-                                Usar <b>“{qRelacionada.trim()}”</b> directamente como UUID
-                              </button>
-                            )}
-                            {!loadingRelacionadas &&
-                              optsRelacionadas.length === 0 &&
-                              !UUID_RE.test(qRelacionada.trim()) && (
-                                <div className="list-group-item text-muted small">
-                                  Sin coincidencias. Si ya tienes el UUID completo, pégalo aquí.
-                                </div>
-                              )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {relacionadasExtra.length > 0 && (
-                      <div className="table-responsive mt-2">
-                        {avisoUuidPruebas}
-                        <table className="table table-sm table-bordered align-middle mb-0">
-                          <thead className="table-light">
-                            <tr>
-                              <th>Factura</th>
-                              <th>UUID</th>
-                              <th style={{ width: 90 }}>Acción</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {relacionadasExtra.map((r) => (
-                              <tr key={r.key}>
-                                <td>
-                                  {r.folio ? (
-                                    <>
-                                      <div className="fw-bold">{(r.serie || "") + r.folio}</div>
-                                      <div className="text-muted small">{r.cliente || "—"}</div>
-                                    </>
-                                  ) : (
-                                    <span className="text-muted">UUID capturado a mano</span>
-                                  )}
-                                </td>
-                                <td>
-                                  <input
-                                    className={`form-control form-control-sm ${
-                                      r.uuid && !uuidValido(r.uuid) ? "is-invalid" : ""
-                                    }`}
-                                    value={r.uuid}
-                                    placeholder="00000000-0000-0000-0000-000000000000"
-                                    disabled={disabledSteps}
-                                    onChange={(e) => setUuidRelacionada(r.key, e.target.value)}
-                                  />
-                                </td>
-                                <td>
-                                  <button
-                                    className="btn btn-sm btn-outline-danger"
-                                    onClick={() => quitarRelacionada(r.key)}
-                                  >
-                                    Quitar
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                )}
+                {panelFacturasRelacionadas}
 
                 <div className="col-12">
                   <label className="form-label">Observaciones/Comentarios</label>

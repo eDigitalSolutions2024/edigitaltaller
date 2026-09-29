@@ -85,6 +85,15 @@ export const getNotaCreditoContador = () =>
 export const actualizarNotaCreditoContador = (valor) =>
   http.put('/configuracion/nota-credito-contador', { valor }).then(r => r.data);
 
+// Número de cuenta del taller en cada banco (RFC de cada banco viene fijo del
+// catálogo) — para el "RFC Banco Emisor"/"Num Cuenta" del PDF de un Complemento
+// de pago pagado por transferencia.
+export const getCuentasBancarias = () =>
+  http.get('/configuracion/cuentas-bancarias').then(r => r.data);
+
+export const actualizarCuentasBancarias = (cuentas) =>
+  http.put('/configuracion/cuentas-bancarias', { cuentas }).then(r => r.data);
+
 export const getFondoCaja = () =>
   http.get('/configuracion/fondo-caja').then(r => r.data);
 

@@ -2,6 +2,7 @@
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
 const { LINEAS_NEGOCIO, LINEA_DEFAULT } = require('../utils/lineaNegocio');
+const { TERMINALES_TARJETA } = require('../utils/bancos');
 
 // al inicio, antes del schema:
 const ESTADOS_ORDEN = [
@@ -18,7 +19,7 @@ const ESTADOS_ORDEN = [
 ];
 
 // ===== Cajas: catálogos =====
-const BANCOS_CAJA = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER', 'DOLARES', 'EFECTIVOS', 'CHEQUE', 'TRANSFERENCIA'];
+const BANCOS_CAJA = [...TERMINALES_TARJETA, 'DOLARES', 'EFECTIVOS', 'CHEQUE', 'TRANSFERENCIA'];
 // notaVenta.banco guarda la terminal cuando la forma de pago es tarjeta, y ''
 // en cualquier otro caso; se admiten además los valores históricos de
 // BANCOS_CAJA para no invalidar Notas de Venta viejas en un save() posterior.
@@ -32,12 +33,12 @@ const FORMAS_PAGO_CAJA = ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFEREN
 // TERMINALES_TARJETA en routes/cajas.js). El '' es el valor por defecto:
 // "sin terminal" (pago que no se cobró con tarjeta) y debe ser válido para el
 // enum, o un vehiculo.save() posterior sobre ese pago falla la validación.
-const TERMINALES_TARJETA_CAJA = ['', 'BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
+const TERMINALES_TARJETA_CAJA = ['', ...TERMINALES_TARJETA];
 // Tipo de transferencia (SPEI vs. TEF) para un pago/desglose con
 // formaPago/parte 'TRANSFERENCIA'; '' = no capturado (pagos viejos, previos a
 // este catálogo). Se combina con el banco elegido para la columna Notas de
 // los reportes de Cajas, ej. "SPEI-BR" (ver utils/abreviaturaFormaPago.js).
-const TIPOS_TRANSFERENCIA_CAJA = ['', 'SPEI', 'TEF'];
+const TIPOS_TRANSFERENCIA_CAJA = ['', 'SPEI', 'TEF', 'TERCERO'];
 
 // Desglose de un cobro con tarjeta dividido en más de una tarjeta física:
 // cada entrada es un cargo independiente (su propio monto y terminal); la
@@ -629,6 +630,8 @@ const vehiculoSchema = new Schema(
         motivoPrecioCero: { type: String, default: "" }, // justificación cuando precioVenta <= 0
         esGarantia: { type: Boolean, default: false }, // legado: ya no se inyectan filas de garantía; solo para limpiar datos viejos
         esGrua: { type: Boolean, default: false }, // marca la línea auto-generada a partir del precio de grúa
+        // null = sin definir; true/false = el asesor indicó si el servicio lleva mano de obra (técnico)
+        llevaManoObra: { type: Boolean, default: null },
       },
     ],
 

@@ -25,6 +25,8 @@ import {
   actualizarOrdenCompraContador,
   getNotaCreditoContador,
   actualizarNotaCreditoContador,
+  getCuentasBancarias,
+  actualizarCuentasBancarias,
   getFondoCaja,
   actualizarFondoCaja,
   getExigirUuid,
@@ -58,6 +60,8 @@ export default function Configuracion() {
   const [remisionContador, setRemisionContador] = useState(0);
   const [ordenCompraContador, setOrdenCompraContador] = useState(0);
   const [notaCreditoContador, setNotaCreditoContador] = useState(0);
+  const [cuentasBancarias, setCuentasBancarias] = useState([]);
+  const [guardandoCuentasBancarias, setGuardandoCuentasBancarias] = useState(false);
   const [fondoCaja, setFondoCaja] = useState(0);
   // Facturación: ¿se exige el UUID real al relacionar facturas? (default sí; ver hooks/useExigirUuid)
   const [exigirUuid, setExigirUuid] = useState(true);
@@ -485,6 +489,34 @@ export default function Configuracion() {
         // sin dato: se deja en "se exige" (lo seguro)
       });
   }, []);
+
+  useEffect(() => {
+    getCuentasBancarias()
+      .then((data) => setCuentasBancarias(data?.cuentas || []))
+      .catch(() => {
+        // sin dato: la sección queda vacía, el PDF muestra "Num Cuenta" en blanco
+      });
+  }, []);
+
+  const setNumeroCuentaBanco = (banco, valor) =>
+    setCuentasBancarias((prev) => prev.map((c) => (c.banco === banco ? { ...c, numeroCuenta: valor } : c)));
+
+  const handleGuardarCuentasBancarias = async (e) => {
+    e.preventDefault();
+    try {
+      setError("");
+      setGuardandoCuentasBancarias(true);
+      const res = await actualizarCuentasBancarias(
+        cuentasBancarias.map((c) => ({ banco: c.banco, numeroCuenta: c.numeroCuenta }))
+      );
+      setCuentasBancarias(res?.cuentas || []);
+      mostrarMensaje("Cuentas bancarias actualizadas correctamente");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGuardandoCuentasBancarias(false);
+    }
+  };
 
   const handleToggleExigirUuid = async (e) => {
     const nuevo = e.target.checked;
@@ -1197,6 +1229,67 @@ export default function Configuracion() {
               </label>
 
               <button type="submit">Guardar</button>
+            </form>
+          </section>
+
+          {/* Cuentas bancarias del taller: RFC fijo por banco (catálogo), número de
+              cuenta editable — para el "RFC Banco Emisor"/"Num Cuenta" del PDF de un
+              Complemento de pago pagado por transferencia. */}
+          <section className="config-card">
+            <div className="config-card-header">
+              <div>
+                <h2>Cuentas bancarias</h2>
+                <span>Número de cuenta del taller en cada banco, para el Complemento de pago.</span>
+              </div>
+              <div className="config-icon">🏦</div>
+            </div>
+
+            <p className="text-muted small mb-2">
+              El RFC de cada banco es fijo. Captura aquí el número de cuenta del taller en los
+              bancos donde reciben transferencias — el PDF del Complemento de pago lo toma de
+              aquí automático, según el banco usado al cobrar.
+            </p>
+
+            <form onSubmit={handleGuardarCuentasBancarias} className="config-form">
+              <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 12 }}>
+                <thead>
+                  <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
+                    <th style={{ padding: "4px 8px" }}>Banco</th>
+                    <th style={{ padding: "4px 8px" }}>RFC</th>
+                    <th style={{ padding: "4px 8px" }}>Número de cuenta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cuentasBancarias.map((c) => (
+                    <tr key={c.banco} style={{ borderBottom: "1px solid #eee" }}>
+                      <td style={{ padding: "4px 8px" }}>{c.label || c.banco}</td>
+                      <td style={{ padding: "4px 8px", color: c.rfc ? "inherit" : "#999" }}>
+                        {c.rfc || "— sin capturar —"}
+                      </td>
+                      <td style={{ padding: "4px 8px" }}>
+                        <input
+                          type="text"
+                          value={c.numeroCuenta}
+                          onChange={(e) => setNumeroCuentaBanco(c.banco, e.target.value)}
+                          placeholder="0000000000"
+                          style={{ width: "100%" }}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                  {cuentasBancarias.length === 0 && (
+                    <tr>
+                      <td colSpan={3} style={{ padding: "8px", color: "#999" }}>
+                        Cargando bancos…
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+
+              <button type="submit" disabled={guardandoCuentasBancarias || cuentasBancarias.length === 0}>
+                {guardandoCuentasBancarias ? "Guardando…" : "Guardar"}
+              </button>
             </form>
           </section>
 

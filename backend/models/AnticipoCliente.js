@@ -7,8 +7,10 @@
 // backend/utils/anticiposCliente.js.
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
+const { TERMINALES_TARJETA } = require('../utils/bancos');
 
 const FORMAS_PAGO = ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFERENCIA', 'COMBINADO'];
+const TERMINALES_TARJETA_CAJA = ['', ...TERMINALES_TARJETA];
 
 // Desglose del monto en pesos por método, usado cuando formaPago ===
 // 'COMBINADO'. Mismo shape que pagos[].reciboProvisional.combinado /
@@ -25,7 +27,7 @@ const combinadoAnticipoSchema = () => ({
   // Terminal por la que se cobró la parte de T. Crédito/T. Débito de este
   // combinado; mismo catálogo que BANCO_A_TERMINAL en
   // utils/cierreCajaTerminales.js, para poder sumarla al Cierre de Caja.
-  banco: { type: String, enum: ['', 'BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'], default: '' },
+  banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
 });
 
 const anticipoClienteSchema = new Schema(
@@ -52,7 +54,7 @@ const anticipoClienteSchema = new Schema(
     // (sin terminal) es válido: es lo que se guarda en un depósito en
     // efectivo/cheque/transferencia (mismo criterio que TERMINALES_TARJETA_CAJA
     // en models/Vehiculo.js).
-    banco: { type: String, enum: ['', 'BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'], default: '' },
+    banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
     // Presente solo si formaPago === 'COMBINADO'.
     combinado: combinadoAnticipoSchema(),
     // Número del Recibo Provisional impreso para este depósito (Contador

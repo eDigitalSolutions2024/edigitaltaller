@@ -8,9 +8,11 @@ const Mecanico = require('../models/Mecanico');
 const Contador = require('../models/Contador');
 const ContratoOrdenServicio = require('../models/ContratoOrdenServicio');
 const SitioConfig = require('../models/SitioConfig');
+const CuentaBancaria = require('../models/CuentaBancaria');
 const { streamContratoOrdenServicioPdf } = require('../service/ContratoOrdenServicioPdf');
 const banxicoService = require('../service/banxicoService');
 const { EXIGIR_UUID_CONTADOR, exigirUuidActivo } = require('../utils/configuracionUuid');
+const { BANCOS, TERMINALES_TARJETA } = require('../utils/bancos');
 
 const { proteger, requiereRol } = require('../middleware/auth');
 
@@ -548,6 +550,59 @@ router.put('/nota-credito-contador', proteger, requiereRol('admin'), async (req,
     res.json({ valor: contador.valor });
   } catch (error) {
     res.status(500).json({ message: 'Error al actualizar el contador de notas de crédito', error: error.message });
+  }
+});
+
+// ===============================
+// CUENTAS BANCARIAS DEL TALLER — número de cuenta por banco (RFC de cada banco es
+// fijo, ver utils/bancos.js; aquí solo se guarda/edita la cuenta que recibe el
+// dinero). Se usa para el "RFC Banco Emisor"/"Num Cuenta" del PDF de un
+// Complemento de pago pagado por transferencia.
+// ===============================
+
+// GET /api/configuracion/cuentas-bancarias — el catálogo completo de bancos con
+// su cuenta configurada (o '' si aún no se captura ninguna).
+router.get('/cuentas-bancarias', proteger, async (req, res) => {
+  try {
+    const guardadas = await CuentaBancaria.find().lean();
+    const porBanco = new Map(guardadas.map((c) => [c.banco, c.numeroCuenta || '']));
+    const cuentas = BANCOS.map((b) => ({
+      banco: b.value,
+      label: b.label,
+      rfc: b.rfc,
+      numeroCuenta: porBanco.get(b.value) || '',
+    }));
+    res.json({ cuentas });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener las cuentas bancarias', error: error.message });
+  }
+});
+
+// PUT /api/configuracion/cuentas-bancarias — body: { cuentas: [{ banco, numeroCuenta }] }
+router.put('/cuentas-bancarias', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const cuentas = Array.isArray(req.body?.cuentas) ? req.body.cuentas : [];
+    const validas = cuentas.filter((c) => TERMINALES_TARJETA.includes(c?.banco));
+    await Promise.all(
+      validas.map((c) =>
+        CuentaBancaria.findOneAndUpdate(
+          { banco: c.banco },
+          { $set: { numeroCuenta: String(c.numeroCuenta || '').trim() } },
+          { upsert: true }
+        )
+      )
+    );
+    const guardadas = await CuentaBancaria.find().lean();
+    const porBanco = new Map(guardadas.map((c) => [c.banco, c.numeroCuenta || '']));
+    const resultado = BANCOS.map((b) => ({
+      banco: b.value,
+      label: b.label,
+      rfc: b.rfc,
+      numeroCuenta: porBanco.get(b.value) || '',
+    }));
+    res.json({ cuentas: resultado });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al actualizar las cuentas bancarias', error: error.message });
   }
 });
 

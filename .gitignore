@@ -25,3 +25,5 @@ backend/keys/
 scripts
 Pruebas
 .claude
+docs
+.gitignore

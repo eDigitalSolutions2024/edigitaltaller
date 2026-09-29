@@ -23,12 +23,27 @@ import {
 // Terminales físicas para cobros con tarjeta (mismo catálogo que
 // TERMINALES_TARJETA en backend/routes/cajas.js). También sirve como catálogo
 // de bancos para un pago por Transferencia.
-const TERMINALES = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER"];
+const TERMINALES = [
+  "BANREGIO",
+  "AMERICAN EXPRESS",
+  "BANAMEX",
+  "BANORTE",
+  "BBVA BANCOMER",
+  "SANTANDER",
+  "HSBC",
+  "SCOTIABANK",
+  "AZTECA",
+  "BANCOPPEL",
+  "AFIRME",
+  "INBURSA",
+];
 // Tipos de transferencia (mismo catálogo que TIPOS_TRANSFERENCIA_CAJA en
 // backend/models/Vehiculo.js).
 const TIPOS_TRANSFERENCIA = [
   { value: "SPEI", label: "SPEI" },
   { value: "TEF", label: "TEF" },
+  // Mismo tratamiento que SPEI/TEF: pide banco igual que las otras (ver TERMINALES).
+  { value: "TERCERO", label: "Pago cuenta tercero" },
 ];
 // Tipo de Remisión al registrar el cobro (la Nota de Venta siempre es de
 // Contado: no existe una Nota de Venta a crédito). "Cancelada" NO se

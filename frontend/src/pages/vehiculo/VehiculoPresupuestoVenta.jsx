@@ -50,6 +50,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   const [showServiciosDropdown, setShowServiciosDropdown] = useState(false);
   const serviciosDropdownRef = useRef(null);
   const ventaSectionRef = useRef(null);
+  const manoObraSectionRef = useRef(null);
 
   // ===== PRESUPUESTO =====
   const [presRows, setPresRows] = useState([]);
@@ -92,11 +93,11 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   // ===== MANO DE OBRA =====
   const [moRows, setMoRows] = useState([]);
   // Asignación: qué servicios del presupuesto se marcan y a qué mecánico/carrocero
+  const [serviciosMoSeleccionados, setServiciosMoSeleccionados] = useState({});
   const [moTipo, setMoTipo] = useState("mecanico"); // "mecanico" | "carrocero"
   const [moAsignado, setMoAsignado] = useState("");
   const [moHorasOverride, setMoHorasOverride] = useState("");
   const [moFechaPago, setMoFechaPago] = useState("");
-  const [serviciosMoSeleccionados, setServiciosMoSeleccionados] = useState({});
   const [guardandoMo, setGuardandoMo] = useState(false);
 
   // ===== OBSERVACIONES =====
@@ -340,6 +341,40 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
   const nombreServicioPresupuesto = (p) => p?.concepto || "";
 
+  const tecnicosDeServicio = (concepto) =>
+    moRows.filter((m) => (m.concepto || "") === (concepto || "")).length;
+
+  const setLlevaManoObra = (idx, valor) => {
+    const fila = ventaRows[idx];
+    if (!valor && tecnicosDeServicio(fila?.concepto) > 0) {
+      alert(
+        `"${fila.concepto}" ya tiene técnico(s) asignado(s). Elimina la asignación antes de marcar que no lleva mano de obra.`
+      );
+      return;
+    }
+    setVentaRows((prev) => prev.map((r, i) => (i === idx ? { ...r, llevaManoObra: valor } : r)));
+    if (!valor) setServiciosMoSeleccionados((prev) => ({ ...prev, [idx]: false }));
+  };
+
+  // Devuelve un mensaje si falta definir mano de obra en alguna partida.
+  const validarManoObraObligatoria = () => {
+    const sinDecidir = ventaRows.filter((r) => typeof r.llevaManoObra !== "boolean");
+    if (sinDecidir.length > 0) {
+      return `Indica si lleva mano de obra (Sí / No) en cada servicio:\n- ${sinDecidir
+        .map((r) => r.concepto)
+        .join("\n- ")}`;
+    }
+    const sinTecnico = ventaRows.filter(
+      (r) => r.llevaManoObra && tecnicosDeServicio(r.concepto) === 0
+    );
+    if (sinTecnico.length > 0) {
+      return `Asigna al menos un técnico a cada servicio con mano de obra:\n- ${sinTecnico
+        .map((r) => r.concepto)
+        .join("\n- ")}`;
+    }
+    return null;
+  };
+
   const toggleServicioMo = (id) => {
     setServiciosMoSeleccionados((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -549,6 +584,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       codigoSat: "",
       descripcionSat: "",
       esGrua: !!r.esGrua,
+      // null = el asesor aún no decide si el servicio lleva mano de obra
+      llevaManoObra: null,
     }));
 
     setVentaRows(nuevasVentas);
@@ -604,7 +641,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       if (onSaved) onSaved(res.data.vehiculo);
 
       setTimeout(() => {
-        ventaSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        manoObraSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 150);
 
       const inv = res.data.inventario;
@@ -773,6 +810,13 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       alert(
         "Debes enviar a Venta al Cliente al menos una partida autorizada antes de guardar la orden de servicio."
       );
+      return;
+    }
+
+    const msgMo = validarManoObraObligatoria();
+    if (msgMo) {
+      alert(msgMo);
+      manoObraSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
 
@@ -1634,7 +1678,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
             ahora se imprime desde la pestaña General al cerrar la orden. */}
 
         {/* ===== MANO DE OBRA ===== */}
-        <h5 className="text-center mb-2 fw-bold">MANO DE OBRA</h5>
+        <h5 ref={manoObraSectionRef} className="text-center mb-2 fw-bold">MANO DE OBRA</h5>
 
         {!readOnly && (
           <div className="card border-primary mb-3">
@@ -1657,6 +1701,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                           <th style={{ width: "40px" }}></th>
                           <th>Servicio</th>
                           <th className="text-end">Precio Venta</th>
+                          <th className="text-center" style={{ width: "190px" }}>¿Lleva mano de obra?</th>
+                          <th className="text-center" style={{ width: "90px" }}>Técnicos</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1666,11 +1712,48 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                               <input
                                 type="checkbox"
                                 checked={!!serviciosMoSeleccionados[p._idx]}
+                                disabled={p.llevaManoObra !== true}
+                                title={p.llevaManoObra !== true ? "Marca primero que lleva mano de obra" : ""}
                                 onChange={() => toggleServicioMo(p._idx)}
                               />
                             </td>
                             <td>{nombreServicioPresupuesto(p)}</td>
                             <td className="text-end">{formatMoney(p.precioVenta)}</td>
+                            <td className={`text-center ${typeof p.llevaManoObra !== "boolean" ? "table-warning" : ""}`}>
+                              <div className="form-check form-check-inline">
+                                <input
+                                  className="form-check-input"
+                                  type="radio"
+                                  id={`lmo-si-${p._idx}`}
+                                  name={`lmo-${p._idx}`}
+                                  checked={p.llevaManoObra === true}
+                                  onChange={() => setLlevaManoObra(p._idx, true)}
+                                />
+                                <label className="form-check-label" htmlFor={`lmo-si-${p._idx}`}>Sí</label>
+                              </div>
+                              <div className="form-check form-check-inline">
+                                <input
+                                  className="form-check-input"
+                                  type="radio"
+                                  id={`lmo-no-${p._idx}`}
+                                  name={`lmo-${p._idx}`}
+                                  checked={p.llevaManoObra === false}
+                                  onChange={() => setLlevaManoObra(p._idx, false)}
+                                />
+                                <label className="form-check-label" htmlFor={`lmo-no-${p._idx}`}>No</label>
+                              </div>
+                            </td>
+                            <td className="text-center">
+                              {p.llevaManoObra === true ? (
+                                tecnicosDeServicio(p.concepto) > 0 ? (
+                                  <span className="badge bg-success">{tecnicosDeServicio(p.concepto)}</span>
+                                ) : (
+                                  <span className="badge bg-danger">Falta</span>
+                                )
+                              ) : (
+                                "—"
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

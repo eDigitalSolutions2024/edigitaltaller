@@ -21,6 +21,7 @@ const {
 } = require('../utils/anticiposCliente');
 const { registrarMovimientoTerminal } = require('../utils/cierreCajaTerminales');
 const { generarAnticipoReciboPDF } = require('../service/anticipoReciboPdf');
+const { TERMINALES_TARJETA } = require('../utils/bancos');
 
 // Un depósito de anticipo ya no tiene su propio "Recibo de Anticipo": ahora
 // es, sin más, un Recibo Provisional — comparte la MISMA secuencia de folio
@@ -28,7 +29,6 @@ const { generarAnticipoReciboPDF } = require('../service/anticipoReciboPdf');
 // en routes/cajas.js).
 const CONTADOR_RECIBO_PROVISIONAL = 'reciboProvisional';
 const FORMAS_PAGO = ['EFECTIVO', 'CREDITO', 'DEBITO', 'CHEQUE', 'TRANSFERENCIA', 'COMBINADO'];
-const TERMINALES_TARJETA = ['BANREGIO', 'AMERICAN EXPRESS', 'BANAMEX', 'BANORTE', 'BBVA BANCOMER'];
 
 // POST /api/anticipos -> registra un depósito de anticipo para un cliente.
 // Mismo criterio de autorización que registrar un pago de caja (POST

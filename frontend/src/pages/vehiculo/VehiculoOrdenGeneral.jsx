@@ -29,6 +29,11 @@ function tipoPagoLabel(p) {
   // único valor válido para SIN_COMPROBANTE (ver cajas.js), no porque haya
   // quedado parcial.
   if (p.comprobante === "SIN_COMPROBANTE" && p.facturaId) return "Liquidación";
+  // Mismo criterio: un Recibo Provisional creado al generar un Complemento de
+  // pago (pago.facturaId, ver crearPagosSinComprobante modo "ABONO" en
+  // generar_xml.js) — a diferencia de un Abono capturado a mano en Cajas, que
+  // nunca trae facturaId.
+  if (p.comprobante === "RECIBO_PROVISIONAL" && p.facturaId) return "Abono (Complemento)";
   return TIPO_PAGO_LABELS[p.tipoPago] || p.tipoPago || "";
 }
 
@@ -50,7 +55,20 @@ function comprobantePago(p) {
 // Texto legible de la forma de pago de una Nota de Venta. Sirve para las
 // nuevas (notaVenta.formaPago + terminal/combinado) y para las viejas, que
 // solo traían notaVenta.banco con el método o la terminal.
-const TERMINALES_NOTA = ["BANREGIO", "AMERICAN EXPRESS", "BANAMEX", "BANORTE", "BBVA BANCOMER"];
+const TERMINALES_NOTA = [
+  "BANREGIO",
+  "AMERICAN EXPRESS",
+  "BANAMEX",
+  "BANORTE",
+  "BBVA BANCOMER",
+  "SANTANDER",
+  "HSBC",
+  "SCOTIABANK",
+  "AZTECA",
+  "BANCOPPEL",
+  "AFIRME",
+  "INBURSA",
+];
 function formaPagoNotaVenta(nv = {}) {
   if (nv.formaPago === "COMBINADO") return "Combinado";
   const banco = nv.banco || "";
@@ -626,6 +644,11 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor, soloCo
                 <td>{tipoPagoLabel(p)}</td>
                 <td>
                   {comprobantePago(p)}
+                  {p.comprobante === "RECIBO_PROVISIONAL" && p.facturaId && (
+                    <div className="small text-muted">
+                      Complemento de pago
+                    </div>
+                  )}
                   {p.reciboDolares?.numero && (
                     <div className="small text-muted">
                       Recibo de Dólares #{p.reciboDolares.numero}

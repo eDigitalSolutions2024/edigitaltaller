@@ -10,7 +10,7 @@
  *   - Tarjeta dividida en más de una (ver `tarjetas`/`tarjetasCredito`/
  *     `tarjetasDebito`): una abreviatura por terminal, unidas con "+"
  *     ej. "BR-C+BX-C"
- *   - Transferencia con tipo y banco capturados: <SPEI|TEF>-<abrev. banco>
+ *   - Transferencia con tipo y banco capturados: <SPEI|TEF|TERCERO>-<abrev. banco>
  *     ej. "SPEI-BR". Sin esos datos (pagos viejos): texto completo "TRANSFERENCIA".
  *   - Efectivo / Cheque: texto completo
  *   - Combinado: cada componente presente, separado por "Y" (o comas si son
@@ -24,14 +24,9 @@
  */
 
 // Nombre de terminal (BANCOS_CAJA / TERMINALES_TARJETA_CAJA en
-// models/Vehiculo.js) -> abreviatura de 2 letras.
-const ABREV_TERMINAL = {
-  BANREGIO: 'BR',
-  'BBVA BANCOMER': 'BB',
-  BANAMEX: 'BX',
-  BANORTE: 'BN',
-  'AMERICAN EXPRESS': 'AE',
-};
+// models/Vehiculo.js) -> abreviatura de 2 letras (ver utils/bancos.js, catálogo único).
+const { ABREV_POR_BANCO } = require('./bancos');
+const ABREV_TERMINAL = ABREV_POR_BANCO;
 
 const SUFIJO_TARJETA = { CREDITO: 'C', DEBITO: 'D' };
 
@@ -63,7 +58,7 @@ function abrevTarjetaMulti(formaPago, tarjetas, banco) {
   return abrevTarjeta(formaPago, banco);
 }
 
-// Abreviatura de una parte pagada por transferencia: "<SPEI|TEF>-<banco>",
+// Abreviatura de una parte pagada por transferencia: "<SPEI|TEF|TERCERO>-<banco>",
 // ej. "SPEI-BR". Si falta el tipo o el banco (pagos viejos, previos a este
 // catálogo) cae a "TRANSFERENCIA".
 function abrevTransferencia(tipo, banco) {
