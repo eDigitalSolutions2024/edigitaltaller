@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getMisOrdenes } from '../api/vehiculos';
 import { getUser } from '../auth';
+import { setAvisos, limpiarAvisos } from '../utils/tituloAvisos';
 import '../styles/OSFlotante.css';
 
 const ESTADO_LABEL = {
@@ -51,6 +52,40 @@ function nombreCliente(orden) {
   return partes.join(' ') || '—';
 }
 
+// Avisos al asesor: se detectan comparando el estado actual de cada orden con
+// el último que este navegador vio (localStorage). Persisten hasta que abre la orden.
+const AVISO_LABEL = {
+  DEVUELTA: '📩 Solicitud devuelta',
+  SURTIDA: '📦 Pieza surtida',
+};
+const PREVIOS_DEVUELTA = ['PENDIENTE_REFACCIONARIA'];
+
+const leerAvisosLS = (key) => {
+  try { return JSON.parse(localStorage.getItem(key)) || { estados: {}, avisos: {} }; }
+  catch { return { estados: {}, avisos: {} }; }
+};
+
+function detectarAvisos(key, ordenes) {
+  const prev = leerAvisosLS(key);
+  const estados = {};
+  const surtidos = {};
+  const avisos = { ...prev.avisos };
+  ordenes.forEach((o) => {
+    const id = String(o._id);
+    const antes = prev.estados[id];
+    estados[id] = o.estadoOrden;
+    surtidos[id] = o.fechaUltimoSurtido || null;
+    if (!antes) return;
+    // Surtida: solo cuando refaccionaria marca piezas desde Por Surtir (no por inventario)
+    if (o.fechaUltimoSurtido && o.fechaUltimoSurtido !== (prev.surtidos || {})[id]) avisos[id] = 'SURTIDA';
+    else if (antes !== o.estadoOrden && o.estadoOrden === 'PENDIENTE_AUTORIZACION_CLIENTE' && PREVIOS_DEVUELTA.includes(antes)) avisos[id] = 'DEVUELTA';
+  });
+  // solo conserva avisos de órdenes que siguen en la lista
+  Object.keys(avisos).forEach((id) => { if (!(id in estados)) delete avisos[id]; });
+  try { localStorage.setItem(key, JSON.stringify({ estados, surtidos, avisos })); } catch { /* sin storage */ }
+  return avisos;
+}
+
 export default function OSFlotante() {
   const user = getUser();
   const esAsesor = user?.role === 'asesor_servicio';
@@ -60,6 +95,8 @@ export default function OSFlotante() {
   const [ordenes, setOrdenes] = useState([]);
   const [minimizado, setMinimizado] = useState(false);
   const [tick, setTick] = useState(0);
+  const [avisos, setAvisosOrdenes] = useState({}); // { ordenId: 'DEVUELTA' | 'SURTIDA' }
+  const avisosKey = `os_avisos_v2_${user?.id || user?._id || miNombre}`;
 
   // Posición inicial: esquina superior derecha
   const [pos, setPos] = useState({ x: window.innerWidth - 300, y: 20 });
@@ -72,7 +109,10 @@ export default function OSFlotante() {
   const cargar = async () => {
     try {
       const { data } = await getMisOrdenes();
-      if (data?.ok) setOrdenes(data.data);
+      if (data?.ok) {
+        setOrdenes(data.data);
+        setAvisosOrdenes(detectarAvisos(avisosKey, data.data));
+      }
     } catch {
       // silencioso
     }
@@ -105,6 +145,24 @@ export default function OSFlotante() {
     const t = setInterval(() => setTick(n => n + 1), 60000);
     return () => clearInterval(t);
   }, [esAsesor]);
+
+  const cantidadAvisos = Object.keys(avisos).length;
+
+  useEffect(() => {
+    if (!esAsesor) return;
+    setAvisos('mis-os', cantidadAvisos);
+    return () => limpiarAvisos('mis-os');
+  }, [esAsesor, cantidadAvisos]);
+
+  const abrirOrden = (id) => {
+    if (avisos[id]) {
+      const ls = leerAvisosLS(avisosKey);
+      delete ls.avisos[id];
+      try { localStorage.setItem(avisosKey, JSON.stringify(ls)); } catch { /* sin storage */ }
+      setAvisosOrdenes((a) => { const n = { ...a }; delete n[id]; return n; });
+    }
+    navigate(`/vehiculo/orden/${id}`);
+  };
 
   // ── Drag handlers ──────────────────────────────────────────
   const startDrag = useCallback((clientX, clientY) => {
@@ -205,6 +263,9 @@ export default function OSFlotante() {
         <span className="os-flotante__titulo">
           ⠿ {grupoNombre ? `OS · ${grupoNombre}` : 'Mis OS'}
           <span className="os-flotante__badge">{ordenes.length}</span>
+          {cantidadAvisos > 0 && (
+            <span className="os-flotante__badge os-flotante__badge--aviso" title="Órdenes con aviso">🔔 {cantidadAvisos}</span>
+          )}
         </span>
         <button
           className="os-flotante__toggle"
@@ -224,9 +285,12 @@ export default function OSFlotante() {
               {ordenes.map(os => (
                 <li
                   key={os._id}
-                  className="os-flotante__item os-flotante__item--clickable"
-                  onClick={() => navigate(`/vehiculo/orden/${os._id}`)}
+                  className={`os-flotante__item os-flotante__item--clickable${avisos[os._id] ? ' os-flotante__item--aviso' : ''}`}
+                  onClick={() => abrirOrden(os._id)}
                 >
+                  {avisos[os._id] && (
+                    <div className="os-flotante__aviso">{AVISO_LABEL[avisos[os._id]]}</div>
+                  )}
                   <div className="os-flotante__item-top">
                     <span className="os-flotante__num">
                       {os.ordenServicio || "Sin número"}

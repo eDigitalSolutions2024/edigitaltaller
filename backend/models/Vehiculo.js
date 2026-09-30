@@ -179,6 +179,8 @@ const vehiculoSchema = new Schema(
     // El asesor decidió continuar sin solicitar refacciones a refaccionaria
     refaccionesOmitidas: { type: Boolean, default: false },
     fechaEnvioSurtir: { type: Date, default: null },
+    // Última vez que refaccionaria marcó piezas como surtidas (PUT /:id/surtir); avisa al asesor
+    fechaUltimoSurtido: { type: Date, default: null },
     creadoPor: { type: String, default: "" },
     // Referencia estable al usuario que creó la orden. `creadoPor` (nombre)
     // se conserva como snapshot histórico y NO se reescribe si el usuario
