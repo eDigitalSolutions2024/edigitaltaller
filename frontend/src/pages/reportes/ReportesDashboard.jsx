@@ -9,7 +9,7 @@ const SECCIONES = [
     title: 'Captura',
     desc: 'Reporte de originales y ventas por asesor',
     to: '/captura/originales',
-    roles: ['admin', 'finanzas', 'captura'],
+    roles: ['admin', 'coordinador', 'finanzas', 'captura'],
   },
   {
     key: 'auditoria',
@@ -17,7 +17,7 @@ const SECCIONES = [
     title: 'Auditoría',
     desc: 'Órdenes abiertas, reporte de originales y garantías',
     to: '/auditoria/ordenes-abiertas',
-    roles: ['admin', 'auditoria'],
+    roles: ['admin', 'coordinador', 'auditoria'],
   },
   {
     key: 'reporte-cajas',
@@ -25,7 +25,7 @@ const SECCIONES = [
     title: 'Reporte de Cajas',
     desc: 'Ingresos diarios: facturas y remisiones',
     to: '/reportes/cajas',
-    roles: ['admin', 'finanzas'],
+    roles: ['admin', 'coordinador', 'finanzas'],
   },
   {
     key: 'reporte-rh',
@@ -33,7 +33,7 @@ const SECCIONES = [
     title: 'Recursos Humanos',
     desc: 'Reporte de Horas Trabajadas por Técnico',
     to: '/reportes/rh',
-    roles: ['admin', 'recursos_humanos'],
+    roles: ['admin', 'coordinador', 'recursos_humanos'],
   },
 ];
 

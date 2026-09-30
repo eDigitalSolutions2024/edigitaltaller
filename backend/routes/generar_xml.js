@@ -939,7 +939,7 @@ router.post("/xml", proteger, async (req, res) => {
             error: `Ya existe una factura para: ${listado}. Para refacturar, relaciona la factura original con el tipo de relación 04 (Sustitución de los CFDI previos).`,
           });
         }
-        if (req.user?.role !== "admin") {
+        if (!["admin", "coordinador"].includes(req.user?.role)) {
           return res.status(403).json({
             ok: false,
             error: `Solo un administrador puede refacturar una orden que ya tiene factura (implica cancelar la original): ${listado}.`,

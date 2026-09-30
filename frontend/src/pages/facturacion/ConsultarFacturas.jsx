@@ -10,6 +10,7 @@ import {
   cancelarFacturaCfdi,
 } from "../../api/facturasCfdi";
 
+import { isAdminLike } from "../../utils/roles";
 function money(n) {
   const x = Number(n || 0);
   return x.toLocaleString("es-MX", { style: "currency", currency: "MXN" });
@@ -398,7 +399,7 @@ export default function ConsultarFacturas() {
   const [cargando, setCargando] = useState(false);
 
   const debounceRef = useRef(null);
-  const esAdmin = getUser()?.role === "admin";
+  const esAdmin = isAdminLike(getUser()?.role);
   const [facturaACancelar, setFacturaACancelar] = useState(null);
 
   const buscar = useCallback(async (nuevosFiltros = filtros, nuevaPagina = 1) => {

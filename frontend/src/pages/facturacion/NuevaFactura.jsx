@@ -25,6 +25,7 @@ import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 import { calcularTotalesOrden } from "../../utils/cajaTotales";
 import "../../styles/facturaWizard.css";
 
+import { isAdminLike } from "../../utils/roles";
 /* =======================
    CATÁLOGOS
 ======================= */
@@ -2008,7 +2009,7 @@ export default function NuevaFactura() {
   // Órdenes de esta factura que ya tienen factura de ingreso VIGENTE: emitirla es una
   // REFACTURACIÓN (SAT: sustitución, relación 04). Al generarla, la original queda cancelada en el
   // sistema y la nueva hereda su cobro de Cajas. Solo un administrador puede hacerlo.
-  const esAdmin = getUser()?.role === "admin";
+  const esAdmin = isAdminLike(getUser()?.role);
   const ordenesRefacturadas = esFactura
     ? ordenes.filter((o) => (facturasPreviasPorOrden[o._id]?.vigentes || []).length > 0)
     : [];

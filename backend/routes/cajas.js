@@ -1013,7 +1013,7 @@ router.post('/:id/pagos/:pagoId/cancelar', proteger, requiereRol('admin', 'cajas
     }
     const esModoError = modo === 'ERROR';
     const esConversion = modo === 'CONVIERTE_A_NOTA_VENTA';
-    const esAdmin = req.user?.role === 'admin';
+    const esAdmin = ['admin', 'coordinador'].includes(req.user?.role);
     if (esModoError && !esAdmin) {
       return res.status(403).json({ ok: false, msg: 'Solo un administrador puede cancelar por error.' });
     }
@@ -1155,7 +1155,7 @@ router.post('/:id/pagos/:pagoId/deshacer-cancelacion', proteger, requiereRol('ad
     if (!pago) return res.status(404).json({ ok: false, msg: 'Pago no encontrado' });
     if (!pago.cancelado) return res.status(400).json({ ok: false, msg: 'Este pago no está cancelado.' });
 
-    if (pago.motivoCancelacionTipo === 'ERROR' && req.user?.role !== 'admin') {
+    if (pago.motivoCancelacionTipo === 'ERROR' && !['admin', 'coordinador'].includes(req.user?.role)) {
       return res.status(403).json({ ok: false, msg: 'Solo un administrador puede deshacer una cancelación por error.' });
     }
 

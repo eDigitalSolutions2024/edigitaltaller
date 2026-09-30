@@ -32,6 +32,7 @@ import CajaModalValeGarantia from "./components/CajaModalValeGarantia";
 import CajaModalDetalleFactura from "./components/CajaModalDetalleFactura";
 import CajaModalDetallePago from "./components/CajaModalDetallePago";
 
+import { isAdminLike } from "../../utils/roles";
 function formatMoney(n) {
   return new Intl.NumberFormat("es-MX", {
     style: "currency",
@@ -51,7 +52,7 @@ export default function CajaOrdenDetalle() {
   const { id } = useParams();
   const navigate = useNavigate();
   const rol = getUser()?.role;
-  const esAdmin = rol === "admin";
+  const esAdmin = isAdminLike(rol);
   const esCajas = rol === "cajas";
   const { pdfModal, abrirPdf } = usePdfModal();
 

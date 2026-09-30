@@ -14,7 +14,7 @@ const { proteger, requiereRol } = require('../middleware/auth');
 router.post(
   '/',
   proteger,
-  requiereRol('jefe', 'admin'),
+  requiereRol('jefe', 'admin', 'recursos_humanos'),
   async (req, res) => {
     try {
       const { nombre, puesto, telefono, correo, fechaAlta, notas } = req.body;
@@ -160,7 +160,7 @@ router.get('/:id', proteger, async (req, res) => {
 router.put(
   '/:id',
   proteger,
-  requiereRol('jefe', 'admin', 'contabilidad'),
+  requiereRol('jefe', 'admin', 'contabilidad', 'recursos_humanos'),
   async (req, res) => {
     try {
       const { nombre, puesto, telefono, correo, fechaAlta, notas, activo, usuario } =
@@ -207,7 +207,7 @@ router.put(
 router.patch(
   '/:id/estado',
   proteger,
-  requiereRol('jefe', 'admin'),
+  requiereRol('jefe', 'admin', 'recursos_humanos'),
   async (req, res) => {
     try {
       const { activo } = req.body;

@@ -35,6 +35,9 @@ app.use( '/uploads', express.static(path.join(__dirname, 'uploads')));
 // Debe ir DESPUÉS de express.json() y ANTES de montar las rutas de /api.
 app.use('/api', require('./middleware/auditoria'));
 
+// Candado de escritura por rol (roles de solo consulta). Va antes de las rutas.
+app.use('/api', require('./middleware/permisosRol'));
+
 
 const empleadosRoutes = require('./routes/empleados');
 const ordenesCompraRoutes = require('./routes/ordenesCompra');

@@ -19,6 +19,7 @@ import useTipoCambioActual from '../../hooks/useTipoCambioActual';
 import usePdfModal from '../../hooks/usePdfModal';
 import '../../styles/gestionCaja.css';
 
+import { isAdminLike } from "../../utils/roles";
 function fechaISO(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
@@ -86,7 +87,7 @@ function rangoRegistrosDefault() {
 // al final. Las terminales con lectora se suman solas al registrar un pago
 // con Nota de Venta (ver backend/utils/cierreCajaTerminales.js).
 export default function GestionCaja() {
-  const esAdmin = getUser()?.role === 'admin';
+  const esAdmin = isAdminLike(getUser()?.role);
   const { tipoCambio: tipoCambioConfig, loading: cargandoTipoCambio } = useTipoCambioActual();
   const { pdfModal, abrirPdf } = usePdfModal();
   const [cierre, setCierre] = useState(null);

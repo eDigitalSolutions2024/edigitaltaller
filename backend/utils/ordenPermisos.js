@@ -20,7 +20,7 @@ function ordenEnEstadoTerminal(vehiculo) {
 //     grupoId nunca las abre un compañero: cada asesor solo cierra las suyas.
 async function puedeGestionarOrden(user, vehiculo) {
   if (!user || !vehiculo) return false;
-  if (user.role === 'admin') return true;
+  if (['admin', 'coordinador'].includes(user.role)) return true;
 
   const creadoPorId = vehiculo.creadoPorId ? String(vehiculo.creadoPorId) : '';
   if (creadoPorId && creadoPorId === String(user._id)) return true;
@@ -48,7 +48,7 @@ async function puedeGestionarOrden(user, vehiculo) {
 // continuar, o { status, msg } listo para responder si hay que cortar.
 function bloquearSiOrdenTerminal(vehiculo, user) {
   if (!ordenEnEstadoTerminal(vehiculo)) return null;
-  if (user && user.role === 'admin') return null;
+  if (user && ['admin', 'coordinador'].includes(user.role)) return null;
   return {
     status: 409,
     msg:

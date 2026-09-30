@@ -2,9 +2,10 @@ import React from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { getUser } from "../../auth";
 
+import { isAdminLike } from "../../utils/roles";
 export default function SoporteLayout() {
   const user = getUser();
-  const esAdmin = user?.role === "admin";
+  const esAdmin = isAdminLike(user?.role);
   const base = "/soporte";
   const tab = ({ isActive }) =>
     "px-3 py-2 rounded-pill me-2 " + (isActive ? "btn btn-primary" : "btn btn-outline-primary");

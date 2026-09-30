@@ -2,7 +2,7 @@ import { getUser, logout } from '../auth';
 import { useNavigate, NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import '../styles/Navbar.css';
-import { canSeeModule } from '../utils/roles';
+import { canSeeModule, canSeeAny, isReadOnly, isAdminLike } from '../utils/roles';
 import http from '../api/http';
 import { getRefaccionariaAlerts } from '../api/vehiculos';
 import { getGarantiasPendientesCount } from '../api/garantias';
@@ -108,7 +108,7 @@ useEffect(() => {
 const [garantiasPendientes, setGarantiasPendientes] = useState(0);
 
 useEffect(() => {
-  if (user?.role !== 'admin') return;
+  if (!isAdminLike(user?.role)) return;
   const fetch = async () => {
     try {
       const { data } = await getGarantiasPendientesCount();
@@ -203,7 +203,7 @@ useEffect(() => {
           </button>
 
           <div id="submenu-soporte" className="sidebar__sublinks">
-            {user?.role !== 'admin' && (
+            {!isAdminLike(user?.role) && (
               <NavLink
                 to="/soporte/mis-tickets"
                 className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
@@ -212,7 +212,7 @@ useEffect(() => {
               </NavLink>
             )}
 
-            {user?.role === 'admin' && (
+            {isAdminLike(user?.role) && (
               <NavLink
                 to="/soporte/admin"
                 className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
@@ -221,7 +221,7 @@ useEffect(() => {
               </NavLink>
             )}
 
-            {user?.role === 'admin' && (
+            {isAdminLike(user?.role) && (
               <NavLink
                 to="/soporte/admin/historial"
                 className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
@@ -234,7 +234,7 @@ useEffect(() => {
         {/* === FIN GRUPO SOPORTE === */}
 
         {/* Administración (solo admin) */}
-          {user?.role === 'admin' && (
+          {isAdminLike(user?.role) && (
             <div className={`sidebar__group ${adminOpen ? 'open' : ''}`}>
               <button
                 type="button"
@@ -273,7 +273,7 @@ useEffect(() => {
             </div>
           )}
 
-          {user?.role === 'admin' && (
+          {isAdminLike(user?.role) && (
               <NavLink to="/configuracion" className="sidebar__link" title="Configuración">
                 <span className="emoji">⚙️</span>
                 <span className="label">Configuración</span>
@@ -370,12 +370,14 @@ useEffect(() => {
           </button>
 
           <div id="submenu-clientes" className="sidebar__sublinks">
-            <NavLink
-              to="/clientes/alta"
-              className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
-            >
-              <span className="emoji">➕</span><span className="label">Alta</span>
-            </NavLink>
+            {!isReadOnly(user?.role, 'clientes') && (
+              <NavLink
+                to="/clientes/alta"
+                className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+              >
+                <span className="emoji">➕</span><span className="label">Alta</span>
+              </NavLink>
+            )}
             <NavLink
               to="/clientes/consulta"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
@@ -441,12 +443,14 @@ useEffect(() => {
           </button>
 
           <div id="submenu-vehiculo" className="sidebar__sublinks">
-            <NavLink
-              to="/vehiculo/entrada"
-              className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
-            >
-              <span className="label">Entrada</span>
-            </NavLink>
+            {!isReadOnly(user?.role, 'vehiculo') && (
+              <NavLink
+                to="/vehiculo/entrada"
+                className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+              >
+                <span className="label">Entrada</span>
+              </NavLink>
+            )}
 
             <NavLink
               to="/vehiculo/consulta-ordenes"
@@ -469,7 +473,7 @@ useEffect(() => {
               <span className="label">Consulta Órdenes Canceladas</span>
             </NavLink>
 
-            {(user?.role === 'admin' || user?.role === 'asesor_servicio') && (
+            {(isAdminLike(user?.role) || ['asesor_servicio', 'captura'].includes(user?.role)) && (
               <NavLink
                 to="/vehiculo/garaje"
                 className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
@@ -481,7 +485,7 @@ useEffect(() => {
 
             {/* === SOLICITUDES DE GARANTÍA === */}
             {/* Cambiar de personas permitidas a ver*/}
-            {(user?.role === 'admin' /*|| user?.role === 'asesor_servicio'*/) && (
+            {(isAdminLike(user?.role) /*|| user?.role === 'asesor_servicio'*/) && (
               <NavLink
                 to="/garantias"
                 className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
@@ -499,7 +503,7 @@ useEffect(() => {
         {/* === FIN GRUPO VEHÍCULO === */}
 
         {/* === GRUPO: FACTURACIÓN === */}
-        {canSeeModule(user?.role, 'facturacion') && (
+        {canSeeAny(user?.role, ['facturacion', 'facturas_consulta']) && (
         <div className={`sidebar__group ${factOpen ? 'open' : ''}`}>
           <button
             type="button"
@@ -515,26 +519,30 @@ useEffect(() => {
           </button>
 
           <div id="submenu-facturacion" className="sidebar__sublinks">
-            <NavLink
-              to="/facturacion"
-              end
-              className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
-            >
-              <span className="label">Panel</span>
-            </NavLink>
-            <NavLink
-              to="/facturacion/nueva"
-              className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
-            >
-              <span className="label">Nueva Factura</span>
-            </NavLink>
+            {canSeeModule(user?.role, 'facturacion') && (
+              <>
+                <NavLink
+                  to="/facturacion"
+                  end
+                  className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+                >
+                  <span className="label">Panel</span>
+                </NavLink>
+                <NavLink
+                  to="/facturacion/nueva"
+                  className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
+                >
+                  <span className="label">Nueva Factura</span>
+                </NavLink>
+              </>
+            )}
             <NavLink
               to="/facturacion/consultar"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">Consultar</span>
             </NavLink>
-            {user?.role === 'admin' && (
+            {isAdminLike(user?.role) && (
             <NavLink
               to="/facturacion/configuracion-fiscal"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
@@ -549,7 +557,7 @@ useEffect(() => {
 
 
         {/* === GRUPO: REFACCIONARIA === */}
-        {canSeeModule(user?.role, 'refaccionaria') && (
+        {canSeeAny(user?.role, ['refaccionaria', 'devoluciones', 'inventario', 'factura_proveedor']) && (
         <div className={`sidebar__group ${refaOpen ? 'open' : ''}`}>
           <button
             type="button"
@@ -568,12 +576,14 @@ useEffect(() => {
           </button>
 
           <div id="submenu-refaccionaria" className="sidebar__sublinks">
-            <NavLink
+            {canSeeModule(user?.role, 'refaccionaria') && (
+<NavLink
               to="/refaccionaria/entrada"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">Entrada Inventario</span>
             </NavLink>
+)}
             {/* <NavLink
               to="/refaccionaria/salida"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
@@ -581,29 +591,36 @@ useEffect(() => {
               <span className="label">Salida Refacción</span>
             </NavLink> */}
 
-            <NavLink
+            {canSeeModule(user?.role, 'refaccionaria') && (
+<NavLink
               to="/refaccionaria/solicitudes-taller"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">Solicitudes Taller</span>
               {solicitudesCount > 0 && <span className="nav-badge">{solicitudesCount}</span>}
             </NavLink>
+)}
 
-            <NavLink
+            {canSeeModule(user?.role, 'refaccionaria') && (
+<NavLink
               to="/refaccionaria/por-surtir"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">Por Surtir</span>
               {porSurtirCount > 0 && <span className="nav-badge">{porSurtirCount}</span>}
             </NavLink>
+)}
 
-            <NavLink
+            {canSeeAny(user?.role, ['refaccionaria', 'inventario']) && (
+<NavLink
               to="/refaccionaria/consultar"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">Consultar Inventario</span>
             </NavLink>
-            <NavLink
+)}
+            {canSeeAny(user?.role, ['refaccionaria', 'factura_proveedor']) && (
+<NavLink
               to="/refaccionaria/factura-proveedor"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
               title="Consultar Factura Proveedor"
@@ -611,15 +628,18 @@ useEffect(() => {
               <span className="label" style={{display:'block'}}>Consultar Factura</span>
               <span className="label" style={{display:'block'}}>Proveedor</span>
             </NavLink>
-            <NavLink
+)}
+            {canSeeModule(user?.role, 'refaccionaria') && (
+<NavLink
               to="/refaccionaria/bd-codigos"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">BD Codigos</span>
             </NavLink>
+)}
 
             {/* Catálogo de paquetes de servicio (servicio + refacciones necesarias). Admin y refaccionario. */}
-            {(user?.role === 'admin' || user?.role === 'refaccionario') && (
+            {(isAdminLike(user?.role) || user?.role === 'refaccionario') && (
               <NavLink
                 to="/refaccionaria/servicios"
                 className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
@@ -628,25 +648,36 @@ useEffect(() => {
               </NavLink>
             )}
 
-            <NavLink
+            {canSeeModule(user?.role, 'devoluciones') && !isReadOnly(user?.role, 'devoluciones') && (
+<NavLink
               to="/refaccionaria/devoluciones"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">Devolución de Refacciones</span>
             </NavLink>
+)}
 
-            <NavLink
+            {canSeeModule(user?.role, 'devoluciones') && (
+<NavLink
               to="/refaccionaria/consulta-devoluciones"
               className={({ isActive }) => `sidebar__sublink ${isActive ? 'active' : ''}`}
             >
               <span className="label">Consulta Devoluciones</span>
             </NavLink>
+)}
           </div>
         </div>
         )}
         {/* === FIN GRUPO REFACCIONARIA === */}
 
                   
+
+        {/* === PERSONAL (Recursos Humanos; admin/coordinador lo ven en Administración) === */}
+        {canSeeModule(user?.role, 'personal') && !isAdminLike(user?.role) && (
+          <NavLink to="/admin/personal" className="sidebar__link" title="Personal">
+            <span className="emoji">👥</span><span className="label">Personal</span>
+          </NavLink>
+        )}
 
         {/* === VALES DE SALIDA === */}
         {canSeeModule(user?.role, 'vales') && (

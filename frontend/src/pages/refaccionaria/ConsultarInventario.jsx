@@ -3,11 +3,12 @@ import Dropdown from "../../components/Dropdown";
 import { getUser } from "../../auth";
 import http from "../../api/http";
 
+import { isAdminLike } from "../../utils/roles";
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 const PAGE_SIZES = [10, 25, 50, 100];
 
 export default function ConsultarInventario() {
-  const isAdmin = getUser()?.role === "admin";
+  const isAdmin = isAdminLike(getUser()?.role);
 
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);

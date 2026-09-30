@@ -13,6 +13,7 @@ import { formatFecha } from "../../utils/fechas";
 import usePdfModal from "../../hooks/usePdfModal";
 import CajaModalAnticipoDeposito from "./components/CajaModalAnticipoDeposito";
 import CajaModalCancelarAnticipo from "./components/CajaModalCancelarAnticipo";
+import { isAdminLike } from "../../utils/roles";
 
 function formatMoney(n) {
   return new Intl.NumberFormat("es-MX", {
@@ -41,7 +42,7 @@ const TIPO_LABELS = {
 // frontend/src/utils/roles.js) y esto es, en esencia, una operación de caja.
 export default function CajasAnticipos() {
   const [searchParams] = useSearchParams();
-  const esAdmin = getUser()?.role === "admin";
+  const esAdmin = isAdminLike(getUser()?.role);
   const { pdfModal, abrirPdf } = usePdfModal();
 
   const [q, setQ] = useState("");

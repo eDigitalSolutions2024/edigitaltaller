@@ -3,9 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { getUser } from "../../auth";
 import "../../styles/facturacion.css";
 
+import { isAdminLike } from "../../utils/roles";
 export default function FacturacionPanel() {
   const navigate = useNavigate();
-  const esAdmin = getUser()?.role === "admin";
+  const esAdmin = isAdminLike(getUser()?.role);
 
   return (
     <div className="fact-panel">

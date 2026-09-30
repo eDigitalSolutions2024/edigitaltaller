@@ -37,7 +37,7 @@ function escapeRegex(str) {
 // roles con acceso al módulo Clientes (p. ej. asesor_servicio) no debe poder
 // verlo ni abriendo el Network tab o llamando la API directo.
 function puedeVerSaldo(req) {
-  return ["admin", "cajas"].includes(req.user?.role);
+  return ["admin", "coordinador", "cajas"].includes(req.user?.role);
 }
 
 // Campos que NO corresponden a cada tipoCliente. Se usan para limpiar datos

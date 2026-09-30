@@ -12,6 +12,7 @@ import {
 } from '../api/tickets';
 import '../styles/OSFlotante.css';
 
+import { isAdminLike } from "../utils/roles";
 function tiempoTranscurrido(fecha) {
   const diff = Date.now() - new Date(fecha).getTime();
   const m = Math.floor(diff / 60000);
@@ -29,7 +30,7 @@ const SECCIONES = [
 
 export default function SoporteFlotante() {
   const user = getUser();
-  const esAdmin = user?.role === 'admin';
+  const esAdmin = isAdminLike(user?.role);
   const navigate = useNavigate();
 
   const [tickets, setTickets] = useState({ pendientes: [], enProceso: [] });

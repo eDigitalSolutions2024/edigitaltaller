@@ -18,6 +18,8 @@ import {
   vincularUsuario
 } from '../../api/empleados';
 import DatosFacturacionModal from './DatosFacturacionModal';
+import { getUser } from '../../auth';
+import { isAdminLike } from '../../utils/roles';
 
 // ─── Etiquetas de roles ───────────────────────────────────────────────────────
 const ROLES = [
@@ -151,6 +153,9 @@ const emptyForm = {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function Personal() {
+  // Recursos Humanos administra los datos del empleado, pero NO las cuentas del
+  // sistema (usuario, rol, contraseña, alta/baja de acceso): eso es de admin.
+  const puedeCuentas = isAdminLike(getUser()?.role);
   const [personas,    setPersonas]    = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [mensaje,     setMensaje]     = useState('');
@@ -174,7 +179,7 @@ export default function Personal() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [empList, userList] = await Promise.all([listarEmpleados({}), getUsers()]);
+      const [empList, userList] = await Promise.all([listarEmpleados({}), puedeCuentas ? getUsers() : Promise.resolve([])]);
 
       const lista = [];
       const userIdsEnEmpleados = new Set();
@@ -233,7 +238,7 @@ export default function Personal() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [puedeCuentas]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -297,8 +302,8 @@ export default function Personal() {
     setMensaje('');
     setError('');
 
-    const esEmpleado  = form.tipo !== 'solo_usuario';
-    const tieneAcceso = form.tipo !== 'empleado';
+    const esEmpleado  = !puedeCuentas || form.tipo !== 'solo_usuario';
+    const tieneAcceso = puedeCuentas && form.tipo !== 'empleado';
 
     try {
       if (editando && editando.key) {
@@ -314,7 +319,7 @@ export default function Personal() {
           });
         }
 
-        if (editando.userId) {
+        if (puedeCuentas && editando.userId) {
           await updateUser(editando.userId, {
             name:     form.nombre,
             username: form.username,
@@ -324,7 +329,7 @@ export default function Personal() {
           if (form.newPassword.trim()) {
             await changeUserPassword(editando.userId, form.newPassword.trim());
           }
-        } else if (tieneAcceso && editando.empleadoId) {
+        } else if (puedeCuentas && tieneAcceso && editando.empleadoId) {
           // Dar acceso al sistema a un empleado que no tenía
           const nuevoUser = await createUser({
             name:     form.nombre,
@@ -386,7 +391,7 @@ export default function Personal() {
       if (persona.empleadoId) {
         await cambiarEstadoEmpleado(persona.empleadoId, nuevoEstado);
       }
-      if (persona.userId) {
+      if (puedeCuentas && persona.userId) {
         await updateUserStatus(persona.userId, nuevoEstado);
       }
       flash(nuevoEstado ? 'Activado correctamente' : 'Desactivado correctamente');
@@ -495,6 +500,7 @@ export default function Personal() {
             <form onSubmit={handleSubmit}>
 
               {/* Tipo */}
+              {puedeCuentas && (
               <div className="mb-3">
                 <label className="form-label fw-semibold">Tipo</label>
                 <div className="d-flex gap-3 flex-wrap">
@@ -521,6 +527,7 @@ export default function Personal() {
                   ))}
                 </div>
               </div>
+              )}
 
               <div className="row g-3">
                 {/* ─ Campos de empleado ─ */}
@@ -559,7 +566,7 @@ export default function Personal() {
                 )}
 
                 {/* ─ Campos de usuario del sistema ─ */}
-                {form.tipo !== 'empleado' && (
+                {puedeCuentas && form.tipo !== 'empleado' && (
                   <>
                     {form.tipo === 'solo_usuario' && (
                       <div className="col-md-4">
@@ -573,7 +580,7 @@ export default function Personal() {
                     <div className="col-md-3">
                       <label className="form-label">Usuario <span className="text-danger">*</span></label>
                       <input
-                        type="text" name="username" className="form-control"
+                        type="text" name="username" className="form-control" data-no-uppercase
                         value={form.username} onChange={handleChange}
                         required={form.tipo !== 'empleado'}
                       />
@@ -659,6 +666,7 @@ export default function Personal() {
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
+            {puedeCuentas && (
             <div className="col-auto">
               <Dropdown className="form-select-sm" value={filtro} onChange={e => setFiltro(e.target.value)}>
                 <Dropdown.Option value="todos">Todos</Dropdown.Option>
@@ -666,6 +674,7 @@ export default function Personal() {
                 <Dropdown.Option value="sin_acceso">Sin acceso al sistema</Dropdown.Option>
               </Dropdown>
             </div>
+            )}
             <div className="col-auto">
               <Dropdown className="form-select-sm" value={filtroActivo} onChange={e => setFiltroActivo(e.target.value)}>
                 <Dropdown.Option value="activos">Solo activos</Dropdown.Option>
@@ -688,8 +697,8 @@ export default function Personal() {
                     <th>Nombre</th>
                     <th>Puesto</th>
                     <th>Contacto</th>
-                    <th>Acceso al sistema</th>
-                    <th>Contraseña</th>
+                    {puedeCuentas && <th>Acceso al sistema</th>}
+                    {puedeCuentas && <th>Contraseña</th>}
                     <th>Estado</th>
                     <th>Acciones</th>
                   </tr>
@@ -697,7 +706,7 @@ export default function Personal() {
                 <tbody>
                   {listaFiltrada.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="text-center text-muted py-3">
+                      <td colSpan={puedeCuentas ? 7 : 5} className="text-center text-muted py-3">
                         No hay registros que coincidan.
                       </td>
                     </tr>
@@ -722,7 +731,7 @@ export default function Personal() {
                       </td>
 
                       {/* Acceso */}
-                      <td>
+                      {puedeCuentas && <td>
                         {p.tieneAcceso ? (
                           <span>
                             <FaUserShield className="text-primary me-1" />
@@ -733,10 +742,9 @@ export default function Personal() {
                             <FaUserTimes className="me-1" />Sin acceso
                           </span>
                         )}
-                      </td>
+                      </td>}
 
-                      {/* Contraseña */}
-                      <td>
+                      {puedeCuentas && <td>
                         {p.tieneAcceso && p.userId ? (
                           revealed[p.userId] ? (
                             <div className="d-flex align-items-center gap-1">
@@ -776,7 +784,7 @@ export default function Personal() {
                         ) : (
                           <span className="text-muted small">—</span>
                         )}
-                      </td>
+                      </td>}
 
                       {/* Estado */}
                       <td>

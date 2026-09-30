@@ -11,6 +11,7 @@ import { getUser } from '../../../auth';
 import CierreCajaResumen from '../../cajas/components/CierreCajaResumen';
 import usePdfModal from '../../../hooks/usePdfModal';
 
+import { isAdminLike } from "../../../utils/roles";
 function formatMoney(n) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
 }
@@ -39,7 +40,7 @@ export default function ReporteCierreCaja() {
   const [cierre, setCierre] = useState(null);
   const [restableciendo, setRestableciendo] = useState(false);
   const { pdfModal, abrirPdf } = usePdfModal();
-  const esAdmin = getUser()?.role === 'admin';
+  const esAdmin = isAdminLike(getUser()?.role);
 
   const buscar = async (desde, hasta) => {
     setCargando(true);
