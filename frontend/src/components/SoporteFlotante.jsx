@@ -10,6 +10,7 @@ import {
   resolverCambioAsesorTicket,
   resolverGarantiaTicket,
 } from '../api/tickets';
+import { setAvisos, limpiarAvisos } from '../utils/tituloAvisos';
 import '../styles/OSFlotante.css';
 
 import { isAdminLike } from "../utils/roles";
@@ -73,6 +74,13 @@ export default function SoporteFlotante() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [esAdmin, cargar]);
+
+  // Cantidad de tickets abiertos en el título de la pestaña
+  useEffect(() => {
+    if (!esAdmin) return;
+    setAvisos('tickets', tickets.pendientes.length + tickets.enProceso.length);
+    return () => limpiarAvisos('tickets');
+  }, [esAdmin, tickets]);
 
   const startDrag = useCallback((clientX, clientY) => {
     dragging.current = true;
