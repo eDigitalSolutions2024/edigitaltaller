@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Dropdown from "../../../components/Dropdown";
 import useTipoCambioActual from "../../../hooks/useTipoCambioActual";
+import useBancos, { TERMINALES_CATALOGO } from "../../../hooks/useBancos";
 
 const FORMAS_PAGO = [
   { value: "EFECTIVO", label: "Efectivo" },
@@ -14,20 +15,7 @@ const FORMAS_PAGO = [
 // Terminales físicas (mismo catálogo que BANCO_A_TERMINAL en
 // backend/utils/cierreCajaTerminales.js): un depósito con tarjeta debe decir
 // en cuál se cobró para que el Cierre de Caja cuadre por terminal.
-const TERMINALES = [
-  "BANREGIO",
-  "AMERICAN EXPRESS",
-  "BANAMEX",
-  "BANORTE",
-  "BBVA BANCOMER",
-  "SANTANDER",
-  "HSBC",
-  "SCOTIABANK",
-  "AZTECA",
-  "BANCOPPEL",
-  "AFIRME",
-  "INBURSA",
-];
+const TERMINALES = TERMINALES_CATALOGO;
 
 // EFECTIVO/EFECTIVO_USD desglosan el efectivo en pesos y dólares (con
 // conversión, igual que "Cantidad en Pesos/Dólares"); los demás métodos del
@@ -59,6 +47,7 @@ function nombreCliente(c) {
 // cliente" — no se puede fondear un anticipo nuevo con saldo a favor que
 // el cliente ya tiene.
 export default function CajaModalAnticipoDeposito({ show, cliente, onClose, onSubmit }) {
+  useBancos();
   const [montoPesos, setMontoPesos] = useState("");
   const [montoDolares, setMontoDolares] = useState("");
   const [tipoCambio, setTipoCambio] = useState("");

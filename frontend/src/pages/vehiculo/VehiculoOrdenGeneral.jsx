@@ -6,6 +6,7 @@ import http from "../../api/http";
 import { formatFecha } from "../../utils/fechas";
 import { createTicket } from "../../api/tickets";
 import { calcularTotalesOrden } from "../../utils/cajaTotales";
+import useBancos, { TERMINALES_CATALOGO } from "../../hooks/useBancos";
 
 function formatMoney(n) {
   if (n === "" || n === null || n === undefined) return "";
@@ -55,20 +56,7 @@ function comprobantePago(p) {
 // Texto legible de la forma de pago de una Nota de Venta. Sirve para las
 // nuevas (notaVenta.formaPago + terminal/combinado) y para las viejas, que
 // solo traían notaVenta.banco con el método o la terminal.
-const TERMINALES_NOTA = [
-  "BANREGIO",
-  "AMERICAN EXPRESS",
-  "BANAMEX",
-  "BANORTE",
-  "BBVA BANCOMER",
-  "SANTANDER",
-  "HSBC",
-  "SCOTIABANK",
-  "AZTECA",
-  "BANCOPPEL",
-  "AFIRME",
-  "INBURSA",
-];
+const TERMINALES_NOTA = TERMINALES_CATALOGO;
 function formaPagoNotaVenta(nv = {}) {
   if (nv.formaPago === "COMBINADO") return "Combinado";
   const banco = nv.banco || "";
@@ -104,6 +92,7 @@ function formaPagoDePago(p) {
 }
 
 export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor, soloConsulta = false }) {
+  useBancos();
   const [cerrando, setCerrando] = useState(false);
   const [solicitandoRestablecer, setSolicitandoRestablecer] = useState(false);
   const [solicitudEnviada, setSolicitudEnviada] = useState(false);

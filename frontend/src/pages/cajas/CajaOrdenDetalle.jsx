@@ -374,11 +374,11 @@ export default function CajaOrdenDetalle() {
                     </tr>
                     <tr>
                       <th className="ps-2">Fecha Recepción</th>
-                      <td>{formatFecha(orden.fechaRecepcion) || "-"}</td>
+                      <td>{[formatFecha(orden.fechaRecepcion), orden.horaRecepcion].filter(Boolean).join(" ") || "-"}</td>
                     </tr>
                     <tr>
                       <th className="ps-2">Fecha de Cierre</th>
-                      <td>{formatFecha(orden.fechaCierre) || "-"}</td>
+                      <td>{formatFecha(orden.fechaCierre, { hour: "2-digit", minute: "2-digit" }) || "-"}</td>
                     </tr>
                   </tbody>
                 </table>

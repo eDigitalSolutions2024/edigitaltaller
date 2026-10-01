@@ -1046,6 +1046,15 @@ router.post("/xml", proteger, async (req, res) => {
       });
     }
 
+    // Una Nota de crédito nunca es PPD (no es viable emitirla a crédito/diferido) — el
+    // frontend ya la mantiene siempre en PUE, esto es el respaldo del lado del servidor.
+    if (esNotaCredito && cfdi?.metodoPago === "PPD") {
+      return res.status(400).json({
+        ok: false,
+        error: "Una Nota de crédito no puede llevar método de pago PPD.",
+      });
+    }
+
     if ((esNotaCredito || esComplementoPago) && (!Array.isArray(relacionadas) || relacionadas.length === 0)) {
       return res.status(400).json({
         ok: false,
@@ -1466,6 +1475,13 @@ router.post("/xml", proteger, async (req, res) => {
             ? primeraEntradaPago.combinado?.transferenciaBanco || ""
             : ""
           : "";
+      // Número de cheque, mismo criterio que bancoPago arriba — solo cuando la forma de
+      // pago es cheque nominativo (02); el desglose Combinado no captura un número de
+      // cheque propio, así que solo aplica a la captura simple.
+      const chequeNumeroPago =
+        esComplementoPago && pago?.formaPago === "02" && primeraEntradaPago?.formaPago === "CHEQUE"
+          ? primeraEntradaPago.chequeNumero || ""
+          : "";
 
       const facturaDoc = await FacturaCfdi.create({
         tipoFactura,
@@ -1491,6 +1507,7 @@ router.post("/xml", proteger, async (req, res) => {
               formaPago: pago.formaPago || "",
               monto: Number(totales.total),
               banco: bancoPago,
+              chequeNumero: chequeNumeroPago,
             }
           : undefined,
         notaFacturacion,

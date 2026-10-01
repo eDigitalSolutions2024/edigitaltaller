@@ -7,12 +7,14 @@ const connectDB  = require('./config/db');
 const limpiarImagenesTemp = require('./utils/limpiarImagenesTemp');
 const { migrarCierreCajaSesion } = require('./utils/migrarCierreCajaSesion');
 const { migrarRetencionRegistroAccion } = require('./utils/migrarRetencionRegistroAccion');
+const { cargarAbreviaturasBancos } = require('./utils/cargarAbreviaturasBancos');
 console.log('JWT_SECRET cargado:', !!process.env.JWT_SECRET);
 
 const app = express();
 connectDB();
 migrarCierreCajaSesion();
 migrarRetencionRegistroAccion();
+cargarAbreviaturasBancos();
 
 // Purga carpetas de imágenes temporales (subidas antes de guardar una orden
 // nueva) que quedaron abandonadas por más de 24h.
@@ -62,6 +64,7 @@ app.use('/api/garage', require('./routes/garage'));
 
 app.use('/api/entradas', require('./routes/entradas'));
 
+app.use('/api/inventario/ubicaciones', require('./routes/ubicacionesInventario'));
 app.use('/api/inventario', require('./routes/inventario'));
 
 // MONTA LAS RUTAS

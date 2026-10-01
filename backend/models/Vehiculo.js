@@ -2,7 +2,7 @@
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
 const { LINEAS_NEGOCIO, LINEA_DEFAULT } = require('../utils/lineaNegocio');
-const { TERMINALES_TARJETA } = require('../utils/bancos');
+const { TERMINALES_TARJETA, validarBancoCaja } = require('../utils/bancos');
 
 // al inicio, antes del schema:
 const ESTADOS_ORDEN = [
@@ -24,6 +24,14 @@ const BANCOS_CAJA = [...TERMINALES_TARJETA, 'DOLARES', 'EFECTIVOS', 'CHEQUE', 'T
 // en cualquier otro caso; se admiten además los valores históricos de
 // BANCOS_CAJA para no invalidar Notas de Venta viejas en un save() posterior.
 const BANCOS_NOTA_VENTA = ['', ...BANCOS_CAJA];
+// Igual que validarBancoCaja pero también admite DOLARES/EFECTIVOS/CHEQUE/TRANSFERENCIA;
+// consulta TERMINALES_TARJETA en vivo para ver los bancos agregados desde Configuración.
+const validarBancoNotaVenta = {
+  validator: (v) =>
+    v === '' || v == null || TERMINALES_TARJETA.includes(v) ||
+    ['DOLARES', 'EFECTIVOS', 'CHEQUE', 'TRANSFERENCIA'].includes(v),
+  message: (props) => `\`${props.value}\` no es un banco válido`,
+};
 const TIPO_NOTA = ['Contado', 'Credito', 'Cancelada'];
 // Formas de pago de Cajas (Recibo Provisional y Nota de Venta comparten
 // catálogo). 'COMBINADO' desglosa el monto por método en el sub-objeto
@@ -48,7 +56,7 @@ const TIPOS_TRANSFERENCIA_CAJA = ['', 'SPEI', 'TEF', 'TERCERO'];
 const tarjetasDesgloseSchema = () => [
   {
     monto: { type: Number, default: 0 },
-    terminal: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+    terminal: { type: String, validate: validarBancoCaja, default: '' },
   },
 ];
 
@@ -66,12 +74,12 @@ const combinadoCajaSchema = () => ({
   // Terminal por la que se cobró la parte de T. Crédito/T. Débito de este
   // combinado; mismo catálogo que BANCO_A_TERMINAL en
   // utils/cierreCajaTerminales.js, para poder sumarla al Cierre de Caja.
-  banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+  banco: { type: String, validate: validarBancoCaja, default: '' },
   // Tipo y banco de la parte de Transferencia de este combinado. Van aparte
   // de `banco` (que es la terminal de la parte con tarjeta): un combinado
   // puede traer tarjeta Y transferencia a la vez.
   transferenciaTipo: { type: String, enum: TIPOS_TRANSFERENCIA_CAJA, default: '' },
-  transferenciaBanco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+  transferenciaBanco: { type: String, validate: validarBancoCaja, default: '' },
   // Desglose por terminal cuando la parte de T. Crédito y/o T. Débito de este
   // combinado se cobró con más de una tarjeta. `banco` de arriba sigue
   // poblado (compatibilidad) cuando solo hubo una terminal.
@@ -809,14 +817,14 @@ pendienteCierre: { type: Boolean, default: false },
           // Terminal cuando formaPago es 'CREDITO' | 'DEBITO'; '' en cualquier
           // otro caso. En Notas viejas guardaba también EFECTIVOS/CHEQUE/etc.
           // (por eso el enum admite los valores de BANCOS_CAJA).
-          banco: { type: String, enum: BANCOS_NOTA_VENTA, default: '' },
+          banco: { type: String, validate: validarBancoNotaVenta, default: '' },
           chequeNumero: { type: String, default: '' },
           tipo: { type: String, enum: TIPO_NOTA, default: 'Contado' },
           // Tipo (SPEI/TEF) y banco elegidos cuando formaPago === 'TRANSFERENCIA';
           // '' en cualquier otro caso. Van aparte de `banco` (que aquí guarda el
           // literal 'TRANSFERENCIA', la clave de depósito histórica).
           tipoTransferencia: { type: String, enum: TIPOS_TRANSFERENCIA_CAJA, default: '' },
-          bancoTransferencia: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+          bancoTransferencia: { type: String, validate: validarBancoCaja, default: '' },
           // Desglose por tarjeta cuando formaPago 'CREDITO'/'DEBITO' se cobró
           // con más de una tarjeta física. `banco` de arriba sigue poblado
           // (compatibilidad) cuando solo hubo una terminal.
@@ -847,10 +855,10 @@ pendienteCierre: { type: Boolean, default: false },
           // BANCO_A_TERMINAL en utils/cierreCajaTerminales.js, para sumarla al
           // Cierre de Caja (ver POST /:id/pagos). El pago Combinado lleva su
           // propia terminal en `combinado.banco`.
-          banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+          banco: { type: String, validate: validarBancoCaja, default: '' },
           // Tipo (SPEI/TEF) y banco elegidos cuando formaPago === 'TRANSFERENCIA'.
           tipoTransferencia: { type: String, enum: TIPOS_TRANSFERENCIA_CAJA, default: '' },
-          bancoTransferencia: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+          bancoTransferencia: { type: String, validate: validarBancoCaja, default: '' },
           tarjetas: tarjetasDesgloseSchema(),
           // Presente solo si formaPago === 'COMBINADO': desglose del monto en
           // pesos por método (su suma es el montoPesos del pago).
@@ -863,9 +871,9 @@ pendienteCierre: { type: Boolean, default: false },
         liquidacion: {
           formaPago: { type: String, enum: FORMAS_PAGO_CAJA, default: 'EFECTIVO' },
           chequeNumero: { type: String, default: '' },
-          banco: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+          banco: { type: String, validate: validarBancoCaja, default: '' },
           tipoTransferencia: { type: String, enum: TIPOS_TRANSFERENCIA_CAJA, default: '' },
-          bancoTransferencia: { type: String, enum: TERMINALES_TARJETA_CAJA, default: '' },
+          bancoTransferencia: { type: String, validate: validarBancoCaja, default: '' },
           tarjetas: tarjetasDesgloseSchema(),
           combinado: combinadoCajaSchema(),
         },

@@ -383,3 +383,25 @@
 .contrato-preview-pie p {
   margin: 1px 0;
 }
+/* Cuentas bancarias */
+.cuentas-modal-dialog { max-width: 900px; width: 95vw; }
+.cuentas-tabla { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.cuentas-tabla th {
+  text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.4px; color: #9ca3af; padding: 6px 8px; border-bottom: 0.5px solid #e5e7eb;
+}
+.cuentas-tabla td { padding: 6px 8px; border-bottom: 0.5px solid #f3f4f6; vertical-align: middle; }
+.cuentas-tabla tbody tr:hover { background: #f9fafb; }
+.cuentas-tabla-banco { font-weight: 600; color: #111827; white-space: nowrap; }
+.cuentas-abrev {
+  display: inline-block; min-width: 28px; text-align: center; padding: 2px 8px; border-radius: 999px;
+  background: #f3f4f6; border: 0.5px solid #e5e7eb; font-size: 11px; font-weight: 700; color: #374151;
+}
+.cuentas-tabla input { width: 100%; box-sizing: border-box; min-width: 0; height: 32px; }
+.cuentas-tabla input:disabled { background: transparent; border-color: transparent; color: #111827; padding-left: 0; }
+.cuentas-tabla input:disabled::placeholder { color: #d1d5db; }
+.cuentas-card-cuenta { font-variant-numeric: tabular-nums; font-size: 12px !important; font-weight: 600; color: #374151 !important; }
+.cuentas-tabla-abrev { width: 90px; }
+.cuentas-tabla-abrev input { font-weight: 700; text-align: center; }
+.cuentas-nuevo-nombre { display: flex; gap: 6px; align-items: center; }
+.cuentas-quitar { border: none; background: #fee2e2; color: #991b1b; border-radius: 6px; width: 24px; height: 24px; line-height: 1; cursor: pointer; flex-shrink: 0; }

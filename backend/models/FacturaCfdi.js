@@ -108,6 +108,10 @@ const FacturaCfdiSchema = new Schema(
       // '' cuando no se pagó por transferencia, o cuando la orden ya traía un
       // pago propio en Cajas (no se capturó nada nuevo al generar este CFDI).
       banco: { type: String, default: "" },
+      // Número de cheque (de "Cobro en Cajas" al generar el complemento) — solo
+      // relevante cuando formaPago es cheque nominativo ("02"); mismo criterio que
+      // `banco` arriba. '' si no se pagó con cheque o no se capturó nada nuevo.
+      chequeNumero: { type: String, default: "" },
     },
 
     cliente: {

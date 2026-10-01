@@ -12,7 +12,7 @@ const CuentaBancaria = require('../models/CuentaBancaria');
 const { streamContratoOrdenServicioPdf } = require('../service/ContratoOrdenServicioPdf');
 const banxicoService = require('../service/banxicoService');
 const { EXIGIR_UUID_CONTADOR, exigirUuidActivo } = require('../utils/configuracionUuid');
-const { BANCOS, TERMINALES_TARJETA } = require('../utils/bancos');
+const { BANCOS, TERMINALES_TARJETA, ABREV_POR_BANCO, aplicarAbreviaturas, registrarBancoPersonalizado, valorDeBanco } = require('../utils/bancos');
 
 const { proteger, requiereRol } = require('../middleware/auth');
 
@@ -560,47 +560,73 @@ router.put('/nota-credito-contador', proteger, requiereRol('admin'), async (req,
 // Complemento de pago pagado por transferencia.
 // ===============================
 
+// Catálogo completo (fijo + bancos agregados) combinado con lo guardado.
+async function armarCuentasBancarias() {
+  const guardadas = await CuentaBancaria.find().lean();
+  const porBanco = new Map(guardadas.map((c) => [c.banco, c]));
+  return BANCOS.map((b) => ({
+    banco: b.value,
+    label: b.label,
+    abrev: porBanco.get(b.value)?.abrev || b.abrev,
+    rfc: porBanco.get(b.value)?.rfc || b.rfc,
+    numeroCuenta: porBanco.get(b.value)?.numeroCuenta || '',
+    personalizado: !!b.personalizado,
+  }));
+}
+
 // GET /api/configuracion/cuentas-bancarias — el catálogo completo de bancos con
 // su cuenta configurada (o '' si aún no se captura ninguna).
 router.get('/cuentas-bancarias', proteger, async (req, res) => {
   try {
-    const guardadas = await CuentaBancaria.find().lean();
-    const porBanco = new Map(guardadas.map((c) => [c.banco, c.numeroCuenta || '']));
-    const cuentas = BANCOS.map((b) => ({
-      banco: b.value,
-      label: b.label,
-      rfc: b.rfc,
-      numeroCuenta: porBanco.get(b.value) || '',
-    }));
-    res.json({ cuentas });
+    res.json({ cuentas: await armarCuentasBancarias() });
   } catch (error) {
     res.status(500).json({ message: 'Error al obtener las cuentas bancarias', error: error.message });
   }
 });
 
-// PUT /api/configuracion/cuentas-bancarias — body: { cuentas: [{ banco, numeroCuenta }] }
+// GET /api/configuracion/bancos — [{ value, label, abrev }] para los selectores de
+// banco/terminal de Cajas, Anticipos, Facturas, etc. (incluye los bancos agregados).
+router.get('/bancos', proteger, (req, res) => {
+  res.json({ bancos: BANCOS.map((b) => ({ value: b.value, label: b.label, abrev: ABREV_POR_BANCO[b.value] || b.abrev })) });
+});
+
+// PUT /api/configuracion/cuentas-bancarias — body: { cuentas: [{ banco, abrev, rfc,
+// numeroCuenta, nuevo?, label? }] }. Una fila con `nuevo: true` + `label` crea un banco.
 router.put('/cuentas-bancarias', proteger, requiereRol('admin'), async (req, res) => {
   try {
     const cuentas = Array.isArray(req.body?.cuentas) ? req.body.cuentas : [];
-    const validas = cuentas.filter((c) => TERMINALES_TARJETA.includes(c?.banco));
+
+    // 1) Bancos nuevos: se crean primero para que pasen el filtro de abajo.
+    for (const c of cuentas.filter((x) => x?.nuevo)) {
+      const label = String(c.label || '').trim();
+      const banco = valorDeBanco(label);
+      if (!banco) continue;
+      if (TERMINALES_TARJETA.includes(banco)) {
+        return res.status(400).json({ message: `El banco "${label}" ya existe` });
+      }
+      const abrev = String(c.abrev || '').trim().toUpperCase().slice(0, 6) || banco.slice(0, 2);
+      await CuentaBancaria.create({
+        banco, label, personalizado: true, abrev,
+        rfc: String(c.rfc || '').trim().toUpperCase(),
+        numeroCuenta: String(c.numeroCuenta || '').trim(),
+      });
+      registrarBancoPersonalizado({ banco, label, abrev, rfc: c.rfc });
+    }
+
+    // 2) Existentes
+    const validas = cuentas.filter((c) => !c?.nuevo && TERMINALES_TARJETA.includes(c?.banco));
     await Promise.all(
       validas.map((c) =>
         CuentaBancaria.findOneAndUpdate(
           { banco: c.banco },
-          { $set: { numeroCuenta: String(c.numeroCuenta || '').trim() } },
+          { $set: { numeroCuenta: String(c.numeroCuenta || '').trim(), rfc: String(c.rfc || '').trim().toUpperCase(), abrev: String(c.abrev || '').trim().toUpperCase().slice(0, 6) } },
           { upsert: true }
         )
       )
     );
     const guardadas = await CuentaBancaria.find().lean();
-    const porBanco = new Map(guardadas.map((c) => [c.banco, c.numeroCuenta || '']));
-    const resultado = BANCOS.map((b) => ({
-      banco: b.value,
-      label: b.label,
-      rfc: b.rfc,
-      numeroCuenta: porBanco.get(b.value) || '',
-    }));
-    res.json({ cuentas: resultado });
+    aplicarAbreviaturas(Object.fromEntries(guardadas.map((c) => [c.banco, c.abrev])));
+    res.json({ cuentas: await armarCuentasBancarias() });
   } catch (error) {
     res.status(500).json({ message: 'Error al actualizar las cuentas bancarias', error: error.message });
   }

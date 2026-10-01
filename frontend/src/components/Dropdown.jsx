@@ -1,4 +1,4 @@
-import { Children, isValidElement, useEffect, useRef, useState, useCallback } from "react";
+import { Children, Fragment, isValidElement, useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import "../styles/Dropdown.css";
 
@@ -12,6 +12,11 @@ function extraerOpciones(children) {
   const opciones = [];
   for (const child of Array.from(children ?? [])) {
     if (!isValidElement(child)) continue;
+    // Aplana fragmentos (<>...</>) para que sus <Dropdown.Option> cuenten.
+    if (child.type === Fragment) {
+      opciones.push(...extraerOpciones(Children.toArray(child.props.children)));
+      continue;
+    }
     const { value, children: label, disabled, title } = child.props;
     // Igual que <option> nativo: sin value explícito, se usa el texto como value.
     opciones.push({

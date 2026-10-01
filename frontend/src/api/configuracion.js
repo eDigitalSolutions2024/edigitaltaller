@@ -128,3 +128,8 @@ export const getHistorialContratoOrdenServicio = () =>
 // igual que el resto de los PDFs de vehiculos.js.
 export const getContratoOrdenServicioPdfUrl = (versionId) =>
   `${API}/configuracion/contrato-orden-servicio/historial/${versionId}/pdf`;
+
+// Catálogo vivo de bancos/terminales ({ value, label, abrev }), incluye los agregados
+// desde Configuración › Cuentas bancarias.
+export const getBancos = () =>
+  http.get('/configuracion/bancos').then(r => r.data);
