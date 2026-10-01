@@ -15,12 +15,13 @@ import {
 } from '../../api/tickets';
 import OrdenServicioTicketLink from '../../components/OrdenServicioTicketLink';
 
+import { isAdminLike } from "../../utils/roles";
 const LIMIT = 10;
 const ESTADOS_ACTIVOS = 'PENDIENTE,EN_PROCESO';
 
 export default function SoporteAdminTickets() {
   const user = getUser();
-  const puedeGestionar = user?.role === 'admin';
+  const puedeGestionar = isAdminLike(user?.role);
 
   const [filtroEstado, setFiltroEstado] = useState('');
   const [tickets, setTickets] = useState([]);

@@ -18,6 +18,7 @@ import { getUser } from "../../auth";
 import { createTicket } from "../../api/tickets";
 import ModalCancelarOrden from "./ModalCancelarOrden";
 
+import { isAdminLike } from "../../utils/roles";
 // Una vez que la orden tiene Remisión o Nota de Venta vigente ya se considera
 // vendida fiscalmente; no se debe poder anticipar más dinero (en horas) fuera
 // de los comprobantes oficiales de Caja. Mismo criterio que cajas.js:210-212.
@@ -29,7 +30,7 @@ function tieneComprobanteFiscal(pagos) {
 
 export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparacion, readOnly = false }) {
   const navigate = useNavigate();
-  const esAdmin = getUser()?.role === "admin";
+  const esAdmin = isAdminLike(getUser()?.role);
   const { pdfModal, abrirPdf } = usePdfModal();
 
   // Encabezado

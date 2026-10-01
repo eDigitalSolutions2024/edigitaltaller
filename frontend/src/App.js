@@ -6,7 +6,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 // selector de tamaño de PDF en VehiculoOrdenDetalle) no hace nada.
 import 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { canSeeModule, defaultRouteForRole } from "./utils/roles";
+import { canSeeModule, isReadOnly, defaultRouteForRole, isAdminLike } from "./utils/roles";
 import { setAccessToken, getAccessToken } from "./api/http";
 import useGlobalUppercase from "./hooks/useGlobalUppercase";
 import useAutoReloadOnDeploy from "./hooks/useAutoReloadOnDeploy";
@@ -175,17 +175,45 @@ const RoleRedirect = () => {
 const SoporteIndexRedirect = () => {
   const raw = localStorage.getItem("user");
   const user = raw ? JSON.parse(raw) : null;
-  return <Navigate to={user?.role === "admin" ? "admin" : "mis-tickets"} replace />;
+  return <Navigate to={isAdminLike(user?.role) ? "admin" : "mis-tickets"} replace />;
 };
 
-/** Protege una ruta: si el rol no tiene acceso al módulo lo manda a su ruta por defecto */
-const RoleRoute = ({ children, module }) => {
+/**
+ * Protege una ruta: si el rol no tiene acceso al módulo lo manda a su ruta por
+ * defecto. `module` puede ser un módulo o una lista (basta con uno). Con
+ * `write` la ruta es de captura/edición: los roles de "solo consulta" en ese
+ * módulo también quedan fuera.
+ */
+const RoleRoute = ({ children, module, write = false }) => {
   const raw = localStorage.getItem("user");
   const user = raw ? JSON.parse(raw) : null;
-  if (!canSeeModule(user?.role, module)) {
+  const modules = Array.isArray(module) ? module : [module];
+  const permitidos = modules.filter((m) => canSeeModule(user?.role, m));
+  const ok = write
+    ? permitidos.some((m) => !isReadOnly(user?.role, m))
+    : permitidos.length > 0;
+  if (!ok) {
     return <Navigate to={defaultRouteForRole(user?.role)} replace />;
   }
   return children;
+};
+
+/** Índice de Facturación: Panel para quien factura; los de solo consulta van a Consultar */
+const FacturacionIndex = () => {
+  const raw = localStorage.getItem("user");
+  const user = raw ? JSON.parse(raw) : null;
+  if (!canSeeModule(user?.role, "facturacion")) {
+    return <Navigate to="/facturacion/consultar" replace />;
+  }
+  return <FacturacionPanel />;
+};
+
+/** Índice de un módulo con varias pantallas: va a la primera a la que el rol tiene acceso */
+const ModuleIndexRedirect = ({ options }) => {
+  const raw = localStorage.getItem("user");
+  const user = raw ? JSON.parse(raw) : null;
+  const first = options.find((o) => canSeeModule(user?.role, o.module));
+  return <Navigate to={first ? first.to : defaultRouteForRole(user?.role)} replace />;
 };
 
 /** Protege una ruta para roles específicos */
@@ -226,14 +254,14 @@ export default function App() {
           {/* Clientes */}
           <Route path="clientes/*" element={<RoleRoute module="clientes"><ClientesLayout /></RoleRoute>}>
             <Route index element={<Navigate to="consulta" replace />} />
-            <Route path="alta" element={<AltaCliente />} />
+            <Route path="alta" element={<RoleRoute module="clientes" write><AltaCliente /></RoleRoute>} />
             {/* misma pantalla para editar cliente */}
-            <Route path="alta/:id" element={<AltaCliente />} /> {/* 👈 CORREGIDO */}
+            <Route path="alta/:id" element={<RoleRoute module="clientes" write><AltaCliente /></RoleRoute>} /> {/* 👈 CORREGIDO */}
             <Route path="consulta" element={<ConsultaClientes />} />
           </Route>
 
           {/* Proveedores */}
-          <Route path="proveedores/*" element={<ProveedoresLayout />}>
+          <Route path="proveedores/*" element={<RoleRoute module="proveedores"><ProveedoresLayout /></RoleRoute>}>
             <Route index element={<Navigate to="alta" replace />} />
             <Route path="alta" element={<AltaProveedor />} />
             {/* misma pantalla para editar proveedor */}
@@ -243,8 +271,8 @@ export default function App() {
 
           {/* Vehículo */}
           <Route path="vehiculo/*" element={<RoleRoute module="vehiculo"><VehiculosLayout /></RoleRoute>}>
-            <Route index element={<Navigate to="entrada" replace />} />
-            <Route path="entrada" element={<VehiculoEntrada />} />
+            <Route index element={<ModuleIndexRedirect options={[{ module: "vehiculo", to: "consulta-ordenes" }]} />} />
+            <Route path="entrada" element={<RoleRoute module="vehiculo" write><VehiculoEntrada /></RoleRoute>} />
             <Route path="consulta-ordenes" element={<VehiculoConsultaOrdenes />} />
             <Route path="consulta-ordenes-cerradas" element={<VehiculoConsultaCerradas />} />
             <Route path="consulta-ordenes-canceladas" element={<VehiculoConsultaCanceladas />} />
@@ -263,28 +291,45 @@ export default function App() {
           </Route>
 
           {/* Refaccionaria */}
-          <Route path="refaccionaria/*" element={<RoleRoute module="refaccionaria"><RefaccionariaLayout /></RoleRoute>}>
-            <Route index element={<Navigate to="entrada" replace />} />
-            <Route path="entrada" element={<EntradaInventario />} />
-            <Route path="salida" element={<SalidaRefaccion />} />
-            <Route path="solicitudes-taller" element={<SolicitudesTaller />} />
-            <Route path="solicitudes-taller/:id" element={<SolicitudTallerDetalle />} />
-            <Route path="por-surtir" element={<PorSurtir />} />
+          <Route
+            path="refaccionaria/*"
+            element={
+              <RoleRoute module={["refaccionaria", "devoluciones", "inventario", "factura_proveedor"]}>
+                <RefaccionariaLayout />
+              </RoleRoute>
+            }
+          >
+            <Route
+              index
+              element={
+                <ModuleIndexRedirect
+                  options={[
+                    { module: "refaccionaria", to: "entrada" },
+                    { module: "devoluciones", to: "consulta-devoluciones" },
+                    { module: "inventario", to: "consultar" },
+                    { module: "factura_proveedor", to: "factura-proveedor" },
+                  ]}
+                />
+              }
+            />
+            <Route path="entrada" element={<RoleRoute module="refaccionaria"><EntradaInventario /></RoleRoute>} />
+            <Route path="salida" element={<RoleRoute module="refaccionaria"><SalidaRefaccion /></RoleRoute>} />
+            <Route path="solicitudes-taller" element={<RoleRoute module="refaccionaria"><SolicitudesTaller /></RoleRoute>} />
+            <Route path="solicitudes-taller/:id" element={<RoleRoute module="refaccionaria"><SolicitudTallerDetalle /></RoleRoute>} />
+            <Route path="por-surtir" element={<RoleRoute module="refaccionaria"><PorSurtir /></RoleRoute>} />
 
+            {/* Devoluciones (registrar = captura; consulta = también roles de solo consulta) */}
+            <Route path="devoluciones" element={<RoleRoute module="devoluciones" write><DevolucionRefaccion /></RoleRoute>} />
+            <Route path="consulta-devoluciones" element={<RoleRoute module="devoluciones"><ConsultaDevoluciones /></RoleRoute>} />
 
-
-            {/* Devoluciones */}
-            <Route path="devoluciones" element={<DevolucionRefaccion />} />
-            <Route path="consulta-devoluciones" element={<ConsultaDevoluciones />} />
-
-            <Route path="consultar" element={<ConsultarInventario />} />
-            <Route path="factura-proveedor" element={<ConsultarFacturaProveedor />} />
-            <Route path="bd-codigos" element={<BDCodigos />} />
+            <Route path="consultar" element={<RoleRoute module={["refaccionaria", "inventario"]}><ConsultarInventario /></RoleRoute>} />
+            <Route path="factura-proveedor" element={<RoleRoute module={["refaccionaria", "factura_proveedor"]}><ConsultarFacturaProveedor /></RoleRoute>} />
+            <Route path="bd-codigos" element={<RoleRoute module="refaccionaria"><BDCodigos /></RoleRoute>} />
             {/* Catálogo de paquetes de servicio (servicio + refacciones necesarias),
                 distinto de BD Códigos → tipo "servicio" (SAT/facturación). Admin y refaccionario. */}
             <Route
               path="servicios"
-              element={<RolesRoute roles={['admin', 'refaccionario']}><ServiciosCatalogo /></RolesRoute>}
+              element={<RolesRoute roles={['admin', 'coordinador', 'refaccionario']}><ServiciosCatalogo /></RolesRoute>}
             />
           </Route>
 
@@ -295,7 +340,7 @@ export default function App() {
           <Route path="admin/usuarios" element={<Navigate to="/admin/personal" replace />} />
 
           {/* Personal unificado */}
-          <Route path="admin/personal" element={<Personal />} />
+          <Route path="admin/personal" element={<RoleRoute module="personal"><Personal /></RoleRoute>} />
 
           {/* Grupos de trabajo */}
           <Route path="admin/grupos" element={<Grupos />} />
@@ -304,7 +349,7 @@ export default function App() {
           <Route
             path="admin/actividad"
             element={
-              <RolesRoute roles={['admin']}>
+              <RolesRoute roles={['admin', 'coordinador']}>
                 <RegistroActividad />
               </RolesRoute>
             }
@@ -328,7 +373,7 @@ export default function App() {
           <Route
             path="garantias"
             element={
-              <RolesRoute roles={['admin', 'jefe', 'asesor_servicio', 'auditoria']}>
+              <RolesRoute roles={['admin', 'coordinador', 'jefe', 'asesor_servicio', 'auditoria']}>
                 <SolicitudesGarantia />
               </RolesRoute>
             }
@@ -340,18 +385,18 @@ export default function App() {
             <Route path="mis-tickets" element={<SoporteForm />} />
             <Route
               path="admin"
-              element={<RolesRoute roles={['admin']}><SoporteAdminTickets /></RolesRoute>}
+              element={<RolesRoute roles={['admin', 'coordinador']}><SoporteAdminTickets /></RolesRoute>}
             />
             <Route
               path="admin/historial"
-              element={<RolesRoute roles={['admin']}><SoporteAdminHistorial /></RolesRoute>}
+              element={<RolesRoute roles={['admin', 'coordinador']}><SoporteAdminHistorial /></RolesRoute>}
             />
           </Route>
 
           {/* Captura (solo admin y finanzas) */}
           <Route
             path="captura/*"
-            element={<RolesRoute roles={['admin', 'finanzas', 'captura']}><CapturaLayout /></RolesRoute>}
+            element={<RolesRoute roles={['admin', 'coordinador', 'finanzas', 'captura']}><CapturaLayout /></RolesRoute>}
           >
             <Route index element={<Navigate to="originales" replace />} />
             <Route path="originales" element={<ReporteOriginales />} />
@@ -361,7 +406,7 @@ export default function App() {
           {/* Auditoría (solo admin y auditoria) */}
           <Route
             path="auditoria/*"
-            element={<RolesRoute roles={['admin', 'auditoria']}><AuditoriaLayout /></RolesRoute>}
+            element={<RolesRoute roles={['admin', 'coordinador', 'auditoria']}><AuditoriaLayout /></RolesRoute>}
           >
             <Route index element={<Navigate to="ordenes-abiertas" replace />} />
             <Route path="ordenes-abiertas" element={<OrdenesAbiertas />} />
@@ -372,13 +417,13 @@ export default function App() {
           {/* Reporte de Cajas (solo admin y finanzas) */}
           <Route
             path="reportes/cajas"
-            element={<RolesRoute roles={['admin', 'finanzas']}><ReporteCajasIngresos /></RolesRoute>}
+            element={<RolesRoute roles={['admin', 'coordinador', 'finanzas']}><ReporteCajasIngresos /></RolesRoute>}
           />
 
           {/* Recursos Humanos (solo admin y recursos_humanos) */}
           <Route
             path="reportes/rh/*"
-            element={<RolesRoute roles={['admin', 'recursos_humanos']}><RhLayout /></RolesRoute>}
+            element={<RolesRoute roles={['admin', 'coordinador', 'recursos_humanos']}><RhLayout /></RolesRoute>}
           >
             <Route index element={<Navigate to="horas-tecnico" replace />} />
             <Route path="horas-tecnico" element={<ReporteHorasTecnico />} />
@@ -386,13 +431,13 @@ export default function App() {
           </Route>
 
           {/* Facturación */}
-          <Route path="facturacion/*" element={<RoleRoute module="facturacion"><FacturacionLayout /></RoleRoute>}>
-            <Route index element={<FacturacionPanel />} />
-            <Route path="nueva" element={<NuevaFactura />} />
+          <Route path="facturacion/*" element={<RoleRoute module={["facturacion", "facturas_consulta"]}><FacturacionLayout /></RoleRoute>}>
+            <Route index element={<FacturacionIndex />} />
+            <Route path="nueva" element={<RoleRoute module="facturacion"><NuevaFactura /></RoleRoute>} />
             <Route path="consultar" element={<ConsultarFacturas />} />
             <Route
               path="configuracion-fiscal"
-              element={<RolesRoute roles={['admin']}><ConfiguracionFiscal /></RolesRoute>}
+              element={<RolesRoute roles={['admin', 'coordinador']}><ConfiguracionFiscal /></RolesRoute>}
             />
           </Route>
 

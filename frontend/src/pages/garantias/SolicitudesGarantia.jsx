@@ -10,6 +10,7 @@ import { formatFecha as formatFechaBase } from "../../utils/fechas";
 import ModalCancelarGarantia from "./ModalCancelarGarantia";
 import "../../styles/garantias.css";
 
+import { isAdminLike } from "../../utils/roles";
 const LIMIT = 10;
 
 // En pantalla la garantía se maneja como Pendiente / Autorizada / Negada /
@@ -309,10 +310,10 @@ function DetalleOrdenes({ v, g, nombreManoObra }) {
 
 export default function SolicitudesGarantia() {
   const user = getUser();
-  const puedeResolver = ["admin", "jefe"].includes(user?.role);
+  const puedeResolver = ["admin", "coordinador", "jefe"].includes(user?.role);
   // Cancelar la orden reasigna el asesor de la orden de reemplazo, lo cual
   // solo puede hacer un admin (mismo permiso que PUT /vehiculos/:id/cambiar-asesor).
-  const puedeCancelarOrden = user?.role === "admin";
+  const puedeCancelarOrden = isAdminLike(user?.role);
   const navigate = useNavigate();
 
   // Folio recibido desde la consulta de garantías (/garantias?os=OS-023):

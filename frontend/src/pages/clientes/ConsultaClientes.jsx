@@ -16,7 +16,7 @@ export default function ConsultaClientes() {
   // El saldo a favor (anticipos) solo lo puede ver admin/cajas — el backend
   // ya ni siquiera manda el campo para otros roles (ver GET /api/clientes),
   // esto solo evita renderizar una columna vacía.
-  const puedeVerSaldo = ["admin", "cajas"].includes(getUser()?.role);
+  const puedeVerSaldo = ["admin", "coordinador", "cajas"].includes(getUser()?.role);
   const [q, setQ] = useState("");
   const [rows, setRows] = useState([]);
   const [page, setPage] = useState(1);

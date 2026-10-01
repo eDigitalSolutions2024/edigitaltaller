@@ -51,6 +51,7 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
     return (
       (c.numeroParte || c.codigo || "").toLowerCase().includes(q) ||
       (c.descripcion || "").toLowerCase().includes(q) ||
+      (c.marca        || "").toLowerCase().includes(q) ||
       (c.proveedor    || "").toLowerCase().includes(q)
     );
   });
@@ -145,7 +146,7 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
               <input
                 autoFocus
                 className="form-control"
-                placeholder="Buscar por número de parte, descripción o proveedor..."
+                placeholder="Buscar por número de parte, descripción, marca o proveedor..."
                 value={busqueda}
                 onChange={(e) => setBusqueda(e.target.value)}
               />
@@ -161,6 +162,7 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
                     <tr>
                       <th>Número de Parte</th>
                       <th>Descripción</th>
+                      <th>Marca</th>
                       <th>Proveedor</th>
                       <th style={{ width: 110 }}>Inventario</th>
                     </tr>
@@ -173,6 +175,7 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
                         <tr key={c._id} style={{ cursor: "pointer" }} onClick={() => onSelect(c)}>
                           <td>{c.numeroParte || c.codigo || "—"}</td>
                           <td>{c.descripcion || "—"}</td>
+                          <td>{c.marca       || "—"}</td>
                           <td>{c.proveedor   || "—"}</td>
                           <td className="text-center">
                             {stock === undefined ? (

@@ -29,7 +29,7 @@ function nombreClienteBusqueda(c) {
 
 export default function VehiculoEntrada() {
   // El botón de Garantía está disponible para admins y asesores de servicio
-  const puedeSolicitarGarantia = ["admin", "asesor_servicio"].includes(getUser()?.role);
+  const puedeSolicitarGarantia = ["admin", "coordinador", "asesor_servicio"].includes(getUser()?.role);
   const [q, setQ] = useState("");
   const [clientes, setClientes] = useState([]);
   const [filtrados, setFiltrados] = useState([]);

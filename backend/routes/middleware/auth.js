@@ -38,7 +38,12 @@ function requiereRol(...rolesPermitidos) {
 
     const rolUsuario = req.user.role; // 'admin' o 'staff' según tu modelo
 
-    if (!rolesPermitidos.includes(rolUsuario)) {
+    // El coordinador tiene los mismos permisos que el admin.
+    const permitido =
+      rolesPermitidos.includes(rolUsuario) ||
+      (rolUsuario === 'coordinador' && rolesPermitidos.includes('admin'));
+
+    if (!permitido) {
       return res.status(403).json({
         message: `Acceso denegado. Solo permitido para: ${rolesPermitidos.join(
           ', '

@@ -284,3 +284,33 @@
 .osref-ver-todos:hover {
   text-decoration: underline;
 }
+
+/* Aviso al asesor: solicitud devuelta / pieza surtida */
+.os-flotante__badge--aviso {
+  background: #dc3545;
+  margin-left: 4px;
+  animation: os-aviso-pulso 1.4s ease-in-out infinite;
+}
+
+.os-flotante__item--aviso {
+  background: #fff8e1;
+  border-left: 4px solid #f59f00;
+  animation: os-aviso-pulso-fondo 1.6s ease-in-out infinite;
+}
+
+.os-flotante__aviso {
+  font-size: 11px;
+  font-weight: 700;
+  color: #b45309;
+  margin-bottom: 3px;
+}
+
+@keyframes os-aviso-pulso {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+@keyframes os-aviso-pulso-fondo {
+  0%, 100% { background: #fff8e1; }
+  50% { background: #ffe8a3; }
+}

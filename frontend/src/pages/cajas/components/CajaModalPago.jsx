@@ -19,24 +19,12 @@ import {
   createVale,
   getValePdfUrl,
 } from "../../../api/vales";
+import useBancos, { TERMINALES_CATALOGO } from "../../../hooks/useBancos";
 
 // Terminales físicas para cobros con tarjeta (mismo catálogo que
 // TERMINALES_TARJETA en backend/routes/cajas.js). También sirve como catálogo
 // de bancos para un pago por Transferencia.
-const TERMINALES = [
-  "BANREGIO",
-  "AMERICAN EXPRESS",
-  "BANAMEX",
-  "BANORTE",
-  "BBVA BANCOMER",
-  "SANTANDER",
-  "HSBC",
-  "SCOTIABANK",
-  "AZTECA",
-  "BANCOPPEL",
-  "AFIRME",
-  "INBURSA",
-];
+const TERMINALES = TERMINALES_CATALOGO;
 // Tipos de transferencia (mismo catálogo que TIPOS_TRANSFERENCIA_CAJA en
 // backend/models/Vehiculo.js).
 const TIPOS_TRANSFERENCIA = [
@@ -120,6 +108,7 @@ function telefonoCelularOrden(orden) {
 }
 
 export default function CajaModalPago({ show, orden, saldoPendiente, saldoClienteDisponible = 0, anticiposDisponibles = [], onClose, onSubmit, onValeGuardado }) {
+  useBancos();
   const user = getUser();
 
   // Paso actual del asistente (1: tipo de pago · 2: forma de pago y montos ·

@@ -14,6 +14,7 @@ import VehiculoOrdenGeneral from "./VehiculoOrdenGeneral";
 import VehiculoOrdenConfigurar from "./VehiculoOrdenConfigurar";
 import VehiculoReparacionEnCurso from "./VehiculoReparacionEnCurso";
 
+import { isAdminLike } from "../../utils/roles";
 // PENDIENTE_AUTORIZACION_CLIENTE va al tab req (el asesor selecciona opciones),
 // el tab de presupuesto solo se habilita al pulsar "Continuar a Presupuesto"
 const ESTADO_TO_TAB = {
@@ -107,7 +108,7 @@ export default function VehiculoOrdenDetalle() {
   // compañero de su mismo grupo de trabajo) puede editar la suya
   const usuario = getUser();
   const miNombre = usuario?.name || usuario?.username || "";
-  const esAdmin = usuario?.role === "admin";
+  const esAdmin = isAdminLike(usuario?.role);
   const esAsesor = usuario?.role === "asesor_servicio";
   const grupoOrdenId = orden?.grupoId?._id || orden?.grupoId || null;
   const esDeMiGrupo = !!grupoOrdenId && misGrupoIds.includes(String(grupoOrdenId));

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listOrdenesServicio, filtrosPorSurtir, filtroDevueltoPor } from '../api/vehiculos';
 import { getUser } from '../auth';
+import { setAvisos, limpiarAvisos } from '../utils/tituloAvisos';
 import '../styles/OSFlotante.css';
 
 function nombreCliente(orden) {
@@ -93,6 +94,13 @@ export default function OSFlotanteRefaccionaria() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [esRefaccionario, cargar]);
+
+  // Solicitudes de taller + por surtir en el título de la pestaña
+  useEffect(() => {
+    if (!esRefaccionario) return;
+    setAvisos('refaccionaria', ordenes.solicitudes.length + ordenes.porSurtir.length);
+    return () => limpiarAvisos('refaccionaria');
+  }, [esRefaccionario, ordenes]);
 
   const startDrag = useCallback((clientX, clientY) => {
     dragging.current = true;

@@ -25,6 +25,8 @@ import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 import { calcularTotalesOrden } from "../../utils/cajaTotales";
 import "../../styles/facturaWizard.css";
 
+import { isAdminLike } from "../../utils/roles";
+import useBancos, { TERMINALES_CATALOGO } from "../../hooks/useBancos";
 /* =======================
    CATÁLOGOS
 ======================= */
@@ -71,20 +73,7 @@ const FORMAS_PAGO_CAJA = [
   { value: "TRANSFERENCIA", label: "Transferencia" },
   { value: "COMBINADO", label: "Combinado" },
 ];
-const TERMINALES_CAJA = [
-  "BANREGIO",
-  "AMERICAN EXPRESS",
-  "BANAMEX",
-  "BANORTE",
-  "BBVA BANCOMER",
-  "SANTANDER",
-  "HSBC",
-  "SCOTIABANK",
-  "AZTECA",
-  "BANCOPPEL",
-  "AFIRME",
-  "INBURSA",
-];
+const TERMINALES_CAJA = TERMINALES_CATALOGO;
 // Tipos de transferencia (mismo catálogo que TIPOS_TRANSFERENCIA_CAJA en
 // backend/models/Vehiculo.js).
 const TIPOS_TRANSFERENCIA = [
@@ -599,6 +588,7 @@ function PasosBarra({ pasos, actual, onIr }) {
 ======================= */
 
 export default function NuevaFactura() {
+  useBancos();
   const navigate = useNavigate();
   const location = useLocation();
   // Identificador local (no persiste al backend) para poder seleccionar y
@@ -1853,10 +1843,16 @@ export default function NuevaFactura() {
   const requiereElegirFormaPago = esFactura || esNotaCredito || esComplementoPago;
 
   /* Forma de pago "99 - Por definir" obliga a método PPD: no se puede documentar
-     como pago en una sola exhibición algo cuya forma de pago aún no se conoce. */
+     como pago en una sola exhibición algo cuya forma de pago aún no se conoce.
+     Una Nota de crédito nunca es PPD (no es viable emitirla a crédito/diferido) —
+     se queda siempre en PUE, sin importar la forma de pago elegida. */
   useEffect(() => {
+    if (esNotaCredito) {
+      if (metodoPago !== "PUE") setMetodoPago("PUE");
+      return;
+    }
     if (formaPago === "99" && metodoPago !== "PPD") setMetodoPago("PPD");
-  }, [formaPago, metodoPago]);
+  }, [formaPago, metodoPago, esNotaCredito]);
 
   /* Factura global: la forma de pago la fija sola la nota de venta de mayor
      monto (regla SAT). El select queda bloqueado y se sincroniza aquí. El
@@ -2008,7 +2004,7 @@ export default function NuevaFactura() {
   // Órdenes de esta factura que ya tienen factura de ingreso VIGENTE: emitirla es una
   // REFACTURACIÓN (SAT: sustitución, relación 04). Al generarla, la original queda cancelada en el
   // sistema y la nueva hereda su cobro de Cajas. Solo un administrador puede hacerlo.
-  const esAdmin = getUser()?.role === "admin";
+  const esAdmin = isAdminLike(getUser()?.role);
   const ordenesRefacturadas = esFactura
     ? ordenes.filter((o) => (facturasPreviasPorOrden[o._id]?.vigentes || []).length > 0)
     : [];
@@ -5132,11 +5128,13 @@ export default function NuevaFactura() {
                   <Dropdown
                     className={`form-select${esFacturaGlobal && !metodoPago ? " is-invalid border-danger" : ""}`}
                     value={metodoPago}
-                    disabled={disabledSteps || formaPago === "99"}
+                    disabled={disabledSteps || formaPago === "99" || esNotaCredito}
                     onChange={(e) => setMetodoPago(e.target.value)}
                   >
                     {esFacturaGlobal && <Dropdown.Option value="">— Selecciona —</Dropdown.Option>}
-                    {METODO_PAGO.map((x) => (
+                    {/* Una Nota de crédito nunca es PPD (no es viable emitirla a crédito/diferido,
+                        ver efecto arriba que la mantiene siempre en PUE). */}
+                    {METODO_PAGO.filter((x) => !esNotaCredito || x.value !== "PPD").map((x) => (
                       <Dropdown.Option key={x.value} value={x.value}>
                         {x.label}
                       </Dropdown.Option>
@@ -5145,7 +5143,7 @@ export default function NuevaFactura() {
                   {esFacturaGlobal && !metodoPago && (
                     <small className="text-danger d-block">Elige el método de pago para continuar.</small>
                   )}
-                  {formaPago === "99" && (
+                  {!esNotaCredito && formaPago === "99" && (
                     <small className="text-muted">
                       Con forma de pago “Por definir” el método es PPD.
                     </small>

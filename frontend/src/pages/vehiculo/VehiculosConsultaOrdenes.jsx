@@ -7,6 +7,7 @@ import { getUser } from "../../auth";
 import { formatFecha } from "../../utils/fechas";
 
 
+import { isAdminLike } from "../../utils/roles";
 const TABS = [
   { key: "INGRESO",                        label: "INGRESO" },
   { key: "PENDIENTE_REFACCIONARIA",        label: "PENDIENTE REFACCIONARIA" },
@@ -72,7 +73,7 @@ export default function VehiculosConsultaOrdenes() {
   const [misGrupoIds, setMisGrupoIds] = useState([]);
 
   useEffect(() => {
-    if (usuario?.role === "admin") return;
+    if (isAdminLike(usuario?.role)) return;
     getMisGrupos()
       .then(setMisGrupoIds)
       .catch((err) => console.error("Error cargando mis-grupos:", err));

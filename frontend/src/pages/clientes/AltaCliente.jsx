@@ -5,7 +5,7 @@ import Dropdown from "../../components/Dropdown";
 import { createCustomer, getCustomer, updateCustomer, setCustomerEstado } from "../../api/customers";
 import { getAsesores } from "../../api/users";
 import { getUser } from "../../auth";
-import { puedeEditarCodigosCliente } from "../../utils/roles";
+import { puedeEditarCodigosCliente, isAdminLike } from "../../utils/roles";
 import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 import ModalCodigosCliente from "./components/ModalCodigosCliente";
 import ConvertirEmpleadoModal from "./ConvertirEmpleadoModal";
@@ -314,11 +314,11 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
   const isEdit = Boolean(id);
   const navigate = useNavigate();
 
-  const isAdmin = getUser()?.role === "admin";
+  const isAdmin = isAdminLike(getUser()?.role);
   // El saldo a favor (anticipos) solo lo puede ver admin/cajas: el backend ya
   // ni siquiera manda el campo para otros roles (ver GET /api/clientes/:id),
   // así que aquí solo se evita mostrar una sección con $0.00 engañoso.
-  const puedeVerSaldo = ["admin", "cajas"].includes(getUser()?.role);
+  const puedeVerSaldo = ["admin", "coordinador", "cajas"].includes(getUser()?.role);
   // Los asesores pueden dar de alta/consultar clientes, pero el catálogo de
   // códigos de servicio del cliente (⚙ Configuración) es solo admin/cajas.
   const puedeCodigos = puedeEditarCodigosCliente(getUser()?.role);

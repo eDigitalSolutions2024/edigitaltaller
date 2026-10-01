@@ -14,6 +14,7 @@ import { getUser } from '../../../auth';
 import { formatFecha } from '../../../utils/fechas';
 import usePdfModal from '../../../hooks/usePdfModal';
 
+import { isAdminLike } from "../../../utils/roles";
 const TIPOS = [
   { key: 'NOTA_VENTA', label: 'Facturas' },
   { key: 'REMISION', label: 'Remisiones' },
@@ -67,7 +68,7 @@ export default function ReporteCajasIngresos() {
 
   // Regenerar día (solo admin): un día ya terminado queda congelado la primera
   // vez que se abre; si algo llegó tarde, el admin lo recalcula con su motivo.
-  const esAdmin = getUser()?.role === 'admin';
+  const esAdmin = isAdminLike(getUser()?.role);
   const [modalRegenerar, setModalRegenerar] = useState(false);
   const [avisoRegen, setAvisoRegen] = useState(null);
 

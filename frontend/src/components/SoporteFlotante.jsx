@@ -10,8 +10,10 @@ import {
   resolverCambioAsesorTicket,
   resolverGarantiaTicket,
 } from '../api/tickets';
+import { setAvisos, limpiarAvisos } from '../utils/tituloAvisos';
 import '../styles/OSFlotante.css';
 
+import { isAdminLike } from "../utils/roles";
 function tiempoTranscurrido(fecha) {
   const diff = Date.now() - new Date(fecha).getTime();
   const m = Math.floor(diff / 60000);
@@ -29,7 +31,7 @@ const SECCIONES = [
 
 export default function SoporteFlotante() {
   const user = getUser();
-  const esAdmin = user?.role === 'admin';
+  const esAdmin = isAdminLike(user?.role);
   const navigate = useNavigate();
 
   const [tickets, setTickets] = useState({ pendientes: [], enProceso: [] });
@@ -72,6 +74,13 @@ export default function SoporteFlotante() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [esAdmin, cargar]);
+
+  // Cantidad de tickets abiertos en el título de la pestaña
+  useEffect(() => {
+    if (!esAdmin) return;
+    setAvisos('tickets', tickets.pendientes.length + tickets.enProceso.length);
+    return () => limpiarAvisos('tickets');
+  }, [esAdmin, tickets]);
 
   const startDrag = useCallback((clientX, clientY) => {
     dragging.current = true;

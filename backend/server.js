@@ -7,12 +7,14 @@ const connectDB  = require('./config/db');
 const limpiarImagenesTemp = require('./utils/limpiarImagenesTemp');
 const { migrarCierreCajaSesion } = require('./utils/migrarCierreCajaSesion');
 const { migrarRetencionRegistroAccion } = require('./utils/migrarRetencionRegistroAccion');
+const { cargarAbreviaturasBancos } = require('./utils/cargarAbreviaturasBancos');
 console.log('JWT_SECRET cargado:', !!process.env.JWT_SECRET);
 
 const app = express();
 connectDB();
 migrarCierreCajaSesion();
 migrarRetencionRegistroAccion();
+cargarAbreviaturasBancos();
 
 // Purga carpetas de imágenes temporales (subidas antes de guardar una orden
 // nueva) que quedaron abandonadas por más de 24h.
@@ -34,6 +36,9 @@ app.use( '/uploads', express.static(path.join(__dirname, 'uploads')));
 // Auditoría: deja rastro de toda creación/modificación/cancelación por HTTP.
 // Debe ir DESPUÉS de express.json() y ANTES de montar las rutas de /api.
 app.use('/api', require('./middleware/auditoria'));
+
+// Candado de escritura por rol (roles de solo consulta). Va antes de las rutas.
+app.use('/api', require('./middleware/permisosRol'));
 
 
 const empleadosRoutes = require('./routes/empleados');
@@ -59,6 +64,7 @@ app.use('/api/garage', require('./routes/garage'));
 
 app.use('/api/entradas', require('./routes/entradas'));
 
+app.use('/api/inventario/ubicaciones', require('./routes/ubicacionesInventario'));
 app.use('/api/inventario', require('./routes/inventario'));
 
 // MONTA LAS RUTAS

@@ -26,6 +26,13 @@ async function numeroCuentaDelBanco(banco) {
   return cuenta?.numeroCuenta || "";
 }
 
+// RFC del banco: el editado en Configuración > Cuentas bancarias, o el del catálogo.
+async function rfcDelBanco(banco) {
+  if (!banco) return "";
+  const cuenta = await CuentaBancaria.findOne({ banco }).lean().catch(() => null);
+  return cuenta?.rfc || RFC_POR_BANCO[banco] || "";
+}
+
 const router = express.Router();
 
 /* =========================
@@ -831,7 +838,7 @@ function drawComprobanteIngresoEgreso(doc, data) {
 ========================= */
 function drawReciboElectronicoPago(doc, data) {
   const ui = makeUi(doc);
-  const { emisor, cliente, pago, relacionadas, cfdi, numeroCuentaBanco = "" } = data;
+  const { emisor, cliente, pago, relacionadas, cfdi, numeroCuentaBanco = "", rfcBancoEmisor: rfcBancoEmisorData = "" } = data;
   const m = data.meta || buildMeta();
 
   const monto = relacionadas.reduce((s, r) => s + Number(r.importePagado || 0), 0);
@@ -875,6 +882,41 @@ function drawReciboElectronicoPago(doc, data) {
   ry = ui.labelValueBox(rightX, ry, rightW, "Folio Fiscal (Uuid)", m.uuid);
   ry = ui.labelValueBox(rightX, ry, rightW, "Certificado digital", safe(emisor.noCertificado) || "—");
 
+  // RFC Banco Ordenante/Emisor + Num Cuenta — solo si se pagó por transferencia (SAT
+  // "03"); el resto de las formas de pago no los necesita. Tabla propia (2x2, solo
+  // borde, sin relleno de color) debajo del bloque de arriba — a propósito distinta de
+  // ui.labelValueBox (que lleva la barra de etiqueta en gris). Ordenante (banco/cuenta
+  // del CLIENTE de donde salió el dinero) nunca se captura en este sistema: se imprime
+  // en blanco/ceros, igual que un recibo real sin ese dato. Emisor (banco/cuenta del
+  // TALLER que recibe) sale del banco usado en "Cobro en Cajas" al generar el
+  // complemento (pago.banco) + Configuración > Cuentas bancarias (ver utils/bancos.js).
+  if (pago?.formaPago === "03") {
+    ry += 6; // espacio para separarla del bloque de arriba (Certificado digital)
+    const rfcBancoEmisor = rfcBancoEmisorData || RFC_POR_BANCO[pago?.banco] || "";
+    const colW = rightW / 2;
+    const rowH = 22;
+    const filasBanco = [
+      [
+        { label: "RFC Banco Ordenante", value: "—" },
+        { label: "Num Cuenta", value: "0000000000" },
+      ],
+      [
+        { label: "RFC Banco Emisor", value: rfcBancoEmisor || "—" },
+        { label: "Num Cuenta", value: numeroCuentaBanco || "0000000000" },
+      ],
+    ];
+    filasBanco.forEach((fila, i) => {
+      fila.forEach((celda, j) => {
+        const cx = rightX + j * colW;
+        const cy = ry + i * rowH;
+        ui.box(cx, cy, colW, rowH);
+        doc.font("Helvetica-Bold").fontSize(7).fillColor("black").text(celda.label, cx + 3, cy + 2, { width: colW - 6 });
+        doc.font("Helvetica").fontSize(6.5).fillColor("black").text(celda.value, cx + 3, cy + 12, { width: colW - 6 });
+      });
+    });
+    ry += rowH * 2;
+  }
+
   // ===== Receptor =====
   const recH = 100;
   const recY = Math.max(M + 96, emisorBlockBottom + 8);
@@ -897,6 +939,12 @@ function drawReciboElectronicoPago(doc, data) {
   ui.box(M, y, W, 28);
   doc.font("Helvetica-Bold").fontSize(8).text("Forma de Pago:", M + 8, y + 4);
   doc.font("Helvetica").fontSize(8).text(formaPagoLabel(pago?.formaPago), M + 8, y + 15);
+  // Cheque nominativo (SAT "02"): número de cheque junto a la forma de pago (de "Cobro
+  // en Cajas" al generar el complemento, ver pago.chequeNumero en generar_xml.js).
+  if (pago?.formaPago === "02" && safe(pago?.chequeNumero)) {
+    doc.font("Helvetica-Bold").fontSize(7.5).text("No. de Cheque:", M + 170, y + 16);
+    doc.font("Helvetica").text(safe(pago.chequeNumero), M + 170 + 62, y + 16, { width: 90 });
+  }
   doc.font("Helvetica-Bold").fontSize(8).text("Mon:", M + 330, y + 9);
   doc.font("Helvetica").fontSize(8).text("MXN", M + 356, y + 9);
   doc.font("Helvetica-Bold").fontSize(8).text("Importe Pago:", M + 400, y + 9);
@@ -905,43 +953,21 @@ function drawReciboElectronicoPago(doc, data) {
   y += 34;
 
   // ===== Tipo de Relación / Uuid Relacionado (opcional, "Facturas relacionadas" del
-  // paso Comprobante) y RFC Banco Ordenante/Emisor (solo si se pagó por transferencia,
-  // formaPago SAT "03") — se omite el recuadro entero si no aplica ninguno de los dos,
-  // igual que drawFilaCfdi hace para Factura/Nota de Crédito.
+  // paso Comprobante) — se omite el recuadro entero si no se capturó ninguna, igual
+  // que drawFilaCfdi hace para Factura/Nota de Crédito. RFC Banco Ordenante/Emisor va
+  // en la columna derecha (ver arriba, junto a Folio Fiscal/Certificado digital).
   const relacionPago = cfdi?.relacion;
   const uuidsRelacionPago = Array.isArray(relacionPago?.uuids) ? relacionPago.uuids.filter(Boolean) : [];
   const tieneRelacionPago = !!relacionPago?.tipoRelacion && uuidsRelacionPago.length > 0;
-  const esTransferenciaPago = pago?.formaPago === "03";
 
-  if (tieneRelacionPago || esTransferenciaPago) {
-    const filas = (tieneRelacionPago ? 1 : 0) + (esTransferenciaPago ? 1 : 0);
-    const hBancos = filas * 14 + 8;
-    ui.box(M, y, W, hBancos);
-    let fy = y + 5;
-
-    if (tieneRelacionPago) {
-      ui.kv(M + 8, fy, "Tipo de Relación:", tipoRelacionLabel(relacionPago.tipoRelacion), 78, 260, 7);
-      doc.font("Helvetica-Bold").fontSize(7).text("Uuid Relacionado:", M + 300, fy, { width: 90 });
-      doc.font("Helvetica");
-      ui.oneLine(uuidsRelacionPago.join(", "), M + 300 + 78, fy, W + M - (M + 300 + 78) - 6, 7);
-      fy += 14;
-    }
-
-    if (esTransferenciaPago) {
-      // Ordenante (banco/cuenta del CLIENTE de donde salió el dinero): este sistema no
-      // lo captura en ningún lado — se imprime igual que un recibo sin ese dato.
-      ui.kv(M + 8, fy, "RFC Banco Ordenante:", "—", 95, 220, 7);
-      ui.kv(M + 240, fy, "Num Cuenta:", "0000000000", 60, 200, 7);
-      fy += 14;
-      // Emisor (banco/cuenta del TALLER que recibe): banco de "Cobro en Cajas" al
-      // generar el complemento (ver pago.banco) + su cuenta en Configuración > Cuentas
-      // bancarias (ver utils/bancos.js).
-      const rfcBancoEmisor = RFC_POR_BANCO[pago?.banco] || "";
-      ui.kv(M + 8, fy, "RFC Banco Emisor:", rfcBancoEmisor || "—", 95, 220, 7);
-      ui.kv(M + 240, fy, "Num Cuenta:", numeroCuentaBanco || "0000000000", 60, 200, 7);
-    }
-
-    y += hBancos + 6;
+  if (tieneRelacionPago) {
+    ui.box(M, y, W, 22);
+    const fy = y + 5;
+    ui.kv(M + 8, fy, "Tipo de Relación:", tipoRelacionLabel(relacionPago.tipoRelacion), 78, 260, 7);
+    doc.font("Helvetica-Bold").fontSize(7).text("Uuid Relacionado:", M + 300, fy, { width: 90 });
+    doc.font("Helvetica");
+    ui.oneLine(uuidsRelacionPago.join(", "), M + 300 + 78, fy, W + M - (M + 300 + 78) - 6, 7);
+    y += 28;
   }
 
   // ===== Concepto fijo del CFDI de pago =====
@@ -1265,13 +1291,18 @@ router.post("/preview", async (req, res) => {
             : ""
           : "";
       const numeroCuentaBancoPreview = await numeroCuentaDelBanco(bancoPagoPreview);
+      const chequeNumeroPreview =
+        pago?.formaPago === "02" && primeraEntradaPago?.formaPago === "CHEQUE"
+          ? primeraEntradaPago.chequeNumero || ""
+          : "";
       drawReciboElectronicoPago(doc, {
         emisor,
         cliente,
-        pago: { ...pago, banco: bancoPagoPreview },
+        pago: { ...pago, banco: bancoPagoPreview, chequeNumero: chequeNumeroPreview },
         relacionadas,
         cfdi,
         numeroCuentaBanco: numeroCuentaBancoPreview,
+        rfcBancoEmisor: await rfcDelBanco(bancoPagoPreview),
       });
     } else {
       drawComprobanteIngresoEgreso(doc, {
@@ -1402,6 +1433,8 @@ async function cargarDatosFacturaPdf(id) {
   // generar_xml.js) — el resto de las formas de pago no llevan RFC Banco Emisor.
   const numeroCuentaBanco = esComplementoPago ? await numeroCuentaDelBanco(f.pago?.banco) : "";
 
+  const rfcBancoEmisor = esComplementoPago ? await rfcDelBanco(f.pago?.banco) : "";
+
   return {
     f,
     emisor,
@@ -1414,11 +1447,12 @@ async function cargarDatosFacturaPdf(id) {
     esComplementoPago,
     esNotaCredito,
     numeroCuentaBanco,
+    rfcBancoEmisor,
   };
 }
 
 function renderFacturaPdfDoc(data) {
-  const { f, emisor, ordenes, conceptos, totales, meta, informacionGlobal, esComplementoPago, esNotaCredito, numeroCuentaBanco } = data;
+  const { f, emisor, ordenes, conceptos, totales, meta, informacionGlobal, esComplementoPago, esNotaCredito, numeroCuentaBanco, rfcBancoEmisor } = data;
 
   const doc = new PDFDocument({ size: "LETTER", margin: M });
 
@@ -1442,6 +1476,7 @@ function renderFacturaPdfDoc(data) {
       relacionadas: f.relacionadas || [],
       cfdi: f.cfdi,
       numeroCuentaBanco,
+      rfcBancoEmisor,
       meta,
     });
   } else {

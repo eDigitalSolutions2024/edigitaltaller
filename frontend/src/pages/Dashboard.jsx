@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom";
 import { getUser } from '../auth';
 import { useEffect, useState } from "react";
 import http from "../api/http";
-import { canSeeModule } from "../utils/roles";
+import { canSeeModule, isReadOnly, isAdminLike } from "../utils/roles";
 import { getRefaccionariaAlerts } from "../api/vehiculos";
 import "../styles/dashboard.css";
 
@@ -27,6 +27,11 @@ const ALL_TILES = [
   { key: "facturacion",  title: "Facturación",          desc: "Timbrado y consulta de facturas",    to: "/facturacion",                      emoji: "🧾", module: "facturacion" },
   { key: "ordenes-compra", title: "Órdenes de Compra",  desc: "Compras a proveedores",              to: "/ordenes-compra",                   emoji: "🛒", module: "ordenes" },
   { key: "vales",        title: "Vales de Salida",      desc: "Salida de refacciones sin OS",       to: "/vales/nuevo",                      emoji: "🎫", module: "vales" },
+  { key: "personal",     title: "Personal",             desc: "Empleados del taller",               to: "/admin/personal",                   emoji: "👥", roles: ["recursos_humanos"] },
+  { key: "facturas-consulta", title: "Consulta de Facturas", desc: "Historial de facturas timbradas", to: "/facturacion/consultar",           emoji: "🧾", roles: ["auditoria", "finanzas", "cuentas_por_pagar"] },
+  { key: "devoluciones", title: "Devoluciones",         desc: "Consulta de devoluciones",           to: "/refaccionaria/consulta-devoluciones", emoji: "↩️", roles: ["recepcion", "auditoria", "finanzas", "cuentas_por_pagar"] },
+  { key: "factura-prov", title: "Facturas de Proveedor", desc: "Consulta de facturas de proveedor", to: "/refaccionaria/factura-proveedor",  emoji: "📑", roles: ["recepcion"] },
+  { key: "inventario-consulta", title: "Inventario",    desc: "Consulta de existencias",            to: "/refaccionaria/consultar",          emoji: "🧰", roles: ["auditoria"] },
   { key: "garantias",    title: "Garantías",            desc: "Solicitudes y seguimiento",          to: "/garantias",                        emoji: "🛡️", roles: ["admin", "jefe", "asesor_servicio", "auditoria"] },
   { key: "reportes",     title: "Reportes",             desc: "Ingresos y métricas",                to: "/reportes",                         emoji: "📈", module: "reportes" },
   { key: "soporte",      title: "Soporte",              desc: "Reporta o da seguimiento a tickets", to: "/soporte/mis-tickets",              emoji: "🛟" },
@@ -45,7 +50,7 @@ const PRIMARY_ACTION_BY_ROLE = {
 };
 
 function tilesForUser(role) {
-  const isAdmin = role === "admin";
+  const isAdmin = isAdminLike(role);
   return ALL_TILES
     .filter((t) => (t.roles ? t.roles.includes(role) : t.module ? canSeeModule(role, t.module) : true))
     .map((t) => (t.key === "soporte" && isAdmin ? { ...t, to: "/soporte/admin", desc: "Panel de tickets del taller" } : t));
@@ -78,8 +83,16 @@ export default function Dashboard() {
   const tiles = tilesForUser(role);
 
   const primaryAction = PRIMARY_ACTION_BY_ROLE[role]
-    || (canSeeModule(role, "vehiculo") ? { to: "/vehiculo/entrada", label: "Nueva orden" } : null);
-  const secondaryAction = canSeeModule(role, "clientes") ? { to: "/clientes/alta", label: "Nuevo cliente" } : null;
+    || (canSeeModule(role, "vehiculo")
+      ? (isReadOnly(role, "vehiculo")
+          ? { to: "/vehiculo/consulta-ordenes", label: "Consultar órdenes" }
+          : { to: "/vehiculo/entrada", label: "Nueva orden" })
+      : null);
+  const secondaryAction = canSeeModule(role, "clientes")
+    ? (isReadOnly(role, "clientes")
+        ? { to: "/clientes/consulta", label: "Consultar clientes" }
+        : { to: "/clientes/alta", label: "Nuevo cliente" })
+    : null;
 
   // Para refaccionaria, abiertas/cerradas por periodo no aplican a su
   // trabajo: lo relevante son las solicitudes que le llegan del taller y lo

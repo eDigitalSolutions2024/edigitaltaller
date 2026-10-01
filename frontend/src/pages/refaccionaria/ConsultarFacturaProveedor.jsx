@@ -8,6 +8,7 @@ import ModalSeleccionarCodigo from "./components/ModalSeleccionarCodigo";
 import PdfViewer from "../../components/PdfViewer";
 import { formatFecha } from "../../utils/fechas";
 
+import { isAdminLike } from "../../utils/roles";
 const fmtFechaLarga = (iso) => formatFecha(iso, { dateStyle: "medium" }) || "—";
 
 // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas no se
@@ -819,7 +820,7 @@ function ModalEditarEntrada({ entrada, onClose, onGuardado }) {
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function ConsultarFacturaProveedor() {
   const navigate  = useNavigate();
-  const esAdmin   = getUser()?.role === "admin";
+  const esAdmin   = isAdminLike(getUser()?.role);
 
   const [rows, setRows]             = useState([]);
   const [loading, setLoading]       = useState(false);

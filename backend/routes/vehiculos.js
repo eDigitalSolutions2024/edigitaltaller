@@ -791,7 +791,7 @@ router.get('/mis-ordenes', proteger, requiereRol('asesor_servicio', 'admin'), as
       estadoOrden: { $nin: ['CERRADA', 'CANCELADA'] },
       ...condicionPropias,
     })
-      .select('ordenServicio ordenServicioPendiente estadoOrden marca modelo anio color createdAt cliente creadoPor creadoPorId grupoId lineaNegocio')
+      .select('ordenServicio ordenServicioPendiente estadoOrden marca modelo anio color createdAt cliente creadoPor creadoPorId grupoId lineaNegocio fechaUltimoSurtido')
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
       .sort({ createdAt: -1 })
@@ -2511,6 +2511,12 @@ router.put('/:id/surtir', proteger, async (req, res) => {
     const nuevamenteSurtidas = (vehiculo.presupuesto || []).filter(
       (p, i) => p.surtida && p.codigo && !p.esServicio && !prevSurtidasIds.has(i)
     );
+
+    // Aviso al asesor: refaccionaria surtió piezas (no aplica a servicios/grúa)
+    const huboSurtido = (vehiculo.presupuesto || []).some(
+      (p, i) => p.surtida && !p.esServicio && !p.esGrua && !prevSurtidasIds.has(i)
+    );
+    if (huboSurtido) vehiculo.fechaUltimoSurtido = new Date();
 
     if (nuevamenteSurtidas.length > 0) {
       const nps = nuevamenteSurtidas.map(p => String(p.codigo));

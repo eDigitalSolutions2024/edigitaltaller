@@ -4,6 +4,7 @@ import { getGarageVehiculosDetalle, importarVehiculosCerrados } from "../../api/
 import { getUser } from "../../auth";
 import { formatFecha as formatFechaBase } from "../../utils/fechas";
 
+import { isAdminLike } from "../../utils/roles";
 function getNombreCliente(c) {
   if (!c) return "Sin nombre";
   if (c.gobierno?.nombreGobierno) return c.gobierno.nombreGobierno;
@@ -32,7 +33,7 @@ export default function GarageAdminPage() {
   const [importando, setImportando] = useState(false);
 
   useEffect(() => {
-    if (user?.role !== "admin" && user?.role !== "asesor_servicio") {
+    if (!isAdminLike(user?.role) && !["asesor_servicio", "captura"].includes(user?.role)) {
       navigate("/vehiculo/entrada", { replace: true });
     }
   }, [user, navigate]);

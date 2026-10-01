@@ -37,6 +37,8 @@ import {
   actualizarSitioConfig,
 } from "../../api/configuracion";
 import TipoCambioHistorialModal from "./components/TipoCambioHistorialModal";
+import { recargarBancos } from "../../hooks/useBancos";
+import CuentasBancariasModal from "./components/CuentasBancariasModal";
 import ContratoHistorialModal from "./components/ContratoHistorialModal";
 
 import "../../styles/configuracion.css";
@@ -62,6 +64,7 @@ export default function Configuracion() {
   const [notaCreditoContador, setNotaCreditoContador] = useState(0);
   const [cuentasBancarias, setCuentasBancarias] = useState([]);
   const [guardandoCuentasBancarias, setGuardandoCuentasBancarias] = useState(false);
+  const [showCuentasModal, setShowCuentasModal] = useState(false);
   const [fondoCaja, setFondoCaja] = useState(0);
   // Facturación: ¿se exige el UUID real al relacionar facturas? (default sí; ver hooks/useExigirUuid)
   const [exigirUuid, setExigirUuid] = useState(true);
@@ -498,18 +501,16 @@ export default function Configuracion() {
       });
   }, []);
 
-  const setNumeroCuentaBanco = (banco, valor) =>
-    setCuentasBancarias((prev) => prev.map((c) => (c.banco === banco ? { ...c, numeroCuenta: valor } : c)));
-
-  const handleGuardarCuentasBancarias = async (e) => {
-    e.preventDefault();
+  const handleGuardarCuentasBancarias = async (cuentas) => {
     try {
       setError("");
       setGuardandoCuentasBancarias(true);
       const res = await actualizarCuentasBancarias(
-        cuentasBancarias.map((c) => ({ banco: c.banco, numeroCuenta: c.numeroCuenta }))
+        cuentas.map((c) => ({ banco: c.banco, nuevo: c.nuevo, label: c.label, abrev: c.abrev, rfc: c.rfc, numeroCuenta: c.numeroCuenta }))
       );
       setCuentasBancarias(res?.cuentas || []);
+      recargarBancos();
+      setShowCuentasModal(false);
       mostrarMensaje("Cuentas bancarias actualizadas correctamente");
     } catch (err) {
       setError(err.message);
@@ -1244,53 +1245,35 @@ export default function Configuracion() {
               <div className="config-icon">🏦</div>
             </div>
 
-            <p className="text-muted small mb-2">
-              El RFC de cada banco es fijo. Captura aquí el número de cuenta del taller en los
+            {/* <p className="text-muted small mb-2">
+              Pulsa Editar para capturar el RFC y el número de cuenta del taller en los
               bancos donde reciben transferencias — el PDF del Complemento de pago lo toma de
               aquí automático, según el banco usado al cobrar.
-            </p>
+            </p> */}
 
-            <form onSubmit={handleGuardarCuentasBancarias} className="config-form">
-              <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 12 }}>
-                <thead>
-                  <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
-                    <th style={{ padding: "4px 8px" }}>Banco</th>
-                    <th style={{ padding: "4px 8px" }}>RFC</th>
-                    <th style={{ padding: "4px 8px" }}>Número de cuenta</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cuentasBancarias.map((c) => (
-                    <tr key={c.banco} style={{ borderBottom: "1px solid #eee" }}>
-                      <td style={{ padding: "4px 8px" }}>{c.label || c.banco}</td>
-                      <td style={{ padding: "4px 8px", color: c.rfc ? "inherit" : "#999" }}>
-                        {c.rfc || "— sin capturar —"}
-                      </td>
-                      <td style={{ padding: "4px 8px" }}>
-                        <input
-                          type="text"
-                          value={c.numeroCuenta}
-                          onChange={(e) => setNumeroCuentaBanco(c.banco, e.target.value)}
-                          placeholder="0000000000"
-                          style={{ width: "100%" }}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                  {cuentasBancarias.length === 0 && (
-                    <tr>
-                      <td colSpan={3} style={{ padding: "8px", color: "#999" }}>
-                        Cargando bancos…
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-
-              <button type="submit" disabled={guardandoCuentasBancarias || cuentasBancarias.length === 0}>
-                {guardandoCuentasBancarias ? "Guardando…" : "Guardar"}
-              </button>
-            </form>
+            <div className="config-list">
+              {cuentasBancarias.length > 0 && !cuentasBancarias.some((c) => c.numeroCuenta) && (
+                <div className="config-empty">Aún no hay cuentas capturadas</div>
+              )}
+              {cuentasBancarias.length === 0 && <div className="config-loading">Cargando bancos…</div>}
+              {cuentasBancarias.filter((c) => c.numeroCuenta).map((c) => (
+                <div key={c.banco} className="config-list-item">
+                  <div>
+                    <strong>{c.label || c.banco}</strong>
+                    <span>RFC: {c.rfc || "— sin capturar —"}</span>
+                  </div>
+                  <span className="cuentas-card-cuenta">{c.numeroCuenta}</span>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="config-secondary-button"
+              disabled={cuentasBancarias.length === 0}
+              onClick={() => setShowCuentasModal(true)}
+            >
+              Ver y editar cuentas
+            </button>
           </section>
 
           {/* Unidades */}
@@ -1442,6 +1425,13 @@ export default function Configuracion() {
         onClose={() => setMostrarHistorialSie(false)}
       />
 
+      <CuentasBancariasModal
+        show={showCuentasModal}
+        onClose={() => setShowCuentasModal(false)}
+        cuentas={cuentasBancarias}
+        guardando={guardandoCuentasBancarias}
+        onGuardar={handleGuardarCuentasBancarias}
+      />
       <ContratoHistorialModal
         show={mostrarHistorialContrato}
         onClose={() => setMostrarHistorialContrato(false)}

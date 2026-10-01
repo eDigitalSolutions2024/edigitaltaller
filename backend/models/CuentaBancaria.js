@@ -5,11 +5,15 @@
 // para el "RFC Banco Emisor" / "Num Cuenta" del PDF de un Complemento de pago pagado
 // por transferencia (ver backend/routes/facturacion.js drawReciboElectronicoPago).
 const mongoose = require('mongoose');
-const { TERMINALES_TARJETA } = require('../utils/bancos');
 
 const cuentaBancariaSchema = new mongoose.Schema(
   {
-    banco: { type: String, enum: TERMINALES_TARJETA, required: true, unique: true },
+    banco: { type: String, required: true, unique: true },
+    // Solo para bancos agregados desde Configuración (los del catálogo fijo no lo usan).
+    personalizado: { type: Boolean, default: false },
+    label: { type: String, default: '', trim: true },
+    rfc: { type: String, default: '', trim: true, uppercase: true },
+    abrev: { type: String, default: '', trim: true, uppercase: true },
     numeroCuenta: { type: String, default: '', trim: true },
   },
   { timestamps: true }

@@ -2,19 +2,33 @@ import { useEffect, useMemo, useState } from "react";
 import Dropdown from "../../components/Dropdown";
 import { getUser } from "../../auth";
 import http from "../../api/http";
+import {
+  ModalUbicacionForm, ModalAsignar, ModalUbicacionDetalle,
+} from "./components/InventarioUbicacionesModales";
+import "../../styles/inventarioUbicaciones.css";
 
+import { isAdminLike } from "../../utils/roles";
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 const PAGE_SIZES = [10, 25, 50, 100];
 
 export default function ConsultarInventario() {
-  const isAdmin = getUser()?.role === "admin";
+  const role = getUser()?.role;
+  const isAdmin = isAdminLike(role);
+  const canEditUbic = isAdmin || role === "refaccionario";
 
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
-  const [query, setQuery] = useState("");
+  const [ubicaciones, setUbicaciones] = useState([]);
+  const [queryGeneral, setQueryGeneral] = useState("");
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
+  const [verSinStock, setVerSinStock] = useState(false); // pestaña "Sin stock" del panel inferior
   const [sort, setSort] = useState({ key: "codigo", dir: "asc" });
+
+  // Modales de ubicaciones
+  const [ubicAbiertaId, setUbicAbiertaId] = useState(null);
+  const [formUbic, setFormUbic] = useState(null);        // null | { ubic?: {...} }
+  const [asignarItem, setAsignarItem] = useState(null);
 
   // Modal historial
   const [showHist, setShowHist] = useState(false);
@@ -36,7 +50,10 @@ export default function ConsultarInventario() {
     let abort = false;
     try {
       setLoading(true);
-      const r = await fetch(`${API}/inventario`, { credentials: "include" });
+      const [r, ru] = await Promise.all([
+        fetch(`${API}/inventario`, { credentials: "include" }),
+        http.get("/inventario/ubicaciones").catch(() => null),
+      ]);
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.message || "No se pudo cargar inventario");
       const data = (j?.data || j || []).map((x) => ({
@@ -46,7 +63,10 @@ export default function ConsultarInventario() {
         unidad: x.unidad || "",
         cantidad: Number(x.cantidad ?? x.existencia ?? x.stock ?? 0),
       }));
-      if (!abort) setItems(data);
+      if (!abort) {
+        setItems(data);
+        setUbicaciones(ru?.data?.data || []);
+      }
     } catch (e) {
       console.error(e);
       if (!abort) setItems([]);
@@ -58,24 +78,42 @@ export default function ConsultarInventario() {
 
   useEffect(() => { cargar(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /* ---- Cruce inventario × ubicaciones ---- */
+  const enriched = useMemo(() => {
+    const porCodigo = {};
+    ubicaciones.forEach((u) =>
+      (u.items || []).forEach((i) => {
+        (porCodigo[i.codigoInterno] ||= []).push({ ubicId: u._id, nombre: u.nombre, cantidad: i.cantidad });
+      })
+    );
+    return items.map((it) => {
+      const locs = porCodigo[it._id] || [];
+      const asignado = locs.reduce((s, l) => s + l.cantidad, 0);
+      return { ...it, locs, asignado, sinAsignar: Math.max(0, it.cantidad - asignado) };
+    });
+  }, [items, ubicaciones]);
+
+  const itemsPorId = useMemo(() => Object.fromEntries(enriched.map((x) => [x._id, x])), [enriched]);
+  const ubicAbierta = ubicaciones.find((u) => u._id === ubicAbiertaId) || null;
+
+  /* ---- Búsqueda general: filtra ubicaciones y sin asignar ---- */
+  const qGen = queryGeneral.toLowerCase().trim();
+  const coincide = (x) =>
+    x.codigo.toLowerCase().includes(qGen) || (x.descripcion || "").toLowerCase().includes(qGen);
+
+  /* ---- Refacciones sin asignar (tabla paginada) ---- */
   const filtered = useMemo(() => {
-    const q = (query || "").toLowerCase().trim();
-    let arr = !q
-      ? items
-      : items.filter(
-          (x) =>
-            x.codigo.toLowerCase().includes(q) ||
-            (x.descripcion || "").toLowerCase().includes(q)
-        );
-    arr.sort((a, b) => {
+    // "Con stock": hay piezas por colocar. "Sin stock": existencia ≤ 0 (apartado aparte).
+    let arr = enriched.filter((x) => (verSinStock ? x.cantidad <= 0 : x.cantidad > 0 && x.sinAsignar > 0));
+    if (qGen) arr = arr.filter(coincide);
+    return [...arr].sort((a, b) => {
       const dir = sort.dir === "asc" ? 1 : -1;
-      if (sort.key === "cantidad") return (a.cantidad - b.cantidad) * dir;
+      if (sort.key === "cantidad") return (verSinStock ? a.cantidad - b.cantidad : a.sinAsignar - b.sinAsignar) * dir;
       const av = String(a[sort.key] || "").toLowerCase();
       const bv = String(b[sort.key] || "").toLowerCase();
       return av.localeCompare(bv) * dir;
     });
-    return arr;
-  }, [items, query, sort]);
+  }, [enriched, qGen, sort, verSinStock]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageSafe = Math.min(page, totalPages);
@@ -88,6 +126,51 @@ export default function ConsultarInventario() {
     setSort((s) =>
       s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }
     );
+  }
+
+  /* ---- Acciones de ubicaciones ---- */
+  const reemplazarUbic = (doc) =>
+    setUbicaciones((list) => {
+      const i = list.findIndex((u) => u._id === doc._id);
+      if (i < 0) return [...list, doc];
+      const c = [...list]; c[i] = doc; return c;
+    });
+
+  async function guardarUbicacion(datos) {
+    if (formUbic?.ubic) {
+      const r = await http.put(`/inventario/ubicaciones/${formUbic.ubic._id}`, datos);
+      reemplazarUbic(r.data.data);
+    } else {
+      const r = await http.post("/inventario/ubicaciones", datos);
+      reemplazarUbic(r.data.data);
+    }
+    setFormUbic(null);
+  }
+
+  async function eliminarUbicacion(u) {
+    const n = (u.items || []).length;
+    const msg = n
+      ? `¿Eliminar "${u.nombre}"? Sus ${n} refacción(es) volverán a "sin asignar".`
+      : `¿Eliminar "${u.nombre}"?`;
+    if (!window.confirm(msg)) return;
+    try {
+      await http.delete(`/inventario/ubicaciones/${u._id}`);
+      setUbicaciones((l) => l.filter((x) => x._id !== u._id));
+      setUbicAbiertaId(null);
+    } catch (e) {
+      alert(e.response?.data?.message || e.message || "No se pudo eliminar.");
+    }
+  }
+
+  async function setCantidadEnUbic(ubicId, codigo, cantidad) {
+    const r = await http.put(`/inventario/ubicaciones/${ubicId}/items`, { codigoInterno: codigo, cantidad });
+    reemplazarUbic(r.data.data);
+  }
+
+  async function asignarAUbic(ubicId, codigo, cantidad) {
+    const r = await http.put(`/inventario/ubicaciones/${ubicId}/items`, { codigoInterno: codigo, sumar: cantidad });
+    reemplazarUbic(r.data.data);
+    setAsignarItem(null);
   }
 
   async function abrirHistorial(item) {
@@ -169,100 +252,168 @@ export default function ConsultarInventario() {
     }
   }
 
+  const totalPorAsignar = enriched.filter((x) => x.cantidad > 0 && x.sinAsignar > 0).length;
+  const totalSinStock = enriched.filter((x) => x.cantidad <= 0).length;
+
+  // Con búsqueda activa solo se muestran las ubicaciones que tienen la refacción
+  const ubicVisibles = ubicaciones
+    .map((u) => ({
+      u,
+      coinc: qGen
+        ? (u.items || []).map((i) => ({ it: itemsPorId[i.codigoInterno], cantidad: i.cantidad })).filter((m) => m.it && coincide(m.it))
+        : [],
+    }))
+    .filter((x) => !qGen || x.coinc.length > 0);
+
+  const tarjeta = ({ u, coinc }) => {
+    const piezas = (u.items || []).reduce((s, i) => s + i.cantidad, 0);
+    return (
+      <button key={u._id} type="button" className="inv-ubic" onClick={() => setUbicAbiertaId(u._id)}>
+        <span className="inv-ubic__nombre">{u.nombre}</span>
+        {qGen ? (
+          coinc.slice(0, 4).map((m) => (
+            <span key={m.it._id} className="inv-ubic__hit">{m.it.codigo}: <b>{m.cantidad}</b></span>
+          ))
+        ) : (
+          <span className="inv-ubic__meta">{(u.items || []).length} ref. · {piezas} pzas</span>
+        )}
+      </button>
+    );
+  };
+
   return (
-    <div className="container-fluid py-3">
+    <div className="container-fluid py-3 inv">
       <div className="row justify-content-center">
         <div className="col-12 col-xxl-10">
-          <div className="card shadow-sm border-0">
-            <div className="card-header bg-white border-0 d-flex flex-wrap align-items-center justify-content-between">
-              <h2 className="h4 mb-2 mb-md-0">CONSULTAR INVENTARIO</h2>
+          <div className="d-flex flex-wrap align-items-center justify-content-between mb-3 gap-2">
+            <h2 className="h4 mb-0">INVENTARIO</h2>
+            <div className="small text-muted">
+              {enriched.length} refacciones · {ubicaciones.length} ubicaciones
+            </div>
+          </div>
 
-              <div className="d-flex align-items-center gap-3">
-                <div className="d-flex align-items-center gap-2">
-                  <span className="text-muted small">Show</span>
-                  <Dropdown
-                    value={pageSize}
-                    className="form-select-sm"
-                    onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
-                  >
-                    {PAGE_SIZES.map((n) => <Dropdown.Option key={n} value={n}>{n}</Dropdown.Option>)}
-                  </Dropdown>
-                  <span className="text-muted small">entries</span>
-                </div>
+          {/* ===== Búsqueda general ===== */}
+          <div className="card shadow-sm border-0 mb-3">
+            <div className="card-body">
+              <input
+                className="form-control form-control-lg"
+                placeholder="🔍  Búsqueda general: código o descripción de la refacción…"
+                value={queryGeneral}
+                onChange={(e) => { setQueryGeneral(e.target.value); setPage(1); }}
+              />
+            </div>
+          </div>
 
-                <div className="d-flex align-items-center gap-2">
-                  <span className="text-muted small">Search:</span>
-                  <input
-                    className="form-control form-control-sm"
-                    value={query}
-                    onChange={(e) => { setQuery(e.target.value); setPage(1); }}
-                  />
+          {/* ===== Ubicaciones ===== */}
+          <div className="card shadow-sm border-0 mb-3">
+            <div className="card-header bg-white border-0 d-flex align-items-center justify-content-between">
+              <h3 className="h6 mb-0">Ubicaciones</h3>
+              {canEditUbic && (
+                <button className="btn btn-primary btn-sm" onClick={() => setFormUbic({})}>
+                  + Nueva ubicación
+                </button>
+              )}
+            </div>
+            <div className="card-body pt-0">
+              {ubicVisibles.length === 0 && ubicaciones.length > 0 ? (
+                <div className="text-muted text-center py-4">Ninguna ubicación tiene esa refacción.</div>
+              ) : ubicaciones.length === 0 ? (
+                <div className="text-muted text-center py-4">
+                  Aún no hay ubicaciones.{canEditUbic ? " Crea la primera con “Nueva ubicación” (ej. Repisa 1)." : ""}
                 </div>
+              ) : (
+                <div className="inv-ubic-grid">{ubicVisibles.map(tarjeta)}</div>
+              )}
+            </div>
+          </div>
+
+          {/* ===== Refacciones sin asignar ===== */}
+          <div className="card shadow-sm border-0 inv-lista">
+            <div className="inv-tabs">
+              <button
+                type="button"
+                className={`inv-tab ${!verSinStock ? "is-active" : ""}`}
+                onClick={() => { setVerSinStock(false); setPage(1); }}
+              >
+                Por asignar <span className="inv-tab__n">{totalPorAsignar}</span>
+              </button>
+              <button
+                type="button"
+                className={`inv-tab inv-tab--danger ${verSinStock ? "is-active" : ""}`}
+                onClick={() => { setVerSinStock(true); setPage(1); }}
+              >
+                Sin stock <span className="inv-tab__n">{totalSinStock}</span>
+              </button>
+
+              <div className="inv-tabs__right">
+                <span className="text-muted small">Mostrar</span>
+                <Dropdown
+                  value={pageSize}
+                  className="form-select-sm"
+                  onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+                >
+                  {PAGE_SIZES.map((n) => <Dropdown.Option key={n} value={n}>{n}</Dropdown.Option>)}
+                </Dropdown>
               </div>
             </div>
 
             <div className="table-responsive">
-              <table className="table table-striped table-bordered align-middle mb-0">
+              <table className="table inv-table align-middle mb-0">
                 <thead>
                   <tr>
-                    <th
-                      role="button"
-                      onClick={() => changeSort("cantidad")}
-                      className="text-center"
-                      style={{ width: 100 }}
-                    >
-                      Cantidad {chevron(sort, "cantidad")}
-                    </th>
-                    <th className="text-center" style={{ width: 110 }}>
-                      Disponibilidad
-                    </th>
                     <th role="button" onClick={() => changeSort("codigo")}>
-                      Codigo {chevron(sort, "codigo")}
+                      Refacción {chevron(sort, "codigo")}
                     </th>
                     <th style={{ width: 90 }}>Unidad</th>
-                    <th className="text-center" style={{ width: 140 }}>Historial</th>
-                    {isAdmin && (
-                      <th className="text-center" style={{ width: 100 }}>Ajustar</th>
-                    )}
+                    <th role="button" onClick={() => changeSort("cantidad")} className="text-center" style={{ width: 150 }}>
+                      {verSinStock ? "Existencia" : "Por asignar"} {chevron(sort, "cantidad")}
+                    </th>
+                    <th className="text-end" style={{ width: 280 }} />
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan={isAdmin ? 6 : 5} className="text-center py-4">Cargando…</td></tr>
+                    <tr><td colSpan={4} className="text-center py-4">Cargando…</td></tr>
                   ) : pageData.length === 0 ? (
-                    <tr><td colSpan={isAdmin ? 6 : 5} className="text-center py-4">Sin resultados</td></tr>
+                    <tr><td colSpan={4} className="text-center text-muted py-5">
+                      {verSinStock
+                        ? (qGen ? "Ninguna refacción sin stock coincide." : "No hay refacciones sin stock")
+                        : (qGen ? "No hay piezas sin asignar de esa refacción." : "Todas las refacciones están asignadas")}
+                    </td></tr>
                   ) : (
                     pageData.map((it) => (
                       <tr key={it._id}>
-                        <td className="text-center fw-semibold">{it.cantidad}</td>
-                        <td className="text-center">
-                          <BadgeDisponibilidad cantidad={it.cantidad} />
-                        </td>
                         <td>
                           <div className="fw-semibold">{it.codigo || "—"}</div>
                           <div className="small text-muted">{it.descripcion || " "}</div>
                         </td>
-                        <td className="text-center small">{it.unidad || "—"}</td>
+                        <td className="small text-muted">{it.unidad || "—"}</td>
                         <td className="text-center">
-                          <button
-                            type="button"
-                            className="btn btn-link p-0 small"
-                            onClick={() => abrirHistorial(it)}
-                          >
-                            Ver historial
-                          </button>
+                          <span className={`inv-stock ${it.cantidad <= 0 ? "inv-stock--cero" : it.cantidad <= 5 ? "inv-stock--bajo" : "inv-stock--ok"}`}>
+                            {verSinStock ? it.cantidad : it.sinAsignar}
+                          </span>
+                          {!verSinStock && it.asignado > 0 && <div className="small text-muted mt-1">de {it.cantidad}</div>}
                         </td>
-                        {isAdmin && (
-                          <td className="text-center">
+                        <td className="text-end text-nowrap">
+                          {canEditUbic && !verSinStock && (
                             <button
                               type="button"
-                              className="btn btn-outline-primary btn-sm"
-                              onClick={() => abrirAjuste(it)}
+                              className="btn btn-success btn-sm me-1"
+                              disabled={it.sinAsignar <= 0}
+                              onClick={() => setAsignarItem(it)}
                             >
+                              Asignar
+                            </button>
+                          )}
+                          <button type="button" className="btn btn-outline-secondary btn-sm me-1" onClick={() => abrirHistorial(it)}>
+                            Historial
+                          </button>
+                          {isAdmin && (
+                            <button type="button" className="btn btn-outline-primary btn-sm" onClick={() => abrirAjuste(it)}>
                               Ajustar
                             </button>
-                          </td>
-                        )}
+                          )}
+                        </td>
                       </tr>
                     ))
                   )}
@@ -272,14 +423,14 @@ export default function ConsultarInventario() {
 
             <div className="card-footer bg-white d-flex flex-wrap align-items-center justify-content-between">
               <div className="small text-muted">
-                Showing {Math.min((pageSafe - 1) * pageSize + 1, filtered.length)} to{" "}
-                {Math.min(pageSafe * pageSize, filtered.length)} of {filtered.length} entries
+                Mostrando {filtered.length ? (pageSafe - 1) * pageSize + 1 : 0} a{" "}
+                {Math.min(pageSafe * pageSize, filtered.length)} de {filtered.length}
               </div>
 
               <nav>
                 <ul className="pagination pagination-sm mb-0">
                   <li className={`page-item ${pageSafe === 1 ? "disabled" : ""}`}>
-                    <button className="page-link" onClick={() => setPage((p) => Math.max(1, p - 1))}>Previous</button>
+                    <button className="page-link" onClick={() => setPage((p) => Math.max(1, p - 1))}>Anterior</button>
                   </li>
                   {Array.from({ length: totalPages }).map((_, i) => (
                     <li key={i} className={`page-item ${pageSafe === i + 1 ? "active" : ""}`}>
@@ -287,12 +438,38 @@ export default function ConsultarInventario() {
                     </li>
                   ))}
                   <li className={`page-item ${pageSafe === totalPages ? "disabled" : ""}`}>
-                    <button className="page-link" onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next</button>
+                    <button className="page-link" onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Siguiente</button>
                   </li>
                 </ul>
               </nav>
             </div>
           </div>
+
+          {/* ===== Modales de ubicaciones ===== */}
+          {ubicAbierta && (
+            <ModalUbicacionDetalle
+              ubic={ubicAbierta}
+              itemsPorId={itemsPorId}
+              sinAsignarList={enriched}
+              canEdit={canEditUbic}
+              onClose={() => setUbicAbiertaId(null)}
+              onEditar={() => setFormUbic({ ubic: ubicAbierta })}
+              onEliminar={() => eliminarUbicacion(ubicAbierta)}
+              onSetCantidad={setCantidadEnUbic}
+              onAsignar={asignarAUbic}
+            />
+          )}
+          {formUbic && (
+            <ModalUbicacionForm ubic={formUbic.ubic} onClose={() => setFormUbic(null)} onSave={guardarUbicacion} />
+          )}
+          {asignarItem && (
+            <ModalAsignar
+              item={itemsPorId[asignarItem._id] || asignarItem}
+              ubicaciones={ubicaciones}
+              onClose={() => setAsignarItem(null)}
+              onAsignar={asignarAUbic}
+            />
+          )}
 
           {/* ===== Modal Historial (2 pestañas) ===== */}
           {showHist && (
@@ -539,14 +716,6 @@ function BadgeTipoUso({ tipo }) {
   if (tipo === "AJUSTE_SALIDA")
     return <span className="badge bg-warning text-dark">Ajuste −</span>;
   return <span className="badge bg-secondary">{tipo}</span>;
-}
-
-function BadgeDisponibilidad({ cantidad }) {
-  if (cantidad > 5)
-    return <span className="badge bg-success">Disponible</span>;
-  if (cantidad > 0)
-    return <span className="badge bg-warning text-dark">Stock bajo</span>;
-  return <span className="badge bg-danger">Sin stock</span>;
 }
 
 /* ===== Helpers ===== */
