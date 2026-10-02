@@ -29,6 +29,14 @@ export const getCustomerCodigos = (id) =>
 export const updateCustomerCodigos = (id, rows) =>
   http.put(`/clientes/${id}/codigos-servicio`, rows);
 
+// 👇 Cuentas bancarias del cliente (una por banco): Banco/Cuenta ordenante del
+// Complemento de pago por transferencia. PUT reemplaza la lista completa.
+export const getCustomerCuentasBancarias = (id) =>
+  http.get(`/clientes/${id}/cuentas-bancarias`);
+
+export const updateCustomerCuentasBancarias = (id, rows) =>
+  http.put(`/clientes/${id}/cuentas-bancarias`, rows);
+
 // 👇 Activar / desactivar cliente (baja lógica, ver Cliente.activo). El
 // backend exige `motivo` al desactivar (ver PATCH /clientes/:id/estado).
 export const setCustomerEstado = (id, activo, motivo) =>

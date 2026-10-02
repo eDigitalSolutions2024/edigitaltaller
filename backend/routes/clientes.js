@@ -5,6 +5,7 @@ const Empleado = require("../models/Empleado");
 const User = require("../models/User");
 const { proteger, requiereRol } = require("../middleware/auth");
 const { normalizaLineaNegocio } = require("../utils/lineaNegocio");
+const { limpiaCuenta, errorCuentaOrdenante, FORMAS_CON_ORDENANTE } = require("../utils/cuentaOrdenante");
 const router = express.Router();
 
 // Todas las rutas de clientes requieren sesión: antes no había ningún
@@ -196,6 +197,8 @@ router.post("/", async (req, res) => {
     // (PUT /api/clientes/:id/codigos-servicio), nunca por el body del cliente:
     // así el "Guardar" del alta/edición no puede pisar el catálogo.
     delete body.codigosServicio;
+    // Igual con cuentasBancarias (PUT /api/clientes/:id/cuentas-bancarias).
+    delete body.cuentasBancarias;
 
     sincronizaFiscalEnObjeto(body);
 
@@ -503,6 +506,60 @@ router.put("/:id/codigos-servicio", requiereRol("admin", "cajas"), async (req, r
     ).select("codigosServicio");
     if (!c) return res.status(404).json({ ok: false, error: "No encontrado" });
     res.json({ ok: true, data: c.codigosServicio || [] });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// Cuentas bancarias del cliente (una por banco): sirven de Banco/Cuenta ordenante en
+// el Complemento de pago por transferencia. Cuenta: 10-50 caracteres A-Z/0-9 (SAT
+// CtaOrdenante: 10-11, 15-16, 18 dígitos, o alfanumérica 10-50).
+function sanitizaCuentasBancarias(body) {
+  const filas = Array.isArray(body) ? body : [];
+  const porBanco = new Map();
+  for (const f of filas) {
+    const banco = String(f?.banco ?? "").trim();
+    const formaPago = String(f?.formaPago ?? "").trim();
+    const numeroCuenta = limpiaCuenta(f?.numeroCuenta);
+    if (!banco && !numeroCuenta) continue;
+    if (!banco) throw new Error("Selecciona el banco de cada cuenta.");
+    if (formaPago && !FORMAS_CON_ORDENANTE.includes(formaPago)) {
+      throw new Error(`Forma de pago inválida para ${banco}.`);
+    }
+    // Con forma de pago se valida su longitud exacta; sin ella (captura general) 10-18 dígitos.
+    const err = formaPago
+      ? errorCuentaOrdenante(formaPago, numeroCuenta)
+      : /^\d{10,18}$/.test(numeroCuenta) ? "" : "Debe tener entre 10 y 18 dígitos.";
+    if (!numeroCuenta || err) throw new Error(`Cuenta de ${banco}: ${err || "captura el número de cuenta."}`);
+    porBanco.set(`${banco}|${formaPago}`, { banco, formaPago, numeroCuenta });
+  }
+  return [...porBanco.values()];
+}
+
+const ROLES_CUENTAS_CLIENTE = ["admin", "coordinador", "cajas"];
+
+// GET /api/clientes/:id/cuentas-bancarias
+router.get("/:id/cuentas-bancarias", requiereRol(...ROLES_CUENTAS_CLIENTE), async (req, res) => {
+  try {
+    const c = await Cliente.findById(req.params.id).select("cuentasBancarias");
+    if (!c) return res.status(404).json({ ok: false, error: "No encontrado" });
+    res.json({ ok: true, data: c.cuentasBancarias || [] });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// PUT /api/clientes/:id/cuentas-bancarias  (reemplaza la lista completa)
+router.put("/:id/cuentas-bancarias", requiereRol(...ROLES_CUENTAS_CLIENTE), async (req, res) => {
+  try {
+    const cuentasBancarias = sanitizaCuentasBancarias(req.body);
+    const c = await Cliente.findByIdAndUpdate(
+      req.params.id,
+      { $set: { cuentasBancarias } },
+      { new: true }
+    ).select("cuentasBancarias");
+    if (!c) return res.status(404).json({ ok: false, error: "No encontrado" });
+    res.json({ ok: true, data: c.cuentasBancarias || [] });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message });
   }

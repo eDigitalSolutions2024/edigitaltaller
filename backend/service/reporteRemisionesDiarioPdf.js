@@ -67,6 +67,19 @@ function mismoDia(desde, hasta) {
   return dayjsFecha(desde).format('YYYY-MM-DD') === dayjsFecha(hasta).format('YYYY-MM-DD');
 }
 
+// Tamaño de letra de una celda "Notas" según qué tan largo sea su texto (mismo criterio
+// que reporteFacturasDiarioPdf.js) — con el desglose de un pago Combinado (ver
+// utils/abreviaturaFormaPago.js) el texto puede crecer bastante; sin esto se desborda o se
+// ve apretado a 8pt fijo.
+function tamanoNotas(texto) {
+  const len = String(texto || '').length;
+  if (len <= 40) return 8;
+  if (len <= 80) return 7;
+  if (len <= 120) return 6.2;
+  if (len <= 160) return 5.6;
+  return 5;
+}
+
 function fila(r, folioDefault) {
   return `
     <tr class="body-style">
@@ -78,7 +91,7 @@ function fila(r, folioDefault) {
       <td class="num">${fmtCelda(r.ingresoCredito)}</td>
       <td class="num">${fmtCelda(r.anticipo)}</td>
       <td class="num">${fmtCelda(r.cuentasPorCobrar)}</td>
-      <td class="notas">${esc(r.notas)}</td>
+      <td class="notas" style="font-size:${tamanoNotas(r.notas)}pt">${esc(r.notas)}</td>
     </tr>`;
 }
 

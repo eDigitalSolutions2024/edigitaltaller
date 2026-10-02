@@ -23,7 +23,9 @@ const { limpiarYValidarTarjetas } = require("../utils/tarjetasCaja");
 const { registrarAccion } = require("../utils/registrarAccion");
 const { ordenesEnFacturaGlobal } = require("../utils/ordenesEnFacturaGlobal");
 const { exigirUuidActivo } = require("../utils/configuracionUuid");
-const { TERMINALES_TARJETA } = require("../utils/bancos");
+const { TERMINALES_TARJETA, RFC_POR_BANCO } = require("../utils/bancos");
+const CuentaBancaria = require("../models/CuentaBancaria");
+const { bancoReceptorDePago, FORMAS_CON_ORDENANTE, limpiaCuenta, errorCuentaOrdenante, cuentaBeneficiarioValida } = require("../utils/cuentaOrdenante");
 const { resolverNotasLiberadas, liberarNotasDeGlobal } = require("../utils/notaCreditoGlobal");
 const {
   folioDe,
@@ -495,7 +497,25 @@ function buildCfdiXmlUnsigned({ emisor, receptor, cfdi, conceptos, totales }) {
    XML BUILDER PAGO (TIPO P, SIN SELLO)
    Complemento de pago 2.0 (pago20)
 ========================= */
-function buildPagoXmlUnsigned({ emisor, receptor, cfdi, pago, relacionadas }) {
+// Banco/cuenta ordenante capturados en el complemento (pago.bancoOrdenante /
+// pago.cuentaOrdenante). Solo aplica a transferencia (03). El RFC sale de Configuración >
+// Cuentas bancarias o del catálogo. null si falta banco o cuenta.
+async function resolverOrdenante(pago) {
+  if (!FORMAS_CON_ORDENANTE.includes(pago?.formaPago)) return null;
+  const banco = String(pago.bancoOrdenante || "").trim();
+  const cuenta = limpiaCuenta(pago.cuentaOrdenante);
+  if (!banco || !cuenta) return null;
+  const errCuenta = errorCuentaOrdenante(pago.formaPago, cuenta);
+  if (errCuenta) {
+    const e = new Error(errCuenta);
+    e.status = 400;
+    throw e;
+  }
+  const doc = await CuentaBancaria.findOne({ banco }).lean().catch(() => null);
+  return { banco, cuenta, rfc: doc?.rfc || RFC_POR_BANCO[banco] || "" };
+}
+
+function buildPagoXmlUnsigned({ emisor, receptor, cfdi, pago, relacionadas, ordenante = null, beneficiario = null }) {
   const { serie, folio, lugarExpedicion, fecha, relacion = null } = cfdi;
 
   const fechaOk = fecha || cfdiFechaNow();
@@ -521,6 +541,17 @@ function buildPagoXmlUnsigned({ emisor, receptor, cfdi, pago, relacionadas }) {
   // Si solo llega la fecha (YYYY-MM-DD) se completa con hora fija
   const fpRaw = String(pago.fechaPago || "");
   const fechaPago = fpRaw.length === 10 ? `${fpRaw}T12:00:00` : fpRaw;
+
+  // Banco/cuenta ordenante (del cliente): solo transferencia (03) y con RFC del banco.
+  const ordenanteAttrs =
+    ordenante?.rfc && ordenante?.cuenta
+      ? ` RfcEmisorCtaOrd="${escapeXml(ordenante.rfc)}" CtaOrdenante="${escapeXml(ordenante.cuenta)}"`
+      : "";
+  // Beneficiario (cuenta del taller): solo transferencia con RFC de banco y cuenta válida.
+  const beneficiarioAttrs =
+    beneficiario?.rfc && cuentaBeneficiarioValida(pago.formaPago, beneficiario.cuenta)
+      ? ` RfcEmisorCtaBen="${escapeXml(beneficiario.rfc)}" CtaBeneficiario="${escapeXml(limpiaCuenta(beneficiario.cuenta))}"`
+      : "";
 
   const doctosXml = relacionadas
     .map((r) => {
@@ -579,7 +610,7 @@ function buildPagoXmlUnsigned({ emisor, receptor, cfdi, pago, relacionadas }) {
   <cfdi:Complemento>
     <pago20:Pagos Version="2.0">
       <pago20:Totales MontoTotalPagos="${fmt2(monto)}"/>
-      <pago20:Pago FechaPago="${escapeXml(fechaPago)}" FormaDePagoP="${escapeXml(pago.formaPago || "03")}" MonedaP="MXN" TipoCambioP="1" Monto="${fmt2(monto)}">${doctosXml}
+      <pago20:Pago FechaPago="${escapeXml(fechaPago)}" FormaDePagoP="${escapeXml(pago.formaPago || "03")}" MonedaP="MXN" TipoCambioP="1" Monto="${fmt2(monto)}"${ordenanteAttrs}${beneficiarioAttrs}>${doctosXml}
       </pago20:Pago>
     </pago20:Pagos>
   </cfdi:Complemento>
@@ -1323,7 +1354,18 @@ router.post("/xml", proteger, async (req, res) => {
     let totales;
     let xmlUnsigned;
 
+    let ordenanteComplemento = null;
     if (esComplementoPago) {
+      ordenanteComplemento = await resolverOrdenante(pago);
+      // Beneficiario = banco/cuenta del taller que recibió la transferencia (Cobro en Cajas
+      // + Configuración > Cuentas bancarias). Solo transferencia (03).
+      let beneficiarioComplemento = null;
+      const entradaBen = Array.isArray(pagosSinComprobante) ? pagosSinComprobante[0] : null;
+      const bancoBen = bancoReceptorDePago(pago?.formaPago, entradaBen);
+      if (bancoBen) {
+        const cb = await CuentaBancaria.findOne({ banco: bancoBen }).lean().catch(() => null);
+        beneficiarioComplemento = { rfc: cb?.rfc || RFC_POR_BANCO[bancoBen] || "", cuenta: cb?.numeroCuenta || "" };
+      }
       const montoPago = relacionadas.reduce((s, r) => s + Number(r.importePagado || 0), 0);
       // En el CFDI tipo P el SubTotal/Total van en 0; el monto vive en el complemento.
       totales = { subtotal: "0.00", iva: "0.00", isr: "0.00", total: fmt2(montoPago) };
@@ -1334,6 +1376,8 @@ router.post("/xml", proteger, async (req, res) => {
         cfdi: cfdiFinal,
         pago,
         relacionadas,
+        ordenante: ordenanteComplemento,
+        beneficiario: beneficiarioComplemento,
       });
     } else {
       totales = calcularTotales({
@@ -1467,14 +1511,7 @@ router.post("/xml", proteger, async (req, res) => {
       // la primera. Queda '' si no se capturó nada ahora (la orden ya traía su propio pago en
       // Cajas) o si no fue transferencia.
       const primeraEntradaPago = Array.isArray(pagosSinComprobante) ? pagosSinComprobante[0] : null;
-      const bancoPago =
-        esComplementoPago && pago?.formaPago === "03" && primeraEntradaPago
-          ? primeraEntradaPago.formaPago === "TRANSFERENCIA"
-            ? primeraEntradaPago.bancoTransferencia || ""
-            : primeraEntradaPago.formaPago === "COMBINADO"
-            ? primeraEntradaPago.combinado?.transferenciaBanco || ""
-            : ""
-          : "";
+      const bancoPago = esComplementoPago ? bancoReceptorDePago(pago?.formaPago, primeraEntradaPago) : "";
       // Número de cheque, mismo criterio que bancoPago arriba — solo cuando la forma de
       // pago es cheque nominativo (02); el desglose Combinado no captura un número de
       // cheque propio, así que solo aplica a la captura simple.
@@ -1508,6 +1545,8 @@ router.post("/xml", proteger, async (req, res) => {
               monto: Number(totales.total),
               banco: bancoPago,
               chequeNumero: chequeNumeroPago,
+              bancoOrdenante: ordenanteComplemento?.banco || "",
+              cuentaOrdenante: ordenanteComplemento?.cuenta || "",
             }
           : undefined,
         notaFacturacion,
@@ -1763,7 +1802,7 @@ router.post("/xml", proteger, async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(err.status || 500).json({ ok: false, error: err.message });
   }
 });
 

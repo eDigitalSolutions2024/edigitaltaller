@@ -28,8 +28,13 @@ function tipoPagoLabel(p) {
   // Mismo criterio: un Recibo Provisional creado al generar un Complemento de
   // pago (pago.facturaId, ver crearPagosSinComprobante modo "ABONO" en
   // generar_xml.js) — a diferencia de un Abono capturado a mano en Cajas, que
-  // nunca trae facturaId.
-  if (p.comprobante === "RECIBO_PROVISIONAL" && p.facturaId) return "Abono (Complemento)";
+  // nunca trae facturaId. OJO: un anticipo normal que se CANCELA y "pasa a
+  // factura" (cualquier tipoFactura, ver cancelarAnticiposYRemisionesPorFactura
+  // en anticiposAlFacturar.js) TAMBIÉN termina con facturaId, pero queda
+  // `cancelado`, así que el `!p.cancelado` es lo que distingue un Abono de
+  // Complemento (nunca se crea cancelado) de ese caso — que ya se lee como
+  // "Anticipo"/"Abono" normal y se marca con el badge de "Pasó a factura".
+  if (p.comprobante === "RECIBO_PROVISIONAL" && p.facturaId && !p.cancelado) return "Abono (Complemento)";
   return TIPO_PAGO_LABELS[p.tipoPago] || p.tipoPago;
 }
 
@@ -233,7 +238,7 @@ export default function CajaHistorialPagos({
                       → Saldo a favor
                     </span>
                   )}
-                  {p.comprobante === "RECIBO_PROVISIONAL" && p.facturaId && (() => {
+                  {p.comprobante === "RECIBO_PROVISIONAL" && p.facturaId && !p.cancelado && (() => {
                     const f = facturas.find((x) => String(x._id) === String(p.facturaId));
                     return (
                       <span

@@ -8,6 +8,7 @@ import { getUser } from "../../auth";
 import { puedeEditarCodigosCliente, isAdminLike } from "../../utils/roles";
 import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 import ModalCodigosCliente from "./components/ModalCodigosCliente";
+import ModalCuentasBancariasCliente from "./components/ModalCuentasBancariasCliente";
 import ConvertirEmpleadoModal from "./ConvertirEmpleadoModal";
 import ConfirmarDesactivarClienteModal from "./ConfirmarDesactivarClienteModal";
 import "../../styles/clientes.css";
@@ -334,6 +335,7 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
   const [loadingData, setLoadingData] = useState(false);
   // Catálogo de códigos de servicio propios del cliente (solo en edición).
   const [showCodigos, setShowCodigos] = useState(false);
+  const [showCuentas, setShowCuentas] = useState(false);
   // Desactivar/reactivar (ver Cliente.activo) y convertir a Empleado viven
   // en el mismo menú ⚙ Configuración, no en Consulta de Clientes.
   const [cambiandoEstado, setCambiandoEstado] = useState(false);
@@ -617,6 +619,13 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
                   </button>
                 </li>
               )}
+              {puedeCodigos && (
+                <li>
+                  <button type="button" className="dropdown-item" onClick={() => setShowCuentas(true)}>
+                    Cuentas bancarias
+                  </button>
+                </li>
+              )}
               {isAdmin && (
                 <li>
                   <button
@@ -670,6 +679,14 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
           clienteId={id}
           clienteNombre={form.nombre}
           onClose={() => setShowCodigos(false)}
+        />
+      )}
+
+      {isEdit && !modoModal && puedeCodigos && showCuentas && (
+        <ModalCuentasBancariasCliente
+          clienteId={id}
+          clienteNombre={nombreClienteActual}
+          onClose={() => setShowCuentas(false)}
         />
       )}
 
