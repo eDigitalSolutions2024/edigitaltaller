@@ -13,9 +13,9 @@
  *   - Transferencia con tipo y banco capturados: <SPEI|TEF|TERCERO>-<abrev. banco>
  *     ej. "SPEI-BR". Sin esos datos (pagos viejos): texto completo "TRANSFERENCIA".
  *   - Efectivo / Cheque: texto completo
- *   - Combinado: cada componente presente, separado por "Y" (o comas si son
- *     más de dos), para que se lea claro que fue un pago combinado
- *     ej. "EFECTIVO Y BR-C", "EFECTIVO, BR-C Y SPEI-BX"
+ *   - Combinado: cada componente presente CON SU MONTO, separado por "Y" (o comas si son
+ *     más de dos), para que se vea cómo se repartió entre métodos
+ *     ej. "EFECTIVO $500.00 Y BR-C $1,200.00", "EFECTIVO $200.00, BR-C $300.00 Y SPEI-BX $100.00"
  *
  * Recibe el sub-objeto `pago.notaVenta` / `pago.reciboProvisional` /
  * `pago.liquidacion` (comparten forma: { formaPago, banco, tarjetas,
@@ -76,15 +76,26 @@ function joinMetodos(partes) {
   return `${partes.slice(0, -1).join(', ')} Y ${partes[partes.length - 1]}`;
 }
 
+function money(n) {
+  return `$${(Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// Desglose de un pago Combinado con el monto de CADA método, no solo el nombre — para que
+// la columna Notas diga, por ejemplo, "EFECTIVO $500.00, BR-C $1,200.00 Y SPEI-BR $300.00"
+// en vez de solo "EFECTIVO, BR-C Y SPEI-BR" (el total ya se ve en la columna de Importe de
+// la fila; esto es lo único que muestra CÓMO se repartió entre métodos).
 function abreviaturaCombinado(combinado) {
   const c = combinado || {};
   const n = (v) => Number(v) || 0;
   const partes = [];
-  if (n(c.efectivo) || n(c.efectivoDolares)) partes.push('EFECTIVO');
-  if (n(c.credito)) partes.push(abrevTarjetaMulti('CREDITO', c.tarjetasCredito, c.banco));
-  if (n(c.debito)) partes.push(abrevTarjetaMulti('DEBITO', c.tarjetasDebito, c.banco));
-  if (n(c.cheque)) partes.push('CHEQUE');
-  if (n(c.transferencia)) partes.push(abrevTransferencia(c.transferenciaTipo, c.transferenciaBanco));
+  if (n(c.efectivo) || n(c.efectivoDolares)) {
+    const dolaresTxt = n(c.efectivoDolares) ? ` (+USD ${money(c.efectivoDolares).slice(1)})` : '';
+    partes.push(`EFECTIVO ${money(c.efectivo)}${dolaresTxt}`);
+  }
+  if (n(c.credito)) partes.push(`${abrevTarjetaMulti('CREDITO', c.tarjetasCredito, c.banco)} ${money(c.credito)}`);
+  if (n(c.debito)) partes.push(`${abrevTarjetaMulti('DEBITO', c.tarjetasDebito, c.banco)} ${money(c.debito)}`);
+  if (n(c.cheque)) partes.push(`CHEQUE ${money(c.cheque)}`);
+  if (n(c.transferencia)) partes.push(`${abrevTransferencia(c.transferenciaTipo, c.transferenciaBanco)} ${money(c.transferencia)}`);
   return joinMetodos(partes);
 }
 

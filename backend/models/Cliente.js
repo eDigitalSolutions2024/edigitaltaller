@@ -92,6 +92,20 @@ const CodigoServicioClienteSchema = new Schema(
   { _id: false }
 );
 
+// Cuentas bancarias del cliente (una por banco). Se usan como Banco/Cuenta
+// ORDENANTE al generar un Complemento de pago por transferencia (CtaOrdenante /
+// RfcEmisorCtaOrd del SAT). `banco` es el mismo valor del catálogo de utils/bancos.js.
+const CuentaBancariaClienteSchema = new Schema(
+  {
+    banco: { type: String, trim: true, default: "" },
+    // Forma de pago SAT a la que sirve la cuenta ("02","03","04","28"); una cuenta por
+    // banco + forma (CLABE y tarjeta del mismo banco conviven). "" = capturas antiguas.
+    formaPago: { type: String, trim: true, default: "" },
+    numeroCuenta: { type: String, trim: true, default: "" },
+  },
+  { _id: false }
+);
+
 /* ---------- Esquema principal ---------- */
 
 const TIPOS = [
@@ -183,6 +197,10 @@ const ClienteSchema = new Schema(
     // para llenar NoIdentificacion. Solo admin/cajas pueden verlos/editarlos
     // (ver GET/PUT /api/clientes/:id/codigos-servicio).
     codigosServicio: { type: [CodigoServicioClienteSchema], default: [] },
+
+    // Cuentas bancarias del cliente por banco (ver CuentaBancariaClienteSchema).
+    // Solo se editan por PUT /api/clientes/:id/cuentas-bancarias.
+    cuentasBancarias: { type: [CuentaBancariaClienteSchema], default: [] },
 
     // Ramas por tipo
     empresa: { type: EmpresaSchema, default: undefined },   // Privada / Arrendadora

@@ -33,6 +33,8 @@ async function rfcDelBanco(banco) {
   return cuenta?.rfc || RFC_POR_BANCO[banco] || "";
 }
 
+const { FORMAS_CON_ORDENANTE, bancoReceptorDePago } = require("../utils/cuentaOrdenante");
+
 const router = express.Router();
 
 /* =========================
@@ -838,7 +840,7 @@ function drawComprobanteIngresoEgreso(doc, data) {
 ========================= */
 function drawReciboElectronicoPago(doc, data) {
   const ui = makeUi(doc);
-  const { emisor, cliente, pago, relacionadas, cfdi, numeroCuentaBanco = "", rfcBancoEmisor: rfcBancoEmisorData = "" } = data;
+  const { emisor, cliente, pago, relacionadas, cfdi, numeroCuentaBanco = "", rfcBancoEmisor: rfcBancoEmisorData = "", rfcBancoOrdenante = "" } = data;
   const m = data.meta || buildMeta();
 
   const monto = relacionadas.reduce((s, r) => s + Number(r.importePagado || 0), 0);
@@ -886,19 +888,20 @@ function drawReciboElectronicoPago(doc, data) {
   // "03"); el resto de las formas de pago no los necesita. Tabla propia (2x2, solo
   // borde, sin relleno de color) debajo del bloque de arriba — a propósito distinta de
   // ui.labelValueBox (que lleva la barra de etiqueta en gris). Ordenante (banco/cuenta
-  // del CLIENTE de donde salió el dinero) nunca se captura en este sistema: se imprime
-  // en blanco/ceros, igual que un recibo real sin ese dato. Emisor (banco/cuenta del
+  // del CLIENTE de donde salió el dinero) sale de Cliente.cuentasBancarias (se elige
+  // en el complemento y queda en pago.bancoOrdenante/cuentaOrdenante); sin captura se
+  // imprime "—"/ceros. Emisor (banco/cuenta del
   // TALLER que recibe) sale del banco usado en "Cobro en Cajas" al generar el
   // complemento (pago.banco) + Configuración > Cuentas bancarias (ver utils/bancos.js).
-  if (pago?.formaPago === "03") {
+  if (FORMAS_CON_ORDENANTE.includes(pago?.formaPago)) {
     ry += 6; // espacio para separarla del bloque de arriba (Certificado digital)
     const rfcBancoEmisor = rfcBancoEmisorData || RFC_POR_BANCO[pago?.banco] || "";
     const colW = rightW / 2;
     const rowH = 22;
     const filasBanco = [
       [
-        { label: "RFC Banco Ordenante", value: "—" },
-        { label: "Num Cuenta", value: "0000000000" },
+        { label: "RFC Banco Ordenante", value: rfcBancoOrdenante || "—" },
+        { label: "Num Cuenta", value: safe(pago?.cuentaOrdenante) || "0000000000" },
       ],
       [
         { label: "RFC Banco Emisor", value: rfcBancoEmisor || "—" },
@@ -1282,14 +1285,7 @@ router.post("/preview", async (req, res) => {
       // Mismo criterio que generar_xml.js: banco del "Cobro en Cajas" capturado en
       // este complemento, solo relevante si la forma de pago resuelta es transferencia.
       const primeraEntradaPago = Array.isArray(pagosSinComprobante) ? pagosSinComprobante[0] : null;
-      const bancoPagoPreview =
-        pago?.formaPago === "03" && primeraEntradaPago
-          ? primeraEntradaPago.formaPago === "TRANSFERENCIA"
-            ? primeraEntradaPago.bancoTransferencia || ""
-            : primeraEntradaPago.formaPago === "COMBINADO"
-            ? primeraEntradaPago.combinado?.transferenciaBanco || ""
-            : ""
-          : "";
+      const bancoPagoPreview = bancoReceptorDePago(pago?.formaPago, primeraEntradaPago);
       const numeroCuentaBancoPreview = await numeroCuentaDelBanco(bancoPagoPreview);
       const chequeNumeroPreview =
         pago?.formaPago === "02" && primeraEntradaPago?.formaPago === "CHEQUE"
@@ -1303,6 +1299,7 @@ router.post("/preview", async (req, res) => {
         cfdi,
         numeroCuentaBanco: numeroCuentaBancoPreview,
         rfcBancoEmisor: await rfcDelBanco(bancoPagoPreview),
+        rfcBancoOrdenante: await rfcDelBanco(pago?.bancoOrdenante),
       });
     } else {
       drawComprobanteIngresoEgreso(doc, {
@@ -1434,6 +1431,7 @@ async function cargarDatosFacturaPdf(id) {
   const numeroCuentaBanco = esComplementoPago ? await numeroCuentaDelBanco(f.pago?.banco) : "";
 
   const rfcBancoEmisor = esComplementoPago ? await rfcDelBanco(f.pago?.banco) : "";
+  const rfcBancoOrdenante = esComplementoPago ? await rfcDelBanco(f.pago?.bancoOrdenante) : "";
 
   return {
     f,
@@ -1448,11 +1446,12 @@ async function cargarDatosFacturaPdf(id) {
     esNotaCredito,
     numeroCuentaBanco,
     rfcBancoEmisor,
+    rfcBancoOrdenante,
   };
 }
 
 function renderFacturaPdfDoc(data) {
-  const { f, emisor, ordenes, conceptos, totales, meta, informacionGlobal, esComplementoPago, esNotaCredito, numeroCuentaBanco, rfcBancoEmisor } = data;
+  const { f, emisor, ordenes, conceptos, totales, meta, informacionGlobal, esComplementoPago, esNotaCredito, numeroCuentaBanco, rfcBancoEmisor, rfcBancoOrdenante } = data;
 
   const doc = new PDFDocument({ size: "LETTER", margin: M });
 
@@ -1477,6 +1476,7 @@ function renderFacturaPdfDoc(data) {
       cfdi: f.cfdi,
       numeroCuentaBanco,
       rfcBancoEmisor,
+      rfcBancoOrdenante,
       meta,
     });
   } else {

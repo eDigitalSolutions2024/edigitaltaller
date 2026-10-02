@@ -994,7 +994,16 @@ async function buildReporteRemisionesDiarioImpl({ desde, hasta }) {
   anticipos.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
   canceladas.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
   abonos.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-  nuevaVenta.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  // Remisiones por número (menor a mayor); sin folio o empate, por fecha.
+  nuevaVenta.sort((a, b) => {
+    const fa = Number(a.folio);
+    const fb = Number(b.folio);
+    const va = Number.isFinite(fa) && a.folio != null && a.folio !== '';
+    const vb = Number.isFinite(fb) && b.folio != null && b.folio !== '';
+    if (va && vb && fa !== fb) return fa - fb;
+    if (va !== vb) return va ? -1 : 1;
+    return new Date(a.fecha) - new Date(b.fecha);
+  });
   ordenesCanceladas.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
 
   const totalIngreso = totalContado + totalCredito + totalAnticipo;
@@ -1381,9 +1390,17 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       // cajas.js): no es una cancelación por facturación, no pertenece aquí.
       if (!folioCfdi) continue;
 
+      // Forma de pago abreviada del anticipo/remisión ORIGINAL (ej. "EFECTIVO", "BR-C") —
+      // se guarda en el cruce para que la factura que lo canceló pueda mencionarla junto
+      // al monto en su propia nota ("CON ANTICIPO CANCELADO ANTES MENCIONADO (EFECTIVO
+      // $4,300.00)"), no solo la cantidad.
+      const formaPagoDesc = p.comprobante === 'RECIBO_PROVISIONAL' ? p.reciboProvisional : p.notaVenta;
+      const tipoPagoTxt = abreviaturaFormaPago(formaPagoDesc);
+
       cruceAnticipoPorOrdenFactura.set(`${facturaIdResuelta}_${String(o._id)}`, {
         tipo: esRemision ? 'REMISION' : 'ANTICIPO',
         monto: p.monto,
+        formaPago: tipoPagoTxt,
       });
 
       // Esta banda solo lista anticipos cancelados: una remisión cancelada no
@@ -1394,8 +1411,6 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       // Notas del anticipo cancelado: forma de pago + fecha en que se hizo el anticipo (p. ej.
       // "EFECTIVO 17/09/2026"). Sin nombre del cliente — ya está la orden en otra columna. La
       // fecha es la del anticipo original (p.fecha), no la de esta cancelación (fechaEvento).
-      const formaPagoDesc = p.comprobante === 'RECIBO_PROVISIONAL' ? p.reciboProvisional : p.notaVenta;
-      const tipoPagoTxt = abreviaturaFormaPago(formaPagoDesc);
       const fechaAnticipoTxt = dayjsFecha(p.fecha).format('DD/MM/YYYY');
       anticiposCancelados.push({
         folio: 'ANT',
@@ -1561,15 +1576,27 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
   // cancelados" (las remisiones canceladas no), así que solo ellos pueden
   // decir "ANTES MENCIONADO"; una remisión cancelada se explica sola.
   function notaCanceladoPrevio(idsFactura, ordenes) {
-    const tipos = new Set();
+    // Un anticipo por orden (lo normal); si la factura agrupa varias órdenes, cada una
+    // aporta el suyo — se listan todos, con su propia forma de pago y monto.
+    const anticipos = [];
     for (const o of ordenes) {
       if (!o.vehiculoId) continue;
       for (const idF of idsFactura) {
         const cruce = cruceAnticipoPorOrdenFactura.get(`${idF}_${String(o.vehiculoId)}`);
-        if (cruce) tipos.add(cruce.tipo);
+        if (cruce?.tipo === 'ANTICIPO' && cruce.monto > 0.01) anticipos.push(cruce);
       }
     }
-    if (tipos.has('ANTICIPO')) return 'CON ANTICIPO CANCELADO ANTES MENCIONADO';
+    if (anticipos.length) {
+      const totalAnticipo = anticipos.reduce((s, a) => s + (a.monto || 0), 0);
+      const totalTxt = totalAnticipo.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const detalle = joinMetodos(
+        anticipos.map((a) => {
+          const montoTxt = (a.monto || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          return a.formaPago ? `${a.formaPago} $${montoTxt}` : `$${montoTxt}`;
+        })
+      );
+      return `CON ANTICIPO CANCELADO ANTES MENCIONADO (${detalle})${anticipos.length > 1 ? ` — TOTAL $${totalTxt}` : ''}`;
+    }
     // Una remisión cancelada NO se menciona en este reporte (esa historia
     // vive solo en el Reporte de Remisiones): las Notas de esta fila quedan
     // libres para mostrar solo el método de pago real (ver más abajo).

@@ -33,8 +33,11 @@ function tipoPagoLabel(p) {
   // Mismo criterio: un Recibo Provisional creado al generar un Complemento de
   // pago (pago.facturaId, ver crearPagosSinComprobante modo "ABONO" en
   // generar_xml.js) — a diferencia de un Abono capturado a mano en Cajas, que
-  // nunca trae facturaId.
-  if (p.comprobante === "RECIBO_PROVISIONAL" && p.facturaId) return "Abono (Complemento)";
+  // nunca trae facturaId. OJO: un anticipo normal que se CANCELA y "pasa a
+  // factura" también termina con facturaId, pero queda `cancelado` — el
+  // `!p.cancelado` es lo que distingue un Abono de Complemento (nunca se crea
+  // cancelado) de ese caso.
+  if (p.comprobante === "RECIBO_PROVISIONAL" && p.facturaId && !p.cancelado) return "Abono (Complemento)";
   return TIPO_PAGO_LABELS[p.tipoPago] || p.tipoPago || "";
 }
 
@@ -633,7 +636,7 @@ export default function VehiculoOrdenGeneral({ orden, onClosed, esAsesor, soloCo
                 <td>{tipoPagoLabel(p)}</td>
                 <td>
                   {comprobantePago(p)}
-                  {p.comprobante === "RECIBO_PROVISIONAL" && p.facturaId && (
+                  {p.comprobante === "RECIBO_PROVISIONAL" && p.facturaId && !p.cancelado && (
                     <div className="small text-muted">
                       Complemento de pago
                     </div>

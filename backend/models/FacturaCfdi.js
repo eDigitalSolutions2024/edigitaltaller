@@ -112,6 +112,10 @@ const FacturaCfdiSchema = new Schema(
       // relevante cuando formaPago es cheque nominativo ("02"); mismo criterio que
       // `banco` arriba. '' si no se pagó con cheque o no se capturó nada nuevo.
       chequeNumero: { type: String, default: "" },
+      // Banco y número de cuenta del CLIENTE (ordenante) de la transferencia, tomados
+      // de Cliente.cuentasBancarias al generar el complemento. '' si no se capturaron.
+      bancoOrdenante: { type: String, default: "" },
+      cuentaOrdenante: { type: String, default: "" },
     },
 
     cliente: {
