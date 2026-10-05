@@ -50,6 +50,16 @@ router.get("/", async (req, res) => {
       const r = rx(q);
       match.$or = [
         { folio: r },
+        // Serie + folio juntos (ej. "A44"), como se muestra en la tabla.
+        {
+          $expr: {
+            $regexMatch: {
+              input: { $concat: [{ $ifNull: ["$serie", ""] }, { $toString: { $ifNull: ["$folio", ""] } }] },
+              regex: r.source,
+              options: "i",
+            },
+          },
+        },
         { "cliente.nombre": r },
         { "cliente.rfc": r },
         { "orden.ordenServicio": r },

@@ -475,22 +475,27 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
       ui.kv(vx, vy, "Kms:", ordenUnica.kmsMillas, 42, 150);
     }
   } else if (listaOrdenes.length) {
-    // Varias órdenes: no cabe el detalle de cada vehículo, así que se listan
-    // los folios y, junto a cada uno, el vehículo en una sola línea.
-    doc.font("Helvetica-Bold").fontSize(8).text(`Órdenes de servicio (${listaOrdenes.length})`, vx, vy, { width: 150 });
-    vy += 12;
-    doc.font("Helvetica").fontSize(6.5);
-    listaOrdenes.slice(0, 6).forEach((o) => {
-      const vehiculo = o.sinVehiculo
-        ? ""
-        : [safe(o.marca), safe(o.modelo), safe(o.placas) && `(${safe(o.placas)})`]
-            .filter(Boolean)
-            .join(" ");
-      doc.text(`${safe(o.ordenServicio)}${vehiculo ? ` · ${vehiculo}` : ""}`, vx, vy, { width: 150 });
-      vy += 10;
-    });
-    if (listaOrdenes.length > 6) {
-      doc.text(`+ ${listaOrdenes.length - 6} más`, vx, vy, { width: 150 });
+    // Varias órdenes: no cabe el detalle de cada vehículo, así que se lista una línea
+    // por vehículo (sin número de orden). Las órdenes sin vehículo no se listan.
+    const vehiculos = listaOrdenes
+      .filter((o) => !o.sinVehiculo)
+      .map((o) =>
+        [safe(o.marca), safe(o.modelo), safe(o.anio), safe(o.placas) && `(${safe(o.placas)})`]
+          .filter(Boolean)
+          .join(" ")
+      )
+      .filter(Boolean);
+    if (vehiculos.length) {
+      doc.font("Helvetica-Bold").fontSize(8).text(`Vehículos (${vehiculos.length})`, vx, vy, { width: 150 });
+      vy += 12;
+      doc.font("Helvetica").fontSize(6.5);
+      vehiculos.slice(0, 6).forEach((txt) => {
+        doc.text(txt, vx, vy, { width: 150 });
+        vy += 10;
+      });
+      if (vehiculos.length > 6) {
+        doc.text(`+ ${vehiculos.length - 6} más`, vx, vy, { width: 150 });
+      }
     }
     doc.fontSize(8);
   } else if (listaRelacionadas.length) {

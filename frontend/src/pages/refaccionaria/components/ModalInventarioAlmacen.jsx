@@ -23,7 +23,8 @@ export default function ModalInventarioAlmacen({ onSelect, onClose }) {
     const q = busqueda.toLowerCase();
     return (
       (item.codigo || "").toLowerCase().includes(q) ||
-      (item.descripcion || "").toLowerCase().includes(q)
+      (item.descripcion || "").toLowerCase().includes(q) ||
+      (item.marca || "").toLowerCase().includes(q)
     );
   });
 
@@ -37,7 +38,7 @@ export default function ModalInventarioAlmacen({ onSelect, onClose }) {
         style={{
           position: "fixed", top: "50%", left: "50%",
           transform: "translate(-50%,-50%)",
-          zIndex: 1050, width: "90%", maxWidth: 680, maxHeight: "80vh",
+          zIndex: 1050, width: "90%", maxWidth: 780, maxHeight: "80vh",
           background: "white", borderRadius: 8,
           boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
           display: "flex", flexDirection: "column", overflow: "hidden",
@@ -55,7 +56,7 @@ export default function ModalInventarioAlmacen({ onSelect, onClose }) {
           <input
             autoFocus
             className="form-control form-control-sm"
-            placeholder="Buscar por código o descripción..."
+            placeholder="Buscar por código, descripción o marca..."
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
           />
@@ -72,6 +73,7 @@ export default function ModalInventarioAlmacen({ onSelect, onClose }) {
                 <tr>
                   <th>Código</th>
                   <th>Descripción</th>
+                  <th>Marca</th>
                   <th>Unidad</th>
                   <th style={{ width: 100 }}>Existencia</th>
                 </tr>
@@ -85,6 +87,7 @@ export default function ModalInventarioAlmacen({ onSelect, onClose }) {
                   >
                     <td>{item.codigo || "—"}</td>
                     <td>{item.descripcion || "—"}</td>
+                    <td>{item.marca || "—"}</td>
                     <td>{item.unidad || "—"}</td>
                     <td className="text-center">
                       {item.cantidad > 0 ? (
