@@ -52,3 +52,7 @@ export const crearClienteDesdePersonal = ({ empleadoId, userId }) =>
 // registro real de Empleado (Consulta de Clientes → "Convertir a Empleado")
 export const convertirClienteAEmpleado = (id, payload) =>
   http.post(`/clientes/${id}/convertir-a-empleado`, payload);
+// 👇 Al marcar "¿Es empleado?" en Editar Cliente (solo admin): pasa TODAS las
+// órdenes del cliente a la ficha del empleado elegido y deja al cliente inactivo.
+export const migrarOrdenesAEmpleado = (id, { empleadoId, userId }) =>
+  http.post(`/clientes/${id}/migrar-ordenes-a-empleado`, { empleadoId, userId });

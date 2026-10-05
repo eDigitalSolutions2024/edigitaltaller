@@ -10,6 +10,7 @@ import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 import ModalCodigosCliente from "./components/ModalCodigosCliente";
 import ModalCuentasBancariasCliente from "./components/ModalCuentasBancariasCliente";
 import ConvertirEmpleadoModal from "./ConvertirEmpleadoModal";
+import MigrarOrdenesEmpleadoModal from "./MigrarOrdenesEmpleadoModal";
 import ConfirmarDesactivarClienteModal from "./ConfirmarDesactivarClienteModal";
 import "../../styles/clientes.css";
 
@@ -341,6 +342,9 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
   const [cambiandoEstado, setCambiandoEstado] = useState(false);
   const [showConfirmarDesactivar, setShowConfirmarDesactivar] = useState(false);
   const [showConvertir, setShowConvertir] = useState(false);
+  // Al marcar "¿Es empleado?" en un cliente ya guardado (admin): modal para
+  // pasar todas sus órdenes a un empleado y dejar el cliente inactivo.
+  const [showMigrarOrdenes, setShowMigrarOrdenes] = useState(false);
 
   // 👉 lista de empleados para el combo de Asesor Responsable
   const [empleados, setEmpleados] = useState([]);
@@ -584,7 +588,7 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
   // Configuración del cliente: solo en edición de un cliente ya guardado.
   // "Registrar códigos" es admin/cajas; desactivar/reactivar y convertir a
   // Empleado quedan solo para admin (mismo criterio que su endpoint).
-  const puedeConvertir = isAdmin && form.esEmpleado && !form.empleadoRef;
+  const puedeConvertir = isAdmin && form.esEmpleado && !form.empleadoRef && form.activo !== false;
   const puedeAbrirConfiguracion = isEdit && !modoModal && (puedeCodigos || isAdmin);
   const nombreClienteActual =
     form.empresa?.razonSocial || form.gobierno?.nombreGobierno ||
@@ -658,6 +662,23 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
           clienteNombre={nombreClienteActual}
           onClose={() => setShowConfirmarDesactivar(false)}
           onConfirm={handleConfirmarDesactivar}
+        />
+      )}
+
+      {isEdit && !modoModal && isAdmin && showMigrarOrdenes && (
+        <MigrarOrdenesEmpleadoModal
+          show={showMigrarOrdenes}
+          cliente={{ _id: id }}
+          clienteNombre={nombreClienteActual}
+          onClose={() => setShowMigrarOrdenes(false)}
+          onMigrado={(resultado, persona) => {
+            setShowMigrarOrdenes(false);
+            upd("esEmpleado", true);
+            upd("activo", false);
+            setMsg(
+              `✅ ${resultado?.ordenesMovidas ?? 0} orden(es) pasaron a ${persona?.nombre || "el empleado"}. El cliente quedó inactivo.`
+            );
+          }}
         />
       )}
 
@@ -1107,7 +1128,15 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
             <input
               type="checkbox"
               checked={form.esEmpleado || false}
-              onChange={(e) => upd("esEmpleado", e.target.checked)}
+              onChange={(e) => {
+                const marcado = e.target.checked;
+                if (marcado && isEdit && !modoModal && isAdmin && !form.empleadoRef) {
+                  // La casilla se queda desmarcada hasta que se confirme la migración.
+                  setShowMigrarOrdenes(true);
+                  return;
+                }
+                upd("esEmpleado", marcado);
+              }}
             />
             ¿Es empleado?
           </label>
