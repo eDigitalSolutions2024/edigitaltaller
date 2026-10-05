@@ -3,6 +3,9 @@ const express = require("express");
 const Cliente = require("../models/Cliente");
 const Empleado = require("../models/Empleado");
 const User = require("../models/User");
+const Vehiculo = require("../models/Vehiculo");
+const GarageVehiculo = require("../models/GarageVehiculo");
+const { registrarAccion } = require("../utils/registrarAccion");
 const { proteger, requiereRol } = require("../middleware/auth");
 const { normalizaLineaNegocio } = require("../utils/lineaNegocio");
 const { limpiaCuenta, errorCuentaOrdenante, FORMAS_CON_ORDENANTE } = require("../utils/cuentaOrdenante");
@@ -312,6 +315,103 @@ router.patch(
 /* Puente Cliente ⇄ Empleado (ver Cliente.empleadoRef).                */
 /* ------------------------------------------------------------------ */
 
+const errHttp = (status, message) => Object.assign(new Error(message), { status });
+
+// Busca (o crea la primera vez) la ficha-sombra de Cliente ligada a una
+// persona del roster de Personal. Lanza errores con `.status` para que cada
+// ruta los traduzca. Compartido por POST /desde-personal y
+// POST /:id/migrar-ordenes-a-empleado.
+async function obtenerClienteDePersonal({ empleadoId, userId } = {}) {
+  let empleado;
+
+  if (empleadoId) {
+    empleado = await Empleado.findById(empleadoId);
+    if (!empleado) throw errHttp(404, "Empleado no encontrado");
+  } else if (userId) {
+    const user = await User.findById(userId);
+    if (!user) throw errHttp(404, "Usuario no encontrado");
+    if (user.isActive === false) {
+      throw errHttp(409, "El usuario está inactivo.");
+    }
+
+    empleado = user.employee ? await Empleado.findById(user.employee) : null;
+    if (!empleado) {
+      // Copia correo/teléfono del usuario: sin esto, la ficha de Empleado
+      // nacía vacía y "pisaba" en Personal el contacto que la persona ya
+      // tenía como solo_usuario (ver GET /empleados/personal).
+      empleado = await Empleado.create({
+        nombre: user.name,
+        puesto: ROL_A_PUESTO[user.role] || "otro",
+        correo: user.email || "",
+        telefono: user.telefono || user.celular || "",
+      });
+      user.employee = empleado._id;
+      await user.save();
+    } else {
+      // Autocorrige fichas que este mismo flujo haya creado antes de este
+      // ajuste (sin correo/teléfono/puesto real) — solo rellena lo que
+      // esté vacío o siga en el default "otro".
+      let cambios = false;
+      if (!empleado.correo && user.email) { empleado.correo = user.email; cambios = true; }
+      if (!empleado.telefono && (user.telefono || user.celular)) {
+        empleado.telefono = user.telefono || user.celular;
+        cambios = true;
+      }
+      if (empleado.puesto === "otro" && ROL_A_PUESTO[user.role]) {
+        empleado.puesto = ROL_A_PUESTO[user.role];
+        cambios = true;
+      }
+      if (cambios) await empleado.save();
+    }
+    if (!empleado.usuario) {
+      empleado.usuario = user._id;
+      await empleado.save();
+    }
+  } else {
+    throw errHttp(400, "Falta empleadoId o userId.");
+  }
+
+  if (!empleado.activo) {
+    throw errHttp(409, "El empleado está inactivo.");
+  }
+
+  let cliente = await Cliente.findOne({ empleadoRef: empleado._id });
+
+  if (!cliente) {
+    cliente = await Cliente.create({
+      tipoCliente: "Particular",
+      nombre: empleado.nombre,
+      esEmpleado: true,
+      empleadoRef: empleado._id,
+      // Precarga correo/celular desde la ficha de Empleado para que ya
+      // aparezcan al abrir la orden (antes quedaban en blanco aunque el
+      // empleado ya los tuviera registrados en Personal).
+      emails: empleado.correo ? [empleado.correo] : [],
+      celulares: empleado.telefono ? [{ numero: empleado.telefono }] : [],
+    });
+  } else {
+    let cambios = false;
+    if (!cliente.activo) {
+      // Reactivar automáticamente: si se había desactivado, seleccionar de
+      // nuevo a esta persona desde este botón implica que vuelve a estar en uso.
+      cliente.activo = true;
+      cambios = true;
+    }
+    // Mismo backfill que arriba, para fichas ya creadas antes de este
+    // ajuste o para cuando se agregó el correo/teléfono después en Personal.
+    if (!cliente.emails?.length && empleado.correo) {
+      cliente.emails = [empleado.correo];
+      cambios = true;
+    }
+    if (!cliente.celulares?.length && empleado.telefono) {
+      cliente.celulares = [{ numero: empleado.telefono }];
+      cambios = true;
+    }
+    if (cambios) await cliente.save();
+  }
+  return cliente;
+}
+
 // POST /api/clientes/desde-personal   body: { empleadoId } o { userId }
 // Botón "Empleados" de Nueva Orden de Servicio y editor de "Datos de
 // facturación" de Administración → Personal: en vez de dar de alta a mano un
@@ -326,98 +426,71 @@ router.patch(
 // con el mismo camino de siempre.
 router.post("/desde-personal", async (req, res) => {
   try {
-    const { empleadoId, userId } = req.body || {};
-    let empleado;
-
-    if (empleadoId) {
-      empleado = await Empleado.findById(empleadoId);
-      if (!empleado) return res.status(404).json({ ok: false, error: "Empleado no encontrado" });
-    } else if (userId) {
-      const user = await User.findById(userId);
-      if (!user) return res.status(404).json({ ok: false, error: "Usuario no encontrado" });
-      if (user.isActive === false) {
-        return res.status(409).json({ ok: false, error: "El usuario está inactivo." });
-      }
-
-      empleado = user.employee ? await Empleado.findById(user.employee) : null;
-      if (!empleado) {
-        // Copia correo/teléfono del usuario: sin esto, la ficha de Empleado
-        // nacía vacía y "pisaba" en Personal el contacto que la persona ya
-        // tenía como solo_usuario (ver GET /empleados/personal).
-        empleado = await Empleado.create({
-          nombre: user.name,
-          puesto: ROL_A_PUESTO[user.role] || "otro",
-          correo: user.email || "",
-          telefono: user.telefono || user.celular || "",
-        });
-        user.employee = empleado._id;
-        await user.save();
-      } else {
-        // Autocorrige fichas que este mismo flujo haya creado antes de este
-        // ajuste (sin correo/teléfono/puesto real) — solo rellena lo que
-        // esté vacío o siga en el default "otro".
-        let cambios = false;
-        if (!empleado.correo && user.email) { empleado.correo = user.email; cambios = true; }
-        if (!empleado.telefono && (user.telefono || user.celular)) {
-          empleado.telefono = user.telefono || user.celular;
-          cambios = true;
-        }
-        if (empleado.puesto === "otro" && ROL_A_PUESTO[user.role]) {
-          empleado.puesto = ROL_A_PUESTO[user.role];
-          cambios = true;
-        }
-        if (cambios) await empleado.save();
-      }
-      if (!empleado.usuario) {
-        empleado.usuario = user._id;
-        await empleado.save();
-      }
-    } else {
-      return res.status(400).json({ ok: false, error: "Falta empleadoId o userId." });
-    }
-
-    if (!empleado.activo) {
-      return res.status(409).json({ ok: false, error: "El empleado está inactivo." });
-    }
-
-    let cliente = await Cliente.findOne({ empleadoRef: empleado._id });
-
-    if (!cliente) {
-      cliente = await Cliente.create({
-        tipoCliente: "Particular",
-        nombre: empleado.nombre,
-        esEmpleado: true,
-        empleadoRef: empleado._id,
-        // Precarga correo/celular desde la ficha de Empleado para que ya
-        // aparezcan al abrir la orden (antes quedaban en blanco aunque el
-        // empleado ya los tuviera registrados en Personal).
-        emails: empleado.correo ? [empleado.correo] : [],
-        celulares: empleado.telefono ? [{ numero: empleado.telefono }] : [],
-      });
-    } else {
-      let cambios = false;
-      if (!cliente.activo) {
-        // Reactivar automáticamente: si se había desactivado, seleccionar de
-        // nuevo a esta persona desde este botón implica que vuelve a estar en uso.
-        cliente.activo = true;
-        cambios = true;
-      }
-      // Mismo backfill que arriba, para fichas ya creadas antes de este
-      // ajuste o para cuando se agregó el correo/teléfono después en Personal.
-      if (!cliente.emails?.length && empleado.correo) {
-        cliente.emails = [empleado.correo];
-        cambios = true;
-      }
-      if (!cliente.celulares?.length && empleado.telefono) {
-        cliente.celulares = [{ numero: empleado.telefono }];
-        cambios = true;
-      }
-      if (cambios) await cliente.save();
-    }
-
+    const cliente = await obtenerClienteDePersonal(req.body || {});
     res.status(201).json({ ok: true, data: cliente });
   } catch (err) {
-    res.status(400).json({ ok: false, error: err.message });
+    res.status(err.status || 400).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/clientes/:id/migrar-ordenes-a-empleado   body: { empleadoId | userId }
+// Se dispara al marcar "¿Es empleado?" en Editar Cliente (solo admin): TODAS
+// las órdenes del cliente pasan a la ficha-sombra del empleado elegido
+// (Vehiculo.cliente) y el cliente original queda inactivo (baja lógica, no se
+// borra). Se bloquea si el cliente tiene saldo a favor, porque ese saldo
+// vive en el cliente y quedaría huérfano en una ficha inactiva.
+router.post("/:id/migrar-ordenes-a-empleado", requiereRol("admin"), async (req, res) => {
+  try {
+    const origen = await Cliente.findById(req.params.id);
+    if (!origen) return res.status(404).json({ ok: false, error: "Cliente no encontrado" });
+    if (origen.empleadoRef) {
+      return res.status(409).json({ ok: false, error: "Este cliente ya es la ficha de un empleado." });
+    }
+    if ((origen.saldoAFavor || 0) > 0) {
+      return res.status(409).json({
+        ok: false,
+        error: "El cliente tiene saldo a favor; aplícalo o reembólsalo antes de convertirlo en empleado.",
+      });
+    }
+
+    const destino = await obtenerClienteDePersonal(req.body || {});
+    if (String(destino._id) === String(origen._id)) {
+      return res.status(400).json({ ok: false, error: "El destino es el mismo cliente." });
+    }
+
+    const ids = await Vehiculo.find({ cliente: origen._id }).distinct("_id");
+    const series = await Vehiculo.find({ cliente: origen._id }).distinct("serie");
+    const r = await Vehiculo.updateMany({ _id: { $in: ids } }, { $set: { cliente: destino._id } });
+
+    // Garaje (sugerencias por VIN): el empleado sustituye al cliente original.
+    const seriesLimpias = series.map((x) => String(x || "").trim()).filter(Boolean);
+    if (seriesLimpias.length) {
+      try {
+        await GarageVehiculo.updateMany({ serie: { $in: seriesLimpias } }, { $addToSet: { clientes: destino._id } });
+        await GarageVehiculo.updateMany({ serie: { $in: seriesLimpias } }, { $pull: { clientes: origen._id } });
+      } catch (e) {
+        console.error("Sincronización de Garaje (no crítico):", e.message);
+      }
+    }
+
+    origen.activo = false;
+    origen.esEmpleado = true;
+    await origen.save();
+
+    registrarAccion(req, {
+      accion: "CLIENTE_MIGRAR_ORDENES_EMPLEADO",
+      entidadId: origen._id,
+      referencia: origen.nombre || "",
+      detalle: {
+        de: { clienteId: String(origen._id), nombre: origen.nombre || "" },
+        a: { clienteId: String(destino._id), nombre: destino.nombre || "" },
+        ordenesMovidas: r.modifiedCount ?? ids.length,
+      },
+    });
+
+    res.json({ ok: true, data: { ordenesMovidas: r.modifiedCount ?? ids.length, origen, destino } });
+  } catch (err) {
+    res.status(err.status || 400).json({ ok: false, error: err.message });
   }
 });
 
