@@ -214,6 +214,12 @@ router.get('/cliente/:clienteId/disponibles', proteger, async (req, res) => {
         folioRecibo: l.folioRecibo,
         reciboProvisionalNumero: pago?.reciboProvisional?.numero ?? null,
         ordenServicio: orden?.ordenServicio || '',
+        // El _id del pago (Vehiculo.pagos) que originó este depósito, cuando
+        // nació de un anticipo ligado a una orden — para que el front pueda
+        // reconocer (y excluir de "Aplicar anticipo del cliente") el mismo
+        // anticipo vigente que ya se suma solo al registrar una Nota de Venta
+        // sobre ESA orden (ver CajaModalPago.jsx, anticiposSeleccionables).
+        pagoId: l.pagoId || null,
       };
     });
 

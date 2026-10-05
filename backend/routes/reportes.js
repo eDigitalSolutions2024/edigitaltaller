@@ -828,6 +828,64 @@ async function buildReporteRemisionesDiarioImpl({ desde, hasta }) {
     }
   }
 
+  // ---- Remisiones a Crédito liquidadas directo en Cajas (sin pasar por
+  // Factura) ----
+  // "Liquidar" (comprobante SIN_COMPROBANTE) cubre, por diseño, el saldo
+  // COMPLETO de la orden (ver la validación en routes/cajas.js). Para una
+  // Remisión a Crédito (monto 0 al crearse, ver el bucle de arriba: todo su
+  // total cae en Cuentas por Cobrar el día que se creó) ese dinero real se
+  // cobra un día que puede ser distinto, y sin esto nunca se contaba como
+  // Ingreso en NINGÚN reporte (ni el día de la Remisión, que solo anotaba el
+  // método en Notas — ver pagoLiquidacionOrden arriba —, ni el día real del
+  // cobro, que ni se consultaba). Aquí se revierte lo que el día de la
+  // Remisión ya contó como Cuentas por Cobrar y se suma como Ingreso de
+  // Contado en el día real del pago — si ambos caen el mismo día, el neto de
+  // Cuentas por Cobrar queda en cero y el de Ingreso en el monto cobrado,
+  // como debe ser una venta cobrada el mismo día.
+  const ordenesLiquidadasSinFactura = await Vehiculo.find({
+    pagos: {
+      $elemMatch: {
+        comprobante: 'SIN_COMPROBANTE',
+        cancelado: { $ne: true },
+        facturaId: null,
+        fecha: { $gte: d, $lte: h },
+      },
+    },
+  })
+    .populate('cliente', POPULATE_CLIENTE)
+    .lean();
+
+  for (const o of ordenesLiquidadasSinFactura) {
+    // Solo si lo que se liquidó fue, en efecto, una Remisión a Crédito aún
+    // vigente de esta orden (nunca más de una activa a la vez): un "Liquidar"
+    // sin ninguna Remisión detrás no es parte de este reporte.
+    const remisionCredito = (o.pagos || []).find(
+      (p) => p.comprobante === 'REMISION' && !p.cancelado && p.remision?.tipo === 'Credito'
+    );
+    if (!remisionCredito) continue;
+
+    for (const p of o.pagos || []) {
+      if (p.comprobante !== 'SIN_COMPROBANTE' || p.cancelado || p.facturaId) continue;
+      const f = new Date(p.fecha);
+      if (f < d || f > h) continue;
+
+      // Nota fija "LIQUIDA" (pedido del usuario) — sin forma de pago ni
+      // desglose de dólares: esos ya están en el pago mismo (Historial de
+      // Pagos de la orden), aquí solo se marca qué fue este movimiento.
+      nuevaVenta.push({
+        folio: remisionCredito.remision?.numero ?? null,
+        ordenServicio: o.ordenServicio || '',
+        cliente: nombreCliente(o.cliente),
+        fecha: p.fecha,
+        notas: 'LIQUIDA',
+        ingresoContado: p.monto || undefined,
+        cuentasPorCobrar: p.monto ? -p.monto : undefined,
+      });
+      totalContado += p.monto;
+      totalPorCobrar -= p.monto;
+    }
+  }
+
   // Remisiones canceladas EN ESTE RANGO pero creadas otro día (fuera de él):
   // el reporte de su propio día de creación ya no las corrige (arriba se
   // tratan como si siguieran vigentes, canceladaParaEsteDia), así que la
@@ -1340,11 +1398,14 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       ...new Set(candidatosCancelados.filter((c) => c.p.facturaId).map((c) => String(c.p.facturaId))),
     ];
     const facturasDirectas = idsDirectos.length
-      ? await FacturaCfdi.find({ _id: { $in: idsDirectos } }).select('serie folio').lean()
+      ? await FacturaCfdi.find({ _id: { $in: idsDirectos } }).select('serie folio tipoFactura').lean()
       : [];
     const folioPorFacturaId = new Map(
       facturasDirectas.map((f) => [String(f._id), `${f.serie || ''}${f.folio || ''}`])
     );
+    // Tipo de cada factura resuelta — solo para distinguir, abajo, el caso
+    // Factura Global (ver el `continue` tras "Esta banda solo lista...").
+    const tipoFacturaPorFacturaId = new Map(facturasDirectas.map((f) => [String(f._id), f.tipoFactura]));
 
     // Fallback por vehiculoId, solo para pagos cancelados antes de que
     // existiera pago.facturaId.
@@ -1407,6 +1468,18 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       // es un anticipo (nunca sumó a totalAnticipo), y su cancelación ya
       // queda documentada en el Reporte de Remisiones, no aquí.
       if (esRemision) continue;
+
+      // Un anticipo ligado a una Nota de Venta (notaVentaLigadaId) que pasó a
+      // una Factura GLOBAL se revierte en la banda "Factura global" (sección
+      // 7 más abajo), anclado al día de ESA nota — no aquí, anclado a
+      // canceladoEn/fechaEvento: una Global puede timbrarse días después de
+      // la nota (ver el comentario de la sección 7), así que casi nunca cae
+      // en el mismo día que la nota, y la reversa de aquí nunca coincidiría
+      // con la mención "CON ANTICIPO CANCELADO ANTES MENCIONADO" de esa misma
+      // Global. Una Factura directa sí cancela el mismo día que factura (no
+      // hace falta distinguir el caso: tipoFacturaPorFacturaId solo da
+      // 'facturaGlobal' cuando de verdad lo es).
+      if (p.notaVentaLigadaId && tipoFacturaPorFacturaId.get(facturaIdResuelta) === 'facturaGlobal') continue;
 
       // Notas del anticipo cancelado: forma de pago + fecha en que se hizo el anticipo (p. ej.
       // "EFECTIVO 17/09/2026"). Sin nombre del cliente — ya está la orden en otra columna. La
@@ -1848,7 +1921,7 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       },
     },
   })
-    .select('pagos')
+    .select('pagos ordenServicio')
     .lean();
 
   // notasDelDiaPorFacturaGlobal: facturaGlobalId -> Map(notaVentaNumero -> info)
@@ -1900,12 +1973,19 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
   // orden puede tener más de una Nota de Venta y el anticipo es de UNA sola.
   // pago._id de la Nota de Venta -> monto del anticipo ligado a ella.
   const anticiposPorNotaLigada = new Map();
+  // Mismo cruce, pero con el pago/orden completos — para poder revertirlo
+  // más abajo en la banda "Anticipos cancelados" de ESTE día (el de la Nota
+  // de Venta, no el de la cancelación: ver el `continue` de la sección 2
+  // arriba). Al ser 1 anticipo por Nota de Venta (comentario de arriba), no
+  // hace falta sumar aquí como en el mapa de montos.
+  const anticipoDetallePorNotaLigada = new Map();
   for (const v of vehiculosNotasGlobalDia) {
     for (const p of v.pagos || []) {
       if (!p.cancelado || p.tipoPago !== 'ANTICIPO' || p.comprobante !== 'RECIBO_PROVISIONAL') continue;
       if (p.motivoCancelacionTipo !== 'PASA_A_FACTURA' || !p.notaVentaLigadaId) continue;
       const key = String(p.notaVentaLigadaId);
       anticiposPorNotaLigada.set(key, (anticiposPorNotaLigada.get(key) || 0) + (Number(p.monto) || 0));
+      anticipoDetallePorNotaLigada.set(key, { monto: Number(p.monto) || 0, pago: p, ordenServicio: v.ordenServicio });
     }
   }
 
@@ -1928,6 +2008,8 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
       const notasDia = (f.notasVenta || []).filter((n) => infoPorNota?.has(n.numero));
       if (!notasDia.length) continue;
 
+      const folioGlobal = `${f.serie || ''}${f.folio || ''}`;
+
       // El anticipo que quedó ligado a una de estas notas (notaVentaLigadaId)
       // pasó a esta Global junto con ella. `n.monto` (FacturaCfdi.notasVenta,
       // ver POST /api/facturacion/notas-venta-pendientes) YA lo trae sumado
@@ -1941,6 +2023,31 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
         const pagoIdNota = infoPorNota.get(n.numero)?.pagoId;
         const montoAnticipo = pagoIdNota ? anticiposPorNotaLigada.get(pagoIdNota) || 0 : 0;
         if (montoAnticipo > 0) anticipoPorNota.set(n.numero, montoAnticipo);
+
+        // Reversa del anticipo en la banda "Anticipos cancelados" de ESTE
+        // mismo día (el de la Nota de Venta): el bloque de arriba (sección 2)
+        // deliberadamente lo salta cuando pasa a una Factura Global, porque
+        // esa cancelación puede timbrarse días después de la nota — anclar
+        // la reversa a canceladoEn haría que nunca coincidiera, en el
+        // reporte, con la mención "CON ANTICIPO CANCELADO ANTES MENCIONADO"
+        // de esta misma Global (ver más abajo). Sin esto, ese monto cuenta
+        // como Ingreso de HOY (dentro del total de la nota) sin nunca
+        // revertirse de la columna Anticipo del día en que en verdad se
+        // capturó.
+        const detalle = anticipoDetallePorNotaLigada.get(pagoIdNota);
+        if (detalle) {
+          const fechaAnticipoTxt = dayjsFecha(detalle.pago.fecha).format('DD/MM/YYYY');
+          const tipoPagoTxt = abreviaturaFormaPago(detalle.pago.reciboProvisional);
+          anticiposCancelados.push({
+            folio: 'ANT',
+            ordenServicio: detalle.ordenServicio || '',
+            cliente: `SE CANCELÓ ANTICIPO Y PASA A FACTURA ${folioGlobal}`,
+            fecha: infoPorNota.get(n.numero)?.fecha,
+            anticipo: -detalle.monto,
+            notas: [tipoPagoTxt, fechaAnticipoTxt].filter(Boolean).join(' ').toUpperCase(),
+          });
+          totalAnticipo -= detalle.monto;
+        }
       }
 
       // "Venta del día" debe cuadrar centavo a centavo con el desglose que se
@@ -2040,7 +2147,7 @@ async function buildReporteFacturasDiarioImpl({ desde, hasta }) {
         .join(', ');
 
       facturaGlobal.push({
-        folio: `${f.serie || ''}${f.folio || ''}`,
+        folio: folioGlobal,
         ordenServicio: notasDia.map((n) => n.ordenServicio).filter(Boolean).join('\n'),
         // Una nota de venta por línea (el renderer parte por el salto de línea).
         cliente: `PUBLICO GENERAL.=${partes.join('\n')}`,

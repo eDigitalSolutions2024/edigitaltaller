@@ -235,6 +235,20 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     return rp.banco ? `${base} · ${rp.banco}` : base;
   };
 
+  // "Aplicar anticipo del cliente" (más abajo) lista TODOS los recibos con
+  // saldo del cliente, de cualquier orden suya — incluido, si lo tiene, el
+  // propio `anticipoVigente` de ESTA orden. Cuando el comprobante es Nota de
+  // Venta ese mismo recibo ya se suma solo (ver arriba, "no se puede
+  // quitar"): dejarlo TAMBIÉN seleccionable aquí permite aplicarlo una
+  // segunda vez y que el resumen calcule "Cambio a Dar" por dinero que nunca
+  // entró dos veces. Se excluye por su `pagoId` (el _id del pago que generó
+  // el depósito, ver backend/routes/anticipos.js) solo en ese caso — en
+  // cualquier otro comprobante el recibo sigue vigente y nadie más lo está
+  // contando, así que es válido aplicarlo aquí.
+  const anticiposSeleccionables = (anticiposDisponibles || []).filter(
+    (a) => !(comprobante === "NOTA_VENTA" && anticipoVigente && String(a.pagoId) === String(anticipoVigente._id))
+  );
+
   // Estos derivados de Montos se calculan aquí arriba (antes de los efectos)
   // porque el efecto de abajo que limpia el aviso de "Liquidar debe cubrir…"
   // necesita faltanteLiquidar ya definido — un useEffect no puede ir después
@@ -246,16 +260,28 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   const saldoValido =
     typeof saldoPendiente === "number" && !Number.isNaN(saldoPendiente) ? Math.max(saldoPendiente, 0) : undefined;
 
+  // Parte del saldo a favor del cliente que YA se va a consumir sola al
+  // guardar este comprobante (el anticipo vigente de esta MISMA orden,
+  // cuando el comprobante es Nota de Venta — ver aviso "no se puede quitar"
+  // más abajo): no debe poder aplicarse TAMBIÉN aquí, ni por su recibo (ya
+  // excluido de anticiposSeleccionables) ni por el campo genérico "sin
+  // recibo" — sería contar el mismo dinero dos veces y el resumen ofrecería
+  // "Cambio a Dar" por dinero que nunca entró dos veces.
+  const saldoYaComprometido =
+    comprobante === "NOTA_VENTA" && anticipoVigente ? Number(anticipoVigente.monto) || 0 : 0;
+  const saldoClienteAplicable = Math.max(0, (Number(saldoClienteDisponible) || 0) - saldoYaComprometido);
+
   // Saldo a favor del cliente que se puede aplicar a este pago: no más de lo
-  // que el cliente tiene disponible, ni más de lo que falta por cubrir de la
-  // orden (cuando ese dato aplica). Es solo un tope de UX — el backend
-  // siempre vuelve a validar el saldo real al momento de guardar.
+  // que el cliente tiene disponible (sin contar lo ya comprometido arriba),
+  // ni más de lo que falta por cubrir de la orden (cuando ese dato aplica).
+  // Es solo un tope de UX — el backend siempre vuelve a validar el saldo
+  // real al momento de guardar.
   const maxSaldoAplicable = Math.max(
     0,
-    Math.min(saldoClienteDisponible || 0, saldoValido !== undefined ? saldoValido : Infinity)
+    Math.min(saldoClienteAplicable, saldoValido !== undefined ? saldoValido : Infinity)
   );
   // Monto elegido recibo por recibo (topado al restante de cada recibo).
-  const montoAnticiposSel = (anticiposDisponibles || []).reduce((s, a) => {
+  const montoAnticiposSel = anticiposSeleccionables.reduce((s, a) => {
     const v = Number(anticiposSel[a.depositoId]) || 0;
     return s + Math.max(0, Math.min(v, Number(a.restante) || 0));
   }, 0);
@@ -641,6 +667,13 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   // Recorta lo capturado a lo que en realidad resta de la orden: el excedente
   // (cambio) no se registra como parte del pago.
   const montosAplicados = () => {
+    if (formaPago === "COMBINADO" && comprobante !== "REMISION") {
+      const c = combinadoAplicado();
+      return {
+        pesos: c.efectivo + c.credito + c.debito + c.cheque + c.transferencia,
+        dolares: c.efectivoDolares,
+      };
+    }
     let pesos = Number(montoPesos) || 0;
     let dolares = Number(montoDolares) || 0;
     if (cambio > 0) {
@@ -676,15 +709,13 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
   // Débito/Cheque/Transferencia quedan tal cual se capturaron.
   const combinadoAplicado = () => {
     let efectivo = Number(montosCombinado.EFECTIVO) || 0;
-    let efectivoDolares = Number(montosCombinado.EFECTIVO_USD) || 0;
-    if (cambio > 0) {
-      const reducPesos = Math.min(efectivo, cambio);
-      efectivo -= reducPesos;
-      const restante = cambio - reducPesos;
-      if (restante > 0 && Number(tipoCambio) > 0) {
-        efectivoDolares -= Math.min(efectivoDolares, restante / Number(tipoCambio));
-      }
-    }
+    const efectivoDolares = Number(montosCombinado.EFECTIVO_USD) || 0;
+    // Solo el efectivo en pesos puede "regresarse" como cambio. Transferencia,
+    // cheque, tarjetas y los dólares capturados se guardan tal cual se
+    // escribieron (ya entraron al banco / son lo que realmente se recibió);
+    // si el excedente no cabe en el efectivo, handleSubmit lo avisa en vez de
+    // alterar esos montos. Debe coincidir con montosAplicados.
+    if (cambio > 0) efectivo -= Math.min(efectivo, cambio);
     return {
       credito: Number(montosCombinado.CREDITO) || 0,
       efectivo,
@@ -841,6 +872,15 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
         setError("No hay un tipo de cambio configurado. Regístralo en Configuración.");
         return false;
       }
+      if (formaPago === "COMBINADO" && cambio > 0) {
+        const sobra = cambio - Math.min(Number(montosCombinado.EFECTIVO) || 0, cambio);
+        if (sobra > 0.005) {
+          setError(
+            `Lo capturado excede el saldo por ${formatMoney(sobra)} y no se puede regresar como cambio (solo el efectivo en pesos). Ajusta la transferencia, el cheque, las tarjetas o los dólares.`
+          );
+          return false;
+        }
+      }
       return true;
     }
     return true;
@@ -895,7 +935,7 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
       // que la suma que ve el backend nunca pase de lo permitido.
       let cupo = montoSaldo;
       const anticiposAplicadosPayload = [];
-      for (const a of anticiposDisponibles || []) {
+      for (const a of anticiposSeleccionables) {
         if (cupo <= 0.005) break;
         const pedido = Math.max(0, Math.min(Number(anticiposSel[a.depositoId]) || 0, Number(a.restante) || 0));
         const usar = Math.round(Math.min(pedido, cupo) * 100) / 100;
@@ -1353,16 +1393,15 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     </>
   );
 
-  const sumaRestanteRecibos = (anticiposDisponibles || []).reduce(
+  const sumaRestanteRecibos = anticiposSeleccionables.reduce(
     (s, a) => s + (Number(a.restante) || 0),
     0
   );
   // Saldo del cliente que no está atado a un recibo concreto (p. ej. reembolsos
-  // de usos previos): solo se puede aplicar con el campo genérico.
-  const saldoSinRecibo = Math.max(
-    0,
-    (Number(saldoClienteDisponible) || 0) - sumaRestanteRecibos
-  );
+  // de usos previos): solo se puede aplicar con el campo genérico. Parte de
+  // saldoClienteAplicable (no el total), para no ofrecer por aquí lo que ya
+  // está comprometido con el anticipo vigente de esta Nota de Venta.
+  const saldoSinRecibo = Math.max(0, saldoClienteAplicable - sumaRestanteRecibos);
 
   const etiquetaRecibo = (a) => {
     // Un anticipo (ligado a una orden o no) es, sin más, un Recibo
@@ -1397,11 +1436,17 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
     });
   };
 
-  const bloqueSaldoFavor = !esRemisionCredito && !esAnticipoSaldo && saldoClienteDisponible > 0 && (
+  const bloqueSaldoFavor = !esRemisionCredito && !esAnticipoSaldo && saldoClienteAplicable > 0 && (
     <div className="border rounded p-3 mb-3 bg-light">
       <label className="form-label mb-1 fw-semibold">Aplicar anticipo del cliente</label>
       <div className="text-muted small mb-2">
-        Saldo a favor: <strong>{formatMoney(saldoClienteDisponible)}</strong>
+        Saldo a favor: <strong>{formatMoney(saldoClienteAplicable)}</strong>
+        {saldoYaComprometido > 0.005 && (
+          <>
+            {" "}(de {formatMoney(saldoClienteDisponible)} en total; {formatMoney(saldoYaComprometido)} ya se
+            suman solos al anticipo de esta orden)
+          </>
+        )}
         {saldoValido !== undefined && (
           <>
             {" "}· Máximo a este pago: <strong>{formatMoney(maxSaldoAplicable)}</strong>
@@ -1409,9 +1454,9 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
         )}
       </div>
 
-      {(anticiposDisponibles || []).length > 0 && (
+      {anticiposSeleccionables.length > 0 && (
         <div className="anticipo-lista mb-1">
-          {anticiposDisponibles.map((a) => {
+          {anticiposSeleccionables.map((a) => {
             const restA = Number(a.restante) || 0;
             const seleccionado = anticiposSel[a.depositoId] !== undefined;
             return (
@@ -1482,10 +1527,10 @@ export default function CajaModalPago({ show, orden, saldoPendiente, saldoClient
         </div>
       )}
 
-      {(saldoSinRecibo > 0.005 || (anticiposDisponibles || []).length === 0) && (
+      {(saldoSinRecibo > 0.005 || anticiposSeleccionables.length === 0) && (
         <div className="mt-2">
           <label className="form-label mb-0 small">
-            {(anticiposDisponibles || []).length > 0 ? "Otro saldo a favor (sin recibo)" : "Monto a usar"}
+            {anticiposSeleccionables.length > 0 ? "Otro saldo a favor (sin recibo)" : "Monto a usar"}
           </label>
           <input
             type="number"

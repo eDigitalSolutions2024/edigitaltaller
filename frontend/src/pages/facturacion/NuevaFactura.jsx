@@ -159,90 +159,6 @@ const montosPorFormaSatDePago = (p) => {
   return { [sat]: monto };
 };
 
-// Arreglo [{monto, terminal, tipo}] de la parte con tarjeta de un desglose "combinado" (ya
-// guardado, o recién capturado): si ya trae el desglose por fila, se usa tal cual; si no
-// (una sola terminal en `banco`, el caso normal/más común), se SINTETIZA una fila por T.
-// Crédito y otra por T. Débito si ambas tienen monto (mismo banco para las dos, ya que es
-// una sola terminal). Sin esto, al combinar lo cubierto por un anticipo (que SIEMPRE trae
-// el desglose como arreglo, ver comprobanteACombinadoCompleto) con un cobro recién
-// capturado sin desglose, la parte capturada "desaparecía" de tarjetasCredito/tarjetasDebito
-// aunque su monto sí sumara al total — el backend la rechazaba con "Captura al menos una
-// tarjeta con monto y terminal" (bug real, visto en pantalla).
-const tarjetasDeCombinadoSimple = (c) => {
-  if ((c.tarjetas || []).length) return c.tarjetas;
-  const filas = [];
-  if (Number(c.credito) > 0 && c.banco) filas.push({ monto: Number(c.credito), terminal: c.banco, tipo: "CREDITO" });
-  if (Number(c.debito) > 0 && c.banco) filas.push({ monto: Number(c.debito), terminal: c.banco, tipo: "DEBITO" });
-  return filas;
-};
-
-// Convierte el detalle de un comprobante de Cajas YA GUARDADO (notaVenta/reciboProvisional,
-// forma simple o ya Combinado) a la forma "combinado" completa (mismos campos que
-// MONTOS_COMBINADO_INICIAL), con el desglose de tarjetas SIEMPRE como arreglo aunque haya
-// una sola terminal — para poder sumarlo con lo recién capturado en una sola entrada (ver
-// comprobanteCubiertoDe/combinarConCubierto más abajo: una orden con anticipo PARCIAL
-// necesita documentar, en UNA sola captura de "Cobro en Cajas", tanto lo que ya cubrió el
-// anticipo como lo que se captura para el resto).
-const comprobanteACombinadoCompleto = (p) => {
-  const detalle =
-    p.comprobante === "NOTA_VENTA" ? p.notaVenta : p.comprobante === "RECIBO_PROVISIONAL" ? p.reciboProvisional : null;
-  const base = { ...MONTOS_COMBINADO_INICIAL, tarjetas: [] };
-  if (!detalle) return base;
-  const tc = Number(p.tipoCambio) || 0;
-  if (detalle.formaPago === "COMBINADO") {
-    const c = detalle.combinado || {};
-    const tarjetas = [
-      ...(c.tarjetasCredito || []).map((t) => ({ ...t, tipo: "CREDITO" })),
-      ...(c.tarjetasDebito || []).map((t) => ({ ...t, tipo: "DEBITO" })),
-    ];
-    return {
-      ...base,
-      efectivo: Number(c.efectivo) || 0,
-      efectivoDolares: Number(c.efectivoDolares) || 0,
-      credito: Number(c.credito) || 0,
-      debito: Number(c.debito) || 0,
-      cheque: Number(c.cheque) || 0,
-      transferencia: Number(c.transferencia) || 0,
-      transferenciaTipo: c.transferenciaTipo || "",
-      transferenciaBanco: c.transferenciaBanco || "",
-      tarjetas: tarjetas.length ? tarjetas : tarjetasDeCombinadoSimple(c),
-    };
-  }
-  const monto = Number(p.monto) || (Number(p.montoPesos) || 0) + (Number(p.montoDolares) || 0) * tc;
-  if (detalle.formaPago === "EFECTIVO") {
-    const dolares = Number(p.montoDolares) || 0;
-    return { ...base, efectivo: Math.max(0, monto - dolares * tc), efectivoDolares: dolares };
-  }
-  if (detalle.formaPago === "CREDITO" || detalle.formaPago === "DEBITO") {
-    const campo = detalle.formaPago === "CREDITO" ? "credito" : "debito";
-    const tarjetas = (detalle.tarjetas || []).length
-      ? detalle.tarjetas.map((t) => ({ ...t, tipo: detalle.formaPago }))
-      : [{ monto, terminal: detalle.banco || "", tipo: detalle.formaPago }];
-    return { ...base, [campo]: monto, tarjetas };
-  }
-  if (detalle.formaPago === "CHEQUE") return { ...base, cheque: monto };
-  if (detalle.formaPago === "TRANSFERENCIA") {
-    return { ...base, transferencia: monto, transferenciaTipo: detalle.tipoTransferencia || "", transferenciaBanco: detalle.bancoTransferencia || "" };
-  }
-  return base;
-};
-
-// Suma dos desgloses "combinado" completos (ver comprobanteACombinadoCompleto) en uno
-// solo. Transferencia (tipo/banco) es un solo valor por lado: si ambos lo traen distinto
-// gana `b` (lo recién capturado) — caso raro (que la orden ya traiga una transferencia
-// previa Y se capture otra transferencia con otro banco para el resto). Las tarjetas sí
-// se concatenan completas (arreglo, no pierde ningún terminal de ningún lado).
-const sumarCombinado = (a, b) => {
-  const r = { ...MONTOS_COMBINADO_INICIAL };
-  for (const campo of ["efectivo", "efectivoDolares", "credito", "debito", "cheque", "transferencia"]) {
-    r[campo] = (Number(a[campo]) || 0) + (Number(b[campo]) || 0);
-  }
-  r.transferenciaTipo = b.transferenciaTipo || a.transferenciaTipo || "";
-  r.transferenciaBanco = b.transferenciaBanco || a.transferenciaBanco || "";
-  r.tarjetas = [...(a.tarjetas || []), ...(b.tarjetas || [])].filter((t) => Number(t.monto) > 0);
-  return r;
-};
-
 // Forma de pago SAT con el mayor monto de un { sat: monto }; null si no hay
 // ninguno > 0. En empate gana la primera de ORDEN_FORMA_SAT (no se recorre
 // Object.entries: las claves numéricas como "28" saldrían antes que "01").
@@ -1057,7 +973,7 @@ export default function NuevaFactura() {
       // la regla SAT (nota de mayor monto); el método de pago se elige a mano
       // (arranca vacío y bloquea hasta elegirlo).
       setUsoCfdi("S01");
-      setMetodoPago("");
+      setMetodoPago("PUE");
       setFormaPago("01");
       setIvaRate(0.08);
     } else {
@@ -1941,12 +1857,12 @@ export default function NuevaFactura() {
      Una Nota de crédito nunca es PPD (no es viable emitirla a crédito/diferido) —
      se queda siempre en PUE, sin importar la forma de pago elegida. */
   useEffect(() => {
-    if (esNotaCredito) {
+    if (esNotaCredito || esFacturaGlobal) {
       if (metodoPago !== "PUE") setMetodoPago("PUE");
       return;
     }
     if (formaPago === "99" && metodoPago !== "PPD") setMetodoPago("PPD");
-  }, [formaPago, metodoPago, esNotaCredito]);
+  }, [formaPago, metodoPago, esNotaCredito, esFacturaGlobal]);
 
   /* Factura global: la forma de pago la fija sola la nota de venta de mayor
      monto (regla SAT). El select queda bloqueado y se sincroniza aquí. El
@@ -2092,11 +2008,13 @@ export default function NuevaFactura() {
   // YA es el saldo pendiente real — si hay un comprobante vigente que cubre parte, ya
   // viene descontado solo —, así que basta este único chequeo de monto: NO hace falta (ni
   // se debe) excluir la orden solo por tener algún comprobante vigente, o la parte que le
-  // falta por cobrar nunca se capturaría (ver comprobanteCubiertoDe/combinarConCubierto
-  // más abajo, que juntan ese comprobante con lo capturado aquí en una sola entrada al
-  // generar). Al generar la factura, el backend crea con esos datos un pago "Liquidar (sin
-  // comprobante)" ligado a ella, para que quede registrada en Cajas y en el Cierre de
-  // Caja. Solo aplica a la factura de ingreso normal (no notaCredito/complementoPago/
+  // falta por cobrar nunca se capturaría (ver comprobanteCubiertoDe más abajo: ese
+  // comprobante se documenta y cancela por su cuenta al generar, calcularTotalesOrden ya
+  // lo cuenta como abonado vía motivoCancelacionTipo "PASA_A_FACTURA", así que lo
+  // capturado aquí solo necesita cubrir el resto). Al generar la factura, el backend
+  // crea con esos datos un pago "Liquidar (sin comprobante)" ligado a ella, para que
+  // quede registrada en Cajas y en el Cierre de Caja. Solo aplica a la factura de
+  // ingreso normal (no notaCredito/complementoPago/
   // facturaGlobal, que no representan el cobro nuevo de una orden).
   // Órdenes de esta factura que ya tienen factura de ingreso VIGENTE: emitirla es una
   // REFACTURACIÓN (SAT: sustitución, relación 04). Al generarla, la original queda cancelada en el
@@ -2118,11 +2036,13 @@ export default function NuevaFactura() {
   }, [ordenes, esFactura, montoPorOrden, facturasPreviasPorOrden]);
 
   // Para una orden con algún comprobante vigente que SÍ aporta dinero real (anticipo, o
-  // remisión de Contado) y queda incluido (INCLUIR) en esta factura: cuánto cubre, con
-  // qué forma(s) de pago SAT (para sugerir/comparar, ver formaSugeridaConCubierto), y el
-  // detalle completo —en forma "combinado"— para poder juntarlo con lo recién capturado
-  // en una sola entrada (ver combinarConCubierto, usado al armar el payload). null si la
-  // orden no tiene nada vigente que cubra parte de su total.
+  // remisión de Contado) y queda incluido (INCLUIR) en esta factura: cuánto cubre y con
+  // qué forma(s) de pago SAT (para sugerir/comparar, ver formaSugeridaConCubierto). Ese
+  // dinero ya no se junta con lo recién capturado en el payload — calcularTotalesOrden
+  // (backend/utils y frontend/src/utils/cajaTotales.js) cuenta por su cuenta cualquier
+  // pago cancelado con motivoCancelacionTipo "PASA_A_FACTURA", así que basta con
+  // documentar aparte el pago que SÍ se captura para el resto. null si la orden no tiene
+  // nada vigente que cubra parte de su total.
   const comprobanteCubiertoDe = (o) => {
     const vigentes = (o.pagos || []).filter(
       (p) =>
@@ -2134,15 +2054,13 @@ export default function NuevaFactura() {
     if (!vigentes.length) return null;
     let monto = 0;
     const sumas = { "01": 0, "04": 0, "28": 0, "02": 0, "03": 0 };
-    let combinado = { ...MONTOS_COMBINADO_INICIAL, tarjetas: [] };
     for (const p of vigentes) {
       monto += Number(p.monto) || 0;
       const montos = montosPorFormaSatDePago(p);
       if (montos) for (const [sat, m] of Object.entries(montos)) sumas[sat] = (sumas[sat] || 0) + m;
-      combinado = sumarCombinado(combinado, comprobanteACombinadoCompleto(p));
     }
     if (monto <= TOLERANCIA_LIQUIDAR) return null;
-    return { monto, sumas, combinado };
+    return { monto, sumas };
   };
 
   // La orden de cada factura que paga un Complemento de pago (para poder capturar, igual que
@@ -2367,48 +2285,6 @@ export default function NuevaFactura() {
   useEffect(() => {
     if (formaSugeridaConCubierto && formaSugeridaConCubierto !== formaPago) setFormaPago(formaSugeridaConCubierto);
   }, [formaSugeridaConCubierto, formaPago]);
-
-  // Si la orden ya trae un comprobante vigente incluido en esta factura (ver
-  // comprobanteCubiertoDe), su monto/forma se SUMA a lo capturado para que la factura
-  // mande UNA sola entrada de "Cobro en Cajas" que documente el cobro COMPLETO de la
-  // orden — el comprobante se cancela al generar la factura (ver
-  // cancelarAnticiposYRemisionesPorFactura en el backend), así que su dinero deja de
-  // contar por su cuenta en el saldo de la orden; sin esto, la orden quedaría con saldo
-  // pendiente por el monto del comprobante cancelado aunque el cliente ya haya pagado
-  // todo. Devuelve { p, monto } listo para construirEntradaPagoSinComprobante.
-  const combinarConCubierto = (o, p, montoCapturado) => {
-    const cubierto = comprobanteCubiertoDe(o);
-    if (!cubierto) return { p, monto: montoCapturado };
-
-    const capturadoCombinado =
-      p.formaPago === "COMBINADO"
-        ? { ...MONTOS_COMBINADO_INICIAL, ...p.combinado, tarjetas: tarjetasDeCombinadoSimple(p.combinado || {}) }
-        : (() => {
-            const base = { ...MONTOS_COMBINADO_INICIAL, tarjetas: [] };
-            if (p.formaPago === "EFECTIVO") {
-              const dolares = Number(p.montoDolares) || 0;
-              return { ...base, efectivo: Math.max(0, montoCapturado - dolares * tipoCambioLiquidar), efectivoDolares: dolares };
-            }
-            if (p.formaPago === "CREDITO" || p.formaPago === "DEBITO") {
-              const campo = p.formaPago === "CREDITO" ? "credito" : "debito";
-              const tarjetas =
-                (p.tarjetas || []).length > 1
-                  ? p.tarjetas.map((t) => ({ ...t, tipo: p.formaPago }))
-                  : [{ monto: montoCapturado, terminal: p.tarjetas?.[0]?.terminal || "", tipo: p.formaPago }];
-              return { ...base, [campo]: montoCapturado, tarjetas };
-            }
-            if (p.formaPago === "CHEQUE") return { ...base, cheque: montoCapturado };
-            if (p.formaPago === "TRANSFERENCIA") {
-              return { ...base, transferencia: montoCapturado, transferenciaTipo: p.tipoTransferencia, transferenciaBanco: p.bancoTransferencia };
-            }
-            return base;
-          })();
-
-    return {
-      p: { ...p, formaPago: "COMBINADO", combinado: sumarCombinado(cubierto.combinado, capturadoCombinado) },
-      monto: montoCapturado + cubierto.monto,
-    };
-  };
 
   // Órdenes que YA van cubiertas por pagos de Cajas (anticipo, Remisión, abonos,
   // Nota de Venta…): la forma de pago SAT se sugiere sola según cómo se pagó —
@@ -2700,22 +2576,24 @@ export default function NuevaFactura() {
     // Con forma de pago "Por definir" (o una sin equivalente en Cajas) no se
     // captura nada: la factura queda sin ningún pago de Cajas asociado, a
     // cobrar después.
-    // En Factura hay una entrada por orden (capturada por separado) — si la orden ya
-    // traía un comprobante vigente que cubre parte de su total (anticipo/remisión de
-    // Contado), se combina con lo capturado en UNA sola entrada por el total completo
-    // (ver combinarConCubierto). En un Complemento de pago se capturó UNA sola vez
+    // En Factura hay una entrada por orden (capturada por separado): solo documenta lo
+    // que se captura para el RESTO de la orden, sin sumarle lo que ya cubrió un
+    // comprobante vigente (anticipo/remisión de Contado) — ese dinero se cancela y pasa
+    // a la factura por su cuenta (cancelarAnticiposYRemisionesPorFactura en el backend),
+    // y calcularTotalesOrden ya lo cuenta como abonado aunque quede cancelado
+    // (motivoCancelacionTipo "PASA_A_FACTURA"), así que combinarlo aquí también
+    // duplicaría el monto. En un Complemento de pago se capturó UNA sola vez
     // (CLAVE_CAPTURA_COMPLEMENTO) y aquí se reparte entre las órdenes reales que abona
-    // (repartirCapturaPorOrdenes) — un Complemento no tiene comprobantes que combinar.
+    // (repartirCapturaPorOrdenes).
     const pagosSinComprobantePayload = !capturaPagoActiva
       ? []
       : esComplementoPago
       ? repartirCapturaPorOrdenes(pagoLiquidarDe(CLAVE_CAPTURA_COMPLEMENTO), ordenesComplementoSinComprobante).map(
           ({ vehiculoId, p, monto }) => construirEntradaPagoSinComprobante(vehiculoId, p, monto, tipoCambioLiquidar)
         )
-      : ordenesLiquidarActivas.map((o) => {
-          const { p, monto } = combinarConCubierto(o, pagoLiquidarDe(o._id), montoPorOrden[o._id] || 0);
-          return construirEntradaPagoSinComprobante(o._id, p, monto, tipoCambioLiquidar);
-        });
+      : ordenesLiquidarActivas.map((o) =>
+          construirEntradaPagoSinComprobante(o._id, pagoLiquidarDe(o._id), montoPorOrden[o._id] || 0, tipoCambioLiquidar)
+        );
 
     return {
       tipoFactura,
@@ -5376,13 +5254,12 @@ export default function NuevaFactura() {
                   <Dropdown
                     className={`form-select${esFacturaGlobal && !metodoPago ? " is-invalid border-danger" : ""}`}
                     value={metodoPago}
-                    disabled={disabledSteps || formaPago === "99" || esNotaCredito}
+                    disabled={disabledSteps || formaPago === "99" || esNotaCredito || esFacturaGlobal}
                     onChange={(e) => setMetodoPago(e.target.value)}
                   >
-                    {esFacturaGlobal && <Dropdown.Option value="">— Selecciona —</Dropdown.Option>}
                     {/* Una Nota de crédito nunca es PPD (no es viable emitirla a crédito/diferido,
                         ver efecto arriba que la mantiene siempre en PUE). */}
-                    {METODO_PAGO.filter((x) => !esNotaCredito || x.value !== "PPD").map((x) => (
+                    {METODO_PAGO.filter((x) => !(esNotaCredito || esFacturaGlobal) || x.value !== "PPD").map((x) => (
                       <Dropdown.Option key={x.value} value={x.value}>
                         {x.label}
                       </Dropdown.Option>
