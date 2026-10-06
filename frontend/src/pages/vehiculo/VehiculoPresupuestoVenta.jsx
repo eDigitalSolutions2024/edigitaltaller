@@ -143,9 +143,39 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       presupuestoGuardado.map((p) => p.origenRefId).filter(Boolean)
     );
 
+    // Refacciones aprobadas agrupadas en un servicio (Requisición y Diagnóstico):
+    // viajan como "hijas" de la fila esServicio con servicioGrupoId = id del servicio.
+    const serviciosReq = orden.serviciosRequisicion || [];
+    const idsServiciosReq = new Set(serviciosReq.map((sv) => String(sv._id)));
+    const refPorId = new Map(
+      (orden.refaccionesSolicitadas || []).map((r) => [String(r._id), r])
+    );
+    const aprobadaIds = new Set(refAprobadas.map((r) => String(r._id)));
+
+    // Sincroniza lo ya guardado con cambios posteriores en la requisición
+    // (el cliente cambió/canceló una refacción o la movió de servicio).
+    let guardadoSync = presupuestoGuardado
+      .filter((p) => {
+        // Refacción de requisición sin servicio y sin autorizar/surtir: no se
+        // presupuesta suelta (debe agruparse en Requisición y Diagnóstico).
+        if (p.origenRefId && !p.servicioGrupoId && !p.autorizado && !p.surtida) {
+          const ref = refPorId.get(String(p.origenRefId));
+          if (ref && (!ref.servicioId || !idsServiciosReq.has(String(ref.servicioId)))) return false;
+        }
+        if (!p.origenRefId || !p.servicioGrupoId) return true;
+        // Hija de servicio cuya refacción ya no está aprobada: se quita (si no se surtió)
+        return aprobadaIds.has(String(p.origenRefId)) || p.surtida;
+      })
+      .map((p) => {
+        const ref = p.origenRefId ? refPorId.get(String(p.origenRefId)) : null;
+        if (!ref || p.surtida) return p;
+        return { ...p, servicioGrupoId: ref.servicioId || null };
+      });
+
     // Solo agregamos las aprobadas que todavía no están representadas
     const nuevasDesdeAprobadas = refAprobadas
       .filter((r) => !idsYaEnPresupuesto.has(String(r._id)))
+      .filter((r) => !!r.servicioId && idsServiciosReq.has(String(r.servicioId)))
       .map((r) => {
         const op = r.opciones?.[r.opcionSeleccionada] || {};
         const cant = Number(r.cant || 0);
@@ -155,6 +185,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         const tipoCambio = moneda === "USD" ? Number(op.tipoCambio || 0) : 0;
         const precioCompraMXN =
           moneda === "USD" ? importeTotal / (cant || 1) : precioUnitario;
+        const agrupada = !!r.servicioId && idsServiciosReq.has(String(r.servicioId));
 
         return {
           origenRefId: String(r._id), // 👈 clave para no duplicar después
@@ -171,21 +202,58 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
           precioCompra: precioCompraMXN,
           tiempoEntrega: op.tiempoEntrega ?? "",
           horasMO: 0,
-          precioVenta: precioCompraMXN,
+          // Agrupada: se cobra en la línea del servicio, no por pieza
+          precioVenta: agrupada ? 0 : precioCompraMXN,
           observInt: op.observaciones ?? "",
           autorizado: false,
+          servicioGrupoId: agrupada ? String(r.servicioId) : null,
         };
       });
 
-    setPresRows(
-      ensureGruaEnPresupuesto(
-        [
-          ...presupuestoGuardado.map((p) => ({ ...p, autorizado: !!p.autorizado })),
-          ...nuevasDesdeAprobadas,
-        ],
-        orden
-      )
-    );
+    let filas = [
+      ...guardadoSync.map((p) => ({ ...p, autorizado: !!p.autorizado })),
+      ...nuevasDesdeAprobadas,
+    ];
+
+    // Una fila de servicio por cada servicio con refacciones; la que se quedó
+    // sin refacciones (y no está autorizada) se retira.
+    for (const sv of serviciosReq) {
+      const gid = String(sv._id);
+      const hijas = filas.filter((p) => !p.esServicio && String(p.servicioGrupoId) === gid);
+      const idxPadre = filas.findIndex((p) => p.esServicio && String(p.servicioGrupoId) === gid);
+      if (hijas.length > 0 && idxPadre === -1) {
+        filas.push({
+          cant: 1,
+          concepto: sv.nombre || "SERVICIO",
+          refaccion: "",
+          tipo: "",
+          marca: "",
+          proveedor: "",
+          codigo: "",
+          precioCompra: 0,
+          moneda: "MN",
+          tipoCambio: 0,
+          tiempoEntrega: "",
+          horasMO: 0,
+          precioVenta: 0,
+          observInt: "",
+          autorizado: false,
+          esServicio: true,
+          servicioGrupoId: gid,
+        });
+      } else if (hijas.length === 0 && idxPadre !== -1 && !filas[idxPadre].autorizado) {
+        filas.splice(idxPadre, 1);
+      }
+    }
+
+    // Hijas nuevas heredan la autorización de su servicio
+    filas = filas.map((p) => {
+      if (p.esServicio || !p.servicioGrupoId || !idsServiciosReq.has(String(p.servicioGrupoId))) return p;
+      const padre = filas.find((x) => x.esServicio && String(x.servicioGrupoId) === String(p.servicioGrupoId));
+      return padre && padre.autorizado && !p.autorizado ? { ...p, autorizado: true } : p;
+    });
+
+    setPresRows(ensureGruaEnPresupuesto(filas, orden));
 
     // Venta al cliente ya guardada
     setVentaRows(orden.ventaCliente || []);
@@ -292,6 +360,20 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         .some((v) => String(v).toLowerCase().includes(q))
     );
   }, [serviciosTaller, servicioSearch]);
+
+  const refsSinServicio = useMemo(() => {
+    const ids = new Set((orden?.serviciosRequisicion || []).map((sv) => String(sv._id)));
+    return (orden?.refaccionesSolicitadas || []).filter((r) => {
+      const op = r.opciones?.[r.opcionSeleccionada] || {};
+      return (
+        r.estatus === "APROBADA" &&
+        r.opcionSeleccionada !== null &&
+        r.opcionSeleccionada !== undefined &&
+        Number(op.precioUnitario || 0) > 0 &&
+        !(r.servicioId && ids.has(String(r.servicioId)))
+      );
+    }).length;
+  }, [orden]);
 
   const totalPresupuesto = useMemo(
     () =>
@@ -476,10 +558,10 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
   // Una fila esServicio que agrupa refacciones de un Servicio de catálogo se
   // referencia a sí misma en servicioGrupoId (ver backend omitir-refacciones).
-  const esGrupoPadre = (r) =>
-    !!r.esServicio && !!r.servicioGrupoId && String(r.servicioGrupoId) === String(r._id);
+  // (o, si viene de Requisición y Diagnóstico, comparte el id del servicio con sus hijas).
+  const esGrupoPadre = (r) => !!r.esServicio && !!r.servicioGrupoId;
 
-  const esHijoDeGrupo = (r) => !!r.origenServicioCatalogo && !!r.servicioGrupoId;
+  const esHijoDeGrupo = (r) => !r.esServicio && !!r.servicioGrupoId;
 
   const toggleAutorizado = (idx) => {
     setPresRows((prev) => {
@@ -497,6 +579,11 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       });
     });
   };
+
+  // Partida ya surtida, o autorizada y enviada a Venta: no se puede eliminar
+  const ESTADOS_POST_VENTA = ["PENDIENTE_SURTIR", "PENDIENTE_CIERRE", "REPARACION_EN_CURSO", "CALIDAD", "PENDIENTE_CERRAR"];
+  const noSePuedeBorrar = (r) =>
+    !r.esGrua && (!!r.surtida || (!!r.autorizado && ESTADOS_POST_VENTA.includes(orden?.estadoOrden)));
 
   const removePresRow = (idx) =>
     setPresRows((prev) => {
@@ -952,6 +1039,13 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         </div>
 
         {/* ===== PRESUPUESTO ===== */}
+        {refsSinServicio > 0 && (
+          <div className="alert alert-warning">
+            Hay {refsSinServicio} refacción(es) seleccionada(s) sin servicio, por eso no
+            aparecen aquí. Regresa a Requisición y Diagnóstico y agrúpalas en un servicio.
+          </div>
+        )}
+
         <h5 className="text-center mb-2 fw-bold">PRESUPUESTO</h5>
 
         <div className="table-responsive mb-2">
@@ -1109,6 +1203,12 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
                         <button
                           type="button"
                           className="btn btn-sm btn-danger"
+                          disabled={noSePuedeBorrar(r)}
+                          title={
+                            noSePuedeBorrar(r)
+                              ? "Ya está surtida o autorizada y enviada a Venta; no se puede eliminar"
+                              : undefined
+                          }
                           onClick={() => removePresRow(idx)}
                         >
                           Borrar
@@ -1378,7 +1478,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         </div>
 
         {/* Botones Presupuesto */}
-        <div className="d-flex justify-content-end gap-2 mb-4">
+        <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+          <div className="d-flex gap-2">
           {!readOnly && (
             <button
               type="button"
@@ -1397,6 +1498,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
               Cancelar Orden
             </button>
           )}
+          </div>
+          <div className="d-flex gap-2">
           <button
             type="button"
             className="btn btn-danger btn-sm"
@@ -1429,29 +1532,11 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
               </button>
             </>
           )}
+          </div>
         </div>
 
         {/* ===== VENTA AL CLIENTE ===== */}
         <h5 ref={ventaSectionRef} className="text-center mb-2 fw-bold">VENTA AL CLIENTE (CIERRE DE ORDEN)</h5>
-
-        <div className="form-check mb-3">
-          <input
-            className="form-check-input"
-            type="checkbox"
-            id="requiereFactura"
-            checked={requiereFactura}
-            disabled={ventaRows.length > 0}
-            onChange={(e) => setRequiereFactura(e.target.checked)}
-          />
-          <label className="form-check-label fw-semibold" htmlFor="requiereFactura">
-            Requiere factura
-          </label>
-          {ventaRows.length > 0 && (
-            <div className="text-muted small mt-1">
-              Para cambiar si requiere factura, elimina primero las partidas capturadas.
-            </div>
-          )}
-        </div>
 
         {/* Fila de captura venta */}
         {!readOnly && <div className="mb-2" style={{ overflow: "visible" }}>

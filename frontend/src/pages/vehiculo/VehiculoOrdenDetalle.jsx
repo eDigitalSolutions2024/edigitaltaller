@@ -126,7 +126,8 @@ export default function VehiculoOrdenDetalle() {
   const soloLectura = esCerrada || esCancelada || soloConsulta || bloqueadaPorGarantia;
 
   const currentStep = ESTADO_STEP[orden?.estadoOrden] ?? 0;
-  const isPast = (tabKey) => !orden ? false : TAB_STEP[tabKey] < currentStep;
+  // Gris solo en la pestaña de la etapa donde está la orden ahora (si no es la que se está viendo)
+  const esEtapaActual = (tabKey) => !orden ? false : TAB_STEP[tabKey] === currentStep;
 
   useEffect(() => {
     if (esAdmin) return;
@@ -274,7 +275,7 @@ export default function VehiculoOrdenDetalle() {
         <li className="nav-item">
           <button
             className={"nav-link" + (tab === "datos" ? " active" : "")}
-            style={tab !== "datos" && isPast("datos") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
+            style={tab !== "datos" && esEtapaActual("datos") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
             type="button"
             onClick={() => changeTab("datos")}
           >
@@ -285,7 +286,7 @@ export default function VehiculoOrdenDetalle() {
         <li className="nav-item">
           <button
             className={"nav-link" + (tab === "servicio" ? " active" : "")}
-            style={tab !== "servicio" && isPast("servicio") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
+            style={tab !== "servicio" && esEtapaActual("servicio") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
             type="button"
             onClick={() => changeTab("servicio")}
           >
@@ -297,7 +298,7 @@ export default function VehiculoOrdenDetalle() {
           <li className="nav-item">
             <button
               className={"nav-link" + (tab === "req" ? " active" : "")}
-              style={tab !== "req" && isPast("req") && presupuestoDesbloqueado ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
+              style={tab !== "req" && esEtapaActual("req") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
               onClick={() => changeTab("req")}
             >
@@ -311,7 +312,7 @@ export default function VehiculoOrdenDetalle() {
           <li className="nav-item">
             <button
               className={"nav-link" + (tab === "presupuesto" ? " active" : "")}
-              style={tab !== "presupuesto" && isPast("presupuesto") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
+              style={tab !== "presupuesto" && esEtapaActual("presupuesto") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
               onClick={() => changeTab("presupuesto")}
             >
@@ -324,7 +325,7 @@ export default function VehiculoOrdenDetalle() {
           <li className="nav-item">
             <button
               className={"nav-link" + (tab === "reparacion" ? " active" : "")}
-              style={tab !== "reparacion" && isPast("reparacion") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
+              style={tab !== "reparacion" && esEtapaActual("reparacion") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
               onClick={() => changeTab("reparacion")}
             >
@@ -337,7 +338,7 @@ export default function VehiculoOrdenDetalle() {
           <li className="nav-item ms-auto">
             <button
               className={"nav-link" + (tab === "general" ? " active" : "")}
-              style={tab !== "general" && isPast("general") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
+              style={tab !== "general" && esEtapaActual("general") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
               onClick={() => changeTab("general")}
             >
@@ -424,6 +425,7 @@ export default function VehiculoOrdenDetalle() {
           existingRefacciones={orden.refaccionesSolicitadas || []}
           serviciosCatalogoSeleccionados={orden.serviciosCatalogoSeleccionados || []}
           onSaved={handleServicioSaved}
+          onServicioQuitado={(v) => setOrden(v)}
           readOnly={soloLectura}
           sinVehiculo={orden.sinVehiculo}
         />

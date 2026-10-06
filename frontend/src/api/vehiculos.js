@@ -37,6 +37,10 @@ export const omitirRefacciones = (id, { servicios = [], serviciosCatalogo = [] }
 
 
 
+// Cancela un servicio de catálogo ya enviado a presupuesto (si no está autorizado)
+export const quitarServicioCatalogo = (id, scId) =>
+  http.delete(`/vehiculos/${id}/servicios-catalogo/${scId}`);
+
 // 🔹 NUEVO: guardar presupuesto + venta al cliente
 export const savePresupuestoVenta = (id, payload) =>
   http.put(`/vehiculos/${id}/presupuesto-venta`, payload);
