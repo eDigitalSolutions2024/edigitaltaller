@@ -23,7 +23,6 @@ const { calcImporteHoras } = require('../utils/manoObra');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
 const { esAbonoSobreRemisionCredito } = require('../utils/anticiposAlFacturar');
 const { abreviaturaFormaPago, joinMetodos } = require('../utils/abreviaturaFormaPago');
-const { FILTRO_SERVICOMPACTO } = require('../utils/lineaNegocio');
 const { TERMINALES_TARJETA } = require('../utils/bancos');
 const { dayjsFecha } = require('../utils/fechas');
 
@@ -214,11 +213,8 @@ async function filtroAsesor(asesor) {
   return { creadoPor: asesor };
 }
 
-// NOTA: todas las consultas de órdenes de este archivo esparcen
-// `...FILTRO_SERVICOMPACTO` para excluir las órdenes de la línea de negocio
-// Chirey (ver backend/utils/lineaNegocio.js). Los reportes de Cajas
-// (cajas-ingresos / remisiones-diario / facturas-diario) y el de
-// clientes-anticipos quedan pendientes de esa decisión y por ahora NO filtran.
+// NOTA: los reportes incluyen todas las líneas de negocio (Servicompacto y
+// Chirey) por igual; ya no se filtra por lineaNegocio.
 
 // GET /api/reportes/originales?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
 router.get('/originales', async (req, res) => {
@@ -229,7 +225,7 @@ router.get('/originales', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...FILTRO_SERVICOMPACTO, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter })
       .sort({ fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
@@ -262,7 +258,7 @@ router.get('/ventas-asesores', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...FILTRO_SERVICOMPACTO, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter })
       .sort({ creadoPor: 1, fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
@@ -309,7 +305,7 @@ router.get('/originales-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...FILTRO_SERVICOMPACTO, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter })
       .sort({ fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .lean();
@@ -340,7 +336,7 @@ router.get('/ventas-asesores-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...FILTRO_SERVICOMPACTO, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter })
       .sort({ creadoPor: 1, fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .lean();
@@ -383,7 +379,7 @@ router.get('/ordenes-abiertas', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...FILTRO_SERVICOMPACTO, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter })
       .sort({ creadoPor: 1, fechaRecepcion: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
@@ -432,7 +428,7 @@ router.get('/originales-abiertas', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...FILTRO_SERVICOMPACTO, ...dateFilter };
+    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter };
     const filtroAsesorQuery = await filtroAsesor(asesor);
     if (filtroAsesorQuery) Object.assign(query, filtroAsesorQuery);
     const ordenes = await Vehiculo.find(query)
@@ -471,7 +467,7 @@ async function buildReporteGarantias({ desde, hasta, asesor }) {
     'garantia.estado': 'APROBADA',
     // Solo se reportan garantías cuya orden nueva ya está cerrada
     estadoOrden: 'CERRADA',
-    ...FILTRO_SERVICOMPACTO,
+   
     ...buildDateFilterAbiertas(desde, hasta),
   };
   const filtroAsesorQuery = await filtroAsesor(asesor);
@@ -2428,7 +2424,7 @@ router.get('/ordenes-abiertas-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...FILTRO_SERVICOMPACTO, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter })
       .sort({ creadoPor: 1, fechaRecepcion: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .lean();
@@ -2475,7 +2471,7 @@ router.get('/originales-abiertas-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...FILTRO_SERVICOMPACTO, ...dateFilter };
+    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter };
     const filtroAsesorQuery = await filtroAsesor(asesor);
     if (filtroAsesorQuery) Object.assign(query, filtroAsesorQuery);
     const ordenes = await Vehiculo.find(query)
@@ -2511,7 +2507,7 @@ router.get('/originales-abiertas-pdf', async (req, res) => {
 async function buildReporteRhCxC({ desde, hasta, mecanico }) {
   const query = {
     estadoOrden: 'CERRADA',
-    ...FILTRO_SERVICOMPACTO,
+   
     ...buildDateFilter(desde, hasta),
   };
 
@@ -2640,7 +2636,6 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
   if (estado === 'cerradas') query = filtroCerradas;
   else if (estado === 'abiertas') query = filtroAbiertas;
   else query = { $or: [filtroAbiertas, filtroCerradas] }; // 'todas' (o sin valor)
-  query = { ...query, ...FILTRO_SERVICOMPACTO };
 
   const ordenes = await Vehiculo.find(query)
     .sort({ fechaRecepcion: 1 })
@@ -2790,7 +2785,7 @@ async function buildReportePendientesFactura({ desde, hasta }) {
 
   const ordenes = await Vehiculo.find({
     pendienteFactura: true,
-    ...FILTRO_SERVICOMPACTO,
+   
     pendienteFacturaEn: { $gte: d, $lte: h },
   })
     .sort({ pendienteFacturaEn: 1 })

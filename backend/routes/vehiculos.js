@@ -1610,13 +1610,11 @@ router.get('/stats/dashboard', proteger, async (req, res) => {
       // Órdenes creadas dentro del periodo
       Vehiculo.countDocuments({
         ...alcance,
-        ...FILTRO_SERVICOMPACTO,
         createdAt: { $gte: inicio, $lte: ahora },
       }),
       // Órdenes cerradas dentro del periodo
       Vehiculo.countDocuments({
         ...alcance,
-        ...FILTRO_SERVICOMPACTO,
         estadoOrden: 'CERRADA',
         updatedAt: { $gte: inicio, $lte: ahora },
       }),
