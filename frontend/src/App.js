@@ -10,6 +10,7 @@ import { canSeeModule, isReadOnly, defaultRouteForRole, isAdminLike } from "./ut
 import { setAccessToken, getAccessToken } from "./api/http";
 import useGlobalUppercase from "./hooks/useGlobalUppercase";
 import useAutoReloadOnDeploy from "./hooks/useAutoReloadOnDeploy";
+import AvisoActualizacion from "./components/AvisoActualizacion";
 
 import LoginPage from "./pages/LoginPage";
 import AppLayout from "./layouts/AppLayout";
@@ -228,10 +229,11 @@ const RolesRoute = ({ children, roles }) => {
 
 export default function App() {
   useGlobalUppercase();
-  useAutoReloadOnDeploy();
+  const hayNuevaVersion = useAutoReloadOnDeploy();
 
   return (
     <BrowserRouter>
+      <AvisoActualizacion visible={hayNuevaVersion} />
       <Routes>
         {/* Público */}
         <Route path="/login" element={<LoginPage />} />

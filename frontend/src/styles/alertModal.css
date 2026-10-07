@@ -95,3 +95,34 @@
 
 @keyframes am-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes am-pop { from { transform: scale(0.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* Notificación fija de "nueva versión" (AvisoActualizacion, tras "Más tarde") */
+.av-toast {
+  --am-color: #1b1a4a;
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2900;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 12px 14px;
+  background: #fff;
+  border-left: 5px solid var(--am-color);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  animation: am-pop 0.18s ease-out;
+}
+
+.av-toast-texto {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85rem;
+  line-height: 1.3;
+  color: #333;
+}
+
+.av-toast-texto strong { color: var(--am-color); }
+.av-toast .am-icono { background: var(--am-color); }
+.av-toast .am-btn { background: var(--am-color); padding: 7px 16px; }
