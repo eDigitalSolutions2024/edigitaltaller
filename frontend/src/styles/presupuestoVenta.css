@@ -1,0 +1,131 @@
+/* Presupuesto y Venta al Cliente: tarjetas táctiles, sin scroll horizontal */
+.pv-lista { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.pv-card {
+  border: 1px solid #dfe3e8;
+  border-radius: 8px;
+  background: #f8f9fb;
+  padding: 8px 10px;
+}
+.pv-card.pv-auth { background: #eef7f1; border-color: #b7dcc3; border-left: 4px solid #198754; }
+.pv-fila {
+  display: grid;
+  grid-template-columns: 40px minmax(180px, 1fr) 64px 130px 110px auto;
+  gap: 8px;
+  align-items: center;
+}
+.pv-fila.pv-venta { grid-template-columns: 80px minmax(180px, 1fr) 140px 110px auto; }
+.pv-check { display: flex; justify-content: center; align-items: center; margin: 0; }
+.pv-check input { width: 26px; height: 26px; accent-color: #2d2a6b; }
+.pv-label { display: block; font-size: .7rem; color: #6c757d; line-height: 1; margin-bottom: 2px; }
+.pv-cant { text-align: center; font-weight: 600; }
+.pv-importe { text-align: right; font-weight: 700; color: #2d2a6b; }
+.pv-resumen { font-size: .8rem; color: #5b6470; margin-top: 2px; }
+.pv-acc { display: flex; gap: 6px; justify-content: flex-end; }
+.pv-fila .form-control { min-height: 40px; }
+.pv-btn { min-height: 40px; font-size: .85rem; padding: 4px 12px; }
+.pv-detalle {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #cfd5dc;
+  font-size: .85rem;
+}
+.pv-datos { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-bottom: 8px; color: #5b6470; }
+.pv-datos b { color: #212529; font-weight: 600; }
+.pv-hijo { padding: 4px 0; border-bottom: 1px solid #e9ecef; }
+.pv-hijo:last-child { border-bottom: 0; }
+.pv-nuevo {
+  border: 1px dashed #2d2a6b;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  margin-bottom: 10px;
+}
+.pv-nuevo .form-control, .pv-nuevo .btn { min-height: 40px; }
+.pv-btn-agregar { background: #d34b3f; color: #fff; border: 1px solid #d34b3f; font-weight: 600; }
+.pv-btn-agregar:hover { color: #fff; filter: brightness(.95); }
+.pv-btn-detalle { background: #fff; color: #2d2a6b; border: 1px solid #2d2a6b; }
+.pv-btn-detalle:hover { background: rgba(45,42,107,.06); color: #2d2a6b; }
+.pv-totales {
+  margin-left: auto;
+  max-width: 340px;
+  border: 1px solid #dfe3e8;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+}
+.pv-totales > div { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
+.pv-totales .pv-total { border-top: 1px solid #dfe3e8; margin-top: 4px; padding-top: 6px; font-size: 1.15rem; font-weight: 700; color: #2d2a6b; }
+.pv-iva { width: 72px; display: inline-block; text-align: right; min-height: 34px; }
+.pv-sugerencias {
+  position: absolute; z-index: 9999; top: 100%; left: 0; right: 0;
+  max-height: 220px; overflow-y: auto; font-size: 13px;
+  background: #fff; border: 1px solid #dfe3e8; box-shadow: 0 4px 12px rgba(0,0,0,.12);
+}
+@media (max-width: 991px) {
+  .pv-fila {
+    grid-template-columns: 40px 1fr 1fr 1fr;
+    grid-template-areas:
+      "chk concepto concepto concepto"
+      "chk cant precio importe"
+      "acc acc acc acc";
+  }
+  .pv-fila.pv-venta {
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-areas:
+      "concepto concepto concepto"
+      "cant precio importe"
+      "acc acc acc";
+  }
+  .pv-check { grid-area: chk; }
+  .pv-concepto { grid-area: concepto; }
+  .pv-cant { grid-area: cant; text-align: left; }
+  .pv-precio { grid-area: precio; }
+  .pv-importe { grid-area: importe; }
+  .pv-acc { grid-area: acc; justify-content: stretch; }
+  .pv-acc .btn { flex: 1; min-height: 44px; }
+  .pv-totales { max-width: none; }
+}
+
+/* ===== Mano de obra ===== */
+.mo-modal { border: 0; border-radius: 12px; overflow: hidden; }
+.mo-modal .modal-header { border-bottom: 1px solid #e9ecef; padding: 16px 20px; }
+.mo-modal .modal-body { padding: 18px 20px; }
+.mo-modal .modal-footer { border-top: 1px solid #e9ecef; padding: 12px 20px; gap: 8px; }
+.mo-seccion { margin-bottom: 16px; }
+.mo-label { display: block; font-size: .78rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: #5b6470; margin-bottom: 4px; }
+.mo-ayuda { font-size: .8rem; color: #6c757d; margin-top: 4px; }
+.mo-modal .form-control, .mo-modal .form-select { min-height: 44px; }
+.mo-resumen { background: #f8f9fb; border: 1px solid #e3e7ec; border-radius: 10px; padding: 10px 14px; }
+.mo-resumen > div { display: flex; justify-content: space-between; padding: 2px 0; font-size: .9rem; color: #5b6470; }
+.mo-resumen b { color: #212529; }
+.mo-resumen .mo-resumen-total { border-top: 1px solid #dfe3e8; margin-top: 4px; padding-top: 6px; font-size: 1.05rem; }
+.mo-resumen .mo-resumen-total b { color: #2d2a6b; }
+
+.mo-card { border: 1px solid #e3e7ec; border-left: 4px solid #2d2a6b; border-radius: 10px; background: #fff; padding: 12px 14px; }
+.mo-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.mo-titulo { font-weight: 700; }
+.mo-tecnico { display: flex; align-items: center; gap: 8px; margin-top: 4px; color: #495057; font-size: .9rem; }
+.mo-avatar { width: 28px; height: 28px; border-radius: 50%; background: #2d2a6b; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: .75rem; font-weight: 700; }
+.mo-puesto { font-size: .72rem; background: rgba(45,42,107,.1); color: #2d2a6b; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+.mo-total { text-align: right; }
+.mo-total b { display: block; font-size: 1.15rem; color: #2d2a6b; }
+.mo-total span { font-size: .75rem; color: #6c757d; }
+.mo-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+.mo-stat { background: #f8f9fb; border-radius: 8px; padding: 6px 10px; }
+.mo-stat span { display: block; font-size: .7rem; color: #6c757d; text-transform: uppercase; letter-spacing: .03em; }
+.mo-stat b { font-size: .95rem; }
+@media (max-width: 575px) { .mo-stats { grid-template-columns: repeat(2, 1fr); } }
+
+/* Modal de mano de obra: más ancho y bajo */
+.mo-ancho { max-width: min(920px, 96vw); }
+.mo-ancho .modal-body { padding: 14px 20px; }
+.mo-ancho .modal-header { padding: 12px 20px; }
+.mo-ancho .modal-footer { flex-wrap: nowrap; }
+.mo-ancho .mo-seccion { margin-bottom: 12px; }
+.mo-ancho .di-trigger span { white-space: nowrap; }
+.mo-ancho .mo-resumen { display: flex; gap: 8px 24px; align-items: center; flex-wrap: wrap; padding: 8px 14px; }
+.mo-ancho .mo-resumen > div { flex: 1 1 0; min-width: 150px; flex-direction: column; align-items: flex-start; padding: 0; border: 0; margin: 0; }
+.mo-ancho .mo-resumen > div span { font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; }
+.mo-ancho .mo-resumen .mo-resumen-total { border-top: 0; margin-top: 0; padding-top: 0; font-size: 1rem; }
+@media (max-width: 575px) { .mo-ancho .modal-footer { flex-wrap: wrap; } }

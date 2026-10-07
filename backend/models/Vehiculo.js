@@ -660,6 +660,10 @@ const vehiculoSchema = new Schema(
       },
     ],
 
+    // Decisión general de la orden: ¿lleva mano de obra? (null = aún sin definir).
+    // Si es true, manoObra[] debe traer al menos una asignación con técnico.
+    ordenLlevaManoObra: { type: Boolean, default: null },
+
     // ===== Mano de Obra =====
     manoObra: [
       {
@@ -668,6 +672,9 @@ const vehiculoSchema = new Schema(
         // asesor seleccionó al asignar esta mano de obra. Null en filas
         // legado capturadas antes de este cambio (concepto de texto libre).
         presupuestoId: { type: Schema.Types.ObjectId, default: null },
+        // Puesto del técnico asignado (mecanico, ayudante, carrocero, jefe_taller…).
+        // Solo informativo: los carroceros usan `carrocero`; el resto se guarda en `mecanico`.
+        puesto: { type: String, default: "" },
         // Precio de venta (sin IVA) de la partida de Venta al Cliente al
         // momento de asignar la mano de obra. Se usa en reportes de RH en
         // lugar de volver a buscar en presupuesto[], porque el asesor puede

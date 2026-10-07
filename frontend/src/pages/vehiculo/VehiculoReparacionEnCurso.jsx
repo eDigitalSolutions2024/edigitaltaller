@@ -4,6 +4,8 @@ import { fetchServiciosTaller } from "../../api/codigos";
 import { saveRequisicionDiagnostico } from "../../api/vehiculos";
 import http from "../../api/http";
 import { TARIFA_HORA, calcImporteHoras } from "../../utils/manoObra";
+import "../../styles/presupuestoVenta.css";
+import "../../styles/requisicion.css";
 
 function formatMoney(n) {
   if (n === "" || n === null || n === undefined) return "-";
@@ -280,52 +282,79 @@ export default function VehiculoReparacionEnCurso({ orden, onSaved, onGoGeneral,
         </>
       )}
 
-      {/* ── REFACCIONES A UTILIZAR ── */}
+      {/* ── REFACCIONES A UTILIZAR (agrupadas por servicio) ── */}
       <h5 className="fw-semibold mt-2 mb-2">Refacciones a Utilizar</h5>
-      <div className="table-responsive">
-        <table className="table table-sm table-bordered align-middle">
-          <thead className="table-light text-center">
-            <tr>
-              <th style={{ width: "70px" }}>Cant.</th>
-              <th>Concepto / Refacción</th>
-              <th>Tipo</th>
-              <th>Marca</th>
-              <th>Código</th>
-              <th>Proveedor</th>
-              <th style={{ width: "120px" }}>Precio Compra</th>
-              <th style={{ width: "110px" }}>Surtida</th>
-            </tr>
-          </thead>
-          <tbody>
-            {refacciones.length === 0 && (
-              <tr>
-                <td colSpan={8} className="text-center text-muted">
-                  Sin refacciones autorizadas.
-                </td>
-              </tr>
+      {(() => {
+        const mismoGrupo = (a, b) => String(a.servicioGrupoId) === String(b.servicioGrupoId);
+        const padres = refacciones.filter((p) => p.esServicio);
+        const idsPadres = new Set(padres.filter((p) => p.servicioGrupoId).map((p) => String(p.servicioGrupoId)));
+        const hijosDe = (padre) =>
+          padre.servicioGrupoId
+            ? refacciones.filter((h) => !h.esServicio && h.servicioGrupoId && mismoGrupo(h, padre))
+            : [];
+        // Refacciones sin servicio (o cuyo servicio ya no existe) y grúa
+        const sueltas = refacciones.filter(
+          (p) => !p.esServicio && !(p.servicioGrupoId && idsPadres.has(String(p.servicioGrupoId)))
+        );
+
+        const filaRefaccion = (p, i) => (
+          <div className="pv-hijo d-flex justify-content-between align-items-start gap-2" key={i}>
+            <div>
+              <div>
+                {p.cant ?? p.cantidad} × <b>{p.concepto || p.refaccion || ""}</b>
+                {p.esGrua && <span className="badge bg-secondary ms-2">Grúa</span>}
+              </div>
+              <div className="pv-resumen">
+                {[p.tipo, p.marca, p.codigo, p.proveedor].filter(Boolean).join(" · ")}
+                {Number(p.precioCompra) > 0 && ` · Compra ${formatMoney(p.precioCompra)}`}
+              </div>
+            </div>
+            {p.esGrua ? null : p.surtida ? (
+              <span className="badge bg-success">Surtida</span>
+            ) : (
+              <span className="badge bg-secondary">Pendiente</span>
             )}
-            {refacciones.map((p, i) => (
-              <tr key={i} className={p.surtida ? "table-success" : ""}>
-                <td className="text-center">{p.cant ?? p.cantidad}</td>
-                <td>{p.concepto || p.refaccion || ""}</td>
-                <td>{p.tipo || ""}</td>
-                <td>{p.marca || ""}</td>
-                <td>{p.codigo || ""}</td>
-                <td>{p.proveedor || ""}</td>
-                <td className="text-end">{formatMoney(p.precioCompra)}</td>
-                <td className="text-center">
-                  {p.esServicio
-                    ? <span className="badge bg-info text-dark">Servicio</span>
-                    : p.surtida
-                      ? <span className="badge bg-success">Surtida</span>
-                      : <span className="badge bg-secondary">Pendiente</span>
-                  }
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        );
+
+        if (refacciones.length === 0) {
+          return <div className="text-center text-muted border rounded py-3 mb-3">Sin refacciones autorizadas.</div>;
+        }
+
+        return (
+          <div className="pv-lista mb-3">
+            {padres.map((padre, i) => {
+              const hijos = hijosDe(padre);
+              const surtidas = hijos.filter((h) => h.surtida).length;
+              return (
+                <div key={i} className="pv-card pv-auth">
+                  <div className="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                    <div>
+                      <span className="fw-bold">{padre.concepto}</span>
+                      <span className="badge rq-badge-sv ms-2">SERVICIO</span>
+                    </div>
+                    {hijos.length > 0 && (
+                      <span className="small text-muted">{surtidas}/{hijos.length} refacciones surtidas</span>
+                    )}
+                  </div>
+                  {hijos.length > 0 ? (
+                    <div className="pv-detalle">{hijos.map(filaRefaccion)}</div>
+                  ) : (
+                    <div className="pv-resumen">Sin refacciones</div>
+                  )}
+                </div>
+              );
+            })}
+
+            {sueltas.length > 0 && (
+              <div className="pv-card">
+                <div className="fw-bold mb-1">Otras refacciones</div>
+                <div className="pv-detalle mt-0 pt-0 border-0">{sueltas.map(filaRefaccion)}</div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── GRÚA (capturada en la entrada, línea aparte encima del costo) ── */}
       {tieneGrua && precioGrua > 0 && !gruaEnVenta && (

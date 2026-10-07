@@ -1189,6 +1189,7 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
       observCotizacion,
       ivaPresupuesto,
       ivaVenta,
+      ordenLlevaManoObra,
       accionCotizacion,
       crearNuevaVersionCotizacion,
       accionVentaCliente,
@@ -1346,6 +1347,10 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
 
     if (ivaVenta !== undefined && ivaVenta !== null && ivaVenta !== '') {
       vehiculo.ivaVenta = Number(ivaVenta) || 0;
+    }
+
+    if (typeof ordenLlevaManoObra === 'boolean' || ordenLlevaManoObra === null) {
+      vehiculo.ordenLlevaManoObra = ordenLlevaManoObra;
     }
 
     let inventarioResult = null;

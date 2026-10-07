@@ -1,8 +1,10 @@
 // src/pages/vehiculo/VehiculoPresupuestoVenta.jsx
+import "../../styles/presupuestoVenta.css";
+import "../../styles/requisicion.css";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { useNavigate } from "react-router-dom";
-import Dropdown from "../../components/Dropdown";
+import ModalManoObra, { ModalPreguntaManoObra, PUESTO_LABEL } from "./ModalManoObra";
 import {
   savePresupuestoVenta,
   getVehiculoById,
@@ -13,7 +15,6 @@ import usePdfModal from "../../hooks/usePdfModal";
 import { fetchServiciosTaller } from "../../api/codigos";
 import http from "../../api/http";
 import { TARIFA_HORA, calcImporteHoras } from "../../utils/manoObra";
-import useTipoCambioActual from "../../hooks/useTipoCambioActual";
 import { getUser } from "../../auth";
 import { createTicket } from "../../api/tickets";
 import ModalCancelarOrden from "./ModalCancelarOrden";
@@ -42,8 +43,7 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   const [requiereFactura, setRequiereFactura] = useState(false);
 
   //Mano de obra
-  const [mecanicos, setMecanicos] = useState([]);
-  const [carroceros, setCarroceros] = useState([]);
+  const [tecnicos, setTecnicos] = useState([]); // todo el personal (el modal filtra los puestos técnicos activos)
 
   // Servicios SAT (para factura)
   const [serviciosTaller, setServiciosTaller] = useState([]);
@@ -57,26 +57,9 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   const [presRows, setPresRows] = useState([]);
   // Filas de refacciones incluidas en un Servicio de catálogo, colapsadas bajo
   // su fila esServicio (mismo servicioGrupoId); se expanden solo para consulta.
-  const [expandedGroups, setExpandedGroups] = useState({});
-  const [newPresLine, setNewPresLine] = useState({
-    cant: "",
-    concepto: "",
-    refaccion: "",
-    tipo: "",
-    marca: "",
-    proveedor: "",
-    codigo: "",
-    precioCompra: "",
-    moneda: "MN",
-    tipoCambio: "",
-    tiempoEntrega: "",
-    horasMO: "",
-    precioVenta: "",
-    observInt: "",
-    autorizado: false,
-    esServicio: false,
-  });
-  const { tipoCambio: tipoCambioConfig, loading: cargandoTipoCambio } = useTipoCambioActual();
+  const [expandedGroups, setExpandedGroups] = useState({}); // detalle abierto por partida (idx)
+  const [ventaMas, setVentaMas] = useState(false);
+  const [ventaObsAbierta, setVentaObsAbierta] = useState({});
 
   // ===== VENTA AL CLIENTE =====
   const [ventaRows, setVentaRows] = useState([]);
@@ -93,12 +76,9 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
   // ===== MANO DE OBRA =====
   const [moRows, setMoRows] = useState([]);
-  // Asignación: qué servicios del presupuesto se marcan y a qué mecánico/carrocero
-  const [serviciosMoSeleccionados, setServiciosMoSeleccionados] = useState({});
-  const [moTipo, setMoTipo] = useState("mecanico"); // "mecanico" | "carrocero"
-  const [moAsignado, setMoAsignado] = useState("");
-  const [moHorasOverride, setMoHorasOverride] = useState("");
-  const [moFechaPago, setMoFechaPago] = useState("");
+  const [llevaMO, setLlevaMO] = useState(null); // decisión general: true | false | null (sin definir)
+  const [moModal, setMoModal] = useState(null); // null | { idx: number|null } (alta o edición)
+  const [preguntaMo, setPreguntaMo] = useState(false); // modal "¿lleva mano de obra?"
   const [guardandoMo, setGuardandoMo] = useState(false);
 
   // ===== OBSERVACIONES =====
@@ -118,6 +98,15 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     setObservCotizacion(orden.observCotizacion || "");
     setRequiereFactura(!!orden.requiereFactura);
     setMoRows(orden.manoObra || []);
+    // Decisión general de mano de obra; en órdenes anteriores se infiere de lo capturado
+    if (typeof orden.ordenLlevaManoObra === "boolean") {
+      setLlevaMO(orden.ordenLlevaManoObra);
+    } else if ((orden.manoObra || []).length > 0) {
+      setLlevaMO(true);
+    } else {
+      const vc = orden.ventaCliente || [];
+      setLlevaMO(vc.length > 0 && vc.every((r) => r.llevaManoObra === false) ? false : null);
+    }
     setObsExternas(orden.observacionesExternas || "");
     setObsInternas(orden.observacionesInternas || "");
     setIvaPresupuesto(orden.ivaPresupuesto ?? 8);
@@ -269,12 +258,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   useEffect(() => {
     const cargarEmpleados = async () => {
       try {
-        const [resMec, resCar] = await Promise.all([
-          http.get("/empleados?puesto=mecanico&activo=true"),
-          http.get("/empleados?puesto=carrocero&activo=true"),
-        ]);
-        setMecanicos(resMec.data || []);
-        setCarroceros(resCar.data || []);
+        const res = await http.get("/empleados");
+        setTecnicos(res.data || []);
       } catch (err) {
         console.error("Error cargando empleados:", err);
       }
@@ -406,10 +391,12 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
   );
   const totalConIvaVenta = totalVentaCliente + ivaMontoVenta;
 
-  const nombreManoObra = (m) =>
-    m.esCarroceria
-      ? carroceros.find((x) => x._id === m.carrocero)?.nombre || m.carrocero || "—"
-      : mecanicos.find((x) => x._id === m.mecanico)?.nombre || m.mecanico || "—";
+  const nombreManoObra = (m) => {
+    const id = m.esCarroceria ? m.carrocero : m.mecanico;
+    return tecnicos.find((x) => x._id === id)?.nombre || id || "—";
+  };
+  const puestoManoObra = (m) =>
+    PUESTO_LABEL[m.puesto] || (m.esCarroceria ? "Carrocero" : "Mecánico");
 
   // ===== MANO DE OBRA — asignación de partidas de Venta al Cliente =====
   // Solo las partidas que quedaron en Venta al Cliente (Cierre de Orden) son
@@ -422,55 +409,25 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     [ventaRows]
   );
 
-  const nombreServicioPresupuesto = (p) => p?.concepto || "";
-
   const tecnicosDeServicio = (concepto) =>
     moRows.filter((m) => (m.concepto || "") === (concepto || "")).length;
 
-  const setLlevaManoObra = (idx, valor) => {
-    const fila = ventaRows[idx];
-    if (!valor && tecnicosDeServicio(fila?.concepto) > 0) {
-      alert(
-        `"${fila.concepto}" ya tiene técnico(s) asignado(s). Elimina la asignación antes de marcar que no lleva mano de obra.`
-      );
-      return;
-    }
-    setVentaRows((prev) => prev.map((r, i) => (i === idx ? { ...r, llevaManoObra: valor } : r)));
-    if (!valor) setServiciosMoSeleccionados((prev) => ({ ...prev, [idx]: false }));
-  };
+  // Servicios de Venta al Cliente (para elegir en el modal de mano de obra)
+  const serviciosVentaMo = useMemo(
+    () => ventaRows.filter((v) => (v.concepto || "").trim()).map((v) => ({ concepto: v.concepto, precioVenta: v.precioVenta })),
+    [ventaRows]
+  );
 
-  // Devuelve un mensaje si falta definir mano de obra en alguna partida.
-  const validarManoObraObligatoria = () => {
-    const sinDecidir = ventaRows.filter((r) => typeof r.llevaManoObra !== "boolean");
-    if (sinDecidir.length > 0) {
-      return `Indica si lleva mano de obra (Sí / No) en cada servicio:\n- ${sinDecidir
-        .map((r) => r.concepto)
-        .join("\n- ")}`;
-    }
-    const sinTecnico = ventaRows.filter(
-      (r) => r.llevaManoObra && tecnicosDeServicio(r.concepto) === 0
-    );
-    if (sinTecnico.length > 0) {
-      return `Asigna al menos un técnico a cada servicio con mano de obra:\n- ${sinTecnico
-        .map((r) => r.concepto)
-        .join("\n- ")}`;
-    }
-    return null;
-  };
+  const bloqueadoAnticipoMo = tieneComprobanteFiscal(orden?.pagos);
 
-  const toggleServicioMo = (id) => {
-    setServiciosMoSeleccionados((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  // Mano de obra (altas, bajas y horas anticipadas) se persiste de inmediato
-  // (no hasta "Guardar Orden de Servicio"): cada cambio manda solo el campo
-  // manoObra al backend, que solo pisa lo que venga en el body, así que el
-  // resto del formulario (presupuesto, venta al cliente, observaciones, etc.)
-  // no se ve afectado.
-  const guardarMoRows = async (nuevoMoRows) => {
+  // Persiste solo manoObra (+ la decisión general); el resto del formulario no se toca.
+  const guardarMoRows = async (nuevoMoRows, general = llevaMO) => {
     setGuardandoMo(true);
     try {
-      const res = await savePresupuestoVenta(orden._id, { manoObra: nuevoMoRows });
+      const res = await savePresupuestoVenta(orden._id, {
+        manoObra: nuevoMoRows,
+        ordenLlevaManoObra: general,
+      });
       setMoRows(res.data.vehiculo.manoObra || nuevoMoRows);
       return true;
     } catch (err) {
@@ -482,69 +439,47 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     }
   };
 
-  const agregarAsignacionMano = async () => {
-    const idsElegidos = Object.entries(serviciosMoSeleccionados)
-      .filter(([, marcado]) => marcado)
-      .map(([id]) => id);
-
-    if (idsElegidos.length === 0) {
-      alert("Selecciona al menos un servicio.");
+  // Botón general Sí / No
+  const decidirLlevaMO = async (valor) => {
+    if (!valor && moRows.length > 0) {
+      alert("Ya hay mano de obra asignada. Quita las asignaciones antes de marcar que no lleva.");
       return;
     }
-    if (!moAsignado) {
-      alert(moTipo === "carrocero" ? "Selecciona un carrocero." : "Selecciona un mecánico.");
+    const anterior = llevaMO;
+    setLlevaMO(valor);
+    const ok = await guardarMoRows(moRows, valor);
+    if (!ok) {
+      setLlevaMO(anterior);
       return;
     }
-
-    const nuevasFilas = idsElegidos.map((id) => {
-      const servicio = serviciosParaManoObra.find((p) => String(p._idx) === String(id));
-      // Si el asesor capturó horas manualmente, esas mandan; si no, se usan
-      // las horas ya estimadas en el presupuesto (horasMO) de ese servicio.
-      const horas = moHorasOverride !== "" ? Number(moHorasOverride) || 0 : Number(servicio?.horasMO) || 0;
-      return {
-        concepto: nombreServicioPresupuesto(servicio),
-        // Precio de venta de la partida al momento de asignarla: los reportes
-        // de RH lo usan directo, sin volver a buscar en presupuesto[].
-        precioServicio: Number(servicio?.precioVenta || 0),
-        mecanico: moTipo === "carrocero" ? "" : moAsignado,
-        carrocero: moTipo === "carrocero" ? moAsignado : "",
-        esCarroceria: moTipo === "carrocero",
-        horas,
-        horasAnticipadas: 0,
-        fechaPago: moFechaPago,
-        observaciones: "",
-        precioCarroceria: 0,
-      };
-    });
-
-    const ok = await guardarMoRows([...moRows, ...nuevasFilas]);
-    if (!ok) return;
-    setServiciosMoSeleccionados({});
-    setMoAsignado("");
-    setMoHorasOverride("");
-    setMoFechaPago("");
+    if (valor) setMoModal({ idx: null });
   };
 
-  const handleUpdateMo = (idx, field, value) => {
-    setMoRows((prev) => {
-      const rows = [...prev];
-      rows[idx] = { ...rows[idx], [field]: value };
-      return rows;
-    });
+  // Alta (idx null) o edición de una asignación desde el modal
+  const guardarAsignacionMo = async (fila, { otro } = {}) => {
+    const idx = moModal?.idx;
+    const nuevas = idx === null || idx === undefined ? [...moRows, fila] : moRows.map((m, i) => (i === idx ? fila : m));
+    const ok = await guardarMoRows(nuevas, true);
+    if (!ok) return false;
+    setLlevaMO(true);
+    if (!otro) setMoModal(null);
+    return true;
   };
 
   const removeMoRow = (idx) => {
+    if (!window.confirm("¿Quitar esta asignación de mano de obra?")) return;
     guardarMoRows(moRows.filter((_, i) => i !== idx));
   };
 
-  // Anticipar horas se guarda al salir del campo (no en cada tecleo, que
-  // dispararía un guardado por cada dígito y deshabilitaría el input a medio
-  // escribir): mientras se escribe solo se actualiza el estado local, igual
-  // que horas/fechaPago/observaciones.
-  const handleBlurHorasAnticipadas = (idx) => {
-    const fila = moRows[idx];
-    const horasAnticipadas = Math.max(0, Math.min(Number(fila.horasAnticipadas) || 0, Number(fila.horas) || 0));
-    guardarMoRows(moRows.map((m, i) => (i === idx ? { ...m, horasAnticipadas } : m)));
+  // Devuelve un mensaje si falta definir la mano de obra de la orden.
+  const validarManoObraObligatoria = () => {
+    if (llevaMO === null) {
+      return "Indica si la orden lleva mano de obra (Sí / No) en la sección Mano de Obra.";
+    }
+    if (llevaMO && moRows.length === 0) {
+      return "La orden lleva mano de obra: agrega al menos un servicio con su técnico responsable.";
+    }
+    return null;
   };
 
   // ===== PRESUPUESTO — HANDLERS =====
@@ -599,37 +534,6 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       });
     });
 
-  const addManualPresRow = () => {
-    if (!newPresLine.concepto.trim()) {
-      alert("Captura al menos el concepto.");
-      return;
-    }
-    const cant = Number(newPresLine.cant) || 1;
-    const precioCompra = Number(newPresLine.precioCompra) || 0;
-    const precioVenta = Number(newPresLine.precioVenta) || precioCompra;
-
-    setPresRows((prev) => [
-      ...prev,
-      {
-        ...newPresLine,
-        cant,
-        precioCompra,
-        precioVenta,
-        horasMO: Number(newPresLine.horasMO) || 0,
-        autorizado: false,
-        esServicio: !!newPresLine.esServicio,
-        manual: true,
-      },
-    ]);
-
-    setNewPresLine({
-      cant: "",concepto: "",refaccion: "",tipo: "",marca: "",
-      proveedor: "",codigo: "",precioCompra: "",moneda: "MN",
-      tipoCambio: "",tiempoEntrega: "",horasMO: "",precioVenta: "",
-      observInt: "",autorizado: false,esServicio: false,
-    });
-  };
-
   // ===== ENVIAR A VENTA — corazón del nuevo flujo =====
   const handleEnviarAVenta = async () => {
     const autorizadas = presRows.filter((r) => r.autorizado);
@@ -672,8 +576,8 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       codigoSat: "",
       descripcionSat: "",
       esGrua: !!r.esGrua,
-      // null = el asesor aún no decide si el servicio lleva mano de obra
-      llevaManoObra: null,
+      // Se recalcula al guardar según la decisión general y los técnicos asignados
+      llevaManoObra: llevaMO === false ? false : null,
     }));
 
     setVentaRows(nuevasVentas);
@@ -728,9 +632,13 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
       );
       if (onSaved) onSaved(res.data.vehiculo);
 
-      setTimeout(() => {
-        manoObraSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 150);
+      // Al enviar a Venta se pregunta si la orden lleva mano de obra
+      if (llevaMO === null) setPreguntaMo(true);
+      else {
+        setTimeout(() => {
+          manoObraSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 150);
+      }
 
       const inv = res.data.inventario;
       if (inv) {
@@ -811,10 +719,22 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     setVentaRows((prev) => prev.filter((r, i) => i !== idx));
 
   // ===== GUARDADO / PDF =====
-  const buildPayload = (extra = {}) => ({
+  const buildPayload = (extra = {}) => {
+    // llevaManoObra por partida se deriva de la decisión general + técnicos asignados
+    const ventaConMo = (extra.ventaCliente || ventaRows).map((r) => ({
+      ...r,
+      llevaManoObra:
+        llevaMO === true
+          ? tecnicosDeServicio(r.concepto) > 0
+          : llevaMO === false
+            ? false
+            : typeof r.llevaManoObra === "boolean" ? r.llevaManoObra : null,
+    }));
+    return {
     presupuesto: presRows,
-    ventaCliente: ventaRows,
+    ventaCliente: ventaConMo,
     manoObra: moRows,
+    ordenLlevaManoObra: llevaMO,
     observacionesExternas: obsExternas,
     observacionesInternas: obsInternas,
     dirigidoA,
@@ -824,7 +744,9 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
     ivaPresupuesto: Number(ivaPresupuesto) || 0,
     ivaVenta: Number(ivaVenta) || 0,
     ...extra,
-  });
+    ventaCliente: ventaConMo,
+    };
+  };
 
   const handleGuardarPresupuesto = async () => {
     try {
@@ -1048,433 +970,182 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
 
         <h5 className="text-center mb-2 fw-bold">PRESUPUESTO</h5>
 
-        <div className="table-responsive mb-2">
-          <table className="table table-bordered table-sm align-middle">
-            <thead className="table-light text-center">
-              <tr>
-                <th>Autorizado</th>
-                <th>Cantidad</th>
-                <th>Concepto, Servicio y/o Reparación</th>
-                <th>Refacción</th>
-                <th>Tipo</th>
-                <th>Marca</th>
-                <th>Código</th>        
-                <th>Proveedor</th>     
-                <th>TE</th>            
-                <th>Precio Compra</th>
-                <th>Moneda</th>
-                <th>TC</th>
-                <th>M.O. (Hrs)</th>
-                <th>Precio Venta (Sin IVA)</th>
-                <th className="table-secondary">Importe</th>
-                <th>Obs. Internas</th>
-                <th>Acción</th>
-              </tr>
-            </thead>
+        <div className="pv-lista">
+          {presRows.length === 0 && (
+            <div className="text-center text-muted py-3">No hay partidas de presupuesto.</div>
+          )}
 
-            <tbody>
-              {presRows.length === 0 && (
-                <tr>
-                  <td colSpan={17} className="text-center text-muted">
-                    No hay partidas de presupuesto.
-                  </td>
-                </tr>
-              )}
+          {presRows.map((r, idx) => {
+            // Las refacciones agrupadas en un servicio se ven dentro de su
+            // servicio (en "Detalles"), no como partidas sueltas.
+            if (esHijoDeGrupo(r)) return null;
 
-              {presRows.map((r, idx) => {
-                // Las refacciones incluidas en un Servicio de catálogo se
-                // muestran colapsadas bajo su fila esServicio, no como filas
-                // sueltas (ver "Ver refacciones" más abajo).
-                if (esHijoDeGrupo(r)) return null;
+            const grupoId = esGrupoPadre(r) ? String(r.servicioGrupoId) : null;
+            const hijos = grupoId
+              ? presRows
+                  .map((row, i) => ({ row, i }))
+                  .filter(({ row }) => esHijoDeGrupo(row) && String(row.servicioGrupoId) === grupoId)
+              : [];
+            const abierto = !!expandedGroups[idx];
+            const resumen = [r.tipo, r.marca, r.codigo, r.proveedor].filter(Boolean).join(" · ");
+            const importe = Number(r.cant || 0) * Number(r.precioVenta || 0);
 
-                const grupoId = esGrupoPadre(r) ? String(r.servicioGrupoId) : null;
-                const hijos = grupoId
-                  ? presRows
-                      .map((row, i) => ({ row, i }))
-                      .filter(
-                        ({ row }) =>
-                          esHijoDeGrupo(row) && String(row.servicioGrupoId) === grupoId
-                      )
-                  : [];
-                const expandido = grupoId ? !!expandedGroups[grupoId] : false;
-
-                return (
-                <React.Fragment key={idx}>
-                <tr className={r.autorizado ? "table-success" : ""}>
-                  {/* Checkbox autorizado */}
-                  <td className="text-center">
+            return (
+              <div key={idx} className={`pv-card ${r.autorizado ? "pv-auth" : ""}`}>
+                <div className="pv-fila">
+                  <label
+                    className="pv-check"
+                    title={
+                      r.esGrua && !esAdmin
+                        ? "La grúa queda autorizada automáticamente; solo un administrador puede modificarla"
+                        : "Marcar como autorizado por el cliente"
+                    }
+                  >
                     <input
                       type="checkbox"
                       checked={!!r.autorizado}
                       disabled={readOnly || (r.esGrua && !esAdmin)}
                       onChange={() => toggleAutorizado(idx)}
-                      title={
-                        r.esGrua && !esAdmin
-                          ? "La grúa queda autorizada automáticamente; solo un administrador puede modificarla"
-                          : "Marcar como autorizado por el cliente"
-                      }
                     />
-                  </td>
+                  </label>
 
-                  <td className="text-center">{r.cant}</td>
-                  <td>
+                  <div className="pv-concepto">
                     <input
                       type="text"
-                      className="form-control form-control-sm"
+                      className="form-control"
                       value={r.concepto || ""}
                       readOnly={readOnly}
                       onChange={(e) => handleUpdatePres(idx, "concepto", e.target.value)}
                     />
-                  </td>
-                  <td>
-                    {r.esServicio ? (
-                      <>
-                        <span className="badge bg-info text-dark">SERVICIO</span>
-                        {hijos.length > 0 && (
-                          <button
-                            type="button"
-                            className="btn btn-link btn-sm p-0 ms-2"
-                            onClick={() =>
-                              setExpandedGroups((prev) => ({
-                                ...prev,
-                                [grupoId]: !prev[grupoId],
-                              }))
-                            }
-                          >
-                            {expandido
-                              ? "▲ Ocultar refacciones"
-                              : `▼ Ver refacciones (${hijos.length})`}
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      r.refaccion
-                    )}
-                  </td>
-                  <td className="text-center">{r.tipo}</td>
-                  <td>{r.marca}</td>
-                  <td>{r.codigo}</td>
-                  <td>{r.proveedor}</td>
-                  <td>{r.tiempoEntrega}</td>
-                  <td className="text-end">{formatMoney(r.precioCompra)}</td>
-                  <td className="text-center">{r.moneda || "MN"}</td>
-                  <td className="text-end">
-                    {(r.moneda || "MN") === "USD"
-                      ? Number(r.tipoCambio || 0).toFixed(4)
-                      : "-"}
-                  </td>
-                  <td className="text-center">{r.horasMO}</td>
+                    <div className="pv-resumen">
+                      {r.esServicio && <span className="badge rq-badge-sv me-2">SERVICIO</span>}
+                      {r.esGrua && <span className="badge bg-secondary me-2">GRÚA</span>}
+                      {hijos.length > 0 && <span>{hijos.length} refacción(es) incluida(s)</span>}
+                      {!r.esServicio && resumen}
+                    </div>
+                  </div>
 
-                  {/* Precio Venta editable inline */}
-                  <td className="text-end">
+                  <div className="pv-cant">
+                    <span className="pv-label">Cant.</span>
+                    {r.cant}
+                  </div>
+
+                  <div className="pv-precio">
+                    <span className="pv-label">Precio venta (sin IVA)</span>
                     <input
                       type="number"
-                      className="form-control form-control-sm text-end"
-                      style={{ minWidth: 90 }}
+                      inputMode="decimal"
+                      className="form-control text-end"
                       value={r.precioVenta}
                       readOnly={readOnly}
-                      onChange={(e) =>
-                        handleUpdatePres(idx, "precioVenta", e.target.value)
-                      }
+                      onChange={(e) => handleUpdatePres(idx, "precioVenta", e.target.value)}
                     />
-                  </td>
+                  </div>
 
-                  <td className="text-end fw-bold bg-light">
-                    {formatMoney(
-                      Number(r.cant || 0) * Number(r.precioVenta || 0)
+                  <div className="pv-importe">
+                    <span className="pv-label">Importe</span>
+                    {formatMoney(importe)}
+                  </div>
+
+                  <div className="pv-acc">
+                    <button
+                      type="button"
+                      className="btn pv-btn pv-btn-detalle"
+                      onClick={() => setExpandedGroups((p) => ({ ...p, [idx]: !p[idx] }))}
+                    >
+                      {abierto ? "▲ Detalles" : "▼ Detalles"}
+                    </button>
+                    {!readOnly && (!r.esGrua || esAdmin) && (
+                      <button
+                        type="button"
+                        className="btn pv-btn btn-outline-danger"
+                        disabled={noSePuedeBorrar(r)}
+                        title={
+                          noSePuedeBorrar(r)
+                            ? "Ya está surtida o autorizada y enviada a Venta; no se puede eliminar"
+                            : undefined
+                        }
+                        onClick={() => removePresRow(idx)}
+                      >
+                        Borrar
+                      </button>
                     )}
-                  </td>
+                  </div>
+                </div>
 
-                  <td>
+                {abierto && (
+                  <div className="pv-detalle">
+                    {!r.esServicio && (
+                      <div className="pv-datos">
+                        {r.refaccion && <span>Refacción: <b>{r.refaccion}</b></span>}
+                        {r.tipo && <span>Tipo: <b>{r.tipo}</b></span>}
+                        {r.marca && <span>Marca: <b>{r.marca}</b></span>}
+                        {r.codigo && <span>Código: <b>{r.codigo}</b></span>}
+                        {r.proveedor && <span>Proveedor: <b>{r.proveedor}</b></span>}
+                        {r.tiempoEntrega && <span>Entrega: <b>{r.tiempoEntrega}</b></span>}
+                        <span>
+                          Precio compra: <b>{formatMoney(r.precioCompra)}</b> {r.moneda || "MN"}
+                          {(r.moneda || "MN") === "USD" && ` (TC ${Number(r.tipoCambio || 0).toFixed(4)})`}
+                        </span>
+                        {Number(r.horasMO) > 0 && <span>M.O.: <b>{r.horasMO} h</b></span>}
+                      </div>
+                    )}
+
+                    {hijos.length > 0 && (
+                      <div className="mb-2">
+                        <div className="fw-semibold mb-1">Refacciones del servicio</div>
+                        {hijos.map(({ row: hijo, i: hijoIdx }) => (
+                          <div className="pv-hijo" key={hijoIdx}>
+                            <div>
+                              {hijo.cant} × <b>{hijo.concepto || hijo.refaccion}</b>
+                              {hijo.obligatoria === false && (
+                                <span className="badge bg-secondary ms-1">Opcional</span>
+                              )}
+                              {hijo.surtida && <span className="badge bg-success ms-2">Surtida</span>}
+                            </div>
+                            <div className="pv-resumen">
+                              {[hijo.tipo, hijo.marca, hijo.codigo, hijo.proveedor].filter(Boolean).join(" · ")}
+                              {Number(hijo.precioCompra) > 0 && ` · Compra ${formatMoney(hijo.precioCompra)}`}
+                              {hijo.observInt && ` · ${hijo.observInt}`}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <span className="pv-label">Observaciones internas</span>
                     <input
                       type="text"
-                      className="form-control form-control-sm"
+                      className="form-control"
                       value={r.observInt || ""}
                       readOnly={readOnly}
-                      onChange={(e) =>
-                        handleUpdatePres(idx, "observInt", e.target.value)
-                      }
+                      onChange={(e) => handleUpdatePres(idx, "observInt", e.target.value)}
                     />
-                  </td>
-
-                  {!readOnly && (
-                    <td className="text-center">
-                      {(!r.esGrua || esAdmin) && (
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-danger"
-                          disabled={noSePuedeBorrar(r)}
-                          title={
-                            noSePuedeBorrar(r)
-                              ? "Ya está surtida o autorizada y enviada a Venta; no se puede eliminar"
-                              : undefined
-                          }
-                          onClick={() => removePresRow(idx)}
-                        >
-                          Borrar
-                        </button>
-                      )}
-                    </td>
-                  )}
-                </tr>
-
-                {grupoId && expandido && hijos.map(({ row: hijo, i: hijoIdx }) => (
-                  <tr key={hijoIdx} className="table-light">
-                    <td></td>
-                    <td className="text-center text-muted">
-                      <small>{hijo.cant}</small>
-                    </td>
-                    <td colSpan={2} className="text-muted">
-                      <small>
-                        ↳ {hijo.concepto || hijo.refaccion}
-                        {hijo.obligatoria === false && (
-                          <span className="badge bg-secondary ms-1">Opcional</span>
-                        )}
-                      </small>
-                    </td>
-                    <td colSpan={11}></td>
-                    <td className="text-muted">
-                      <small>{hijo.observInt}</small>
-                    </td>
-                    <td></td>
-                  </tr>
-                ))}
-                </React.Fragment>
-                );
-              })}
-
-              {/* Fila de captura manual */}
-              {!readOnly && <tr className="table-info">
-                <td></td>
-                <td>
-                  <input
-                    type="number"
-                    className="form-control form-control-sm"
-                    value={newPresLine.cant}
-                    onChange={(e) =>
-                      setNewPresLine({ ...newPresLine, cant: e.target.value })
-                    }
-                  />
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
-                    value={newPresLine.concepto}
-                    onChange={(e) =>
-                      setNewPresLine({ ...newPresLine, concepto: e.target.value })
-                    }
-                  />
-                  <div className="form-check mt-1 mb-0">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      id="newPresEsServicio"
-                      checked={!!newPresLine.esServicio}
-                      onChange={(e) =>
-                        setNewPresLine({ ...newPresLine, esServicio: e.target.checked })
-                      }
-                    />
-                    <label
-                      className="form-check-label small text-muted"
-                      htmlFor="newPresEsServicio"
-                    >
-                      Servicio (no requiere surtido)
-                    </label>
                   </div>
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
-                    value={newPresLine.refaccion}
-                    onChange={(e) =>
-                      setNewPresLine({ ...newPresLine, refaccion: e.target.value })
-                    }
-                  />
-                </td>
-                <td>
-                  <Dropdown
-                    className="form-select-sm"
-                    value={newPresLine.tipo}
-                    onChange={(e) =>
-                      setNewPresLine({ ...newPresLine, tipo: e.target.value })
-                    }
-                  >
-                    <Dropdown.Option value="">Sel...</Dropdown.Option>
-                    <Dropdown.Option value="Original">Original</Dropdown.Option>
-                    <Dropdown.Option value="Alterna">Alterna</Dropdown.Option>
-                  </Dropdown>
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
-                    value={newPresLine.marca}
-                    onChange={(e) =>
-                      setNewPresLine({ ...newPresLine, marca: e.target.value })
-                    }
-                  />
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
-                    value={newPresLine.codigo}
-                    onChange={(e) =>
-                      setNewPresLine({ ...newPresLine, codigo: e.target.value })
-                    }
-                  />
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
-                    value={newPresLine.proveedor}
-                    onChange={(e) =>
-                      setNewPresLine({ ...newPresLine, proveedor: e.target.value })
-                    }
-                  />
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
-                    value={newPresLine.tiempoEntrega}
-                    onChange={(e) =>
-                      setNewPresLine({ ...newPresLine, tiempoEntrega: e.target.value })
-                    }
-                  />
-                </td>
-                <td>
-                  <input
-                    type="number"
-                    className="form-control form-control-sm"
-                    value={newPresLine.precioCompra}
-                    onChange={(e) =>
-                      setNewPresLine({ ...newPresLine, precioCompra: e.target.value })
-                    }
-                  />
-                </td>
-                <td>
-                  <Dropdown
-                    className="form-select-sm"
-                    value={newPresLine.moneda || "MN"}
-                    onChange={(e) => {
-                      const moneda = e.target.value;
-                      setNewPresLine({
-                        ...newPresLine,
-                        moneda,
-                        tipoCambio: moneda === "USD" ? (tipoCambioConfig ? String(tipoCambioConfig) : "") : "",
-                      });
-                    }}
-                  >
-                    <Dropdown.Option value="MN">MN</Dropdown.Option>
-                    <Dropdown.Option value="USD">USD</Dropdown.Option>
-                  </Dropdown>
-                </td>
-                <td>
-                  {(newPresLine.moneda || "MN") === "USD" ? (
-                    <>
-                      <input
-                        type="number"
-                        className="form-control form-control-sm"
-                        value={newPresLine.tipoCambio || ""}
-                        disabled
-                        readOnly
-                        title="Se toma del tipo de cambio definido en Configuración"
-                      />
-                      {!cargandoTipoCambio && !tipoCambioConfig && (
-                        <small className="text-danger d-block">Sin configurar</small>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-muted">-</span>
-                  )}
-                </td>
-                
-                <td>
-                  <input
-                    type="number"
-                    className="form-control form-control-sm"
-                    value={newPresLine.horasMO}
-                    onChange={(e) =>
-                      setNewPresLine({ ...newPresLine, horasMO: e.target.value })
-                    }
-                  />
-                </td>
-                <td>
-                  <input
-                    type="number"
-                    className="form-control form-control-sm"
-                    value={newPresLine.precioVenta}
-                    onChange={(e) =>
-                      setNewPresLine({ ...newPresLine, precioVenta: e.target.value })
-                    }
-                  />
-                </td>
-                <td className="bg-info-subtle"></td>
-                <td>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
-                    value={newPresLine.observInt}
-                    onChange={(e) =>
-                      setNewPresLine({ ...newPresLine, observInt: e.target.value })
-                    }
-                  />
-                </td>
-                <td className="text-center">
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-danger fw-bold w-100"
-                    onClick={addManualPresRow}
-                  >
-                    +
-                  </button>
-                </td>
-              </tr>}
-            </tbody>
+                )}
+              </div>
+            );
+          })}
+        </div>
 
-            <tfoot className="table-light">
-              <tr>
-                <td colSpan={14} className="text-end fw-bold text-uppercase">
-                  Subtotal:
-                </td>
-                <td className="text-end fw-bold" style={{ fontSize: "1.05rem" }}>
-                  {formatMoney(totalPresupuesto)}
-                </td>
-                <td colSpan={2}></td>
-              </tr>
-              <tr>
-                <td colSpan={14} className="text-end fw-bold text-uppercase">
-                  <span className="me-2">IVA</span>
-                  <input
-                    type="number"
-                    className="form-control form-control-sm d-inline-block text-end"
-                    style={{ width: 70 }}
-                    value={ivaPresupuesto}
-                    readOnly={readOnly}
-                    onChange={(e) => setIvaPresupuesto(e.target.value)}
-                  />
-                  <span className="ms-1">%:</span>
-                </td>
-                <td className="text-end fw-bold">
-                  {formatMoney(ivaMontoPresupuesto)}
-                </td>
-                <td colSpan={2}></td>
-              </tr>
-              <tr>
-                <td colSpan={14} className="text-end fw-bold text-uppercase">
-                  Total:
-                </td>
-                <td className="text-end fw-bold text-white bg-primary" style={{ fontSize: "1.1rem" }}>
-                  {formatMoney(totalConIvaPresupuesto)}
-                </td>
-                <td colSpan={2}></td>
-              </tr>
-            </tfoot>
-          </table>
+        <div className="pv-totales">
+          <div><span>Subtotal</span><b>{formatMoney(totalPresupuesto)}</b></div>
+          <div>
+            <span>
+              IVA{" "}
+              <input
+                type="number"
+                inputMode="decimal"
+                className="form-control form-control-sm pv-iva"
+                value={ivaPresupuesto}
+                readOnly={readOnly}
+                onChange={(e) => setIvaPresupuesto(e.target.value)}
+              />{" "}
+              %
+            </span>
+            <b>{formatMoney(ivaMontoPresupuesto)}</b>
+          </div>
+          <div className="pv-total"><span>Total</span><span>{formatMoney(totalConIvaPresupuesto)}</span></div>
         </div>
 
         {/* Botones Presupuesto */}
@@ -1538,226 +1209,212 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         {/* ===== VENTA AL CLIENTE ===== */}
         <h5 ref={ventaSectionRef} className="text-center mb-2 fw-bold">VENTA AL CLIENTE (CIERRE DE ORDEN)</h5>
 
-        {/* Fila de captura venta */}
-        {!readOnly && <div className="mb-2" style={{ overflow: "visible" }}>
-          <table className="table table-bordered table-sm align-middle mb-0" style={{ overflow: "visible" }}>
-            <thead className="table-light text-center">
-              <tr>
-                <th style={{ width: 70 }}>Cantidad</th>
-                {requiereFactura && <th>Servicio (BD Códigos)</th>}
-                <th>Concepto, Servicio y/o Reparación</th>
-                <th style={{ width: 140 }}>Precio Venta (Sin IVA)</th>
-                <th>Observaciones</th>
-                <th style={{ width: 70 }}>Acción</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>
+        {/* Captura de partida de venta */}
+        {!readOnly && (
+          <div className="pv-nuevo">
+            <div className="fw-bold mb-2">Agregar partida de venta</div>
+            <div className="row g-2">
+              {requiereFactura && (
+                <div className="col-12" ref={serviciosDropdownRef} style={{ position: "relative" }}>
+                  <label className="pv-label">Servicio (BD Códigos)</label>
                   <input
-                    type="number"
-                    className="form-control form-control-sm"
-                    name="cant"
-                    value={ventaLine.cant}
-                    onChange={handleVentaLineChange}
+                    className="form-control"
+                    placeholder="Buscar por código, descripción o SAT..."
+                    value={servicioSearch}
+                    onFocus={() => setShowServiciosDropdown(true)}
+                    onChange={(e) => {
+                      setServicioSearch(e.target.value);
+                      setShowServiciosDropdown(true);
+                    }}
                   />
-                </td>
-
-                {requiereFactura && (
-                  <td ref={serviciosDropdownRef} style={{ minWidth: 400, position: "relative" }}>
-                    <input
-                      className="form-control form-control-sm"
-                      placeholder="Buscar por código, descripción o SAT..."
-                      value={servicioSearch}
-                      onFocus={() => setShowServiciosDropdown(true)}
-                      onChange={(e) => {
-                        setServicioSearch(e.target.value);
-                        setShowServiciosDropdown(true);
-                      }}
-                    />
-                    {showServiciosDropdown && (
-                      <div
-                        className="border bg-white shadow-sm"
-                        style={{
-                          position: "absolute",
-                          zIndex: 9999,
-                          top: 31,
-                          left: 0,
-                          right: 0,
-                          maxHeight: 170,
-                          overflowY: "auto",
-                          fontSize: 12,
-                        }}
-                      >
-                        {serviciosFiltrados.length === 0 && (
-                          <div className="px-2 py-2 text-muted">Sin resultados.</div>
-                        )}
-                        {serviciosFiltrados.map((srv) => (
-                          <button
-                            key={srv._id}
-                            type="button"
-                            className="btn btn-link w-100 text-decoration-none px-2 py-1 text-start"
-                            style={{ fontSize: 12 }}
-                            onClick={() => seleccionarServicioVenta(srv)}
-                          >
-                            <span className="fw-semibold text-primary">
-                              {srv.codigo} - {srv.descripcion}
-                            </span>
-                            <span className="text-muted ms-2">
-                              SAT: {srv.codigoSat || "-"} - {srv.descripcionSat || "-"}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </td>
-                )}
-
-                <td>
+                  {showServiciosDropdown && (
+                    <div className="pv-sugerencias">
+                      {serviciosFiltrados.length === 0 && (
+                        <div className="px-2 py-2 text-muted">Sin resultados.</div>
+                      )}
+                      {serviciosFiltrados.map((srv) => (
+                        <button
+                          key={srv._id}
+                          type="button"
+                          className="btn btn-link w-100 text-decoration-none px-2 py-2 text-start"
+                          style={{ fontSize: 13 }}
+                          onClick={() => seleccionarServicioVenta(srv)}
+                        >
+                          <span className="fw-semibold text-primary">
+                            {srv.codigo} - {srv.descripcion}
+                          </span>
+                          <span className="text-muted ms-2">
+                            SAT: {srv.codigoSat || "-"} - {srv.descripcionSat || "-"}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="col-4 col-md-2">
+                <label className="pv-label">Cantidad</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  className="form-control"
+                  name="cant"
+                  value={ventaLine.cant}
+                  onChange={handleVentaLineChange}
+                />
+              </div>
+              <div className="col-12 col-md-5 order-md-0">
+                <label className="pv-label">Concepto, servicio y/o reparación</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  name="concepto"
+                  value={ventaLine.concepto}
+                  onChange={handleVentaLineChange}
+                />
+              </div>
+              <div className="col-8 col-md-3">
+                <label className="pv-label">Precio venta (sin IVA)</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  className="form-control"
+                  name="precioVenta"
+                  value={ventaLine.precioVenta}
+                  onChange={handleVentaLineChange}
+                />
+              </div>
+              <div className="col-12 col-md-2 d-grid align-items-end">
+                <button type="button" className="btn pv-btn-agregar" onClick={addVentaRow}>
+                  + Agregar
+                </button>
+              </div>
+              {ventaMas && (
+                <div className="col-12">
+                  <label className="pv-label">Observaciones</label>
                   <input
                     type="text"
-                    className="form-control form-control-sm"
-                    name="concepto"
-                    value={ventaLine.concepto}
-                    onChange={handleVentaLineChange}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="form-control form-control-sm"
-                    name="precioVenta"
-                    value={ventaLine.precioVenta}
-                    onChange={handleVentaLineChange}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    className="form-control form-control-sm"
+                    className="form-control"
                     name="observaciones"
                     value={ventaLine.observaciones}
                     onChange={handleVentaLineChange}
                   />
-                </td>
-                <td className="text-center">
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-primary"
-                    onClick={addVentaRow}
-                  >
-                    +
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              className="btn btn-link btn-sm px-0 mt-1"
+              onClick={() => setVentaMas((v) => !v)}
+            >
+              {ventaMas ? "▲ Ocultar observaciones" : "▼ Agregar observaciones"}
+            </button>
+          </div>
+        )}
 
         {/* Lista venta al cliente */}
-        <div className="table-responsive mb-3">
-          <table className="table table-bordered table-sm align-middle">
-            <thead className="table-light text-center">
-              <tr>
-                <th style={{ width: 70 }}>Cantidad</th>
-                <th>Concepto, Servicio y/o Reparación</th>
-                <th style={{ width: 160 }}>Precio Venta (Sin IVA)</th>
-                <th>Observaciones</th>
-                {!readOnly && <th style={{ width: 80 }}>Acción</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {ventaRows.length === 0 && (
-                <tr>
-                  <td colSpan={readOnly ? 4 : 5} className="text-center text-muted">
-                    No hay partidas de venta al cliente.
-                  </td>
-                </tr>
-              )}
+        <div className="pv-lista">
+          {ventaRows.length === 0 && (
+            <div className="text-center text-muted py-3">No hay partidas de venta al cliente.</div>
+          )}
 
-              {ventaRows.map((r, idx) => (
-                <tr key={idx}>
-                  <td className="text-center">
+          {ventaRows.map((r, idx) => {
+            const obsAbierta = !!ventaObsAbierta[idx];
+            return (
+              <div className="pv-card" key={idx}>
+                <div className="pv-fila pv-venta">
+                  <div className="pv-cant">
+                    <span className="pv-label">Cant.</span>
                     <input
                       type="number"
-                      className="form-control form-control-sm text-center"
+                      inputMode="decimal"
+                      className="form-control text-center"
                       value={r.cant ?? ""}
                       readOnly={readOnly}
                       onChange={(e) => handleUpdateVentaRow(idx, "cant", e.target.value)}
                     />
-                  </td>
-                  <td>
+                  </div>
+                  <div className="pv-concepto">
+                    <span className="pv-label">Concepto</span>
                     <input
                       type="text"
-                      className="form-control form-control-sm"
+                      className="form-control"
                       value={r.concepto ?? ""}
                       readOnly={readOnly}
                       onChange={(e) => handleUpdateVentaRow(idx, "concepto", e.target.value)}
                     />
-                  </td>
-                  <td>
+                  </div>
+                  <div className="pv-precio">
+                    <span className="pv-label">Precio venta (sin IVA)</span>
                     <input
                       type="number"
+                      inputMode="decimal"
                       step="0.01"
-                      className="form-control form-control-sm text-end"
+                      className="form-control text-end"
                       value={r.precioVenta ?? ""}
                       readOnly={readOnly}
                       onChange={(e) => handleUpdateVentaRow(idx, "precioVenta", e.target.value)}
                     />
-                  </td>
-                  <td>
-                    <input
-                      type="text"
-                      className="form-control form-control-sm"
-                      value={r.observaciones || ""}
-                      readOnly={readOnly}
-                      onChange={(e) => handleUpdateVentaRow(idx, "observaciones", e.target.value)}
-                    />
-                  </td>
-                  {!readOnly && (
-                    <td className="text-center">
+                  </div>
+                  <div className="pv-importe">
+                    <span className="pv-label">Importe</span>
+                    {formatMoney(Number(r.cant || 0) * Number(r.precioVenta || 0))}
+                  </div>
+                  <div className="pv-acc">
+                    <button
+                      type="button"
+                      className="btn pv-btn pv-btn-detalle"
+                      onClick={() => setVentaObsAbierta((p) => ({ ...p, [idx]: !p[idx] }))}
+                    >
+                      Obs.{r.observaciones ? " •" : ""}
+                    </button>
+                    {!readOnly && (
                       <button
                         type="button"
-                        className="btn btn-sm btn-danger"
+                        className="btn pv-btn btn-outline-danger"
                         onClick={() => removeVentaRow(idx)}
                       >
                         Borrar
                       </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colSpan={2} className="text-end fw-bold">Sub Total:</td>
-                <td className="text-end fw-bold">{formatMoney(totalVentaCliente)}</td>
-                <td colSpan={readOnly ? 1 : 2}></td>
-              </tr>
-              <tr>
-                <td colSpan={2} className="text-end fw-bold">
-                  <span className="me-2">IVA</span>
-                  <input
-                    type="number"
-                    className="form-control form-control-sm d-inline-block text-end"
-                    style={{ width: 70 }}
-                    value={ivaVenta}
-                    readOnly={readOnly}
-                    onChange={(e) => setIvaVenta(e.target.value)}
-                  />
-                  <span className="ms-1">%:</span>
-                </td>
-                <td className="text-end fw-bold">{formatMoney(ivaMontoVenta)}</td>
-                <td colSpan={readOnly ? 1 : 2}></td>
-              </tr>
-              <tr>
-                <td colSpan={2} className="text-end fw-bold">Total:</td>
-                <td className="text-end fw-bold text-white bg-primary">{formatMoney(totalConIvaVenta)}</td>
-                <td colSpan={readOnly ? 1 : 2}></td>
-              </tr>
-            </tfoot>
-          </table>
+                    )}
+                  </div>
+                </div>
+                {obsAbierta && (
+                  <div className="pv-detalle">
+                    <span className="pv-label">Observaciones</span>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={r.observaciones || ""}
+                      readOnly={readOnly}
+                      onChange={(e) => handleUpdateVentaRow(idx, "observaciones", e.target.value)}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="pv-totales">
+          <div><span>Sub total</span><b>{formatMoney(totalVentaCliente)}</b></div>
+          <div>
+            <span>
+              IVA{" "}
+              <input
+                type="number"
+                inputMode="decimal"
+                className="form-control form-control-sm pv-iva"
+                value={ivaVenta}
+                readOnly={readOnly}
+                onChange={(e) => setIvaVenta(e.target.value)}
+              />{" "}
+              %
+            </span>
+            <b>{formatMoney(ivaMontoVenta)}</b>
+          </div>
+          <div className="pv-total"><span>Total</span><span>{formatMoney(totalConIvaVenta)}</span></div>
         </div>
 
         {/* Botón "Imprimir Venta Cliente" oculto temporalmente:
@@ -1766,262 +1423,127 @@ export default function VehiculoPresupuestoVenta({ orden, onSaved, onGoPreparaci
         {/* ===== MANO DE OBRA ===== */}
         <h5 ref={manoObraSectionRef} className="text-center mb-2 fw-bold">MANO DE OBRA</h5>
 
-        {!readOnly && (
-          <div className="card border-primary mb-3">
-            <div className="card-header bg-primary text-white fw-semibold">
-              Asignar servicio(s) a un mecánico / carrocero
-            </div>
-            <div className="card-body">
-              {serviciosParaManoObra.length === 0 ? (
-                <p className="text-muted mb-0">
-                  No hay partidas en Venta al Cliente (Cierre de Orden) todavía.
-                  Agrega o envía partidas autorizadas desde el Presupuesto para
-                  poder asignarles mano de obra.
-                </p>
-              ) : (
-                <>
-                  <div className="table-responsive mb-3">
-                    <table className="table table-sm table-bordered align-middle mb-0">
-                      <thead className="table-light">
-                        <tr>
-                          <th style={{ width: "40px" }}></th>
-                          <th>Servicio</th>
-                          <th className="text-end">Precio Venta</th>
-                          <th className="text-center" style={{ width: "190px" }}>¿Lleva mano de obra?</th>
-                          <th className="text-center" style={{ width: "90px" }}>Técnicos</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {serviciosParaManoObra.map((p) => (
-                          <tr key={p._idx}>
-                            <td className="text-center">
-                              <input
-                                type="checkbox"
-                                checked={!!serviciosMoSeleccionados[p._idx]}
-                                disabled={p.llevaManoObra !== true}
-                                title={p.llevaManoObra !== true ? "Marca primero que lleva mano de obra" : ""}
-                                onChange={() => toggleServicioMo(p._idx)}
-                              />
-                            </td>
-                            <td>{nombreServicioPresupuesto(p)}</td>
-                            <td className="text-end">{formatMoney(p.precioVenta)}</td>
-                            <td className={`text-center ${typeof p.llevaManoObra !== "boolean" ? "table-warning" : ""}`}>
-                              <div className="form-check form-check-inline">
-                                <input
-                                  className="form-check-input"
-                                  type="radio"
-                                  id={`lmo-si-${p._idx}`}
-                                  name={`lmo-${p._idx}`}
-                                  checked={p.llevaManoObra === true}
-                                  onChange={() => setLlevaManoObra(p._idx, true)}
-                                />
-                                <label className="form-check-label" htmlFor={`lmo-si-${p._idx}`}>Sí</label>
-                              </div>
-                              <div className="form-check form-check-inline">
-                                <input
-                                  className="form-check-input"
-                                  type="radio"
-                                  id={`lmo-no-${p._idx}`}
-                                  name={`lmo-${p._idx}`}
-                                  checked={p.llevaManoObra === false}
-                                  onChange={() => setLlevaManoObra(p._idx, false)}
-                                />
-                                <label className="form-check-label" htmlFor={`lmo-no-${p._idx}`}>No</label>
-                              </div>
-                            </td>
-                            <td className="text-center">
-                              {p.llevaManoObra === true ? (
-                                tecnicosDeServicio(p.concepto) > 0 ? (
-                                  <span className="badge bg-success">{tecnicosDeServicio(p.concepto)}</span>
-                                ) : (
-                                  <span className="badge bg-danger">Falta</span>
-                                )
-                              ) : (
-                                "—"
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="row g-2 align-items-end">
-                    <div className="col-md-2">
-                      <label className="form-label form-label-sm mb-1">Asignar a</label>
-                      <Dropdown
-                        className="form-select-sm"
-                        value={moTipo}
-                        onChange={(e) => {
-                          setMoTipo(e.target.value);
-                          setMoAsignado("");
-                        }}
-                      >
-                        <Dropdown.Option value="mecanico">Mecánico</Dropdown.Option>
-                        <Dropdown.Option value="carrocero">Carrocero</Dropdown.Option>
-                      </Dropdown>
-                    </div>
-                    <div className="col-md-3">
-                      <label className="form-label form-label-sm mb-1">
-                        {moTipo === "carrocero" ? "Carrocero" : "Mecánico"}
-                      </label>
-                      <Dropdown
-                        className="form-select-sm"
-                        value={moAsignado}
-                        onChange={(e) => setMoAsignado(e.target.value)}
-                      >
-                        <Dropdown.Option value="">-- Seleccionar --</Dropdown.Option>
-                        {(moTipo === "carrocero" ? carroceros : mecanicos).map((e) => (
-                          <Dropdown.Option key={e._id} value={e._id}>{e.nombre}</Dropdown.Option>
-                        ))}
-                      </Dropdown>
-                    </div>
-                    <div className="col-md-2">
-                      <label className="form-label form-label-sm mb-1">Horas</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        className="form-control form-control-sm"
-                        placeholder="Según presupuesto"
-                        title="Deja en blanco para usar las horas ya estimadas en el presupuesto"
-                        value={moHorasOverride}
-                        onChange={(e) => setMoHorasOverride(e.target.value)}
-                      />
-                    </div>
-                    <div className="col-md-2">
-                      <label className="form-label form-label-sm mb-1">Fecha de Pago</label>
-                      <input
-                        type="date"
-                        className="form-control form-control-sm"
-                        value={moFechaPago}
-                        onChange={(e) => setMoFechaPago(e.target.value)}
-                      />
-                    </div>
-                    <div className="col-md-3 text-end">
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm px-4"
-                        onClick={agregarAsignacionMano}
-                        disabled={guardandoMo}
-                      >
-                        {guardandoMo ? "Guardando..." : "+ Agregar asignación"}
-                      </button>
-                    </div>
-                  </div>
-                </>
+        <div className={`pv-card mb-2 ${llevaMO === null ? "border-danger" : ""}`}>
+          <div className="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+              <div className="fw-bold">¿Esta orden lleva mano de obra?</div>
+              {llevaMO === null && (
+                <div className="small text-danger">Pendiente de definir (obligatorio para guardar la orden)</div>
               )}
+            </div>
+            <div className="btn-group" role="group">
+              <button
+                type="button"
+                className={`btn ${llevaMO === true ? "pv-btn-detalle fw-bold" : "btn-outline-secondary"}`}
+                style={{ minHeight: 44, minWidth: 90 }}
+                disabled={readOnly || guardandoMo}
+                onClick={() => (llevaMO === true ? setMoModal({ idx: null }) : decidirLlevaMO(true))}
+              >
+                Sí
+              </button>
+              <button
+                type="button"
+                className={`btn ${llevaMO === false ? "pv-btn-detalle fw-bold" : "btn-outline-secondary"}`}
+                style={{ minHeight: 44, minWidth: 90 }}
+                disabled={readOnly || guardandoMo}
+                onClick={() => decidirLlevaMO(false)}
+              >
+                No
+              </button>
             </div>
           </div>
-        )}
 
-        <div className="table-responsive mb-4">
-          <table className="table table-bordered table-sm align-middle">
-            <thead className="table-light text-center">
-              <tr>
-                <th>Reparación y/o Servicio</th>
-                <th>Mecánico / Carrocero</th>
-                <th>Horas</th>
-                <th>Horas Anticipadas</th>
-                <th>Horas Pendientes</th>
-                <th>Total x Horas ({formatMoney(TARIFA_HORA)} / hora)</th>
-                <th>Fecha de Pago</th>
-                <th>Observaciones</th>
-                {!readOnly && <th style={{ width: "70px" }}>Acción</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {moRows.length === 0 ? (
-                <tr>
-                  <td colSpan={readOnly ? 8 : 9} className="text-center text-muted">
-                    No hay registros de mano de obra.
-                  </td>
-                </tr>
-              ) : (
-                moRows.map((m, idx) => {
-                  const horas = Number(m.horas) || 0;
-                  const horasAnticipadas = Math.min(horas, Number(m.horasAnticipadas) || 0);
-                  const horasPendientes = Math.max(0, horas - horasAnticipadas);
-                  const bloqueadoPorFiscal = tieneComprobanteFiscal(orden.pagos);
-                  return (
-                  <tr key={idx}>
-                    <td>{m.concepto}</td>
-                    <td className="text-center">{nombreManoObra(m)}</td>
-                    <td className="text-center" style={{ maxWidth: "90px" }}>
-                      {readOnly ? (
-                        m.horas
-                      ) : (
-                        <input
-                          type="number"
-                          step="0.1"
-                          className="form-control form-control-sm text-center"
-                          value={m.horas}
-                          onChange={(e) => handleUpdateMo(idx, "horas", e.target.value)}
-                        />
-                      )}
-                    </td>
-                    <td className="text-center" style={{ maxWidth: "90px" }}>
-                      {readOnly ? (
-                        horasAnticipadas
-                      ) : (
-                        <input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          max={horas}
-                          className="form-control form-control-sm text-center"
-                          value={m.horasAnticipadas || 0}
-                          disabled={guardandoMo || bloqueadoPorFiscal}
-                          title={bloqueadoPorFiscal ? "No se puede anticipar: esta orden ya tiene una Remisión o Nota de Venta registrada." : ""}
-                          onChange={(e) => handleUpdateMo(idx, "horasAnticipadas", e.target.value)}
-                          onBlur={() => handleBlurHorasAnticipadas(idx)}
-                        />
-                      )}
-                    </td>
-                    <td className="text-center">{horasPendientes}</td>
-                    <td className="text-center fw-bold">{formatMoney(calcImporteHoras(m.horas))}</td>
-                    <td className="text-center" style={{ maxWidth: "140px" }}>
-                      {readOnly ? (
-                        formatFecha(m.fechaPago)
-                      ) : (
-                        <input
-                          type="date"
-                          className="form-control form-control-sm"
-                          value={m.fechaPago || ""}
-                          onChange={(e) => handleUpdateMo(idx, "fechaPago", e.target.value)}
-                        />
-                      )}
-                    </td>
-                    <td>
-                      {readOnly ? (
-                        m.observaciones
-                      ) : (
-                        <input
-                          type="text"
-                          className="form-control form-control-sm"
-                          value={m.observaciones || ""}
-                          onChange={(e) => handleUpdateMo(idx, "observaciones", e.target.value)}
-                        />
-                      )}
-                    </td>
-                    {!readOnly && (
-                      <td className="text-center">
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-danger"
-                          onClick={() => removeMoRow(idx)}
-                          disabled={guardandoMo}
-                        >
-                          Quitar
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+          {llevaMO === true && !readOnly && (
+            <div className="mt-2">
+              <button
+                type="button"
+                className="btn pv-btn-agregar"
+                style={{ minHeight: 44 }}
+                onClick={() => setMoModal({ idx: null })}
+              >
+                + Agregar mano de obra
+              </button>
+            </div>
+          )}
         </div>
+
+        <div className="pv-lista mb-3">
+          {moRows.length === 0 && llevaMO === true && (
+            <div className="text-center text-muted py-2">Aún no hay servicios con mano de obra asignada.</div>
+          )}
+
+          {moRows.map((m, idx) => {
+            const horas = Number(m.horas) || 0;
+            const horasAnticipadas = Math.min(horas, Number(m.horasAnticipadas) || 0);
+            const horasPendientes = Math.max(0, horas - horasAnticipadas);
+            const nombre = nombreManoObra(m);
+            return (
+              <div className="mo-card" key={idx}>
+                <div className="mo-card-top">
+                  <div>
+                    <div className="mo-titulo">{m.concepto}</div>
+                    <div className="mo-tecnico">
+                      <span className="mo-avatar">{String(nombre).trim().charAt(0).toUpperCase() || "?"}</span>
+                      <span>{nombre}</span>
+                      <span className="mo-puesto">{puestoManoObra(m)}</span>
+                    </div>
+                  </div>
+                  <div className="mo-total">
+                    <b>{formatMoney(calcImporteHoras(m.horas))}</b>
+                    <span>{formatMoney(TARIFA_HORA)} / hora</span>
+                  </div>
+                </div>
+                <div className="mo-stats">
+                  <div className="mo-stat"><span>Horas</span><b>{horas}</b></div>
+                  <div className="mo-stat"><span>Anticipadas</span><b>{horasAnticipadas}</b></div>
+                  <div className="mo-stat"><span>Pendientes</span><b>{horasPendientes}</b></div>
+                  <div className="mo-stat"><span>Fecha de pago</span><b>{formatFecha(m.fechaPago) || "—"}</b></div>
+                </div>
+                {!readOnly && (
+                  <div className="pv-acc mt-2">
+                    <button type="button" className="btn pv-btn pv-btn-detalle" disabled={guardandoMo}
+                      onClick={() => setMoModal({ idx })}>
+                      Editar
+                    </button>
+                    <button type="button" className="btn pv-btn btn-outline-danger" disabled={guardandoMo}
+                      onClick={() => removeMoRow(idx)}>
+                      Quitar
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {llevaMO === true && serviciosVentaMo.some((v) => tecnicosDeServicio(v.concepto) === 0) && (
+            <div className="small text-muted">
+              Sin técnico: {serviciosVentaMo.filter((v) => tecnicosDeServicio(v.concepto) === 0).map((v) => v.concepto).join(", ")}
+            </div>
+          )}
+        </div>
+
+        <ModalPreguntaManoObra
+          show={preguntaMo}
+          onCerrar={() => setPreguntaMo(false)}
+          onNo={async () => {
+            setPreguntaMo(false);
+            await decidirLlevaMO(false);
+          }}
+          onSi={async () => {
+            setPreguntaMo(false);
+            await decidirLlevaMO(true);
+          }}
+        />
+        <ModalManoObra
+          show={!!moModal}
+          servicios={serviciosVentaMo}
+          tecnicos={tecnicos}
+          inicial={moModal && moModal.idx !== null && moModal.idx !== undefined ? moRows[moModal.idx] : null}
+          bloqueadoAnticipo={bloqueadoAnticipoMo}
+          guardando={guardandoMo}
+          onClose={() => setMoModal(null)}
+          onGuardar={guardarAsignacionMo}
+        />
 
         {/* ===== OBSERVACIONES FINALES ===== */}
         <h5 className="text-center mb-2 fw-bold">OBSERVACIONES</h5>
