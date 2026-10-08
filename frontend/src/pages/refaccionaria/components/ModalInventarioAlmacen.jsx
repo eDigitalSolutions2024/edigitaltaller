@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import useLineaNegocio from "../../../hooks/useLineaNegocio";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 
@@ -6,18 +7,21 @@ const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 // una solicitud de taller (SolicitudTallerDetalle.jsx) como al completar el
 // detalle de una refacción de Servicio de catálogo antes de surtirla
 // (ModalCotizarSurtido.jsx).
-export default function ModalInventarioAlmacen({ onSelect, onClose }) {
+// `lineaNegocio`: línea de la orden (almacén del que se elige); sin ella, la de la ruta.
+export default function ModalInventarioAlmacen({ onSelect, onClose, lineaNegocio }) {
+  const lineaRuta = useLineaNegocio();
+  const linea = lineaNegocio === "CHIREY" ? "CHIREY" : lineaNegocio === undefined ? lineaRuta : "";
   const [items, setItems] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
 
   useEffect(() => {
-    fetch(`${API}/inventario`, { credentials: "include" })
+    fetch(`${API}/inventario${linea ? `?lineaNegocio=${linea}` : ""}`, { credentials: "include" })
       .then((r) => r.json())
       .then((j) => setItems(j?.data || []))
       .catch(() => setItems([]))
       .finally(() => setCargando(false));
-  }, []);
+  }, [linea]);
 
   const filtrados = items.filter((item) => {
     const q = busqueda.toLowerCase();

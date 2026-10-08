@@ -2,20 +2,23 @@
 const router = require('express').Router();
 const UbicacionInventario = require('../models/UbicacionInventario');
 const { proteger, requiereRol } = require('../middleware/auth');
+const { filtroInventario, normalizaLineaNegocio } = require('../utils/lineaNegocio');
 
 const escribe = [proteger, requiereRol('admin', 'refaccionario')];
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-async function nombreRepetido(nombre, excluirId) {
-  const q = { nombre: new RegExp(`^${escapeRe(nombre)}$`, 'i') };
+// Las ubicaciones son por línea de negocio (cada una tiene su propio almacén):
+// el nombre solo debe ser único dentro de la misma línea.
+async function nombreRepetido(nombre, linea, excluirId) {
+  const q = { ...filtroInventario(linea), nombre: new RegExp(`^${escapeRe(nombre)}$`, 'i') };
   if (excluirId) q._id = { $ne: excluirId };
   return !!(await UbicacionInventario.exists(q));
 }
 
 // GET /api/inventario/ubicaciones
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const data = await UbicacionInventario.find().sort({ nombre: 1 }).lean();
+    const data = await UbicacionInventario.find(filtroInventario(req.query.lineaNegocio)).sort({ nombre: 1 }).lean();
     res.json({ success: true, data });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -27,10 +30,11 @@ router.post('/', ...escribe, async (req, res) => {
   try {
     const nombre = String(req.body.nombre || '').trim();
     if (!nombre) return res.status(400).json({ success: false, message: 'El nombre es obligatorio' });
-    if (await nombreRepetido(nombre)) {
+    const lineaNegocio = normalizaLineaNegocio(req.body.lineaNegocio);
+    if (await nombreRepetido(nombre, lineaNegocio)) {
       return res.status(409).json({ success: false, message: `Ya existe una ubicación llamada "${nombre}"` });
     }
-    const data = await UbicacionInventario.create({ nombre });
+    const data = await UbicacionInventario.create({ nombre, lineaNegocio });
     res.status(201).json({ success: true, data });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -46,7 +50,7 @@ router.put('/:id', ...escribe, async (req, res) => {
     if (req.body.nombre !== undefined) {
       const nombre = String(req.body.nombre || '').trim();
       if (!nombre) return res.status(400).json({ success: false, message: 'El nombre es obligatorio' });
-      if (await nombreRepetido(nombre, ub._id)) {
+      if (await nombreRepetido(nombre, ub.lineaNegocio, ub._id)) {
         return res.status(409).json({ success: false, message: `Ya existe una ubicación llamada "${nombre}"` });
       }
       ub.nombre = nombre;

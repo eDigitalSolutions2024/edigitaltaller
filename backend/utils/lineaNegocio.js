@@ -26,9 +26,30 @@ function normalizaLineaNegocio(valor) {
 // aunque el backfill ya debería haberlos rellenado.
 const FILTRO_SERVICOMPACTO = { lineaNegocio: { $ne: 'CHIREY' } };
 
+// Filtro Mongo para INVENTARIO (entradas, salidas, ajustes, ubicaciones):
+// cada línea tiene su propio almacén, así que siempre se filtra por una de las
+// dos. Sin valor => Servicompacto (el inventario histórico, incluidos los
+// documentos viejos sin el campo).
+function filtroInventario(valor) {
+  return normalizaLineaNegocio(valor) === 'CHIREY'
+    ? { lineaNegocio: 'CHIREY' }
+    : FILTRO_SERVICOMPACTO;
+}
+
+// Filtro Mongo para REPORTES: sin valor (o desconocido) => todas las líneas
+// (comportamiento histórico); 'CHIREY' / 'SERVICOMPACTO' => solo esa.
+function filtroReporte(valor) {
+  const v = String(valor || '').toUpperCase().trim();
+  if (v === 'CHIREY') return { lineaNegocio: 'CHIREY' };
+  if (v === 'SERVICOMPACTO') return FILTRO_SERVICOMPACTO;
+  return {};
+}
+
 module.exports = {
   LINEAS_NEGOCIO,
   LINEA_DEFAULT,
   normalizaLineaNegocio,
   FILTRO_SERVICOMPACTO,
+  filtroInventario,
+  filtroReporte,
 };

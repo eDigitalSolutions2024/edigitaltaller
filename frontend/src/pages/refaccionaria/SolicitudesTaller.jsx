@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import useLineaNegocio, { paramsLinea, baseSolicitudes } from "../../hooks/useLineaNegocio";
 import { listOrdenesServicio, filtroDevueltoPor } from "../../api/vehiculos";
 import { getUser } from "../../auth";
 
 export default function SolicitudesTaller() {
   const navigate = useNavigate();
+  const linea = useLineaNegocio();
   const [ordenes, setOrdenes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -19,6 +21,7 @@ export default function SolicitudesTaller() {
       // (dueño de la orden) o las que nadie ha reclamado aún; otros roles ven todo.
       const res = await listOrdenesServicio({
         ...filtroDevueltoPor(esRefaccionario ? usuario?.name : null),
+        ...paramsLinea(linea),
         estado: "PENDIENTE_REFACCIONARIA",
         limit: 100,
       });
@@ -187,7 +190,7 @@ export default function SolicitudesTaller() {
                           type="button"
                           className="btn btn-primary btn-sm w-100"
                           onClick={() =>
-                            navigate(`/refaccionaria/solicitudes-taller/${orden._id}`)
+                            navigate(`${baseSolicitudes(linea)}/${orden._id}`)
                           }
                         >
                           Atender

@@ -2,12 +2,14 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listOrdenesServicio } from "../../api/vehiculos";
+import useLineaNegocio, { paramsLinea } from "../../hooks/useLineaNegocio";
 import { formatFecha } from "../../utils/fechas";
 
 const PAGE_SIZE = 10;
 
 export default function VehiculoConsultaCerradas() {
   const navigate = useNavigate();
+  const linea = useLineaNegocio();
 
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -23,6 +25,7 @@ export default function VehiculoConsultaCerradas() {
     try {
       setLoading(true);
       const res = await listOrdenesServicio({
+        ...paramsLinea(linea),
         estado: "CERRADA",
         searchOs: searchOs.trim(),
         search: search.trim(),

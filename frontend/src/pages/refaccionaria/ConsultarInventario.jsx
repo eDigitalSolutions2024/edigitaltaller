@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import Dropdown from "../../components/Dropdown";
 import { getUser } from "../../auth";
 import http from "../../api/http";
+import useLineaNegocio, { paramsLinea } from "../../hooks/useLineaNegocio";
 import {
   ModalUbicacionForm, ModalAsignar, ModalUbicacionDetalle,
 } from "./components/InventarioUbicacionesModales";
@@ -12,6 +13,9 @@ const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 const PAGE_SIZES = [10, 25, 50, 100];
 
 export default function ConsultarInventario() {
+  // Cada línea de negocio tiene su propio almacén: en /chirey se ve solo el de Chirey.
+  const linea = useLineaNegocio();
+  const qs = linea ? `?lineaNegocio=${linea}` : "";
   const role = getUser()?.role;
   const isAdmin = isAdminLike(role);
   const canEditUbic = isAdmin || role === "refaccionario";
@@ -51,8 +55,8 @@ export default function ConsultarInventario() {
     try {
       setLoading(true);
       const [r, ru] = await Promise.all([
-        fetch(`${API}/inventario`, { credentials: "include" }),
-        http.get("/inventario/ubicaciones").catch(() => null),
+        fetch(`${API}/inventario${qs}`, { credentials: "include" }),
+        http.get("/inventario/ubicaciones", { params: paramsLinea(linea) }).catch(() => null),
       ]);
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.message || "No se pudo cargar inventario");
@@ -141,7 +145,7 @@ export default function ConsultarInventario() {
       const r = await http.put(`/inventario/ubicaciones/${formUbic.ubic._id}`, datos);
       reemplazarUbic(r.data.data);
     } else {
-      const r = await http.post("/inventario/ubicaciones", datos);
+      const r = await http.post("/inventario/ubicaciones", { ...datos, ...paramsLinea(linea) });
       reemplazarUbic(r.data.data);
     }
     setFormUbic(null);
@@ -186,7 +190,7 @@ export default function ConsultarInventario() {
   async function cargarCompras(id) {
     setComprasLoading(true);
     try {
-      const r = await fetch(`${API}/inventario/${id}/historial`, { credentials: "include" });
+      const r = await fetch(`${API}/inventario/${id}/historial${qs}`, { credentials: "include" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.message || "Error");
       const rows = (j?.data || []).map((h, idx) => ({
@@ -210,7 +214,7 @@ export default function ConsultarInventario() {
   async function cargarUsos(id) {
     setUsosLoading(true);
     try {
-      const r = await fetch(`${API}/inventario/${id}/historial-usos`, { credentials: "include" });
+      const r = await fetch(`${API}/inventario/${id}/historial-usos${qs}`, { credentials: "include" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.message || "Error");
       setUsosRows(j?.data || []);
@@ -242,6 +246,7 @@ export default function ConsultarInventario() {
         unidad:        ajusteItem.unidad,
         cantidad:      qty,
         motivo:        ajusteMotivo,
+        ...paramsLinea(linea),
       });
       setShowAjuste(false);
       await cargar();

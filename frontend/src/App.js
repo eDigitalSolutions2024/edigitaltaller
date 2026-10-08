@@ -82,6 +82,7 @@ import ReporteGarantias from "./pages/auditoria/ReporteGarantias";
 
 // Reporte de Cajas (Reportes)
 import ReporteCajasIngresos from "./pages/reportes/cajas/ReporteCajasIngresos";
+import ReportePendientesFactura from "./pages/reportes/cajas/ReportePendientesFactura";
 
 // Recursos Humanos (Reportes)
 import RhLayout from "./pages/reportes/rh/RhLayout";
@@ -106,6 +107,11 @@ import CajasBuscarOrden from "./pages/cajas/CajasBuscarOrden";
 import CajaOrdenDetalle from "./pages/cajas/CajaOrdenDetalle";
 import GestionCaja from "./pages/cajas/GestionCaja";
 import CajasAnticipos from "./pages/cajas/CajasAnticipos";
+
+// Chirey (órdenes, inventario y reportes propios de la línea Chirey)
+import ChireyLayout from "./pages/chirey/ChireyLayout";
+import ChireyDashboard from "./pages/chirey/ChireyDashboard";
+import ChireyReportesLayout from "./pages/chirey/ChireyReportesLayout";
 
 // Facturación
 import FacturacionLayout from "./pages/facturacion/FacturacionLayout";
@@ -281,6 +287,40 @@ export default function App() {
             <Route path="garantias" element={<VehiculosConsultaGarantias />} />
             <Route path="garaje" element={<GarageAdminPage />} />
             <Route path="orden/:id" element={<VehiculoOrdenDetalle />} />
+          </Route>
+
+          {/* Chirey: mismas pantallas que el resto del sistema, pero filtradas/escritas
+              con la línea CHIREY (ver hooks/useLineaNegocio) y con inventario propio. */}
+          <Route path="chirey/*" element={<RoleRoute module={["vehiculo", "refaccionaria", "inventario", "factura_proveedor"]}><ChireyLayout /></RoleRoute>}>
+            <Route index element={<ChireyDashboard />} />
+
+            {/* Órdenes */}
+            <Route path="nueva-orden" element={<RoleRoute module="vehiculo" write><VehiculoEntrada /></RoleRoute>} />
+            <Route path="ordenes" element={<RoleRoute module="vehiculo"><VehiculoConsultaOrdenes /></RoleRoute>} />
+            <Route path="ordenes-cerradas" element={<RoleRoute module="vehiculo"><VehiculoConsultaCerradas /></RoleRoute>} />
+            <Route path="ordenes-canceladas" element={<RoleRoute module="vehiculo"><VehiculoConsultaCanceladas /></RoleRoute>} />
+
+            {/* Refaccionaria sobre órdenes Chirey */}
+            <Route path="solicitudes-taller" element={<RoleRoute module="refaccionaria"><SolicitudesTaller /></RoleRoute>} />
+            <Route path="solicitudes-taller/:id" element={<RoleRoute module="refaccionaria"><SolicitudTallerDetalle /></RoleRoute>} />
+            <Route path="por-surtir" element={<RoleRoute module="refaccionaria"><PorSurtir /></RoleRoute>} />
+
+            {/* Inventario propio de Chirey */}
+            <Route path="inventario/consultar" element={<RoleRoute module={["refaccionaria", "inventario"]}><ConsultarInventario /></RoleRoute>} />
+            <Route path="inventario/entrada" element={<RoleRoute module="refaccionaria"><EntradaInventario /></RoleRoute>} />
+            <Route path="inventario/factura-proveedor" element={<RoleRoute module={["refaccionaria", "factura_proveedor"]}><ConsultarFacturaProveedor /></RoleRoute>} />
+
+            {/* Reportes de las órdenes Chirey (mismo acceso por rol que en su sección original) */}
+            <Route path="reportes/*" element={<ChireyReportesLayout />}>
+              <Route index element={<Navigate to="originales" replace />} />
+              <Route path="originales" element={<RolesRoute roles={['admin', 'coordinador', 'finanzas', 'captura']}><ReporteOriginales /></RolesRoute>} />
+              <Route path="ventas-asesores" element={<RolesRoute roles={['admin', 'coordinador', 'finanzas', 'captura']}><ReporteVentasAsesores /></RolesRoute>} />
+              <Route path="ordenes-abiertas" element={<RolesRoute roles={['admin', 'coordinador', 'auditoria']}><OrdenesAbiertas /></RolesRoute>} />
+              <Route path="originales-abiertas" element={<RolesRoute roles={['admin', 'coordinador', 'auditoria']}><ReporteOriginalesAuditoria /></RolesRoute>} />
+              <Route path="garantias" element={<RolesRoute roles={['admin', 'coordinador', 'auditoria']}><ReporteGarantias /></RolesRoute>} />
+              <Route path="horas-tecnico" element={<RolesRoute roles={['admin', 'coordinador', 'recursos_humanos']}><ReporteHorasTecnico /></RolesRoute>} />
+              <Route path="pendientes-factura" element={<RolesRoute roles={['admin', 'coordinador', 'finanzas']}><ReportePendientesFactura /></RolesRoute>} />
+            </Route>
           </Route>
 
           {/* Cajas */}

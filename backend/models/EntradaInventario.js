@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { LINEAS_NEGOCIO, LINEA_DEFAULT } = require('../utils/lineaNegocio');
 
 const CapturaSchema = new mongoose.Schema({
   // === Campos por renglón de la tabla ===
@@ -30,6 +31,9 @@ const OrdenVinculadaSchema = new mongoose.Schema({
 
 const EntradaInventarioSchema = new mongoose.Schema({
   // === Encabezado (tu formulario de la captura) ===
+  // Almacén al que pertenece (cada línea de negocio tiene su propio inventario;
+  // ver utils/lineaNegocio.js). Docs viejos sin el campo cuentan como Servicompacto.
+  lineaNegocio: { type: String, enum: LINEAS_NEGOCIO, default: LINEA_DEFAULT, index: true },
   tipoComprobante: { type: String, required: true },      // Factura / Remisión / etc.
   numero:          { type: String, trim: true },          // Número de factura/remisión
   moneda:          { type: String, required: true },      // MXN / USD

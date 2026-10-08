@@ -14,7 +14,7 @@ const AnticipoCliente = require('../models/AnticipoCliente');
 const GarageVehiculo = require('../models/GarageVehiculo');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { normalizarOrdenServicio, regexBusquedaOS } = require('../utils/ordenServicio');
-const { normalizaLineaNegocio, FILTRO_SERVICOMPACTO } = require('../utils/lineaNegocio');
+const { normalizaLineaNegocio, FILTRO_SERVICOMPACTO, filtroInventario } = require('../utils/lineaNegocio');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
 const { sincronizarAnticiposAplicados } = require('../utils/anticiposCliente');
 const { backfillCreadoPorId } = require('../utils/backfillCreadoPorId');
@@ -180,7 +180,8 @@ function generarNumeroOC() {
  * SalidaInventario creada desde el flujo de venta/surtir puede guardar tanto
  * el ObjectId como el numeroParte, por eso buscamos por ambos.
  */
-async function getStockMapLocal(numerosParteLista) {
+async function getStockMapLocal(numerosParteLista, linea) {
+  const fLinea = filtroInventario(linea);
   const strList = [...new Set(numerosParteLista.map(String))];
 
   // 1) Resolver numeroParte → CodigoRefaccion._id (ObjectId)
@@ -203,17 +204,19 @@ async function getStockMapLocal(numerosParteLista) {
 
   const [entradas, salidas, ajustes] = await Promise.all([
     EntradaInventario.aggregate([
+      { $match: fLinea },
       { $unwind: '$captura' },
       { $match: { 'captura.codigoInterno': { $in: allMatchIds } } },
       { $group: { _id: '$captura.codigoInterno', cant: { $sum: { $ifNull: ['$captura.cantidad', 0] } } } },
     ]),
     SalidaInventario.aggregate([
+      { $match: fLinea },
       { $unwind: '$partidas' },
       { $match: { 'partidas.codigoInterno': { $in: allMatchIds } } },
       { $group: { _id: '$partidas.codigoInterno', cant: { $sum: { $ifNull: ['$partidas.cantidad', 0] } } } },
     ]),
     AjusteInventario.aggregate([
-      { $match: { codigoInterno: { $in: strList } } },
+      { $match: { ...fLinea, codigoInterno: { $in: strList } } },
       { $group: { _id: '$codigoInterno', cant: { $sum: { $ifNull: ['$cantidad', 0] } } } },
     ]),
   ]);
@@ -1393,7 +1396,7 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
 
         if (autorizadas.length > 0) {
           const codigos = [...new Set(autorizadas.map(p => String(p.codigo)))];
-          const stockMap = await getStockMapLocal(codigos);
+          const stockMap = await getStockMapLocal(codigos, vehiculo.lineaNegocio);
           const partidasSalida = [];
 
           for (const p of vehiculo.presupuesto) {
@@ -1421,6 +1424,7 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
               .filter(p => p.codigoInterno !== null);
             if (partidasConOid.length > 0) {
               await SalidaInventario.create({
+                lineaNegocio:  normalizaLineaNegocio(vehiculo.lineaNegocio),
                 fechaSalida:   new Date(),
                 ordenServicio: vehiculo.ordenServicio || '',
                 surtidoPor:    req.user?.name || req.user?.username || '',
@@ -2680,6 +2684,7 @@ router.put('/:id/surtir', proteger, async (req, res) => {
         .filter(p => p.codigoInterno !== null);
       if (partidas.length > 0) {
         await SalidaInventario.create({
+          lineaNegocio:  normalizaLineaNegocio(vehiculo.lineaNegocio),
           fechaSalida:   new Date(),
           ordenServicio: vehiculo.ordenServicio || '',
           surtidoPor:    req.user?.name || req.user?.username || '',

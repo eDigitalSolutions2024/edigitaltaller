@@ -3,6 +3,7 @@ import PeriodoSelector from '../../captura/PeriodoSelector';
 import { getReportePendientesFactura, getReportePendientesFacturaPdfUrl } from '../../../api/reportes';
 import usePdfModal from '../../../hooks/usePdfModal';
 import { formatFecha } from '../../../utils/fechas';
+import useLineaNegocio from '../../../hooks/useLineaNegocio';
 
 function formatMoney(n) {
   return new Intl.NumberFormat('es-MX', {
@@ -13,6 +14,7 @@ function formatMoney(n) {
 }
 
 export default function ReportePendientesFactura() {
+  const linea = useLineaNegocio(); // 'CHIREY' dentro de /chirey, '' = todas las líneas
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
@@ -25,7 +27,7 @@ export default function ReportePendientesFactura() {
     setData(null);
     setRango({ desde, hasta });
     try {
-      const res = await getReportePendientesFactura(desde, hasta);
+      const res = await getReportePendientesFactura(desde, hasta, linea);
       setData(res.data);
     } catch (err) {
       setError('Error al cargar el reporte. Intenta de nuevo.');
@@ -59,7 +61,7 @@ export default function ReportePendientesFactura() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => abrirPdf(getReportePendientesFacturaPdfUrl(rango.desde, rango.hasta), "reporte-pendientes-factura.pdf", "Reporte de Pendientes de Factura")}
+                onClick={() => abrirPdf(getReportePendientesFacturaPdfUrl(rango.desde, rango.hasta, linea), "reporte-pendientes-factura.pdf", "Reporte de Pendientes de Factura")}
               >
                 Ver PDF
               </button>

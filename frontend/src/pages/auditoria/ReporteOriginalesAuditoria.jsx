@@ -5,8 +5,10 @@ import { getReporteOriginalesAbiertas, getReporteOriginalesAbiertasPdfUrl } from
 import { getAsesores } from '../../api/users';
 import { formatFecha } from '../../utils/fechas';
 import usePdfModal from '../../hooks/usePdfModal';
+import useLineaNegocio from '../../hooks/useLineaNegocio';
 
 export default function ReporteOriginalesAuditoria() {
+  const linea = useLineaNegocio(); // 'CHIREY' dentro de /chirey, '' = todas las líneas
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
@@ -25,7 +27,7 @@ export default function ReporteOriginalesAuditoria() {
     setData(null);
     setRango({ desde, hasta });
     try {
-      const res = await getReporteOriginalesAbiertas(desde, hasta, asesorFiltro);
+      const res = await getReporteOriginalesAbiertas(desde, hasta, asesorFiltro, linea);
       setData(res.data);
     } catch (err) {
       setError('Error al cargar el reporte. Intenta de nuevo.');
@@ -80,7 +82,7 @@ export default function ReporteOriginalesAuditoria() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => abrirPdf(getReporteOriginalesAbiertasPdfUrl(rango.desde, rango.hasta, asesor), "reporte-originales.pdf", "Reporte de Originales")}
+                onClick={() => abrirPdf(getReporteOriginalesAbiertasPdfUrl(rango.desde, rango.hasta, asesor, linea), "reporte-originales.pdf", "Reporte de Originales")}
               >
                 Ver PDF
               </button>

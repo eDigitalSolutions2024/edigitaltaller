@@ -310,7 +310,7 @@ function PaisSelect({ value, onChange }) {
   );
 }
 
-export default function AltaCliente({ modoModal = false, nombreInicial = "", onClienteCreado }) {
+export default function AltaCliente({ modoModal = false, nombreInicial = "", lineaInicial = "", onClienteCreado }) {
   const params = useParams();
   const id = modoModal ? undefined : params.id;
   const isEdit = Boolean(id);
@@ -331,6 +331,13 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
       setForm((prev) => ({ ...prev, nombre: nombreInicial }));
     }
   }, [modoModal, nombreInicial]);
+
+  // Alta desde el apartado Chirey: el cliente nace ya marcado como Chirey.
+  useEffect(() => {
+    if (modoModal && lineaInicial) {
+      setForm((prev) => ({ ...prev, lineaNegocio: lineaInicial }));
+    }
+  }, [modoModal, lineaInicial]);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [loadingData, setLoadingData] = useState(false);
@@ -1124,6 +1131,8 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
       <div className="form-section">
         <h3 className="form-section-title">Opciones</h3>
         <div className="opciones-row">
+          {/* En el modal de alta rápida (Nueva Orden) no se ofrece "Es empleado" */}
+          {!modoModal && (
           <label className="opcion-toggle">
             <input
               type="checkbox"
@@ -1140,6 +1149,7 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
             />
             ¿Es empleado?
           </label>
+          )}
 
           <label className="opcion-toggle">
             <input
@@ -1277,7 +1287,7 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
       <div className="form-section">
         <h3 className="form-section-title">Información adicional</h3>
         <div className="form-grid">
-          {isAdmin && (
+          {isAdmin && !modoModal && (
             <div className="form-row">
               <label>Asesor Responsable</label>
               <Dropdown

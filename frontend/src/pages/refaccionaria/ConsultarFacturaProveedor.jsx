@@ -9,6 +9,7 @@ import PdfViewer from "../../components/PdfViewer";
 import { formatFecha } from "../../utils/fechas";
 
 import { isAdminLike } from "../../utils/roles";
+import useLineaNegocio, { paramsLinea, baseInventario } from "../../hooks/useLineaNegocio";
 const fmtFechaLarga = (iso) => formatFecha(iso, { dateStyle: "medium" }) || "—";
 
 // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas no se
@@ -395,6 +396,7 @@ function ModalVerDetalle({ entrada, onClose }) {
 
 // ─── Modal buscar orden (reutilizado en edición admin) ───────────────────────
 function ModalBuscarOrdenEditar({ onSelect, onClose }) {
+  const linea = useLineaNegocio();
   const [busqueda, setBusqueda] = useState("");
   const [ordenes,  setOrdenes]  = useState([]);
   const [loading,  setLoading]  = useState(false);
@@ -404,6 +406,7 @@ function ModalBuscarOrdenEditar({ onSelect, onClose }) {
     try {
       const params = new URLSearchParams({ limit: 20 });
       if (q.trim()) params.set("searchOs", q.trim());
+      if (linea) params.set("lineaNegocio", linea);
       const r = await fetch(`${API}/vehiculos/ordenes?${params}`, { credentials: "include" });
       const json = await r.json().catch(() => ({}));
       setOrdenes(json?.data || []);
@@ -820,6 +823,7 @@ function ModalEditarEntrada({ entrada, onClose, onGuardado }) {
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function ConsultarFacturaProveedor() {
   const navigate  = useNavigate();
+  const linea     = useLineaNegocio();
   const esAdmin   = isAdminLike(getUser()?.role);
 
   const [rows, setRows]             = useState([]);
@@ -841,7 +845,7 @@ export default function ConsultarFacturaProveedor() {
     setLoading(true);
     try {
       const { data } = await http.get("/facturas-proveedor", {
-        params: { ...f, page: _page, limit: _limit },
+        params: { ...f, ...paramsLinea(linea), page: _page, limit: _limit },
       });
       if (data?.ok) {
         setRows(data.docs || []);
@@ -872,7 +876,7 @@ export default function ConsultarFacturaProveedor() {
     fetchData(1, limit);
   };
 
-  const continuar = (row) => navigate(`/refaccionaria/entrada?id=${row._id}`);
+  const continuar = (row) => navigate(`${baseInventario(linea)}/entrada?id=${row._id}`);
 
   const verDetalle = async (row) => {
     try {

@@ -1,5 +1,6 @@
   import { useEffect, useMemo, useState } from "react";
   import { useNavigate } from "react-router-dom";
+  import useLineaNegocio, { baseInventario } from "../../../hooks/useLineaNegocio";
   import Dropdown from "../../../components/Dropdown";
   import { getUnidadesMedida } from "../../../api/configuracion";
   import ModalAltaCodigo from "./ModalAltaCodigo";
@@ -14,6 +15,7 @@
   export default function TablaCapturaEntrada({ entradaId, info, modoConsulta }) {
     const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
     const navigate = useNavigate();
+    const linea = useLineaNegocio();
 
     const [codigos, setCodigos] = useState([]);
     const [rows, setRows] = useState([nuevaFila()]);
@@ -258,7 +260,7 @@
 
         alert("¡Captura guardada correctamente!");
         if (modoConsulta) {
-          navigate("/refaccionaria/factura-proveedor");
+          navigate(`${baseInventario(linea)}/factura-proveedor`);
         } else {
           navigate(0);
         }

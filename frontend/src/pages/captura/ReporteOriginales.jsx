@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import PeriodoSelector from './PeriodoSelector';
 import { getReporteOriginales, getReporteOriginalesPdfUrl } from '../../api/reportes';
 import usePdfModal from '../../hooks/usePdfModal';
+import useLineaNegocio from '../../hooks/useLineaNegocio';
 
 export default function ReporteOriginales() {
+  const linea = useLineaNegocio(); // 'CHIREY' dentro de /chirey, '' = todas las líneas
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
@@ -16,7 +18,7 @@ export default function ReporteOriginales() {
     setData(null);
     setRango({ desde, hasta });
     try {
-      const res = await getReporteOriginales(desde, hasta);
+      const res = await getReporteOriginales(desde, hasta, linea);
       setData(res.data);
     } catch (err) {
       setError('Error al cargar el reporte. Intenta de nuevo.');
@@ -51,7 +53,7 @@ export default function ReporteOriginales() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => abrirPdf(getReporteOriginalesPdfUrl(rango.desde, rango.hasta), "reporte-originales.pdf", "Reporte de Originales")}
+                onClick={() => abrirPdf(getReporteOriginalesPdfUrl(rango.desde, rango.hasta, linea), "reporte-originales.pdf", "Reporte de Originales")}
               >
                 Ver PDF
               </button>

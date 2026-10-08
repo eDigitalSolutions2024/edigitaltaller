@@ -383,6 +383,7 @@ export default function ModalCotizarSurtido({ refaccionNombre, cant, vehiculo, p
 
       {modalInventarioOpen && (
         <ModalInventarioAlmacen
+          lineaNegocio={vehiculo?.lineaNegocio || ""}
           onSelect={seleccionarDeAlmacen}
           onClose={() => setModalInventarioOpen(false)}
         />

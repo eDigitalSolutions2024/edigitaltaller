@@ -6,6 +6,7 @@ import { canSeeModule, canSeeAny, isReadOnly, isAdminLike } from '../utils/roles
 import http from '../api/http';
 import { getRefaccionariaAlerts } from '../api/vehiculos';
 import { getGarantiasPendientesCount } from '../api/garantias';
+import chireyIcono from '../img/Chirey-icono.svg';
 import { resetAppNavStack } from '../utils/appNavStack';
 
 export default function Navbar({ collapsed, onToggle }) {
@@ -501,6 +502,13 @@ useEffect(() => {
         </div>
         )}
         {/* === FIN GRUPO VEHÍCULO === */}
+
+        {/* === CHIREY (enlace al dashboard; las opciones viven en /chirey) === */}
+        {canSeeAny(user?.role, ['vehiculo', 'refaccionaria', 'inventario', 'factura_proveedor']) && (
+          <NavLink to="/chirey" className="sidebar__link" title="Chirey">
+            <span className="emoji"><img src={chireyIcono} alt="" style={{ width: 32, height: "auto", maxHeight: 22, objectFit: "contain", verticalAlign: "middle" }} /></span><span className="label">Chirey</span>
+          </NavLink>
+        )}
 
         {/* === GRUPO: FACTURACIÓN === */}
         {canSeeAny(user?.role, ['facturacion', 'facturas_consulta']) && (

@@ -15,6 +15,8 @@ import VehiculoOrdenConfigurar from "./VehiculoOrdenConfigurar";
 import VehiculoReparacionEnCurso from "./VehiculoReparacionEnCurso";
 
 import { isAdminLike } from "../../utils/roles";
+import "../../styles/lineaChirey.css";
+import useTemaChirey from "../../hooks/useTemaChirey";
 // PENDIENTE_AUTORIZACION_CLIENTE va al tab req (el asesor selecciona opciones),
 // el tab de presupuesto solo se habilita al pulsar "Continuar a Presupuesto"
 const ESTADO_TO_TAB = {
@@ -55,6 +57,7 @@ export default function VehiculoOrdenDetalle() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [orden, setOrden] = useState(null);
+  useTemaChirey(orden?.lineaNegocio === "CHIREY"); // pinta toda el área de contenido, no solo esta pantalla
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [misGrupoIds, setMisGrupoIds] = useState([]);
@@ -254,7 +257,7 @@ export default function VehiculoOrdenDetalle() {
   }
 
   return (
-    <div className="container-fluid">
+    <div className={"container-fluid" + (orden.lineaNegocio === "CHIREY" ? " fondo-chirey" : "")}>
       <h2
         className="text-center fw-bold my-3"
         style={{ letterSpacing: "2px" }}

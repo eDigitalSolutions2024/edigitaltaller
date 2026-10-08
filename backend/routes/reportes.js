@@ -25,6 +25,7 @@ const { esAbonoSobreRemisionCredito } = require('../utils/anticiposAlFacturar');
 const { abreviaturaFormaPago, joinMetodos } = require('../utils/abreviaturaFormaPago');
 const { TERMINALES_TARJETA } = require('../utils/bancos');
 const { dayjsFecha } = require('../utils/fechas');
+const { filtroReporte } = require('../utils/lineaNegocio');
 
 // Adjunta a una nota la abreviatura del método de pago usado ("... BR-C"), a
 // partir del sub-objeto pago.notaVenta o pago.reciboProvisional. Solo texto,
@@ -225,7 +226,7 @@ router.get('/originales', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter, ...filtroReporte(req.query.lineaNegocio) })
       .sort({ fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
@@ -258,7 +259,7 @@ router.get('/ventas-asesores', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter, ...filtroReporte(req.query.lineaNegocio) })
       .sort({ creadoPor: 1, fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
@@ -305,7 +306,7 @@ router.get('/originales-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter, ...filtroReporte(req.query.lineaNegocio) })
       .sort({ fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .lean();
@@ -336,7 +337,7 @@ router.get('/ventas-asesores-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter, ...filtroReporte(req.query.lineaNegocio) })
       .sort({ creadoPor: 1, fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .lean();
@@ -379,7 +380,7 @@ router.get('/ordenes-abiertas', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter, ...filtroReporte(req.query.lineaNegocio) })
       .sort({ creadoPor: 1, fechaRecepcion: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
@@ -428,7 +429,7 @@ router.get('/originales-abiertas', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter };
+    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter, ...filtroReporte(req.query.lineaNegocio) };
     const filtroAsesorQuery = await filtroAsesor(asesor);
     if (filtroAsesorQuery) Object.assign(query, filtroAsesorQuery);
     const ordenes = await Vehiculo.find(query)
@@ -462,12 +463,12 @@ router.get('/originales-abiertas', async (req, res) => {
 // Órdenes cuya garantía fue autorizada (APROBADA), agrupadas por asesor.
 // Costo = Venta al Cliente (sin IVA) + mano de obra (horas * tarifa).
 
-async function buildReporteGarantias({ desde, hasta, asesor }) {
+async function buildReporteGarantias({ desde, hasta, asesor, lineaNegocio }) {
   const query = {
     'garantia.estado': 'APROBADA',
     // Solo se reportan garantías cuya orden nueva ya está cerrada
     estadoOrden: 'CERRADA',
-   
+    ...filtroReporte(lineaNegocio),
     ...buildDateFilterAbiertas(desde, hasta),
   };
   const filtroAsesorQuery = await filtroAsesor(asesor);
@@ -551,7 +552,7 @@ router.get('/garantias', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReporteGarantias({ desde, hasta, asesor });
+    const resultado = await buildReporteGarantias({ desde, hasta, asesor, lineaNegocio: req.query.lineaNegocio });
     return res.json({ ok: true, ...resultado });
   } catch (err) {
     console.error('Error reporte garantías:', err);
@@ -567,7 +568,7 @@ router.get('/garantias-pdf', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReporteGarantias({ desde, hasta, asesor });
+    const resultado = await buildReporteGarantias({ desde, hasta, asesor, lineaNegocio: req.query.lineaNegocio });
     await streamReporteGarantiasPdf(res, resultado, desde, hasta, asesor);
   } catch (err) {
     console.error('Error PDF reporte garantías:', err);
@@ -833,11 +834,13 @@ async function buildReporteRemisionesDiarioImpl({ desde, hasta }) {
   // cobra un día que puede ser distinto, y sin esto nunca se contaba como
   // Ingreso en NINGÚN reporte (ni el día de la Remisión, que solo anotaba el
   // método en Notas — ver pagoLiquidacionOrden arriba —, ni el día real del
-  // cobro, que ni se consultaba). Aquí se revierte lo que el día de la
-  // Remisión ya contó como Cuentas por Cobrar y se suma como Ingreso de
-  // Contado en el día real del pago — si ambos caen el mismo día, el neto de
-  // Cuentas por Cobrar queda en cero y el de Ingreso en el monto cobrado,
-  // como debe ser una venta cobrada el mismo día.
+  // cobro, que ni se consultaba). Se suma como Ingreso de CRÉDITO (no de
+  // Contado: la venta fue a crédito, esto es la cobranza) en el día real del
+  // pago — Cuentas por Cobrar NO se toca (pedido explícito del usuario): esa
+  // columna documenta lo que quedó pendiente el día de la venta, no se
+  // corrige retroactivamente cuando se cobra; mismo criterio que ya usa la
+  // banda "abonos" de aquí abajo para un Abono con Recibo Provisional sobre
+  // una Remisión a Crédito.
   const ordenesLiquidadasSinFactura = await Vehiculo.find({
     pagos: {
       $elemMatch: {
@@ -868,17 +871,15 @@ async function buildReporteRemisionesDiarioImpl({ desde, hasta }) {
       // Nota fija "LIQUIDA" (pedido del usuario) — sin forma de pago ni
       // desglose de dólares: esos ya están en el pago mismo (Historial de
       // Pagos de la orden), aquí solo se marca qué fue este movimiento.
-      nuevaVenta.push({
+      abonos.push({
         folio: remisionCredito.remision?.numero ?? null,
         ordenServicio: o.ordenServicio || '',
         cliente: nombreCliente(o.cliente),
         fecha: p.fecha,
         notas: 'LIQUIDA',
-        ingresoContado: p.monto || undefined,
-        cuentasPorCobrar: p.monto ? -p.monto : undefined,
+        ingresoCredito: p.monto || undefined,
       });
-      totalContado += p.monto;
-      totalPorCobrar -= p.monto;
+      totalCredito += p.monto;
     }
   }
 
@@ -2424,7 +2425,7 @@ router.get('/ordenes-abiertas-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter, ...filtroReporte(req.query.lineaNegocio) })
       .sort({ creadoPor: 1, fechaRecepcion: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .lean();
@@ -2471,7 +2472,7 @@ router.get('/originales-abiertas-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter };
+    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter, ...filtroReporte(req.query.lineaNegocio) };
     const filtroAsesorQuery = await filtroAsesor(asesor);
     if (filtroAsesorQuery) Object.assign(query, filtroAsesorQuery);
     const ordenes = await Vehiculo.find(query)
@@ -2504,10 +2505,10 @@ router.get('/originales-abiertas-pdf', async (req, res) => {
 // servicio ligado del presupuesto (lo que se le cobra al cliente) y el monto
 // de mano de obra a pagar (horas x tarifa fija, misma fórmula que el resto
 // del sistema). Se agrupa por mecánico y se filtra por fecha de cierre.
-async function buildReporteRhCxC({ desde, hasta, mecanico }) {
+async function buildReporteRhCxC({ desde, hasta, mecanico, lineaNegocio }) {
   const query = {
     estadoOrden: 'CERRADA',
-   
+    ...filtroReporte(lineaNegocio),
     ...buildDateFilter(desde, hasta),
   };
 
@@ -2581,7 +2582,7 @@ router.get('/rh-cxc', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReporteRhCxC({ desde, hasta, mecanico });
+    const resultado = await buildReporteRhCxC({ desde, hasta, mecanico, lineaNegocio: req.query.lineaNegocio });
     return res.json({ ok: true, ...resultado });
   } catch (err) {
     console.error('Error reporte RH C x C:', err);
@@ -2597,7 +2598,7 @@ router.get('/rh-cxc-pdf', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReporteRhCxC({ desde, hasta, mecanico });
+    const resultado = await buildReporteRhCxC({ desde, hasta, mecanico, lineaNegocio: req.query.lineaNegocio });
     await streamReporteRhCxCPdf(res, resultado, desde, hasta, mecanico);
   } catch (err) {
     console.error('Error PDF reporte RH C x C:', err);
@@ -2626,7 +2627,7 @@ function tieneRemision(o) {
   return (o.pagos || []).some((p) => p.comprobante === 'REMISION' && !p.cancelado);
 }
 
-async function buildReporteHorasTecnico({ desde, hasta, estado }) {
+async function buildReporteHorasTecnico({ desde, hasta, estado, lineaNegocio }) {
   const d = new Date(desde);
   const h = new Date(hasta);
   const filtroAbiertas = { estadoOrden: { $nin: ESTADOS_CERRADOS }, fechaRecepcion: { $gte: d, $lte: h } };
@@ -2637,7 +2638,7 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
   else if (estado === 'abiertas') query = filtroAbiertas;
   else query = { $or: [filtroAbiertas, filtroCerradas] }; // 'todas' (o sin valor)
 
-  const ordenes = await Vehiculo.find(query)
+  const ordenes = await Vehiculo.find({ $and: [query, filtroReporte(lineaNegocio)] })
     .sort({ fechaRecepcion: 1 })
     .populate('cliente', POPULATE_CLIENTE)
     .lean();
@@ -2751,7 +2752,7 @@ router.get('/horas-tecnico', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReporteHorasTecnico({ desde, hasta, estado });
+    const resultado = await buildReporteHorasTecnico({ desde, hasta, estado, lineaNegocio: req.query.lineaNegocio });
     return res.json({ ok: true, ...resultado });
   } catch (err) {
     console.error('Error reporte horas por técnico:', err);
@@ -2767,7 +2768,7 @@ router.get('/horas-tecnico-pdf', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReporteHorasTecnico({ desde, hasta, estado });
+    const resultado = await buildReporteHorasTecnico({ desde, hasta, estado, lineaNegocio: req.query.lineaNegocio });
     await streamReporteHorasTecnicoPdf(res, resultado, desde, hasta, estado);
   } catch (err) {
     console.error('Error PDF reporte horas por técnico:', err);
@@ -2779,13 +2780,13 @@ router.get('/horas-tecnico-pdf', async (req, res) => {
 // Órdenes marcadas "Pendiente de Factura" desde Cajas (al cliente le
 // faltaron datos fiscales) que todavía no se facturan; se limpian solas en
 // cuanto se genera la factura real (ver generar_xml.js).
-async function buildReportePendientesFactura({ desde, hasta }) {
+async function buildReportePendientesFactura({ desde, hasta, lineaNegocio }) {
   const d = new Date(desde);
   const h = new Date(hasta);
 
   const ordenes = await Vehiculo.find({
     pendienteFactura: true,
-   
+    ...filtroReporte(lineaNegocio),
     pendienteFacturaEn: { $gte: d, $lte: h },
   })
     .sort({ pendienteFacturaEn: 1 })
@@ -2815,7 +2816,7 @@ router.get('/pendientes-factura', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReportePendientesFactura({ desde, hasta });
+    const resultado = await buildReportePendientesFactura({ desde, hasta, lineaNegocio: req.query.lineaNegocio });
     return res.json({ ok: true, ...resultado });
   } catch (err) {
     console.error('Error reporte pendientes de factura:', err);
@@ -2831,7 +2832,7 @@ router.get('/pendientes-factura-pdf', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReportePendientesFactura({ desde, hasta });
+    const resultado = await buildReportePendientesFactura({ desde, hasta, lineaNegocio: req.query.lineaNegocio });
     await streamReportePendientesFacturaPdf(res, resultado, desde, hasta);
   } catch (err) {
     console.error('Error PDF reporte pendientes de factura:', err);

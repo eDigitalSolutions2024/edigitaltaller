@@ -3,8 +3,10 @@ import PeriodoSelector from '../captura/PeriodoSelector';
 import { getReporteOrdenesAbiertas, getReporteOrdenesAbiertasPdfUrl } from '../../api/reportes';
 import { formatFecha } from '../../utils/fechas';
 import usePdfModal from '../../hooks/usePdfModal';
+import useLineaNegocio from '../../hooks/useLineaNegocio';
 
 export default function OrdenesAbiertas() {
+  const linea = useLineaNegocio(); // 'CHIREY' dentro de /chirey, '' = todas las líneas
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [resultado, setResultado] = useState(null);
@@ -17,7 +19,7 @@ export default function OrdenesAbiertas() {
     setResultado(null);
     setRango({ desde, hasta });
     try {
-      const res = await getReporteOrdenesAbiertas(desde, hasta);
+      const res = await getReporteOrdenesAbiertas(desde, hasta, linea);
       setResultado(res.data);
     } catch (err) {
       setError('Error al cargar el reporte. Intenta de nuevo.');
@@ -53,7 +55,7 @@ export default function OrdenesAbiertas() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => abrirPdf(getReporteOrdenesAbiertasPdfUrl(rango.desde, rango.hasta), "ordenes-abiertas.pdf", "Órdenes Abiertas")}
+                onClick={() => abrirPdf(getReporteOrdenesAbiertasPdfUrl(rango.desde, rango.hasta, linea), "ordenes-abiertas.pdf", "Órdenes Abiertas")}
               >
                 Ver PDF
               </button>

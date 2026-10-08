@@ -5,6 +5,7 @@ import { getReporteGarantias, getReporteGarantiasPdfUrl } from '../../api/report
 import { getAsesores } from '../../api/users';
 import { formatFecha } from '../../utils/fechas';
 import usePdfModal from '../../hooks/usePdfModal';
+import useLineaNegocio from '../../hooks/useLineaNegocio';
 
 function formatMoney(n) {
   return new Intl.NumberFormat('es-MX', {
@@ -15,6 +16,7 @@ function formatMoney(n) {
 }
 
 export default function ReporteGarantias() {
+  const linea = useLineaNegocio(); // 'CHIREY' dentro de /chirey, '' = todas las líneas
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
@@ -33,7 +35,7 @@ export default function ReporteGarantias() {
     setData(null);
     setRango({ desde, hasta });
     try {
-      const res = await getReporteGarantias(desde, hasta, asesorFiltro);
+      const res = await getReporteGarantias(desde, hasta, asesorFiltro, linea);
       setData(res.data);
     } catch (err) {
       setError('Error al cargar el reporte. Intenta de nuevo.');
@@ -92,7 +94,7 @@ export default function ReporteGarantias() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => abrirPdf(getReporteGarantiasPdfUrl(rango.desde, rango.hasta, asesor), "reporte-garantias.pdf", "Reporte de Garantías")}
+                onClick={() => abrirPdf(getReporteGarantiasPdfUrl(rango.desde, rango.hasta, asesor, linea), "reporte-garantias.pdf", "Reporte de Garantías")}
               >
                 Ver PDF
               </button>

@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import PeriodoSelector from './PeriodoSelector';
 import { getReporteVentasAsesores, getReporteVentasAsesoresPdfUrl } from '../../api/reportes';
 import usePdfModal from '../../hooks/usePdfModal';
+import useLineaNegocio from '../../hooks/useLineaNegocio';
 
 const fmt = (n) =>
   new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n || 0);
 
 export default function ReporteVentasAsesores() {
+  const linea = useLineaNegocio(); // 'CHIREY' dentro de /chirey, '' = todas las líneas
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [resultado, setResultado] = useState(null);
@@ -19,7 +21,7 @@ export default function ReporteVentasAsesores() {
     setResultado(null);
     setRango({ desde, hasta });
     try {
-      const res = await getReporteVentasAsesores(desde, hasta);
+      const res = await getReporteVentasAsesores(desde, hasta, linea);
       setResultado(res.data);
     } catch (err) {
       setError('Error al cargar el reporte. Intenta de nuevo.');
@@ -57,7 +59,7 @@ export default function ReporteVentasAsesores() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => abrirPdf(getReporteVentasAsesoresPdfUrl(rango.desde, rango.hasta), "reporte-ventas-asesores.pdf", "Reporte de Ventas por Asesor")}
+                onClick={() => abrirPdf(getReporteVentasAsesoresPdfUrl(rango.desde, rango.hasta, linea), "reporte-ventas-asesores.pdf", "Reporte de Ventas por Asesor")}
               >
                 Ver PDF
               </button>

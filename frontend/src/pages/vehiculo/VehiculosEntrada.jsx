@@ -8,6 +8,9 @@ import GarageModal from "./GarageModal";
 import GarantiaModal from "./GarantiaModal";
 import EmpleadosOrdenModal from "./EmpleadosOrdenModal";
 import { getUser } from "../../auth";
+import useLineaNegocio from "../../hooks/useLineaNegocio";
+import "../../styles/lineaChirey.css";
+import useTemaChirey from "../../hooks/useTemaChirey";
 
 // apellidoPaterno/apellidoMaterno son de "Particular"; en empresas no se
 // concatenan porque en registros migrados/viejos pueden quedar huérfanos.
@@ -28,6 +31,8 @@ function nombreClienteBusqueda(c) {
 }
 
 export default function VehiculoEntrada() {
+  // Dentro de /chirey solo se ofrecen clientes Chirey; fuera, la línea de la orden la define el cliente.
+  const lineaRuta = useLineaNegocio();
   // El botón de Garantía está disponible para admins y asesores de servicio
   const puedeSolicitarGarantia = ["admin", "coordinador", "asesor_servicio"].includes(getUser()?.role);
   const [q, setQ] = useState("");
@@ -95,7 +100,8 @@ export default function VehiculoEntrada() {
 
         const res = await getClientes({ limit: 9999 });
         // console.log("BACKEND RESPUESTA:", res.data);
-        const data = Array.isArray(res.data?.data) ? res.data.data : [];
+        const todos = Array.isArray(res.data?.data) ? res.data.data : [];
+        const data = lineaRuta ? todos.filter((c) => c.lineaNegocio === lineaRuta) : todos;
 
         setClientes(data);
         setFiltrados(data);
@@ -208,8 +214,13 @@ export default function VehiculoEntrada() {
     navigate(`/vehiculo/orden/${vehiculo._id}?tab=servicio`);
   };
 
+  // Fondo distinto cuando la orden será de Chirey (ruta Chirey o cliente Chirey seleccionado)
+  const esChirey = lineaRuta === "CHIREY" || clienteSeleccionado?.lineaNegocio === "CHIREY";
+
+  useTemaChirey(esChirey);
+
   return (
-    <div className="container-fluid">
+    <div className={"container-fluid" + (esChirey ? " fondo-chirey" : "")}>
       {/* Título */}
       <h2
         className="text-center fw-bold my-3"
@@ -404,6 +415,7 @@ export default function VehiculoEntrada() {
       {mostrarModalAlta && (
         <ModalAltaCliente
           nombreInicial={q}
+          lineaInicial={lineaRuta}
           onCerrar={() => setMostrarModalAlta(false)}
           onClienteCreado={(clienteNuevo) => {
             setMostrarModalAlta(false);
