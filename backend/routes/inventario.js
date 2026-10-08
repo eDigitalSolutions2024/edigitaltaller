@@ -5,6 +5,7 @@ const EntradaInventario = require('../models/EntradaInventario');
 const SalidaInventario  = require('../models/SalidaInventario');
 const AjusteInventario  = require('../models/AjusteInventario');
 const { proteger, requiereRol } = require('../middleware/auth');
+const { filtroInventario, normalizaLineaNegocio } = require('../utils/lineaNegocio');
 
 // (opcional) si tienes modelo Proveedor para mostrar nombre en historial
 let Proveedor = null;
@@ -21,12 +22,15 @@ const isObjId = (v) => /^[a-f\d]{24}$/i.test(String(v || ''));
  *
  * Query opcional:
  *   - estatus=cerrada | abierta | todas (default: todas)
+ *   - lineaNegocio=CHIREY | SERVICOMPACTO (default: SERVICOMPACTO). Cada línea
+ *     tiene su propio almacén: el de Chirey no se mezcla con el normal.
  */
 router.get('/', async (req, res) => {
   try {
     const { estatus } = req.query;
+    const fLinea = filtroInventario(req.query.lineaNegocio);
 
-    const matchEntradas = {};
+    const matchEntradas = { ...fLinea };
     if (estatus && estatus !== 'todas') matchEntradas.estatus = estatus;
 
     const pipeline = [
@@ -49,6 +53,7 @@ router.get('/', async (req, res) => {
       { $unionWith: {
           coll: 'salidainventarios',
           pipeline: [
+            { $match: fLinea },
             { $unwind: '$partidas' },
             { $match: { 'partidas.codigoInterno': { $nin: [null, ''] } } },
             {
@@ -67,7 +72,7 @@ router.get('/', async (req, res) => {
       { $unionWith: {
           coll: 'ajusteinventarios',
           pipeline: [
-            { $match: { codigoInterno: { $nin: [null, ''] } } },
+            { $match: { ...fLinea, codigoInterno: { $nin: [null, ''] } } },
             {
               $project: {
                 _id: { $toString: '$codigoInterno' },
@@ -149,12 +154,14 @@ router.get('/', async (req, res) => {
 router.get('/:codigo/historial', async (req, res) => {
   try {
     const { codigo } = req.params;
+    const fLinea = filtroInventario(req.query.lineaNegocio);
 
     const matchCodigo = isObjId(codigo)
       ? { $or: [ { 'captura.codigoInterno': new mongoose.Types.ObjectId(codigo) }, { 'captura.codigoInterno': codigo } ] }
       : { 'captura.codigoInterno': codigo };
 
     const pipeline = [
+      { $match: fLinea },
       { $unwind: '$captura' },
       { $match: matchCodigo },
       {
@@ -205,6 +212,7 @@ router.get('/:codigo/historial-usos', async (req, res) => {
   try {
     const { codigo } = req.params;
     const strCodigo = String(codigo);
+    const fLinea = filtroInventario(req.query.lineaNegocio);
 
     // Construir el $in para salidas (puede ser ObjectId o string)
     const idsParaSalidas = [strCodigo];
@@ -215,6 +223,7 @@ router.get('/:codigo/historial-usos', async (req, res) => {
     const [salidas, ajustes] = await Promise.all([
       // Salidas: cada partida que coincida con el código
       SalidaInventario.aggregate([
+        { $match: fLinea },
         { $unwind: '$partidas' },
         { $match: { 'partidas.codigoInterno': { $in: idsParaSalidas } } },
         {
@@ -232,7 +241,7 @@ router.get('/:codigo/historial-usos', async (req, res) => {
 
       // Ajustes manuales
       AjusteInventario.find(
-        { codigoInterno: strCodigo },
+        { ...fLinea, codigoInterno: strCodigo },
         { fecha: 1, cantidad: 1, motivo: 1, usuario: 1 }
       )
         .sort({ fecha: -1 })
@@ -264,7 +273,7 @@ router.get('/:codigo/historial-usos', async (req, res) => {
  */
 router.post('/ajuste', proteger, requiereRol('admin'), async (req, res) => {
   try {
-    const { codigoInterno, cantidad, motivo, descripcion, unidad } = req.body;
+    const { codigoInterno, cantidad, motivo, descripcion, unidad, lineaNegocio } = req.body;
 
     if (!codigoInterno || String(codigoInterno).trim() === '') {
       return res.status(400).json({ success: false, message: 'codigoInterno requerido' });
@@ -275,6 +284,7 @@ router.post('/ajuste', proteger, requiereRol('admin'), async (req, res) => {
     }
 
     const ajuste = await AjusteInventario.create({
+      lineaNegocio:  normalizaLineaNegocio(lineaNegocio),
       codigoInterno: String(codigoInterno).trim(),
       descripcion:   (descripcion || '').trim(),
       unidad:        (unidad || '').trim(),

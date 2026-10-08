@@ -9,6 +9,7 @@ import { getUnidadesMedida } from "../../api/configuracion";
 import useTipoCambioActual from "../../hooks/useTipoCambioActual";
 import ModalSeleccionarCodigo from "./components/ModalSeleccionarCodigo";
 import ModalInventarioAlmacen from "./components/ModalInventarioAlmacen";
+import useLineaNegocio, { baseSolicitudes } from "../../hooks/useLineaNegocio";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 
@@ -374,6 +375,7 @@ function _ModalSeleccionarCodigoLegado({ onSelect, onClose }) {
 }
 
 export default function SolicitudTallerDetalle() {
+  const lineaRuta = useLineaNegocio();
   const { id } = useParams();
   const navigate = useNavigate();
 
@@ -710,7 +712,7 @@ export default function SolicitudTallerDetalle() {
       );
 
       if (nuevoEstadoOrden) {
-        navigate("/refaccionaria/solicitudes-taller");
+        navigate(baseSolicitudes(lineaRuta));
       }
     } catch (err) {
       console.error("Error guardando solicitud:", err);
@@ -1181,7 +1183,7 @@ export default function SolicitudTallerDetalle() {
         <button
           type="button"
           className="btn btn-outline-secondary"
-          onClick={() => navigate("/refaccionaria/solicitudes-taller")}
+          onClick={() => navigate(baseSolicitudes(lineaRuta))}
           disabled={saving}
         >
           Regresar
@@ -1206,12 +1208,14 @@ export default function SolicitudTallerDetalle() {
 
       {modalCodigoIndex !== null && (
         <ModalSeleccionarCodigo
+          lineaNegocio={orden?.lineaNegocio || ""}
           onSelect={seleccionarCodigo}
           onClose={() => setModalCodigoIndex(null)}
         />
       )}
       {modalInventarioOpen && (
         <ModalInventarioAlmacen
+          lineaNegocio={orden?.lineaNegocio || ""}
           onSelect={seleccionarDeAlmacen}
           onClose={() => setModalInventarioOpen(false)}
         />

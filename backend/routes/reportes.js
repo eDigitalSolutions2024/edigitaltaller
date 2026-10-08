@@ -23,9 +23,9 @@ const { calcImporteHoras } = require('../utils/manoObra');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
 const { esAbonoSobreRemisionCredito } = require('../utils/anticiposAlFacturar');
 const { abreviaturaFormaPago, joinMetodos } = require('../utils/abreviaturaFormaPago');
-const { FILTRO_SERVICOMPACTO } = require('../utils/lineaNegocio');
 const { TERMINALES_TARJETA } = require('../utils/bancos');
 const { dayjsFecha } = require('../utils/fechas');
+const { filtroReporte } = require('../utils/lineaNegocio');
 
 // Adjunta a una nota la abreviatura del método de pago usado ("... BR-C"), a
 // partir del sub-objeto pago.notaVenta o pago.reciboProvisional. Solo texto,
@@ -214,11 +214,8 @@ async function filtroAsesor(asesor) {
   return { creadoPor: asesor };
 }
 
-// NOTA: todas las consultas de órdenes de este archivo esparcen
-// `...FILTRO_SERVICOMPACTO` para excluir las órdenes de la línea de negocio
-// Chirey (ver backend/utils/lineaNegocio.js). Los reportes de Cajas
-// (cajas-ingresos / remisiones-diario / facturas-diario) y el de
-// clientes-anticipos quedan pendientes de esa decisión y por ahora NO filtran.
+// NOTA: los reportes incluyen todas las líneas de negocio (Servicompacto y
+// Chirey) por igual; ya no se filtra por lineaNegocio.
 
 // GET /api/reportes/originales?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
 router.get('/originales', async (req, res) => {
@@ -229,7 +226,7 @@ router.get('/originales', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...FILTRO_SERVICOMPACTO, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter, ...filtroReporte(req.query.lineaNegocio) })
       .sort({ fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
@@ -262,7 +259,7 @@ router.get('/ventas-asesores', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...FILTRO_SERVICOMPACTO, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter, ...filtroReporte(req.query.lineaNegocio) })
       .sort({ creadoPor: 1, fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
@@ -309,7 +306,7 @@ router.get('/originales-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...FILTRO_SERVICOMPACTO, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter, ...filtroReporte(req.query.lineaNegocio) })
       .sort({ fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .lean();
@@ -340,7 +337,7 @@ router.get('/ventas-asesores-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilter(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...FILTRO_SERVICOMPACTO, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: 'CERRADA', ...dateFilter, ...filtroReporte(req.query.lineaNegocio) })
       .sort({ creadoPor: 1, fechaCierre: 1, updatedAt: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .lean();
@@ -383,7 +380,7 @@ router.get('/ordenes-abiertas', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...FILTRO_SERVICOMPACTO, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter, ...filtroReporte(req.query.lineaNegocio) })
       .sort({ creadoPor: 1, fechaRecepcion: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .populate(POPULATE_GRUPO)
@@ -432,7 +429,7 @@ router.get('/originales-abiertas', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...FILTRO_SERVICOMPACTO, ...dateFilter };
+    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter, ...filtroReporte(req.query.lineaNegocio) };
     const filtroAsesorQuery = await filtroAsesor(asesor);
     if (filtroAsesorQuery) Object.assign(query, filtroAsesorQuery);
     const ordenes = await Vehiculo.find(query)
@@ -466,12 +463,12 @@ router.get('/originales-abiertas', async (req, res) => {
 // Órdenes cuya garantía fue autorizada (APROBADA), agrupadas por asesor.
 // Costo = Venta al Cliente (sin IVA) + mano de obra (horas * tarifa).
 
-async function buildReporteGarantias({ desde, hasta, asesor }) {
+async function buildReporteGarantias({ desde, hasta, asesor, lineaNegocio }) {
   const query = {
     'garantia.estado': 'APROBADA',
     // Solo se reportan garantías cuya orden nueva ya está cerrada
     estadoOrden: 'CERRADA',
-    ...FILTRO_SERVICOMPACTO,
+    ...filtroReporte(lineaNegocio),
     ...buildDateFilterAbiertas(desde, hasta),
   };
   const filtroAsesorQuery = await filtroAsesor(asesor);
@@ -555,7 +552,7 @@ router.get('/garantias', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReporteGarantias({ desde, hasta, asesor });
+    const resultado = await buildReporteGarantias({ desde, hasta, asesor, lineaNegocio: req.query.lineaNegocio });
     return res.json({ ok: true, ...resultado });
   } catch (err) {
     console.error('Error reporte garantías:', err);
@@ -571,7 +568,7 @@ router.get('/garantias-pdf', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReporteGarantias({ desde, hasta, asesor });
+    const resultado = await buildReporteGarantias({ desde, hasta, asesor, lineaNegocio: req.query.lineaNegocio });
     await streamReporteGarantiasPdf(res, resultado, desde, hasta, asesor);
   } catch (err) {
     console.error('Error PDF reporte garantías:', err);
@@ -837,11 +834,13 @@ async function buildReporteRemisionesDiarioImpl({ desde, hasta }) {
   // cobra un día que puede ser distinto, y sin esto nunca se contaba como
   // Ingreso en NINGÚN reporte (ni el día de la Remisión, que solo anotaba el
   // método en Notas — ver pagoLiquidacionOrden arriba —, ni el día real del
-  // cobro, que ni se consultaba). Aquí se revierte lo que el día de la
-  // Remisión ya contó como Cuentas por Cobrar y se suma como Ingreso de
-  // Contado en el día real del pago — si ambos caen el mismo día, el neto de
-  // Cuentas por Cobrar queda en cero y el de Ingreso en el monto cobrado,
-  // como debe ser una venta cobrada el mismo día.
+  // cobro, que ni se consultaba). Se suma como Ingreso de CRÉDITO (no de
+  // Contado: la venta fue a crédito, esto es la cobranza) en el día real del
+  // pago — Cuentas por Cobrar NO se toca (pedido explícito del usuario): esa
+  // columna documenta lo que quedó pendiente el día de la venta, no se
+  // corrige retroactivamente cuando se cobra; mismo criterio que ya usa la
+  // banda "abonos" de aquí abajo para un Abono con Recibo Provisional sobre
+  // una Remisión a Crédito.
   const ordenesLiquidadasSinFactura = await Vehiculo.find({
     pagos: {
       $elemMatch: {
@@ -872,17 +871,15 @@ async function buildReporteRemisionesDiarioImpl({ desde, hasta }) {
       // Nota fija "LIQUIDA" (pedido del usuario) — sin forma de pago ni
       // desglose de dólares: esos ya están en el pago mismo (Historial de
       // Pagos de la orden), aquí solo se marca qué fue este movimiento.
-      nuevaVenta.push({
+      abonos.push({
         folio: remisionCredito.remision?.numero ?? null,
         ordenServicio: o.ordenServicio || '',
         cliente: nombreCliente(o.cliente),
         fecha: p.fecha,
         notas: 'LIQUIDA',
-        ingresoContado: p.monto || undefined,
-        cuentasPorCobrar: p.monto ? -p.monto : undefined,
+        ingresoCredito: p.monto || undefined,
       });
-      totalContado += p.monto;
-      totalPorCobrar -= p.monto;
+      totalCredito += p.monto;
     }
   }
 
@@ -2291,8 +2288,16 @@ router.get('/cajas-ingresos-dias', async (req, res) => {
 async function metaSnapshotDia(tipo, desde, hasta) {
   const diaKey = diaKeyCongelable(desde, hasta);
   if (!diaKey) return null;
+  // `dataAntes` (la copia completa de respaldo) se deja FUERA de esta
+  // proyección a propósito: puede ser tan pesada como el reporte mismo y
+  // aquí solo hace falta la lista ligera para mostrar el historial — el
+  // propio endpoint de restaurar relee el documento completo cuando de
+  // verdad necesita ese respaldo.
   const snap = await ReporteCajasSnapshot.findOne({ tipo, diaKey })
-    .select('generadoEn regeneraciones')
+    .select(
+      'generadoEn regeneraciones.fecha regeneraciones.usuario regeneraciones.motivo ' +
+        'regeneraciones.accion regeneraciones.totalesAntes regeneraciones.totalesDespues'
+    )
     .lean();
   if (!snap) return null;
   const regs = snap.regeneraciones || [];
@@ -2301,8 +2306,21 @@ async function metaSnapshotDia(tipo, desde, hasta) {
     generadoEn: snap.generadoEn,
     regeneraciones: regs.length,
     ultimaRegeneracion: ultima
-      ? { fecha: ultima.fecha, usuario: ultima.usuario, motivo: ultima.motivo }
+      ? { fecha: ultima.fecha, usuario: ultima.usuario, motivo: ultima.motivo, accion: ultima.accion || 'regenerar' }
       : null,
+    // Historial completo (ligero, sin `dataAntes`) para que la pantalla
+    // pueda listar cada regeneración/restauración con sus totales de antes
+    // y de después, y ofrecer "Restaurar" apuntando a `version` (su índice
+    // en este arreglo, estable porque regeneraciones solo crece).
+    historial: regs.map((r, i) => ({
+      version: i,
+      fecha: r.fecha,
+      usuario: r.usuario,
+      motivo: r.motivo,
+      accion: r.accion || 'regenerar',
+      totalesAntes: r.totalesAntes,
+      totalesDespues: r.totalesDespues,
+    })),
   };
 }
 
@@ -2336,8 +2354,12 @@ router.post('/cajas-ingresos/regenerar', proteger, requiereRol('admin'), async (
 
     const builder = tipo === 'REMISION' ? buildReporteRemisionesDiarioImpl : buildReporteFacturasDiarioImpl;
     const data = await builder({ desde, hasta });
-    const previo = await ReporteCajasSnapshot.findOne({ tipo, diaKey }).select('data.totales').lean();
-    const totalesAntes = previo?.data?.totales || null;
+    // Se guarda COMPLETO (no solo los totales) como `dataAntes`: es el
+    // respaldo que permite restaurar este día exactamente a como estaba
+    // justo antes de esta regeneración (ver POST /cajas-ingresos/restaurar).
+    const previo = await ReporteCajasSnapshot.findOne({ tipo, diaKey }).select('data').lean();
+    const dataAntes = previo?.data || null;
+    const totalesAntes = dataAntes?.totales || null;
 
     await ReporteCajasSnapshot.findOneAndUpdate(
       { tipo, diaKey },
@@ -2349,6 +2371,8 @@ router.post('/cajas-ingresos/regenerar', proteger, requiereRol('admin'), async (
             usuario: req.user?.name || req.user?.username || '',
             usuarioId: req.user?._id || null,
             motivo,
+            accion: 'regenerar',
+            dataAntes,
             totalesAntes,
             totalesDespues: data.totales || null,
           },
@@ -2366,6 +2390,90 @@ router.post('/cajas-ingresos/regenerar', proteger, requiereRol('admin'), async (
     });
   } catch (err) {
     console.error('Error regenerando reporte cajas ingresos:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// POST /api/reportes/cajas-ingresos/restaurar   body: { desde, hasta, tipo, motivo, version? }
+// Solo admin, con motivo obligatorio. Deshace una regeneración (o una
+// restauración previa) equivocada: reemplaza `data` por el respaldo
+// `dataAntes` guardado en `regeneraciones[version]` — "cómo estaba el
+// reporte justo antes de esa acción". Sin `version`, deshace la ÚLTIMA
+// acción (regenerar o restaurar) registrada. La propia restauración queda
+// en la misma bitácora (con su propio `dataAntes`, lo que había ANTES de
+// restaurar), así que también se puede deshacer si hace falta.
+router.post('/cajas-ingresos/restaurar', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { desde, hasta, tipo } = req.body || {};
+    const motivo = String(req.body?.motivo || '').trim().slice(0, 300);
+    if (!desde || !hasta) {
+      return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
+    }
+    if (!TIPOS_COMPROBANTE_CAJA.includes(tipo)) {
+      return res.status(400).json({ ok: false, msg: 'Parámetro tipo inválido' });
+    }
+    if (!motivo) {
+      return res.status(400).json({ ok: false, msg: 'Captura el motivo para restaurar el reporte.' });
+    }
+    const diaKey = diaKeyCongelable(desde, hasta);
+    if (!diaKey) {
+      return res.status(400).json({
+        ok: false,
+        msg: 'Solo se puede restaurar el reporte de un día que ya terminó.',
+      });
+    }
+
+    const actual = await ReporteCajasSnapshot.findOne({ tipo, diaKey }).select('data regeneraciones').lean();
+    const regs = actual?.regeneraciones || [];
+    if (!actual || !regs.length) {
+      return res.status(400).json({ ok: false, msg: 'Este día no tiene ninguna regeneración que deshacer.' });
+    }
+    const versionBody = req.body?.version;
+    const version = versionBody === undefined || versionBody === null ? regs.length - 1 : Number(versionBody);
+    const entrada = regs[version];
+    if (!entrada || !Number.isInteger(version) || version < 0) {
+      return res.status(400).json({ ok: false, msg: 'Esa versión del reporte no existe.' });
+    }
+    if (!entrada.dataAntes) {
+      return res.status(400).json({
+        ok: false,
+        msg: 'Esa versión no tiene respaldo guardado (regenerada antes de que existiera esta función), no se puede restaurar.',
+      });
+    }
+
+    const dataRestaurada = entrada.dataAntes;
+    const dataActual = actual.data || null;
+    const totalesAntes = dataActual?.totales || null;
+    const totalesDespues = dataRestaurada?.totales || null;
+
+    await ReporteCajasSnapshot.updateOne(
+      { tipo, diaKey },
+      {
+        $set: { data: dataRestaurada, generadoEn: new Date() },
+        $push: {
+          regeneraciones: {
+            fecha: new Date(),
+            usuario: req.user?.name || req.user?.username || '',
+            usuarioId: req.user?._id || null,
+            motivo,
+            accion: 'restaurar',
+            dataAntes: dataActual,
+            totalesAntes,
+            totalesDespues,
+          },
+        },
+      }
+    );
+
+    return res.json({
+      ok: true,
+      tipo,
+      ...dataRestaurada,
+      cache: await metaSnapshotDia(tipo, desde, hasta),
+      cambio: { antes: totalesAntes, despues: totalesDespues },
+    });
+  } catch (err) {
+    console.error('Error restaurando reporte cajas ingresos:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });
@@ -2394,7 +2502,21 @@ router.get('/cajas-ingresos', async (req, res) => {
   }
 });
 
-// GET /api/reportes/cajas-ingresos-pdf?desde=...&hasta=...&tipo=NOTA_VENTA|REMISION
+// Texto del banner amarillo que se imprime arriba del PDF cuando se pide una
+// versión anterior (ver `version` más abajo) en vez del reporte vigente —
+// para que no se confunda con el PDF actual si alguien lo descarga.
+function avisoVersionAnterior(entrada) {
+  const cuando = dayjsFecha(entrada.fecha).format('DD/MM/YYYY HH:mm');
+  const accion = entrada.accion === 'restaurar' ? 'restaurarse' : 'regenerarse';
+  const quien = entrada.usuario ? ` por ${entrada.usuario}` : '';
+  const motivo = entrada.motivo ? ` — Motivo: ${entrada.motivo}` : '';
+  return `VERSIÓN ANTERIOR DEL REPORTE — así estaba antes de ${accion} el ${cuando}${quien}${motivo}`;
+}
+
+// GET /api/reportes/cajas-ingresos-pdf?desde=...&hasta=...&tipo=NOTA_VENTA|REMISION[&version=N]
+// `version` (opcional): en vez del reporte vigente, el respaldo guardado en
+// regeneraciones[N].dataAntes — "cómo se veía el PDF antes de ese cambio" (ver
+// POST /cajas-ingresos/restaurar). Sin `version`, comportamiento de siempre.
 router.get('/cajas-ingresos-pdf', async (req, res) => {
   try {
     const { desde, hasta, tipo } = req.query;
@@ -2405,14 +2527,34 @@ router.get('/cajas-ingresos-pdf', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetro tipo inválido' });
     }
 
-    if (tipo === 'REMISION') {
-      const resultado = await buildReporteRemisionesDiario({ desde, hasta });
-      await streamReporteRemisionesDiarioPdf(res, resultado, desde, hasta);
-      return;
+    let resultado;
+    let aviso;
+    if (req.query.version !== undefined) {
+      const version = Number(req.query.version);
+      const diaKey = diaKeyCongelable(desde, hasta);
+      if (!diaKey || !Number.isInteger(version) || version < 0) {
+        return res.status(400).json({ ok: false, msg: 'Parámetro version inválido.' });
+      }
+      const snap = await ReporteCajasSnapshot.findOne({ tipo, diaKey })
+        .select('regeneraciones.fecha regeneraciones.usuario regeneraciones.motivo regeneraciones.accion regeneraciones.dataAntes')
+        .lean();
+      const entrada = snap?.regeneraciones?.[version];
+      if (!entrada?.dataAntes) {
+        return res.status(404).json({ ok: false, msg: 'Esa versión del reporte no está disponible.' });
+      }
+      resultado = entrada.dataAntes;
+      aviso = avisoVersionAnterior(entrada);
+    } else if (tipo === 'REMISION') {
+      resultado = await buildReporteRemisionesDiario({ desde, hasta });
+    } else {
+      resultado = await buildReporteFacturasDiario({ desde, hasta });
     }
 
-    const resultado = await buildReporteFacturasDiario({ desde, hasta });
-    await streamReporteFacturasDiarioPdf(res, resultado, desde, hasta);
+    if (tipo === 'REMISION') {
+      await streamReporteRemisionesDiarioPdf(res, resultado, desde, hasta, aviso);
+      return;
+    }
+    await streamReporteFacturasDiarioPdf(res, resultado, desde, hasta, aviso);
   } catch (err) {
     console.error('Error PDF reporte cajas ingresos:', err);
     if (!res.headersSent) res.status(500).json({ ok: false, msg: 'Error generando PDF' });
@@ -2428,7 +2570,7 @@ router.get('/ordenes-abiertas-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...FILTRO_SERVICOMPACTO, ...dateFilter })
+    const ordenes = await Vehiculo.find({ estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter, ...filtroReporte(req.query.lineaNegocio) })
       .sort({ creadoPor: 1, fechaRecepcion: 1 })
       .populate('cliente', POPULATE_CLIENTE)
       .lean();
@@ -2475,7 +2617,7 @@ router.get('/originales-abiertas-pdf', async (req, res) => {
     }
 
     const dateFilter = buildDateFilterAbiertas(desde, hasta);
-    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...FILTRO_SERVICOMPACTO, ...dateFilter };
+    const query = { estadoOrden: { $nin: ESTADOS_CERRADOS }, ...dateFilter, ...filtroReporte(req.query.lineaNegocio) };
     const filtroAsesorQuery = await filtroAsesor(asesor);
     if (filtroAsesorQuery) Object.assign(query, filtroAsesorQuery);
     const ordenes = await Vehiculo.find(query)
@@ -2508,10 +2650,10 @@ router.get('/originales-abiertas-pdf', async (req, res) => {
 // servicio ligado del presupuesto (lo que se le cobra al cliente) y el monto
 // de mano de obra a pagar (horas x tarifa fija, misma fórmula que el resto
 // del sistema). Se agrupa por mecánico y se filtra por fecha de cierre.
-async function buildReporteRhCxC({ desde, hasta, mecanico }) {
+async function buildReporteRhCxC({ desde, hasta, mecanico, lineaNegocio }) {
   const query = {
     estadoOrden: 'CERRADA',
-    ...FILTRO_SERVICOMPACTO,
+    ...filtroReporte(lineaNegocio),
     ...buildDateFilter(desde, hasta),
   };
 
@@ -2585,7 +2727,7 @@ router.get('/rh-cxc', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReporteRhCxC({ desde, hasta, mecanico });
+    const resultado = await buildReporteRhCxC({ desde, hasta, mecanico, lineaNegocio: req.query.lineaNegocio });
     return res.json({ ok: true, ...resultado });
   } catch (err) {
     console.error('Error reporte RH C x C:', err);
@@ -2601,7 +2743,7 @@ router.get('/rh-cxc-pdf', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReporteRhCxC({ desde, hasta, mecanico });
+    const resultado = await buildReporteRhCxC({ desde, hasta, mecanico, lineaNegocio: req.query.lineaNegocio });
     await streamReporteRhCxCPdf(res, resultado, desde, hasta, mecanico);
   } catch (err) {
     console.error('Error PDF reporte RH C x C:', err);
@@ -2630,7 +2772,7 @@ function tieneRemision(o) {
   return (o.pagos || []).some((p) => p.comprobante === 'REMISION' && !p.cancelado);
 }
 
-async function buildReporteHorasTecnico({ desde, hasta, estado }) {
+async function buildReporteHorasTecnico({ desde, hasta, estado, lineaNegocio }) {
   const d = new Date(desde);
   const h = new Date(hasta);
   const filtroAbiertas = { estadoOrden: { $nin: ESTADOS_CERRADOS }, fechaRecepcion: { $gte: d, $lte: h } };
@@ -2640,9 +2782,8 @@ async function buildReporteHorasTecnico({ desde, hasta, estado }) {
   if (estado === 'cerradas') query = filtroCerradas;
   else if (estado === 'abiertas') query = filtroAbiertas;
   else query = { $or: [filtroAbiertas, filtroCerradas] }; // 'todas' (o sin valor)
-  query = { ...query, ...FILTRO_SERVICOMPACTO };
 
-  const ordenes = await Vehiculo.find(query)
+  const ordenes = await Vehiculo.find({ $and: [query, filtroReporte(lineaNegocio)] })
     .sort({ fechaRecepcion: 1 })
     .populate('cliente', POPULATE_CLIENTE)
     .lean();
@@ -2756,7 +2897,7 @@ router.get('/horas-tecnico', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReporteHorasTecnico({ desde, hasta, estado });
+    const resultado = await buildReporteHorasTecnico({ desde, hasta, estado, lineaNegocio: req.query.lineaNegocio });
     return res.json({ ok: true, ...resultado });
   } catch (err) {
     console.error('Error reporte horas por técnico:', err);
@@ -2772,7 +2913,7 @@ router.get('/horas-tecnico-pdf', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReporteHorasTecnico({ desde, hasta, estado });
+    const resultado = await buildReporteHorasTecnico({ desde, hasta, estado, lineaNegocio: req.query.lineaNegocio });
     await streamReporteHorasTecnicoPdf(res, resultado, desde, hasta, estado);
   } catch (err) {
     console.error('Error PDF reporte horas por técnico:', err);
@@ -2784,13 +2925,13 @@ router.get('/horas-tecnico-pdf', async (req, res) => {
 // Órdenes marcadas "Pendiente de Factura" desde Cajas (al cliente le
 // faltaron datos fiscales) que todavía no se facturan; se limpian solas en
 // cuanto se genera la factura real (ver generar_xml.js).
-async function buildReportePendientesFactura({ desde, hasta }) {
+async function buildReportePendientesFactura({ desde, hasta, lineaNegocio }) {
   const d = new Date(desde);
   const h = new Date(hasta);
 
   const ordenes = await Vehiculo.find({
     pendienteFactura: true,
-    ...FILTRO_SERVICOMPACTO,
+    ...filtroReporte(lineaNegocio),
     pendienteFacturaEn: { $gte: d, $lte: h },
   })
     .sort({ pendienteFacturaEn: 1 })
@@ -2820,7 +2961,7 @@ router.get('/pendientes-factura', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReportePendientesFactura({ desde, hasta });
+    const resultado = await buildReportePendientesFactura({ desde, hasta, lineaNegocio: req.query.lineaNegocio });
     return res.json({ ok: true, ...resultado });
   } catch (err) {
     console.error('Error reporte pendientes de factura:', err);
@@ -2836,7 +2977,7 @@ router.get('/pendientes-factura-pdf', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
     }
 
-    const resultado = await buildReportePendientesFactura({ desde, hasta });
+    const resultado = await buildReportePendientesFactura({ desde, hasta, lineaNegocio: req.query.lineaNegocio });
     await streamReportePendientesFacturaPdf(res, resultado, desde, hasta);
   } catch (err) {
     console.error('Error PDF reporte pendientes de factura:', err);

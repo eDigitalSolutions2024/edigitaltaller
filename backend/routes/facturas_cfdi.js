@@ -5,6 +5,8 @@ const mongoose = require("mongoose");
 const FacturaCfdi = require("../models/FacturaCfdi");
 const { proteger, requiereRol } = require("../middleware/auth");
 const { registrarAccion } = require("../utils/registrarAccion");
+const Cliente = require("../models/Cliente");
+const Vehiculo = require("../models/Vehiculo");
 const { numerosLiberadosDeGlobal } = require("../utils/notaCreditoGlobal");
 const {
   MOTIVOS_CANCELACION,
@@ -22,7 +24,7 @@ const rx = (s) =>
 // GET /api/facturas-cfdi?q=&desde=&hasta=&estatus=&page=&limit=
 router.get("/", async (req, res) => {
   try {
-    let { q = "", desde = "", hasta = "", estatus = "", tipo = "", condicion = "", page = 1, limit = 10 } = req.query;
+    let { q = "", desde = "", hasta = "", estatus = "", tipo = "", condicion = "", lineaNegocio = "", page = 1, limit = 10 } = req.query;
     page = Math.max(parseInt(page) || 1, 1);
     limit = Math.min(Math.max(parseInt(limit) || 10, 1), 200);
 
@@ -44,6 +46,26 @@ router.get("/", async (req, res) => {
       match.tipoFactura = { $nin: ["notaCredito", "complementoPago"] };
     } else if (tipo && tipo !== "todos") {
       match.tipoFactura = tipo;
+    }
+
+    // lineaNegocio=CHIREY => solo facturas de clientes Chirey, o que incluyan
+    // órdenes Chirey (una Global/factura agrupada se liga por sus órdenes).
+    // Sin el parámetro no se filtra (comportamiento histórico).
+    if (String(lineaNegocio).toUpperCase() === "CHIREY") {
+      const [clientesChirey, ordenesChirey] = await Promise.all([
+        Cliente.find({ lineaNegocio: "CHIREY" }).distinct("_id"),
+        Vehiculo.find({ lineaNegocio: "CHIREY" }).distinct("_id"),
+      ]);
+      match.$and = [
+        {
+          $or: [
+            { "cliente.clienteId": { $in: clientesChirey } },
+            { "orden.vehiculoId": { $in: ordenesChirey } },
+            { "ordenes.vehiculoId": { $in: ordenesChirey } },
+            { "notasVenta.vehiculoId": { $in: ordenesChirey } },
+          ],
+        },
+      ];
     }
 
     if (q) {

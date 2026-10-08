@@ -1,0 +1,69 @@
+/* Identifica visualmente las órdenes de la línea Chirey: el formulario es el
+   mismo que el de Servicompacto, solo cambia la paleta (azul acero). Fondo
+   suave, tarjetas con un tinte (no blanco puro), y pestañas/botones de
+   contorno con color propio para que se distingan del fondo. */
+.fondo-chirey,
+.chirey-tema {
+  --chirey-bg: #dfe9f3;
+  --chirey-card: #f3f7fb;
+  --chirey-tab: #c5d8ec;
+  --chirey-tab-hover: #b3cbe4;
+  --chirey-accent: #1f5f99;
+  background: var(--chirey-bg);
+}
+.fondo-chirey {
+  border-radius: 14px;
+  padding: 8px 12px 24px;
+  min-height: calc(100vh - 24px);
+}
+:is(.fondo-chirey, .chirey-tema) .card { background: var(--chirey-card); border-color: #c9d7e6; }
+
+/* Pestañas de estado (nav-tabs) */
+:is(.fondo-chirey, .chirey-tema) .nav-tabs { border-bottom-color: #aebfd3; }
+:is(.fondo-chirey, .chirey-tema) .nav-tabs .nav-link {
+  background: var(--chirey-tab);
+  color: #1b4a78;
+  border-color: #aebfd3;
+  margin-right: 4px;
+}
+:is(.fondo-chirey, .chirey-tema) .nav-tabs .nav-link:hover { background: var(--chirey-tab-hover); }
+:is(.fondo-chirey, .chirey-tema) .nav-tabs .nav-link.active {
+  background: var(--chirey-accent);
+  border-color: var(--chirey-accent);
+  color: #fff;
+}
+
+/* Botones de contorno / pastillas (reportes, filtros de línea) */
+:is(.fondo-chirey, .chirey-tema) .btn-outline-primary,
+:is(.fondo-chirey, .chirey-tema) .btn-outline-info,
+:is(.fondo-chirey, .chirey-tema) .btn-outline-secondary {
+  background: var(--chirey-tab);
+  border-color: #9db6d1;
+  color: #1b4a78;
+}
+:is(.fondo-chirey, .chirey-tema) .btn-outline-primary:hover,
+:is(.fondo-chirey, .chirey-tema) .btn-outline-info:hover,
+:is(.fondo-chirey, .chirey-tema) .btn-outline-secondary:hover {
+  background: var(--chirey-accent);
+  border-color: var(--chirey-accent);
+  color: #fff;
+}
+:is(.fondo-chirey, .chirey-tema) .btn-primary {
+  background: var(--chirey-accent);
+  border-color: var(--chirey-accent);
+}
+
+/* Resto de superficies blancas: encabezados, tablas, listas y fondos utilitarios */
+:is(.fondo-chirey, .chirey-tema) .card-header { background: #d3e1ef; border-color: #c9d7e6; }
+:is(.fondo-chirey, .chirey-tema) .table { --bs-table-bg: var(--chirey-card); --bs-table-striped-bg: #e8f0f8; }
+:is(.fondo-chirey, .chirey-tema) .table > :not(caption) > * > * { background-color: var(--chirey-card); }
+:is(.fondo-chirey, .chirey-tema) .table thead th { background-color: #d3e1ef; }
+:is(.fondo-chirey, .chirey-tema) .list-group-item:not(.active) { background: var(--chirey-card); }
+:is(.fondo-chirey, .chirey-tema) .list-group-item.active {
+  background: var(--chirey-accent);
+  border-color: var(--chirey-accent);
+  color: #fff;
+}
+:is(.fondo-chirey, .chirey-tema) .list-group-item-action:not(.active):hover { background: #e1ecf6; }
+:is(.fondo-chirey, .chirey-tema) .bg-white,
+:is(.fondo-chirey, .chirey-tema) .bg-light { background-color: var(--chirey-card) !important; }

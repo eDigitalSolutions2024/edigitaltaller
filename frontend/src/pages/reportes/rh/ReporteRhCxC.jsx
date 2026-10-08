@@ -5,6 +5,7 @@ import { getReporteRhCxC, getReporteRhCxCPdfUrl } from '../../../api/reportes';
 import { listarEmpleados } from '../../../api/empleados';
 import { formatFecha } from '../../../utils/fechas';
 import usePdfModal from '../../../hooks/usePdfModal';
+import useLineaNegocio from '../../../hooks/useLineaNegocio';
 
 function formatMoney(n) {
   return new Intl.NumberFormat('es-MX', {
@@ -15,6 +16,7 @@ function formatMoney(n) {
 }
 
 export default function ReporteRhCxC() {
+  const linea = useLineaNegocio(); // 'CHIREY' dentro de /chirey, '' = todas las líneas
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
@@ -35,7 +37,7 @@ export default function ReporteRhCxC() {
     setData(null);
     setRango({ desde, hasta });
     try {
-      const res = await getReporteRhCxC(desde, hasta, mecanicoFiltro);
+      const res = await getReporteRhCxC(desde, hasta, mecanicoFiltro, linea);
       setData(res.data);
     } catch (err) {
       setError('Error al cargar el reporte. Intenta de nuevo.');
@@ -95,7 +97,7 @@ export default function ReporteRhCxC() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => abrirPdf(getReporteRhCxCPdfUrl(rango.desde, rango.hasta, mecanico), "reporte-rh-cxc.pdf", "Reporte RH — CxC")}
+                onClick={() => abrirPdf(getReporteRhCxCPdfUrl(rango.desde, rango.hasta, mecanico, linea), "reporte-rh-cxc.pdf", "Reporte RH — CxC")}
               >
                 Ver PDF
               </button>

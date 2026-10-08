@@ -1,7 +1,7 @@
 // src/pages/vehiculo/VehiculoOrdenDetalle.jsx
 import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
-import { getVehiculoById, getOperativoPdfUrl } from "../../api/vehiculos";
+import { getVehiculoById, getOperativoPdfUrl, saveRequisicionDiagnostico } from "../../api/vehiculos";
 import usePdfModal from "../../hooks/usePdfModal";
 import http from "../../api/http";
 import { getMisGrupos } from "../../api/grupos";
@@ -15,6 +15,8 @@ import VehiculoOrdenConfigurar from "./VehiculoOrdenConfigurar";
 import VehiculoReparacionEnCurso from "./VehiculoReparacionEnCurso";
 
 import { isAdminLike } from "../../utils/roles";
+import "../../styles/lineaChirey.css";
+import useTemaChirey from "../../hooks/useTemaChirey";
 // PENDIENTE_AUTORIZACION_CLIENTE va al tab req (el asesor selecciona opciones),
 // el tab de presupuesto solo se habilita al pulsar "Continuar a Presupuesto"
 const ESTADO_TO_TAB = {
@@ -55,6 +57,10 @@ export default function VehiculoOrdenDetalle() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [orden, setOrden] = useState(null);
+  // Edición de refacciones solicitadas mientras se espera la cotización
+  const [editRef, setEditRef] = useState(null); // { idx, refaccion, cant }
+  const [guardandoRef, setGuardandoRef] = useState(false);
+  useTemaChirey(orden?.lineaNegocio === "CHIREY"); // pinta toda el área de contenido, no solo esta pantalla
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [misGrupoIds, setMisGrupoIds] = useState([]);
@@ -98,6 +104,11 @@ export default function VehiculoOrdenDetalle() {
     ordenIniciada &&
     (ESTADOS_PRESUPUESTO_SIEMPRE.includes(orden?.estadoOrden) || presupuestoDesbloqueado);
 
+  // Enviada a venta: las refacciones cotizadas ya no se pueden eliminar.
+  const enVenta =
+    (orden?.presupuesto?.length ?? 0) > 0 ||
+    ["PENDIENTE_SURTIR", "REPARACION_EN_CURSO", "PENDIENTE_CIERRE", "PENDIENTE_CERRAR", "CERRADA"].includes(orden?.estadoOrden);
+
   const ESTADOS_PREPARACION = ["REPARACION_EN_CURSO", "PENDIENTE_CIERRE", "PENDIENTE_CERRAR", "CERRADA"];
   const reparacionHabilitada = ESTADOS_PREPARACION.includes(orden?.estadoOrden);
 
@@ -123,10 +134,62 @@ export default function VehiculoOrdenDetalle() {
   // garantía aplica (ver ModalCancelarOrden / SoporteAdminTickets): la orden
   // queda de solo lectura para todos, incluido admin, hasta que lo resuelva.
   const bloqueadaPorGarantia = !!orden?.garantia?.ticketPendiente;
+  // Una refacción cotizada también se puede editar/cancelar (error del asesor
+  // o para pedir otras opciones); al hacerlo se descartan sus cotizaciones.
+  const refYaCotizada = (r) => (r.opciones || []).length > 0;
+
+  const guardarRefaccionesEspera = async (nuevas) => {
+    try {
+      setGuardandoRef(true);
+      const payload = { refacciones: nuevas };
+      // Si ya no queda nada por cotizar, la orden regresa a su captura previa.
+      if (nuevas.length === 0) payload.estadoOrden = "INGRESO";
+      const res = await saveRequisicionDiagnostico(orden._id, payload);
+      if (res?.data?.vehiculo) setOrden(res.data.vehiculo);
+      setEditRef(null);
+      if (nuevas.length === 0) setTab("servicio");
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo actualizar la solicitud de refacciones.");
+    } finally {
+      setGuardandoRef(false);
+    }
+  };
+
+  const handleGuardarEdicionRef = () => {
+    const nombre = (editRef.refaccion || "").trim();
+    const cant = Number(editRef.cant);
+    if (!nombre || !(cant > 0)) {
+      alert("Indica la refacción y una cantidad mayor a 0.");
+      return;
+    }
+    const nuevas = (orden.refaccionesSolicitadas || []).map((r, i) =>
+      i === editRef.idx
+        ? {
+            ...(r.toObject ? r.toObject() : r),
+            refaccion: nombre,
+            cant,
+            opciones: [],
+            opcionSeleccionada: null,
+            estatus: "PENDIENTE",
+          }
+        : r
+    );
+    guardarRefaccionesEspera(nuevas);
+  };
+
+  const handleCancelarRef = (idx) => {
+    const r = orden.refaccionesSolicitadas[idx];
+    const aviso = refYaCotizada(r) ? " Ya tiene cotizaciones y se perderán." : "";
+    if (!window.confirm(`¿Cancelar la solicitud de "${r.refaccion}"?${aviso}`)) return;
+    guardarRefaccionesEspera(orden.refaccionesSolicitadas.filter((_, i) => i !== idx));
+  };
+
   const soloLectura = esCerrada || esCancelada || soloConsulta || bloqueadaPorGarantia;
 
   const currentStep = ESTADO_STEP[orden?.estadoOrden] ?? 0;
-  const isPast = (tabKey) => !orden ? false : TAB_STEP[tabKey] < currentStep;
+  // Gris solo en la pestaña de la etapa donde está la orden ahora (si no es la que se está viendo)
+  const esEtapaActual = (tabKey) => !orden ? false : TAB_STEP[tabKey] === currentStep;
 
   useEffect(() => {
     if (esAdmin) return;
@@ -253,7 +316,7 @@ export default function VehiculoOrdenDetalle() {
   }
 
   return (
-    <div className="container-fluid">
+    <div className={"container-fluid" + (orden.lineaNegocio === "CHIREY" ? " fondo-chirey" : "")}>
       <h2
         className="text-center fw-bold my-3"
         style={{ letterSpacing: "2px" }}
@@ -274,7 +337,7 @@ export default function VehiculoOrdenDetalle() {
         <li className="nav-item">
           <button
             className={"nav-link" + (tab === "datos" ? " active" : "")}
-            style={tab !== "datos" && isPast("datos") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
+            style={tab !== "datos" && esEtapaActual("datos") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
             type="button"
             onClick={() => changeTab("datos")}
           >
@@ -285,7 +348,7 @@ export default function VehiculoOrdenDetalle() {
         <li className="nav-item">
           <button
             className={"nav-link" + (tab === "servicio" ? " active" : "")}
-            style={tab !== "servicio" && isPast("servicio") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
+            style={tab !== "servicio" && esEtapaActual("servicio") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
             type="button"
             onClick={() => changeTab("servicio")}
           >
@@ -297,7 +360,7 @@ export default function VehiculoOrdenDetalle() {
           <li className="nav-item">
             <button
               className={"nav-link" + (tab === "req" ? " active" : "")}
-              style={tab !== "req" && isPast("req") && presupuestoDesbloqueado ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
+              style={tab !== "req" && esEtapaActual("req") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
               onClick={() => changeTab("req")}
             >
@@ -311,7 +374,7 @@ export default function VehiculoOrdenDetalle() {
           <li className="nav-item">
             <button
               className={"nav-link" + (tab === "presupuesto" ? " active" : "")}
-              style={tab !== "presupuesto" && isPast("presupuesto") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
+              style={tab !== "presupuesto" && esEtapaActual("presupuesto") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
               onClick={() => changeTab("presupuesto")}
             >
@@ -324,7 +387,7 @@ export default function VehiculoOrdenDetalle() {
           <li className="nav-item">
             <button
               className={"nav-link" + (tab === "reparacion" ? " active" : "")}
-              style={tab !== "reparacion" && isPast("reparacion") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
+              style={tab !== "reparacion" && esEtapaActual("reparacion") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
               onClick={() => changeTab("reparacion")}
             >
@@ -337,7 +400,7 @@ export default function VehiculoOrdenDetalle() {
           <li className="nav-item ms-auto">
             <button
               className={"nav-link" + (tab === "general" ? " active" : "")}
-              style={tab !== "general" && isPast("general") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
+              style={tab !== "general" && esEtapaActual("general") ? { backgroundColor: "#e9ecef", color: "#6c757d" } : {}}
               type="button"
               onClick={() => changeTab("general")}
             >
@@ -422,8 +485,10 @@ export default function VehiculoOrdenDetalle() {
           ordenId={orden._id}
           initialData={orden.servicioReparacion}
           existingRefacciones={orden.refaccionesSolicitadas || []}
+          enVenta={enVenta}
           serviciosCatalogoSeleccionados={orden.serviciosCatalogoSeleccionados || []}
           onSaved={handleServicioSaved}
+          onServicioQuitado={(v) => setOrden(v)}
           readOnly={soloLectura}
           sinVehiculo={orden.sinVehiculo}
         />
@@ -443,11 +508,54 @@ export default function VehiculoOrdenDetalle() {
               <p className="text-muted small">Esta pantalla se actualiza automáticamente cada 8 segundos.</p>
               <div className="mt-4">
                 <h6 className="fw-semibold mb-2">Refacciones solicitadas:</h6>
-                <ul className="list-group list-group-flush d-inline-block text-start" style={{ minWidth: 280 }}>
+                <ul className="list-group list-group-flush d-inline-block text-start" style={{ minWidth: 420 }}>
                   {(orden.refaccionesSolicitadas || []).map((r, i) => (
-                    <li key={i} className="list-group-item d-flex justify-content-between align-items-center">
-                      <span>{r.refaccion}</span>
-                      <span className="badge bg-secondary ms-3">Cant: {r.cant}</span>
+                    <li key={i} className="list-group-item d-flex justify-content-between align-items-center gap-2">
+                      {editRef?.idx === i ? (
+                        <>
+                          <input
+                            className="form-control form-control-sm"
+                            value={editRef.refaccion}
+                            onChange={(e) => setEditRef({ ...editRef, refaccion: e.target.value })}
+                          />
+                          <input
+                            type="number"
+                            min="1"
+                            className="form-control form-control-sm"
+                            style={{ width: 80 }}
+                            value={editRef.cant}
+                            onChange={(e) => setEditRef({ ...editRef, cant: e.target.value })}
+                          />
+                          <button className="btn btn-sm btn-success" disabled={guardandoRef} onClick={handleGuardarEdicionRef}>Guardar</button>
+                          <button className="btn btn-sm btn-outline-secondary" disabled={guardandoRef} onClick={() => setEditRef(null)}>×</button>
+                        </>
+                      ) : (
+                        <>
+                          <span>{r.refaccion}</span>
+                          <span className="d-flex align-items-center gap-2">
+                            <span className="badge bg-secondary">Cant: {r.cant}</span>
+                            {refYaCotizada(r) && <span className="badge bg-info text-dark">Cotizada</span>}
+                            {!soloLectura && !(enVenta && refYaCotizada(r)) && (
+                              <>
+                                <button
+                                  className="btn btn-sm btn-outline-primary"
+                                  disabled={guardandoRef}
+                                  onClick={() => setEditRef({ idx: i, refaccion: r.refaccion, cant: r.cant })}
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  className="btn btn-sm btn-outline-danger"
+                                  disabled={guardandoRef}
+                                  onClick={() => handleCancelarRef(i)}
+                                >
+                                  Cancelar
+                                </button>
+                              </>
+                            )}
+                          </span>
+                        </>
+                      )}
                     </li>
                   ))}
                   {(orden.refaccionesSolicitadas || []).length === 0 && (

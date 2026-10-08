@@ -3,6 +3,7 @@ import PeriodoSelector from '../../captura/PeriodoSelector';
 import { getReporteHorasTecnico, getReporteHorasTecnicoPdfUrl } from '../../../api/reportes';
 import usePdfModal from '../../../hooks/usePdfModal';
 import { formatFecha } from '../../../utils/fechas';
+import useLineaNegocio from '../../../hooks/useLineaNegocio';
 
 function formatMoney(n) {
   return new Intl.NumberFormat('es-MX', {
@@ -19,6 +20,7 @@ const ESTADOS = [
 ];
 
 export default function ReporteHorasTecnico() {
+  const linea = useLineaNegocio(); // 'CHIREY' dentro de /chirey, '' = todas las líneas
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
@@ -32,7 +34,7 @@ export default function ReporteHorasTecnico() {
     setData(null);
     setRango({ desde, hasta });
     try {
-      const res = await getReporteHorasTecnico(desde, hasta, estadoFiltro);
+      const res = await getReporteHorasTecnico(desde, hasta, estadoFiltro, linea);
       setData(res.data);
     } catch (err) {
       setError('Error al cargar el reporte. Intenta de nuevo.');
@@ -98,7 +100,7 @@ export default function ReporteHorasTecnico() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-danger"
-                onClick={() => abrirPdf(getReporteHorasTecnicoPdfUrl(rango.desde, rango.hasta, estado), "reporte-horas-tecnico.pdf", "Reporte de Horas por Técnico")}
+                onClick={() => abrirPdf(getReporteHorasTecnicoPdfUrl(rango.desde, rango.hasta, estado, linea), "reporte-horas-tecnico.pdf", "Reporte de Horas por Técnico")}
               >
                 Ver PDF
               </button>

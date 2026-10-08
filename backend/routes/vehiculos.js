@@ -14,7 +14,7 @@ const AnticipoCliente = require('../models/AnticipoCliente');
 const GarageVehiculo = require('../models/GarageVehiculo');
 const { proteger, requiereRol } = require('../middleware/auth');
 const { normalizarOrdenServicio, regexBusquedaOS } = require('../utils/ordenServicio');
-const { normalizaLineaNegocio, FILTRO_SERVICOMPACTO } = require('../utils/lineaNegocio');
+const { normalizaLineaNegocio, FILTRO_SERVICOMPACTO, filtroInventario } = require('../utils/lineaNegocio');
 const { calcularTotalesOrden } = require('../utils/cajaTotales');
 const { sincronizarAnticiposAplicados } = require('../utils/anticiposCliente');
 const { backfillCreadoPorId } = require('../utils/backfillCreadoPorId');
@@ -180,7 +180,8 @@ function generarNumeroOC() {
  * SalidaInventario creada desde el flujo de venta/surtir puede guardar tanto
  * el ObjectId como el numeroParte, por eso buscamos por ambos.
  */
-async function getStockMapLocal(numerosParteLista) {
+async function getStockMapLocal(numerosParteLista, linea) {
+  const fLinea = filtroInventario(linea);
   const strList = [...new Set(numerosParteLista.map(String))];
 
   // 1) Resolver numeroParte → CodigoRefaccion._id (ObjectId)
@@ -203,17 +204,19 @@ async function getStockMapLocal(numerosParteLista) {
 
   const [entradas, salidas, ajustes] = await Promise.all([
     EntradaInventario.aggregate([
+      { $match: fLinea },
       { $unwind: '$captura' },
       { $match: { 'captura.codigoInterno': { $in: allMatchIds } } },
       { $group: { _id: '$captura.codigoInterno', cant: { $sum: { $ifNull: ['$captura.cantidad', 0] } } } },
     ]),
     SalidaInventario.aggregate([
+      { $match: fLinea },
       { $unwind: '$partidas' },
       { $match: { 'partidas.codigoInterno': { $in: allMatchIds } } },
       { $group: { _id: '$partidas.codigoInterno', cant: { $sum: { $ifNull: ['$partidas.cantidad', 0] } } } },
     ]),
     AjusteInventario.aggregate([
-      { $match: { codigoInterno: { $in: strList } } },
+      { $match: { ...fLinea, codigoInterno: { $in: strList } } },
       { $group: { _id: '$codigoInterno', cant: { $sum: { $ifNull: ['$cantidad', 0] } } } },
     ]),
   ]);
@@ -232,6 +235,11 @@ async function getStockMapLocal(numerosParteLista) {
   }
   return result;
 }
+
+// Estados en los que el presupuesto ya se autorizó y se mandó a Venta al Cliente.
+const ESTADOS_POST_VENTA = [
+  'PENDIENTE_SURTIR', 'PENDIENTE_CIERRE', 'REPARACION_EN_CURSO', 'CALIDAD', 'PENDIENTE_CERRAR',
+];
 
 // El arreglo `presupuesto` se guarda completo desde dos pantallas distintas
 // (Presupuesto y Venta del asesor, y Por Surtir del refaccionario) que pueden
@@ -843,6 +851,7 @@ router.put('/:id/requisicion-diagnostico', proteger, async (req, res) => {
     const {
       diagnosticoTecnico,
       refacciones,      // viene del frontend
+      serviciosRequisicion, // servicios que agrupan refacciones
       cargosEnOrden,    // opcional, para después
       manoObra,         // opcional, para después
       estadoOrden,      // opcional, si quieres avanzar el flujo
@@ -864,8 +873,31 @@ router.put('/:id/requisicion-diagnostico', proteger, async (req, res) => {
 
     // Refacciones solicitadas (las que ves en la tabla)
     if (Array.isArray(refacciones)) {
+      // Una vez enviada a venta, las refacciones cotizadas ya no se pueden
+      // quitar ni descartar sus cotizaciones.
+      const enVenta =
+        (vehiculo.presupuesto || []).length > 0 ||
+        ['PENDIENTE_SURTIR', 'REPARACION_EN_CURSO', 'PENDIENTE_CIERRE', 'PENDIENTE_CERRAR', 'CERRADA'].includes(vehiculo.estadoOrden);
+      if (enVenta) {
+        const nuevas = new Map(refacciones.map((r) => [String(r._id || ''), r]));
+        const alterada = (vehiculo.refaccionesSolicitadas || []).some((r) => {
+          if (!(r.opciones || []).length) return false;
+          const n = nuevas.get(String(r._id));
+          return !n || !(n.opciones || []).length;
+        });
+        if (alterada) {
+          return res.status(409).json({
+            ok: false,
+            msg: 'La orden ya fue enviada a venta: no se pueden eliminar refacciones cotizadas.',
+          });
+        }
+      }
       // Aquí ya pueden venir requiereOC, ocGenerada, numeroOC, etc.
       vehiculo.refaccionesSolicitadas = refacciones;
+    }
+
+    if (Array.isArray(serviciosRequisicion)) {
+      vehiculo.serviciosRequisicion = serviciosRequisicion;
     }
 
     // Cargos en orden (para después, si los mandas)
@@ -921,6 +953,71 @@ router.put('/:id/requisicion-diagnostico', proteger, async (req, res) => {
     return res.json({ ok: true, vehiculo: vehiculoConCliente });
   } catch (err) {
     console.error('Error guardando requisicion/diagnostico:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// DELETE /api/vehiculos/:id/servicios-catalogo/:scId
+// Cancela un Servicio de catálogo ya enviado a presupuesto mientras no se
+// haya autorizado ni surtido nada de él: quita su snapshot y, si todavía
+// existen, su fila de servicio y las refacciones que agrupa.
+router.delete('/:id/servicios-catalogo/:scId', proteger, async (req, res) => {
+  try {
+    const vehiculo = await Vehiculo.findById(req.params.id);
+    if (!vehiculo) {
+      return res.status(404).json({ ok: false, msg: 'Orden no encontrada' });
+    }
+
+    const bloqueo = guardOrdenTerminal(req, vehiculo);
+    if (bloqueo) return res.status(bloqueo.status).json({ ok: false, msg: bloqueo.msg });
+
+    const sc = vehiculo.serviciosCatalogoSeleccionados.id(req.params.scId);
+    if (!sc) {
+      return res.status(404).json({ ok: false, msg: 'Servicio no encontrado en la orden' });
+    }
+
+    const padre = (vehiculo.presupuesto || []).find(
+      (p) =>
+        p.esServicio &&
+        p.servicioGrupoId &&
+        (sc.grupoId
+          ? String(p.servicioGrupoId) === String(sc.grupoId)
+          : p.concepto === sc.nombre)
+    );
+
+    if (!padre) {
+      // Sin fila de presupuesto no hay autorizado/surtido que revisar: se mira
+      // si ya se envió a Venta al Cliente (por estado o por concepto).
+      const enVenta = (vehiculo.ventaCliente || []).some((v) => v.concepto === sc.nombre);
+      if (enVenta || ESTADOS_POST_VENTA.includes(vehiculo.estadoOrden)) {
+        return res.status(400).json({
+          ok: false,
+          msg: 'Este servicio ya fue enviado a Venta al Cliente; no se puede cancelar desde aquí.',
+        });
+      }
+    }
+
+    if (padre) {
+      const gid = String(padre.servicioGrupoId);
+      const filas = vehiculo.presupuesto.filter((p) => String(p.servicioGrupoId) === gid);
+      if (filas.some((p) => p.autorizado || p.surtida)) {
+        return res.status(400).json({
+          ok: false,
+          msg: 'Este servicio ya fue autorizado o surtido; no se puede cancelar desde aquí.',
+        });
+      }
+      vehiculo.presupuesto = vehiculo.presupuesto.filter(
+        (p) => String(p.servicioGrupoId) !== gid
+      );
+    }
+
+    sc.deleteOne();
+    await vehiculo.save();
+
+    const actualizado = await Vehiculo.findById(vehiculo._id).populate('cliente', POPULATE_CLIENTE);
+    return res.json({ ok: true, vehiculo: actualizado });
+  } catch (err) {
+    console.error('Error cancelando servicio de catálogo:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });
@@ -1067,6 +1164,7 @@ router.put('/:id/omitir-refacciones', proteger, async (req, res) => {
       vehiculo.serviciosCatalogoSeleccionados.push({
         servicioId: bundle.servicioId,
         nombre: bundle.nombre,
+        grupoId: servicioRow._id,
         refacciones: refaccionesSnapshot,
         fechaSeleccion: new Date(),
       });
@@ -1113,6 +1211,7 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
       observCotizacion,
       ivaPresupuesto,
       ivaVenta,
+      ordenLlevaManoObra,
       accionCotizacion,
       crearNuevaVersionCotizacion,
       accionVentaCliente,
@@ -1144,10 +1243,78 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
     if (Array.isArray(presupuesto)) {
       // No pisar surtida/marca/proveedor/código/etc. si refaccionaria ya los
       // guardó desde Por Surtir mientras el asesor tenía esta pestaña abierta.
+      // No se puede borrar una partida ya surtida, ni una autorizada que ya se
+      // mandó a Venta (la orden pasó de Presupuesto a surtir/reparación).
+      const idsEntrantes = new Set(presupuesto.map((p) => p._id).filter(Boolean).map(String));
+      const bloqueada = (vehiculo.presupuesto || []).find(
+        (p) =>
+          !idsEntrantes.has(String(p._id)) &&
+          !p.esGrua &&
+          (p.surtida || (p.autorizado && ESTADOS_POST_VENTA.includes(vehiculo.estadoOrden)))
+      );
+      if (bloqueada) {
+        return res.status(400).json({
+          ok: false,
+          msg: `No se puede eliminar "${bloqueada.concepto || bloqueada.refaccion}": ya está ${
+            bloqueada.surtida ? 'surtida' : 'autorizada y enviada a Venta'
+          }.`,
+        });
+      }
+
+      const padresPrevios = (vehiculo.presupuesto || [])
+        .filter((p) => p.esServicio && p.servicioGrupoId)
+        .map((p) => ({
+          id: String(p.servicioGrupoId),
+          concepto: p.concepto,
+          autorizado: !!p.autorizado,
+        }));
+
       vehiculo.presupuesto = mergePresupuestoArray(
         vehiculo.presupuesto,
         presupuesto,
         CAMPOS_PRESUPUESTO_REFACCIONARIA
+      );
+
+      // Un Servicio de catálogo cuya fila se borró del presupuesto sin haberse
+      // autorizado (no llegó a Venta) vuelve a quedar disponible en Servicio o
+      // Reparación en lugar de seguir marcado como "Enviado".
+      const idsPadresActuales = new Set(
+        presupuesto.filter((p) => p.esServicio && p.servicioGrupoId).map((p) => String(p.servicioGrupoId))
+      );
+      vehiculo.serviciosCatalogoSeleccionados = (vehiculo.serviciosCatalogoSeleccionados || []).filter((sc) => {
+        const previo = sc.grupoId
+          ? padresPrevios.find((p) => p.id === String(sc.grupoId))
+          : padresPrevios.find((p) => p.concepto === sc.nombre);
+        const gid = sc.grupoId ? String(sc.grupoId) : previo?.id;
+        if (gid && idsPadresActuales.has(gid)) return true; // sigue en presupuesto
+        return !!previo?.autorizado; // borrado: se conserva solo si ya estaba autorizado
+      });
+
+      // Borrar una partida del presupuesto que venía de una refacción
+      // seleccionada en Requisición y Diagnóstico la deselecciona allá (si no,
+      // volvería a aparecer sola al recargar). Mismo criterio de "aprobada con
+      // precio" con el que Presupuesto las genera.
+      const origenesPresentes = new Set(
+        presupuesto.map((p) => p.origenRefId).filter(Boolean).map(String)
+      );
+      for (const r of vehiculo.refaccionesSolicitadas || []) {
+        const op = r.opciones?.[r.opcionSeleccionada];
+        const aprobadaConPrecio =
+          r.estatus === 'APROBADA' && op && Number(op.precioUnitario || 0) > 0;
+        if (aprobadaConPrecio && !origenesPresentes.has(String(r._id))) {
+          r.opcionSeleccionada = null;
+          r.estatus = 'PENDIENTE';
+          r.servicioId = null;
+        }
+      }
+      // Un servicio sin refacciones seleccionadas ya no existe
+      vehiculo.serviciosRequisicion = (vehiculo.serviciosRequisicion || []).filter((sv) =>
+        (vehiculo.refaccionesSolicitadas || []).some(
+          (r) =>
+            r.estatus === 'APROBADA' &&
+            r.opcionSeleccionada !== null &&
+            String(r.servicioId) === String(sv._id)
+        )
       );
     }
 
@@ -1204,6 +1371,10 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
       vehiculo.ivaVenta = Number(ivaVenta) || 0;
     }
 
+    if (typeof ordenLlevaManoObra === 'boolean' || ordenLlevaManoObra === null) {
+      vehiculo.ordenLlevaManoObra = ordenLlevaManoObra;
+    }
+
     let inventarioResult = null;
 
     if (estadoOrden === 'REPARACION_EN_CURSO') {
@@ -1244,7 +1415,7 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
 
         if (autorizadas.length > 0) {
           const codigos = [...new Set(autorizadas.map(p => String(p.codigo)))];
-          const stockMap = await getStockMapLocal(codigos);
+          const stockMap = await getStockMapLocal(codigos, vehiculo.lineaNegocio);
           const partidasSalida = [];
 
           for (const p of vehiculo.presupuesto) {
@@ -1272,6 +1443,7 @@ router.put('/:id/presupuesto-venta', proteger, async (req, res) => {
               .filter(p => p.codigoInterno !== null);
             if (partidasConOid.length > 0) {
               await SalidaInventario.create({
+                lineaNegocio:  normalizaLineaNegocio(vehiculo.lineaNegocio),
                 fechaSalida:   new Date(),
                 ordenServicio: vehiculo.ordenServicio || '',
                 surtidoPor:    req.user?.name || req.user?.username || '',
@@ -1610,13 +1782,11 @@ router.get('/stats/dashboard', proteger, async (req, res) => {
       // Órdenes creadas dentro del periodo
       Vehiculo.countDocuments({
         ...alcance,
-        ...FILTRO_SERVICOMPACTO,
         createdAt: { $gte: inicio, $lte: ahora },
       }),
       // Órdenes cerradas dentro del periodo
       Vehiculo.countDocuments({
         ...alcance,
-        ...FILTRO_SERVICOMPACTO,
         estadoOrden: 'CERRADA',
         updatedAt: { $gte: inicio, $lte: ahora },
       }),
@@ -2174,7 +2344,7 @@ router.put('/:id/cambiar-cliente', proteger, requiereRol('admin'), async (req, r
       return res.status(400).json({ ok: false, msg: 'La orden ya pertenece a ese cliente.' });
     }
 
-    const nuevoCliente = await Cliente.findById(clienteId).select('nombre');
+    const nuevoCliente = await Cliente.findById(clienteId).select('nombre lineaNegocio');
     if (!nuevoCliente) {
       return res.status(404).json({ ok: false, msg: 'Cliente no encontrado.' });
     }
@@ -2216,8 +2386,27 @@ router.put('/:id/cambiar-cliente', proteger, requiereRol('admin'), async (req, r
 
     const clienteAnterior = await Cliente.findById(clienteActualId).select('nombre').lean();
 
+    // La línea de negocio sigue al cliente: si la orden se abrió como Chirey
+    // con un cliente que no lo es (o al revés), al corregir el cliente la orden
+    // pasa a la línea del cliente nuevo. Sus salidas de inventario se re-sellan
+    // para que el stock de cada línea quede consistente.
+    const lineaAnterior = normalizaLineaNegocio(vehiculo.lineaNegocio);
+    const lineaNueva = normalizaLineaNegocio(nuevoCliente.lineaNegocio);
+
     vehiculo.cliente = nuevoCliente._id;
+    vehiculo.lineaNegocio = lineaNueva;
     await vehiculo.save();
+
+    if (lineaNueva !== lineaAnterior && vehiculo.ordenServicio) {
+      try {
+        await SalidaInventario.updateMany(
+          { ordenServicio: vehiculo.ordenServicio },
+          { $set: { lineaNegocio: lineaNueva } }
+        );
+      } catch (errSalidas) {
+        console.error('Re-sellado de salidas por cambio de línea (no crítico):', errSalidas.message);
+      }
+    }
 
     // Mantener sincronizado el Garaje (catálogo de vehículos por VIN). El alta
     // de la orden metió el cliente equivocado en GarageVehiculo.clientes (ver
@@ -2280,6 +2469,7 @@ router.put('/:id/cambiar-cliente', proteger, requiereRol('admin'), async (req, r
         de: { clienteId: clienteActualId, nombre: clienteAnterior?.nombre || '' },
         a: { clienteId: String(nuevoCliente._id), nombre: nuevoCliente.nombre || '' },
         motivo: motivoLimpio,
+        lineaNegocio: { de: lineaAnterior, a: lineaNueva },
       },
     });
 
@@ -2533,6 +2723,7 @@ router.put('/:id/surtir', proteger, async (req, res) => {
         .filter(p => p.codigoInterno !== null);
       if (partidas.length > 0) {
         await SalidaInventario.create({
+          lineaNegocio:  normalizaLineaNegocio(vehiculo.lineaNegocio),
           fechaSalida:   new Date(),
           ordenServicio: vehiculo.ordenServicio || '',
           surtidoPor:    req.user?.name || req.user?.username || '',

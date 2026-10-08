@@ -1,0 +1,41 @@
+/* Requisición y Diagnóstico: tarjetas táctiles, sin scroll horizontal */
+.rq-opcion {
+  border: 1px solid #dfe3e8;
+  border-left: 4px solid #cfd5dc;
+  border-radius: 8px;
+  padding: 8px 10px;
+  height: 100%;
+  background: #f8f9fb;
+  font-size: .85rem;
+}
+.rq-opcion.rq-elegida { border-color: #2d2a6b; border-left-color: #2d2a6b; background: #fff; box-shadow: 0 0 0 1px #2d2a6b; }
+.rq-precio { font-size: 1.05rem; font-weight: 700; line-height: 1.1; color: #2d2a6b; }
+.rq-dato { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: .8rem; color: #5b6470; }
+.rq-dato b { color: #212529; font-weight: 600; }
+.rq-btn { min-height: 38px; font-size: .9rem; padding: 4px 12px; }
+.rq-sel {
+  border: 1px solid #dfe3e8;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #f8f9fb;
+  cursor: pointer;
+  font-size: .88rem;
+}
+.rq-sel.rq-marcada { border-color: #2d2a6b; background: #fff; box-shadow: 0 0 0 1px #2d2a6b; }
+.rq-sel.rq-sinservicio { border-left: 4px solid #d34b3f; }
+.rq-check { width: 24px; height: 24px; flex: 0 0 auto; accent-color: #2d2a6b; }
+.rq-check:checked { background-color: #2d2a6b; border-color: #2d2a6b; }
+.rq-badge-sv { background: #2d2a6b; color: #fff; }
+.rq-badge-sin { background: rgba(211,75,63,.12); color: #b23a30; border: 1px solid rgba(211,75,63,.35); }
+.rq-btn-elegir { background: #fff; color: #2d2a6b; border: 2px solid #2d2a6b; }
+.rq-btn-elegir:hover { background: rgba(45,42,107,.06); }
+.rq-btn-elegida { background: #2d2a6b; color: #fff; border: 2px solid #2d2a6b; }
+.rq-btn-agrupar { background: #d34b3f; color: #fff; border: 1px solid #d34b3f; }
+.rq-btn-agrupar:disabled { opacity: .5; }
+.rq-panel-head { background: #2d2a6b; color: #fff; }
+.rq-panel { border: 1px solid rgba(45,42,107,.35); }
+@media (max-width: 991px) {
+  .rq-acciones { flex-direction: column; gap: 8px; }
+  .rq-acciones > * { width: 100%; }
+  .rq-acciones .btn { min-height: 44px; }
+}

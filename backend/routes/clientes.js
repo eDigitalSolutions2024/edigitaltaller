@@ -132,6 +132,9 @@ router.post("/", async (req, res) => {
     // abajo se hace por línea, para no bloquear un alta de Chirey solo porque
     // el mismo nombre ya existe en la cartera de Servicompacto.
     body.lineaNegocio = normalizaLineaNegocio(body.lineaNegocio);
+    // El formato de factura solo se cambia desde ⚙ Configuración (PUT /:id/formato-factura).
+    delete body.formatoFactura;
+    delete body.razonesSociales;
 
     // 👇 Validación de nombre duplicado
     const { nombre, apellidoPaterno, apellidoMaterno, tipoCliente } = body;
@@ -611,6 +614,71 @@ function sanitizaCuentasBancarias(body) {
 
 const ROLES_CUENTAS_CLIENTE = ["admin", "coordinador", "cajas"];
 
+// GET /api/clientes/:id/razones-sociales  (lo lee también Nueva Factura)
+router.get("/:id/razones-sociales", async (req, res) => {
+  try {
+    const c = await Cliente.findById(req.params.id).select("razonesSociales").lean();
+    if (!c) return res.status(404).json({ ok: false, error: "No encontrado" });
+    const lista = [...(c.razonesSociales || [])].sort(
+      (a, b) => new Date(b.ultimaVez || 0) - new Date(a.ultimaVez || 0)
+    );
+    res.json({ ok: true, data: lista });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// PUT /api/clientes/:id/razones-sociales  (reemplaza la lista: editar / eliminar / agregar)
+router.put("/:id/razones-sociales", requiereRol(...ROLES_CUENTAS_CLIENTE), async (req, res) => {
+  try {
+    const vistos = new Set();
+    const razonesSociales = (Array.isArray(req.body) ? req.body : [])
+      .map((r) => ({
+        nombre: String(r?.nombre || "").trim(),
+        veces: Math.max(Number(r?.veces) || 0, 0),
+        ultimaVez: r?.ultimaVez ? new Date(r.ultimaVez) : null,
+      }))
+      .filter((r) => {
+        const k = r.nombre.toLowerCase();
+        if (!r.nombre || vistos.has(k)) return false;
+        vistos.add(k);
+        return true;
+      });
+    const c = await Cliente.findByIdAndUpdate(req.params.id, { $set: { razonesSociales } }, { new: true })
+      .select("razonesSociales")
+      .lean();
+    if (!c) return res.status(404).json({ ok: false, error: "No encontrado" });
+    res.json({ ok: true, data: c.razonesSociales || [] });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// GET /api/clientes/:id/formato-factura
+router.get("/:id/formato-factura", requiereRol(...ROLES_CUENTAS_CLIENTE), async (req, res) => {
+  try {
+    const c = await Cliente.findById(req.params.id).select("formatoFactura").lean();
+    if (!c) return res.status(404).json({ ok: false, error: "No encontrado" });
+    res.json({ ok: true, data: { formatoFactura: c.formatoFactura === "INEGI" ? "INEGI" : "NORMAL" } });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// PUT /api/clientes/:id/formato-factura  { formatoFactura: "NORMAL" | "INEGI" }
+router.put("/:id/formato-factura", requiereRol(...ROLES_CUENTAS_CLIENTE), async (req, res) => {
+  try {
+    const formatoFactura = req.body?.formatoFactura === "INEGI" ? "INEGI" : "NORMAL";
+    const c = await Cliente.findByIdAndUpdate(req.params.id, { $set: { formatoFactura } }, { new: true })
+      .select("formatoFactura")
+      .lean();
+    if (!c) return res.status(404).json({ ok: false, error: "No encontrado" });
+    res.json({ ok: true, data: { formatoFactura: c.formatoFactura } });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
 // GET /api/clientes/:id/cuentas-bancarias
 router.get("/:id/cuentas-bancarias", requiereRol(...ROLES_CUENTAS_CLIENTE), async (req, res) => {
   try {
@@ -659,6 +727,10 @@ router.put("/:id", async (req, res) => {
     if (body.lineaNegocio !== undefined) {
       body.lineaNegocio = normalizaLineaNegocio(body.lineaNegocio);
     }
+
+    // Igual: el formato de factura no se pisa con la copia del formulario.
+    delete body.formatoFactura;
+    delete body.razonesSociales;
 
     // 🔴 Tampoco actualizamos facturación por ahora
     //delete body.facturacion;

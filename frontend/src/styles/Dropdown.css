@@ -100,3 +100,6 @@
     min-height: 44px;
   }
 }
+
+/* Encabezados de grupo (opciones deshabilitadas usadas como título) */
+.dd-option.disabled { opacity: 1; font-size: .72rem; font-weight: 700; letter-spacing: .04em; color: #6c757d; background: #f8f9fb; cursor: default; margin-top: 2px; }

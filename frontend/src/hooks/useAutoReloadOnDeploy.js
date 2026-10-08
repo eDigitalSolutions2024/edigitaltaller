@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 const INTERVALO_MS = 60_000;
 
@@ -7,10 +7,13 @@ const INTERVALO_MS = 60_000;
  * deploy nuevo nunca se nota hasta que alguien sale de la app y vuelve a
  * cargar el link a mano. Este hook compara cada minuto el asset-manifest.json
  * que genera react-scripts en cada build (trae el hash de contenido del
- * bundle actual) contra el que se leyó al abrir la página; si cambió, recarga
- * sola.
+ * bundle actual) contra el que se leyó al abrir la página; si cambió, avisa
+ * (ver AvisoActualizacion) para que el usuario recargue cuando le convenga y
+ * no pierda lo que esté capturando. Devuelve true mientras haya versión nueva.
  */
 export default function useAutoReloadOnDeploy() {
+  const [hayNuevaVersion, setHayNuevaVersion] = useState(false);
+
   useEffect(() => {
     let versionInicial = null;
     let cancelado = false;
@@ -29,7 +32,7 @@ export default function useAutoReloadOnDeploy() {
         if (versionInicial == null) {
           versionInicial = version;
         } else if (version !== versionInicial) {
-          window.location.reload();
+          setHayNuevaVersion(true);
         }
       } catch {
         // Sin conexión momentánea: se reintenta en el próximo ciclo.
@@ -43,4 +46,6 @@ export default function useAutoReloadOnDeploy() {
       clearInterval(id);
     };
   }, []);
+
+  return hayNuevaVersion;
 }

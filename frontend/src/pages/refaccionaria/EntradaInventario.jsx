@@ -6,6 +6,7 @@ import TablaCapturaEntrada from "./components/TablaCapturaEntrada";
 import ModalAltaProveedor from "./components/ModalAltaProveedor";
 import ModalAltaCodigo from "./components/ModalAltaCodigo";
 import { formatFecha } from "../../utils/fechas";
+import useLineaNegocio from "../../hooks/useLineaNegocio";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 
@@ -21,6 +22,7 @@ const nombreClienteOrden = (c) => {
 
 // ─── Modal buscar orden de servicio ──────────────────────────────────────────
 function ModalBuscarOrden({ onSelect, onClose }) {
+  const linea = useLineaNegocio();
   const [busqueda, setBusqueda] = useState("");
   const [ordenes,  setOrdenes]  = useState([]);
   const [loading,  setLoading]  = useState(false);
@@ -30,6 +32,7 @@ function ModalBuscarOrden({ onSelect, onClose }) {
     try {
       const params = new URLSearchParams({ limit: 20 });
       if (q.trim()) params.set("searchOs", q.trim());
+      if (linea) params.set("lineaNegocio", linea);
       const r = await fetch(`${API}/vehiculos/ordenes?${params}`, { credentials: "include" });
       const json = await r.json().catch(() => ({}));
       setOrdenes(json?.data || []);
@@ -141,6 +144,8 @@ function ModalBuscarOrden({ onSelect, onClose }) {
 }
 
 export default function EntradaInventario() {
+  // La entrada se sella con la línea de negocio: el stock de Chirey va a su propio almacén.
+  const linea = useLineaNegocio();
   const [searchParams] = useSearchParams();
 
   const [loading, setLoading] = useState(false);
@@ -326,6 +331,7 @@ export default function EntradaInventario() {
     } else {
       formData.append("usadaEnOrden", "false");
     }
+    if (linea) formData.append("lineaNegocio", linea);
 
     try {
       setLoading(true);

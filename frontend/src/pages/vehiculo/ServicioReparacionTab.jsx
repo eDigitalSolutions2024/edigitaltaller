@@ -1,6 +1,6 @@
 // src/pages/vehiculo/ServicioReparacionTab.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { updateServicioReparacion, saveRequisicionDiagnostico, omitirRefacciones } from "../../api/vehiculos";
+import { updateServicioReparacion, saveRequisicionDiagnostico, omitirRefacciones, quitarServicioCatalogo } from "../../api/vehiculos";
 import { listServiciosCatalogoOptions } from "../../api/serviciosCatalogo";
 
 const emptyForm = {
@@ -21,7 +21,7 @@ const PDF_SECTIONS = [
   { label: "Sistema de enfriamiento",                textKey: "sistemaEnfriamiento" },
 ];
 
-export default function ServicioReparacionTab({ ordenId, initialData, existingRefacciones = [], serviciosCatalogoSeleccionados = [], onSaved, readOnly = false, sinVehiculo = false }) {
+export default function ServicioReparacionTab({ ordenId, initialData, existingRefacciones = [], serviciosCatalogoSeleccionados = [], enVenta = false, onSaved, onServicioQuitado, readOnly = false, sinVehiculo = false }) {
   const [form, setForm] = useState(emptyForm);
   const [activePdf, setActivePdf] = useState({
     fallasMotorOtros: false,
@@ -42,6 +42,7 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
   const [showModal, setShowModal] = useState(false);
   const [refacciones, setRefacciones] = useState([{ refaccion: "", cantidad: 1 }]);
   const [guardandoRefacciones, setGuardandoRefacciones] = useState(false);
+  const [verSolicitadas, setVerSolicitadas] = useState(false);
 
   // Modal de omitir refacciones (continuar solo con servicios)
   const [showOmitirModal, setShowOmitirModal] = useState(false);
@@ -94,6 +95,16 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
   // re-elegirlo re-dispara el envío y puede sacar la orden de la cola de
   // refaccionaria si había una solicitud de refacciones pendiente. Solo se
   // puede quitar mientras esté en selección local (aún no enviado).
+  const handleQuitarServicioEnviado = async (sc) => {
+    if (!window.confirm(`¿Cancelar el servicio "${sc.nombre}"? Se quitará del presupuesto y podrás elegirlo de nuevo.`)) return;
+    try {
+      const res = await quitarServicioCatalogo(ordenId, sc._id);
+      if (onServicioQuitado) onServicioQuitado(res.data.vehiculo);
+    } catch (err) {
+      alert(err?.response?.data?.msg || "No se pudo cancelar el servicio.");
+    }
+  };
+
   const bundleYaEnviado = (servicioId) =>
     serviciosCatalogoSeleccionados.some((s) => String(s.servicioId) === String(servicioId));
 
@@ -216,6 +227,27 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
           : item
       )
     );
+
+  const handleCancelarExistente = async (idx) => {
+    const r = existingRefacciones[idx];
+    const aviso = (r.opciones || []).length > 0 ? " Ya tiene cotizaciones y se perderán." : "";
+    if (!window.confirm(`¿Cancelar la solicitud de "${r.refaccion}"?${aviso}`)) return;
+    try {
+      setGuardandoRefacciones(true);
+      const restantes = existingRefacciones.filter((_, i) => i !== idx);
+      let res = await saveRequisicionDiagnostico(ordenId, { refacciones: restantes });
+      // Sin nada por cotizar, la orden deja de esperar a refaccionaria.
+      if (restantes.length === 0 && res?.data?.vehiculo?.estadoOrden === "PENDIENTE_REFACCIONARIA") {
+        res = await saveRequisicionDiagnostico(ordenId, { refacciones: [], estadoOrden: "INGRESO" });
+      }
+      if (onSaved && res?.data?.vehiculo) onSaved(res.data.vehiculo);
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo cancelar la refacción.");
+    } finally {
+      setGuardandoRefacciones(false);
+    }
+  };
 
   const handleEnviarRefacciones = async () => {
     if (!ordenId) return;
@@ -441,7 +473,18 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
                   </p>
                   {serviciosCatalogoSeleccionados.map((s, idx) => (
                     <div key={idx} className="border rounded p-2 mb-2 bg-light text-muted">
-                      <div className="text-decoration-line-through fw-semibold">{s.nombre}</div>
+                      <div className="d-flex justify-content-between align-items-center">
+                        <div className="text-decoration-line-through fw-semibold">{s.nombre}</div>
+                        {!readOnly && s._id && (
+                          <button
+                            type="button"
+                            className="btn btn-outline-danger btn-sm"
+                            onClick={() => handleQuitarServicioEnviado(s)}
+                          >
+                            Quitar
+                          </button>
+                        )}
+                      </div>
                       <ul className="mb-0 ps-3">
                         {(s.refacciones || []).filter((r) => r.incluida !== false).map((r, i) => (
                           <li key={i} className="text-decoration-line-through small">
@@ -623,6 +666,46 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
                   Indica las refacciones que necesita el vehículo. El
                   refaccionario recibirá esta solicitud y cotizará las opciones.
                 </p>
+
+                {existingRefacciones.length > 0 && (
+                  <div className="mb-3">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary"
+                      onClick={() => setVerSolicitadas((v) => !v)}
+                    >
+                      {verSolicitadas ? "▾" : "▸"} Ver refacciones ya solicitadas ({existingRefacciones.length})
+                    </button>
+                    {verSolicitadas && (<>
+                    <ul className="list-group list-group-flush mt-2">
+                      {existingRefacciones.map((r, i) => (
+                        <li key={i} className="list-group-item d-flex justify-content-between align-items-center py-1">
+                          <span>{r.refaccion}</span>
+                          <span className="d-flex align-items-center gap-2">
+                            <span className="badge bg-secondary">Cant: {r.cant}</span>
+                            {(r.opciones || []).length > 0 && (
+                              <span className="badge bg-info text-dark">Cotizada</span>
+                            )}
+                            {!(enVenta && (r.opciones || []).length > 0) && (
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-danger"
+                                disabled={guardandoRefacciones}
+                                onClick={() => handleCancelarExistente(i)}
+                              >
+                                Cancelar
+                              </button>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-muted small mt-1 mb-0">
+                      Las nuevas se agregan a estas. Para editar las anteriores, usa la pestaña de requisición.
+                    </p>
+                    </>)}
+                  </div>
+                )}
 
                 <table className="table table-sm table-bordered align-middle">
                   <thead className="table-light">

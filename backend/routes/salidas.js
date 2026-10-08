@@ -5,6 +5,7 @@ const SalidaInventario  = require('../models/SalidaInventario');
 const AjusteInventario  = require('../models/AjusteInventario');
 const Vehiculo          = require('../models/Vehiculo');
 const { regexBusquedaOS } = require('../utils/ordenServicio');
+const { filtroInventario, filtroReporte, normalizaLineaNegocio } = require('../utils/lineaNegocio');
 
 
 /* ===== Helpers ===== */
@@ -29,23 +30,26 @@ function expandIds(codigos) {
 }
 
 /** Obtiene stock actual de una lista de códigos (entradas - salidas + ajustes) */
-async function getStockMap(codigos) {
+async function getStockMap(codigos, linea) {
+  const fLinea = filtroInventario(linea);
   const ids = expandIds(codigos);
   const strIds = [...new Set(codigos.map(String))];
 
   const [entradas, salidas, ajustes] = await Promise.all([
     EntradaInventario.aggregate([
+      { $match: fLinea },
       { $unwind: '$captura' },
       { $match: { 'captura.codigoInterno': { $in: ids } } },
       { $group: { _id: '$captura.codigoInterno', cant: { $sum: { $ifNull: ['$captura.cantidad', 0] } } } },
     ]),
     SalidaInventario.aggregate([
+      { $match: fLinea },
       { $unwind: '$partidas' },
       { $match: { 'partidas.codigoInterno': { $in: ids } } },
       { $group: { _id: '$partidas.codigoInterno', cant: { $sum: { $ifNull: ['$partidas.cantidad', 0] } } } },
     ]),
     AjusteInventario.aggregate([
-      { $match: { codigoInterno: { $in: strIds } } },
+      { $match: { ...fLinea, codigoInterno: { $in: strIds } } },
       { $group: { _id: '$codigoInterno', cant: { $sum: { $ifNull: ['$cantidad', 0] } } } },
     ]),
   ]);
@@ -58,9 +62,10 @@ async function getStockMap(codigos) {
 }
 
 /** Obtiene la última "unidad" usada por código en las ENTRADAS */
-async function getUnidadMap(codigos) {
+async function getUnidadMap(codigos, linea) {
   const ids = expandIds(codigos);
   const rows = await EntradaInventario.aggregate([
+    { $match: filtroInventario(linea) },
     { $unwind: '$captura' },
     { $match: { 'captura.codigoInterno': { $in: ids } } },
     { $sort: { fechaFactura: 1 } },
@@ -77,6 +82,14 @@ async function getUnidadMap(codigos) {
 router.post('/', async (req, res) => {
   try {
     const { fechaSalida, ordenServicio, partidas = [] } = req.body || {};
+
+    // La salida descuenta del almacén de la línea de la ORDEN (una orden de
+    // Chirey solo consume inventario de Chirey). Sin orden, manda el body.
+    let linea = normalizaLineaNegocio(req.body?.lineaNegocio);
+    if (ordenServicio) {
+      const os = await Vehiculo.findOne({ ordenServicio: String(ordenServicio).trim() }).select('lineaNegocio').lean();
+      if (os) linea = normalizaLineaNegocio(os.lineaNegocio);
+    }
 
     if (!fechaSalida) {
       return res.status(400).json({ success:false, message:'fechaSalida requerida' });
@@ -102,13 +115,13 @@ router.post('/', async (req, res) => {
     const cods = [...new Set(limpias.map(p => String(p.codigoInterno)))];
 
     // 1) Completar UNIDAD desde últimas entradas
-    const unidadMap = await getUnidadMap(cods);
+    const unidadMap = await getUnidadMap(cods, linea);
     for (const p of limpias) {
       if (!p.unidad) p.unidad = unidadMap.get(String(p.codigoInterno)) || 'Pieza';
     }
 
     // 2) Verificar stock disponible
-    const stockMap = await getStockMap(cods);
+    const stockMap = await getStockMap(cods, linea);
     const faltantes = [];
     for (const p of limpias) {
       const disp = stockMap.get(String(p.codigoInterno)) || 0;
@@ -126,6 +139,7 @@ router.post('/', async (req, res) => {
 
     // 3) Crear salida
     const salida = await SalidaInventario.create({
+      lineaNegocio: linea,
       fechaSalida: new Date(fechaSalida),
       ordenServicio: (ordenServicio || '').trim(),
       partidas: limpias,
@@ -191,7 +205,7 @@ router.get('/ordenes', async (req, res) => {
     } = req.query;
 
     // 🔵 Solo queremos que hayan sido iniciadas
-    const q = { ordenIniciada: true };
+    const q = { ordenIniciada: true, ...filtroReporte(req.query.lineaNegocio) };
 
     // Filtro opcional por número de OS (con o sin guion: "OS023" = "OS-023")
     if (searchOs) {

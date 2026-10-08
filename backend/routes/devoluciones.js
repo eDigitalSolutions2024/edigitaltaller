@@ -8,6 +8,7 @@ const { Devolucion } = require('../models/Devolucion'); // << usar SIEMPRE este
 const DevolucionRefaccion = require('../models/DevolucionRefaccion');
 const Contador = require('../models/Contador');
 const CodigoRefaccion = require('../models/CodigoRefaccion');
+const { filtroInventario, normalizaLineaNegocio } = require('../utils/lineaNegocio');
 const { streamDevolucionRefaccionPdf } = require('../service/devolucionRefaccionPdf');
 
 /* ───────────── Helpers ───────────── */
@@ -56,7 +57,8 @@ const takeKey = c => String(
 );
 
 /** Stock = Entradas - Salidas por llave */
-async function getStockMap(codigos) {
+async function getStockMap(codigos, linea) {
+  const fLinea = filtroInventario(linea);
   const keysStr = [...new Set(codigos.filter(Boolean).map(v => String(v).trim()))];
   const toObjId = (v) => (mongoose.Types.ObjectId.isValid(v) ? new mongoose.Types.ObjectId(v) : null);
   const keysObj = keysStr.map(toObjId).filter(Boolean);
@@ -80,10 +82,10 @@ async function getStockMap(codigos) {
     }
   };
 
-  const ent = await EntradaInventario.find({ $or: buildOr(keysStr, keysObj) }, { captura: 1 }).lean();
+  const ent = await EntradaInventario.find({ ...fLinea, $or: buildOr(keysStr, keysObj) }, { captura: 1 }).lean();
   ent.forEach(d => add(d, +1));
 
-  const sal = await SalidaInventario.find({ $or: buildOr(keysStr, keysObj) }, { captura: 1 }).lean();
+  const sal = await SalidaInventario.find({ ...fLinea, $or: buildOr(keysStr, keysObj) }, { captura: 1 }).lean();
   sal.forEach(d => add(d, -1));
 
   return map;
@@ -107,7 +109,7 @@ router.get('/proveedor/dinero/prep', async (req, res) => {
       { factura: asRx(factura) },
     ];
 
-    const ent = await EntradaInventario.findOne({ $or: matchFactura })
+    const ent = await EntradaInventario.findOne({ ...filtroInventario(req.query.lineaNegocio), $or: matchFactura })
       .populate({ path: 'proveedorId', select: 'nombreProveedor aliasProveedor rfc' })
       .lean();
 
@@ -119,7 +121,7 @@ router.get('/proveedor/dinero/prep', async (req, res) => {
 
     const caps = Array.isArray(ent.captura) ? ent.captura : [];
     const keys = caps.map(takeKey).filter(Boolean);
-    const stockMap = keys.length ? await getStockMap(keys) : new Map();
+    const stockMap = keys.length ? await getStockMap(keys, req.query.lineaNegocio) : new Map();
 
     const items = caps.map((cap) => {
       const key = takeKey(cap);
@@ -162,7 +164,7 @@ router.post('/dinero', async (req, res) => {
   try {
     const {
       fechaDevolucion, proveedor, motivo, fechaRecibe, quienRecibe,
-      observaciones, formaPago, facturaNumero, lineas = []
+      observaciones, formaPago, facturaNumero, lineas = [], lineaNegocio
     } = req.body || {};
 
     if (!Array.isArray(lineas) || lineas.length === 0) {
@@ -185,7 +187,7 @@ router.post('/dinero', async (req, res) => {
 
     // Valida stock
     const codes = lineasNorm.map(l => l.keyInventario).filter(Boolean);
-    const stock = await getStockMap(codes);
+    const stock = await getStockMap(codes, lineaNegocio);
     const faltantes = [];
     for (const l of lineasNorm) {
       const disp = Number(stock.get(l.keyInventario) || 0);
@@ -239,6 +241,7 @@ router.post('/dinero', async (req, res) => {
 
     try {
       await SalidaInventario.create({
+        lineaNegocio: normalizaLineaNegocio(lineaNegocio),
         fechaSalida: fechaOut,
         fecha: fechaOut,
         tipoSalida: 'DEV_PROV_DINERO',
@@ -271,7 +274,7 @@ router.get('/refaccion/facturas', async (req, res) => {
     const q = String(req.query.q || '').trim();
     if (!q) return res.json([]);
 
-    const ents = await EntradaInventario.find({ numero: asRx(q) })
+    const ents = await EntradaInventario.find({ ...filtroInventario(req.query.lineaNegocio), numero: asRx(q) })
       .populate({ path: 'proveedorId', select: 'nombreProveedor aliasProveedor' })
       .sort({ fechaFactura: -1 })
       .limit(10)
@@ -297,7 +300,7 @@ router.get('/refaccion/prefill', async (req, res) => {
     const factura = String(req.query.factura || '').trim();
     if (!factura) return res.status(400).json({ error: 'Falta factura' });
 
-    const ent = await EntradaInventario.findOne({ $or: [{ numero: factura }, { numero: asRx(factura) }] })
+    const ent = await EntradaInventario.findOne({ ...filtroInventario(req.query.lineaNegocio), $or: [{ numero: factura }, { numero: asRx(factura) }] })
       .populate({ path: 'proveedorId', select: 'nombreProveedor aliasProveedor' })
       .lean();
 

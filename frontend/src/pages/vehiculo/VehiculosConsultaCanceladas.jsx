@@ -2,11 +2,13 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listOrdenesServicio } from "../../api/vehiculos";
+import useLineaNegocio, { paramsLinea } from "../../hooks/useLineaNegocio";
 import { formatFecha } from "../../utils/fechas";
 
 const PAGE_SIZE = 10;
 
 export default function VehiculoConsultaCanceladas() {
+  const linea = useLineaNegocio();
   const navigate = useNavigate();
 
   const [rows, setRows] = useState([]);
@@ -23,6 +25,7 @@ export default function VehiculoConsultaCanceladas() {
     try {
       setLoading(true);
       const res = await listOrdenesServicio({
+        ...paramsLinea(linea),
         estado: "CANCELADA",
         searchOs: searchOs.trim(),
         search: search.trim(),

@@ -389,6 +389,9 @@ const vehiculoSchema = new Schema(
       {
         servicioId: { type: Schema.Types.ObjectId, ref: 'ServicioCatalogo', default: null },
         nombre: { type: String, default: "" },
+        // _id de la fila esServicio de presupuesto[] que generó este servicio;
+        // si esa fila se borra antes de enviarse a venta, el servicio se libera.
+        grupoId: { type: Schema.Types.ObjectId, default: null },
         refacciones: [
           {
             nombre: { type: String, default: "" },
@@ -410,11 +413,23 @@ const vehiculoSchema = new Schema(
     // ===== Requisición y diagnóstico =====
     diagnosticoTecnico: { type: String, default: "" },
 
+    // Servicios que agrupan refacciones sueltas (los nombra el asesor en
+    // Requisición y Diagnóstico). Cada refacción apunta a uno con `servicioId`;
+    // un servicio sin refacciones aprobadas simplemente no pasa al presupuesto.
+    serviciosRequisicion: [
+      {
+        nombre: { type: String, default: "" },
+      },
+    ],
+
     refaccionesSolicitadas: [
       {
         // Campos propios de la solicitud (no se duplican en opciones)
         cant: { type: Number, default: 0 },
         refaccion: { type: String, default: "" },
+
+        // Servicio (serviciosRequisicion._id) al que está agrupada; null = suelta
+        servicioId: { type: Schema.Types.ObjectId, default: null },
 
         // Índice de la opción elegida por el asesor (null = sin selección)
         opcionSeleccionada: { type: Number, default: null },
@@ -645,6 +660,10 @@ const vehiculoSchema = new Schema(
       },
     ],
 
+    // Decisión general de la orden: ¿lleva mano de obra? (null = aún sin definir).
+    // Si es true, manoObra[] debe traer al menos una asignación con técnico.
+    ordenLlevaManoObra: { type: Boolean, default: null },
+
     // ===== Mano de Obra =====
     manoObra: [
       {
@@ -653,6 +672,9 @@ const vehiculoSchema = new Schema(
         // asesor seleccionó al asignar esta mano de obra. Null en filas
         // legado capturadas antes de este cambio (concepto de texto libre).
         presupuestoId: { type: Schema.Types.ObjectId, default: null },
+        // Puesto del técnico asignado (mecanico, ayudante, carrocero, jefe_taller…).
+        // Solo informativo: los carroceros usan `carrocero`; el resto se guarda en `mecanico`.
+        puesto: { type: String, default: "" },
         // Precio de venta (sin IVA) de la partida de Venta al Cliente al
         // momento de asignar la mano de obra. Se usa en reportes de RH en
         // lugar de volver a buscar en presupuesto[], porque el asesor puede

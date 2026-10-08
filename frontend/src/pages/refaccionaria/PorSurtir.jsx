@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import useLineaNegocio, { paramsLinea } from "../../hooks/useLineaNegocio";
 import { listOrdenesServicio, marcarSurtidas, filtrosPorSurtir } from "../../api/vehiculos";
 import { getUser } from "../../auth";
 import ModalCotizarSurtido from "./components/ModalCotizarSurtido";
@@ -10,6 +11,7 @@ const necesitaDetalle = (p) =>
   !!p.origenServicioCatalogo && (!p.marca || !p.proveedor || !(Number(p.precioCompra) > 0));
 
 export default function PorSurtir() {
+  const linea = useLineaNegocio();
   const [ordenes, setOrdenes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -32,8 +34,8 @@ export default function PorSurtir() {
       // todos para que no queden sin surtir. Los demás roles ven todo.
       const surtir = filtrosPorSurtir(esRefaccionario ? usuario?.name : null);
       const [r1, r2] = await Promise.all([
-        listOrdenesServicio({ ...surtir, estado: "PENDIENTE_SURTIR", limit: 100 }),
-        listOrdenesServicio({ ...surtir, estado: "REPARACION_EN_CURSO", limit: 100 }),
+        listOrdenesServicio({ ...surtir, ...paramsLinea(linea), estado: "PENDIENTE_SURTIR", limit: 100 }),
+        listOrdenesServicio({ ...surtir, ...paramsLinea(linea), estado: "REPARACION_EN_CURSO", limit: 100 }),
       ]);
       const todas = [...(r1.data?.data || []), ...(r2.data?.data || [])]
         .sort((a, b) => {
@@ -328,6 +330,7 @@ export default function PorSurtir() {
           cant={filaModalDetalle.cant}
           vehiculo={{
             ordenServicio: ordenModalDetalle?.ordenServicio,
+            lineaNegocio: ordenModalDetalle?.lineaNegocio,
             cliente: ordenModalDetalle ? nombreCliente(ordenModalDetalle) : "",
             marca: ordenModalDetalle?.marca,
             modelo: ordenModalDetalle?.modelo,

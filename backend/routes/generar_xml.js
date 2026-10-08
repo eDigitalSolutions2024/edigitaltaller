@@ -9,6 +9,7 @@ const { Xslt, XmlParser } = require("xslt-processor");
 const FiscalConfig = require("../models/FiscalConfig");
 const FacturaCfdi = require("../models/FacturaCfdi");
 const Vehiculo = require("../models/Vehiculo");
+const Cliente = require("../models/Cliente");
 const Contador = require("../models/Contador");
 const { proteger } = require("../middleware/auth");
 const { registrarMovimientosTarjetas } = require("../utils/movimientosTerminalPago");
@@ -1489,6 +1490,27 @@ router.post("/xml", proteger, async (req, res) => {
         !esFacturaGlobal && razonSocialOriginal && razonSocialOriginal !== nombreEmitido
           ? `Facturado como "${nombreEmitido}" (razón social: "${razonSocialOriginal}")`
           : "";
+
+      // Historial de razones sociales del cliente: cada nombre distinto al fiscal
+      // con el que se factura queda guardado (Cliente.razonesSociales) para
+      // poder reutilizarlo y administrarlo desde ⚙ Configuración del cliente.
+      if (tipoFactura === "factura" && cliente._id && nombreEmitido && notaFacturacion) {
+        try {
+          const ahora = new Date();
+          const r = await Cliente.updateOne(
+            { _id: cliente._id, "razonesSociales.nombre": nombreEmitido },
+            { $inc: { "razonesSociales.$.veces": 1 }, $set: { "razonesSociales.$.ultimaVez": ahora } }
+          );
+          if (!r.matchedCount) {
+            await Cliente.updateOne(
+              { _id: cliente._id },
+              { $push: { razonesSociales: { nombre: nombreEmitido, veces: 1, ultimaVez: ahora } } }
+            );
+          }
+        } catch (e) {
+          console.error("No se pudo guardar la razón social en el historial:", e.message);
+        }
+      }
 
       // Una NC contra Global guarda las órdenes de las notas que libera (para encontrarla por
       // orden y para el Reporte de Facturas); NC/Complemento normales, las de las facturas que

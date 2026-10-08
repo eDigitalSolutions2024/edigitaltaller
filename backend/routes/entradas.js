@@ -4,6 +4,7 @@ const EntradaInventario = require('../models/EntradaInventario');
 const CodigoRefaccion  = require('../models/CodigoRefaccion');
 const uploadFactura = require('./middleware/uploadFactura');
 const { proteger, requiereRol } = require('../middleware/auth');
+const { normalizaLineaNegocio } = require('../utils/lineaNegocio');
 
 // 0) Migración retroactiva: rellena proveedor en BDCodigos a partir de entradas finalizadas
 router.post('/migrate-codigos-proveedor', async (req, res) => {
@@ -50,7 +51,7 @@ router.post('/', uploadFactura.single('fotoFactura'), async (req, res) => {
   try {
     const {
       tipoComprobante, numero, moneda, formaPago, proveedorId, fechaFactura,
-      usadaEnOrden, sucursal, ordenId, numeroOrden,
+      usadaEnOrden, sucursal, ordenId, numeroOrden, lineaNegocio,
       clienteOrden, vehiculoOrden, modeloOrden, refaccionarioOrden, fechaOrden,
     } = req.body;
 
@@ -81,6 +82,8 @@ router.post('/', uploadFactura.single('fotoFactura'), async (req, res) => {
     const entrada = await EntradaInventario.create({
       tipoComprobante, numero, moneda, formaPago, proveedorId, fechaFactura,
       fotoFactura, ordenVinculada,
+      // Cada línea de negocio (Servicompacto / Chirey) tiene su propio inventario.
+      lineaNegocio: normalizaLineaNegocio(lineaNegocio),
     });
 
     res.status(201).json({ success: true, entradaId: entrada._id });

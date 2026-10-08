@@ -37,6 +37,21 @@ export const getCustomerCuentasBancarias = (id) =>
 export const updateCustomerCuentasBancarias = (id, rows) =>
   http.put(`/clientes/${id}/cuentas-bancarias`, rows);
 
+// Historial de razones sociales con las que se ha facturado (Cliente.razonesSociales).
+// PUT reemplaza la lista completa (editar / eliminar / agregar).
+export const getCustomerRazonesSociales = (id) =>
+  http.get(`/clientes/${id}/razones-sociales`);
+
+export const updateCustomerRazonesSociales = (id, rows) =>
+  http.put(`/clientes/${id}/razones-sociales`, rows);
+
+// Formato del PDF de sus facturas: "NORMAL" | "INEGI" (ver Cliente.formatoFactura).
+export const getCustomerFormatoFactura = (id) =>
+  http.get(`/clientes/${id}/formato-factura`);
+
+export const updateCustomerFormatoFactura = (id, formatoFactura) =>
+  http.put(`/clientes/${id}/formato-factura`, { formatoFactura });
+
 // 👇 Activar / desactivar cliente (baja lógica, ver Cliente.activo). El
 // backend exige `motivo` al desactivar (ver PATCH /clientes/:id/estado).
 export const setCustomerEstado = (id, activo, motivo) =>

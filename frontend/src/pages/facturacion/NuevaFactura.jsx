@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Dropdown from "../../components/Dropdown";
 import { listOrdenesServicio, getVehiculoById } from "../../api/vehiculos";
-import { updateCustomer } from "../../api/customers";
+import { updateCustomer, getCustomerRazonesSociales } from "../../api/customers";
 import OrdenanteComplemento from "./components/OrdenanteComplemento";
 import { aplicaOrdenante, errorCuentaOrdenante } from "../../utils/cuentaOrdenante";
 import { listConceptosPreset } from "../../api/conceptosPreset";
@@ -1823,6 +1823,8 @@ export default function NuevaFactura() {
   // receptor y se puede editar; si cambia, la factura guarda una nota en el
   // historial diciendo a qué nombre se facturó.
   const [nombreFacturacion, setNombreFacturacion] = useState("");
+  // Historial de razones sociales con las que ya se facturó a este cliente.
+  const [razonesSociales, setRazonesSociales] = useState([]);
 
   const [aplicarRetencionIsr, setAplicarRetencionIsr] = useState(false);
   const isrRate = 0.0125;
@@ -1878,6 +1880,25 @@ export default function NuevaFactura() {
   useEffect(() => {
     setNombreFacturacion(receptor?.nombre || "");
   }, [receptor?.nombre]);
+
+  useEffect(() => {
+    const idCliente = cliente?._id;
+    if (!esFactura || !idCliente) {
+      setRazonesSociales([]);
+      return undefined;
+    }
+    let cancelado = false;
+    getCustomerRazonesSociales(idCliente)
+      .then(({ data }) => {
+        if (!cancelado) setRazonesSociales(Array.isArray(data?.data) ? data.data : []);
+      })
+      .catch(() => {
+        if (!cancelado) setRazonesSociales([]);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [esFactura, cliente?._id]);
 
   // ¿Se está facturando con un nombre distinto a la razón social fiscal del
   // cliente? (F3) — dispara el aviso de que quedará una nota en el historial.
@@ -3994,11 +4015,31 @@ export default function NuevaFactura() {
               <div className="row g-3 mt-1">
                 <div className="col-12 col-md-8">
                   <label className="form-label">Facturar a nombre de</label>
-                  <input
-                    className="form-control"
-                    value={nombreFacturacion}
-                    onChange={(e) => setNombreFacturacion(e.target.value)}
-                  />
+                  <div className="d-flex gap-2">
+                    <input
+                      className="form-control"
+                      value={nombreFacturacion}
+                      onChange={(e) => setNombreFacturacion(e.target.value)}
+                    />
+                    {esFactura && razonesSociales.length > 0 && (
+                      <select
+                        className="form-select w-auto"
+                        style={{ maxWidth: "45%" }}
+                        value=""
+                        title="Razones sociales con las que ya se facturó"
+                        onChange={(e) => e.target.value && setNombreFacturacion(e.target.value)}
+                      >
+                        <option value="">Facturado antes…</option>
+                        {[...new Set([razonSocialFiscal, ...razonesSociales.map((r) => r.nombre)])]
+                          .filter(Boolean)
+                          .map((n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
+                      </select>
+                    )}
+                  </div>
                   {facturaConNombreDistinto && (
                     <div className="fw-bubble">
                       <span className="fw-bubble__icon">!</span>

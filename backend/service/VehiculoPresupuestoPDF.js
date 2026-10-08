@@ -97,7 +97,7 @@ exports.generarPresupuestoPDF = async (res, orden) => {
     // no se imprimen por separado: ya están cubiertas por la línea del servicio
     // que las agrupa (servicioGrupoId), como si el servicio ya las incluyera.
     const items = (orden.presupuesto || [])
-      .filter((item) => !item.origenServicioCatalogo)
+      .filter((item) => !item.origenServicioCatalogo && (item.esServicio || !item.servicioGrupoId))
       .map((item) => {
       const cant = Number(item.cant || 0);
       const precio = Number(item.precioVenta || 0);

@@ -1,41 +1,47 @@
 import http from './http';
+import { paramsLinea } from '../hooks/useLineaNegocio';
 
 const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
-export const getReporteOriginales = (desde, hasta) =>
-  http.get('/reportes/originales', { params: { desde, hasta } });
+// Sufijo `&lineaNegocio=...` para las URLs de PDF ('' si no aplica).
+const qLinea = (linea) => (linea ? `&lineaNegocio=${encodeURIComponent(linea)}` : '');
 
-export const getReporteVentasAsesores = (desde, hasta) =>
-  http.get('/reportes/ventas-asesores', { params: { desde, hasta } });
+// El último parámetro `linea` ('CHIREY' o '') filtra el reporte por línea de negocio;
+// vacío = todas las líneas (reportes normales). Ver hooks/useLineaNegocio.
+export const getReporteOriginales = (desde, hasta, linea) =>
+  http.get('/reportes/originales', { params: { desde, hasta, ...paramsLinea(linea) } });
 
-export const getReporteOriginalesPdfUrl = (desde, hasta) =>
-  `${BASE_URL}/reportes/originales-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
+export const getReporteVentasAsesores = (desde, hasta, linea) =>
+  http.get('/reportes/ventas-asesores', { params: { desde, hasta, ...paramsLinea(linea) } });
 
-export const getReporteVentasAsesoresPdfUrl = (desde, hasta) =>
-  `${BASE_URL}/reportes/ventas-asesores-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
+export const getReporteOriginalesPdfUrl = (desde, hasta, linea) =>
+  `${BASE_URL}/reportes/originales-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}${qLinea(linea)}`;
 
-export const getReporteOrdenesAbiertas = (desde, hasta) =>
-  http.get('/reportes/ordenes-abiertas', { params: { desde, hasta } });
+export const getReporteVentasAsesoresPdfUrl = (desde, hasta, linea) =>
+  `${BASE_URL}/reportes/ventas-asesores-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}${qLinea(linea)}`;
 
-export const getReporteOriginalesAbiertas = (desde, hasta, asesor) =>
-  http.get('/reportes/originales-abiertas', { params: { desde, hasta, asesor: asesor || undefined } });
+export const getReporteOrdenesAbiertas = (desde, hasta, linea) =>
+  http.get('/reportes/ordenes-abiertas', { params: { desde, hasta, ...paramsLinea(linea) } });
 
-export const getReporteOrdenesAbiertasPdfUrl = (desde, hasta) =>
-  `${BASE_URL}/reportes/ordenes-abiertas-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
+export const getReporteOriginalesAbiertas = (desde, hasta, asesor, linea) =>
+  http.get('/reportes/originales-abiertas', { params: { desde, hasta, asesor: asesor || undefined, ...paramsLinea(linea) } });
 
-export const getReporteOriginalesAbiertasPdfUrl = (desde, hasta, asesor) => {
+export const getReporteOrdenesAbiertasPdfUrl = (desde, hasta, linea) =>
+  `${BASE_URL}/reportes/ordenes-abiertas-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}${qLinea(linea)}`;
+
+export const getReporteOriginalesAbiertasPdfUrl = (desde, hasta, asesor, linea) => {
   let url = `${BASE_URL}/reportes/originales-abiertas-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
   if (asesor) url += `&asesor=${encodeURIComponent(asesor)}`;
-  return url;
+  return url + qLinea(linea);
 };
 
-export const getReporteGarantias = (desde, hasta, asesor) =>
-  http.get('/reportes/garantias', { params: { desde, hasta, asesor: asesor || undefined } });
+export const getReporteGarantias = (desde, hasta, asesor, linea) =>
+  http.get('/reportes/garantias', { params: { desde, hasta, asesor: asesor || undefined, ...paramsLinea(linea) } });
 
-export const getReporteGarantiasPdfUrl = (desde, hasta, asesor) => {
+export const getReporteGarantiasPdfUrl = (desde, hasta, asesor, linea) => {
   let url = `${BASE_URL}/reportes/garantias-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
   if (asesor) url += `&asesor=${encodeURIComponent(asesor)}`;
-  return url;
+  return url + qLinea(linea);
 };
 
 export const getReporteCajasIngresos = (desde, hasta, tipo) =>
@@ -47,35 +53,47 @@ export const getReporteCajasIngresos = (desde, hasta, tipo) =>
 export const regenerarReporteCajasIngresos = (desde, hasta, tipo, motivo) =>
   http.post('/reportes/cajas-ingresos/regenerar', { desde, hasta, tipo, motivo });
 
+// Solo admin: deshace una regeneración (o restauración) equivocada, volviendo
+// el día a como estaba justo antes de esa acción. Sin `version`, deshace la
+// última acción registrada; con `version` (el índice que trae cada entrada
+// del historial en cache.historial), restaura a como estaba antes de ESA
+// acción en particular.
+export const restaurarReporteCajasIngresos = (desde, hasta, tipo, motivo, version) =>
+  http.post('/reportes/cajas-ingresos/restaurar', { desde, hasta, tipo, motivo, version });
+
 export const getReporteCajasIngresosDias = (desde, hasta, tipo) =>
   http.get('/reportes/cajas-ingresos-dias', { params: { desde, hasta, tipo } });
 
-export const getReporteCajasIngresosPdfUrl = (desde, hasta, tipo) =>
-  `${BASE_URL}/reportes/cajas-ingresos-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}&tipo=${encodeURIComponent(tipo)}`;
+// `version` (opcional): el PDF de un respaldo del historial (ver
+// data.cache.historial / restaurarReporteCajasIngresos) en vez del vigente —
+// "cómo se veía antes de esa regeneración/restauración".
+export const getReporteCajasIngresosPdfUrl = (desde, hasta, tipo, version) =>
+  `${BASE_URL}/reportes/cajas-ingresos-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}&tipo=${encodeURIComponent(tipo)}` +
+  (version !== undefined && version !== null ? `&version=${encodeURIComponent(version)}` : '');
 
-export const getReporteRhCxC = (desde, hasta, mecanico) =>
-  http.get('/reportes/rh-cxc', { params: { desde, hasta, mecanico: mecanico || undefined } });
+export const getReporteRhCxC = (desde, hasta, mecanico, linea) =>
+  http.get('/reportes/rh-cxc', { params: { desde, hasta, mecanico: mecanico || undefined, ...paramsLinea(linea) } });
 
-export const getReporteRhCxCPdfUrl = (desde, hasta, mecanico) => {
+export const getReporteRhCxCPdfUrl = (desde, hasta, mecanico, linea) => {
   let url = `${BASE_URL}/reportes/rh-cxc-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
   if (mecanico) url += `&mecanico=${encodeURIComponent(mecanico)}`;
-  return url;
+  return url + qLinea(linea);
 };
 
-export const getReporteHorasTecnico = (desde, hasta, estado) =>
-  http.get('/reportes/horas-tecnico', { params: { desde, hasta, estado: estado || undefined } });
+export const getReporteHorasTecnico = (desde, hasta, estado, linea) =>
+  http.get('/reportes/horas-tecnico', { params: { desde, hasta, estado: estado || undefined, ...paramsLinea(linea) } });
 
-export const getReporteHorasTecnicoPdfUrl = (desde, hasta, estado) => {
+export const getReporteHorasTecnicoPdfUrl = (desde, hasta, estado, linea) => {
   let url = `${BASE_URL}/reportes/horas-tecnico-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
   if (estado) url += `&estado=${encodeURIComponent(estado)}`;
-  return url;
+  return url + qLinea(linea);
 };
 
-export const getReportePendientesFactura = (desde, hasta) =>
-  http.get('/reportes/pendientes-factura', { params: { desde, hasta } });
+export const getReportePendientesFactura = (desde, hasta, linea) =>
+  http.get('/reportes/pendientes-factura', { params: { desde, hasta, ...paramsLinea(linea) } });
 
-export const getReportePendientesFacturaPdfUrl = (desde, hasta) =>
-  `${BASE_URL}/reportes/pendientes-factura-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
+export const getReportePendientesFacturaPdfUrl = (desde, hasta, linea) =>
+  `${BASE_URL}/reportes/pendientes-factura-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}${qLinea(linea)}`;
 
 // ===== Clientes con Anticipos (saldo a favor) =====
 // Es una fotografía del saldo actual, no un rango de fechas.

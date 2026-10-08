@@ -1,7 +1,7 @@
 // src/components/ModalAltaCliente.jsx
 import AltaCliente from "../pages/clientes/AltaCliente";
 
-export default function ModalAltaCliente({ nombreInicial = "", onClienteCreado, onCerrar }) {
+export default function ModalAltaCliente({ nombreInicial = "", lineaInicial = "", onClienteCreado, onCerrar }) {
   return (
     <div
       className="modal fade show d-block"
@@ -26,6 +26,7 @@ export default function ModalAltaCliente({ nombreInicial = "", onClienteCreado, 
             <AltaCliente
               modoModal
               nombreInicial={nombreInicial}
+              lineaInicial={lineaInicial}
               onClienteCreado={onClienteCreado}
             />
           </div>

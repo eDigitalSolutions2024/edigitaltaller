@@ -9,6 +9,8 @@ import { puedeEditarCodigosCliente, isAdminLike } from "../../utils/roles";
 import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 import ModalCodigosCliente from "./components/ModalCodigosCliente";
 import ModalCuentasBancariasCliente from "./components/ModalCuentasBancariasCliente";
+import ModalRazonesSocialesCliente from "./components/ModalRazonesSocialesCliente";
+import ModalFormatoFacturaCliente from "./components/ModalFormatoFacturaCliente";
 import ConvertirEmpleadoModal from "./ConvertirEmpleadoModal";
 import MigrarOrdenesEmpleadoModal from "./MigrarOrdenesEmpleadoModal";
 import ConfirmarDesactivarClienteModal from "./ConfirmarDesactivarClienteModal";
@@ -310,7 +312,7 @@ function PaisSelect({ value, onChange }) {
   );
 }
 
-export default function AltaCliente({ modoModal = false, nombreInicial = "", onClienteCreado }) {
+export default function AltaCliente({ modoModal = false, nombreInicial = "", lineaInicial = "", onClienteCreado }) {
   const params = useParams();
   const id = modoModal ? undefined : params.id;
   const isEdit = Boolean(id);
@@ -331,12 +333,21 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
       setForm((prev) => ({ ...prev, nombre: nombreInicial }));
     }
   }, [modoModal, nombreInicial]);
+
+  // Alta desde el apartado Chirey: el cliente nace ya marcado como Chirey.
+  useEffect(() => {
+    if (modoModal && lineaInicial) {
+      setForm((prev) => ({ ...prev, lineaNegocio: lineaInicial }));
+    }
+  }, [modoModal, lineaInicial]);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [loadingData, setLoadingData] = useState(false);
   // Catálogo de códigos de servicio propios del cliente (solo en edición).
   const [showCodigos, setShowCodigos] = useState(false);
   const [showCuentas, setShowCuentas] = useState(false);
+  const [showFormato, setShowFormato] = useState(false);
+  const [showRazones, setShowRazones] = useState(false);
   // Desactivar/reactivar (ver Cliente.activo) y convertir a Empleado viven
   // en el mismo menú ⚙ Configuración, no en Consulta de Clientes.
   const [cambiandoEstado, setCambiandoEstado] = useState(false);
@@ -630,6 +641,20 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
                   </button>
                 </li>
               )}
+              {puedeCodigos && (
+                <li>
+                  <button type="button" className="dropdown-item" onClick={() => setShowFormato(true)}>
+                    Formato de factura
+                  </button>
+                </li>
+              )}
+              {puedeCodigos && (
+                <li>
+                  <button type="button" className="dropdown-item" onClick={() => setShowRazones(true)}>
+                    Razones sociales
+                  </button>
+                </li>
+              )}
               {isAdmin && (
                 <li>
                   <button
@@ -700,6 +725,22 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
           clienteId={id}
           clienteNombre={form.nombre}
           onClose={() => setShowCodigos(false)}
+        />
+      )}
+
+      {isEdit && !modoModal && puedeCodigos && showRazones && (
+        <ModalRazonesSocialesCliente
+          clienteId={id}
+          clienteNombre={nombreClienteActual}
+          onClose={() => setShowRazones(false)}
+        />
+      )}
+
+      {isEdit && !modoModal && puedeCodigos && showFormato && (
+        <ModalFormatoFacturaCliente
+          clienteId={id}
+          clienteNombre={nombreClienteActual}
+          onClose={() => setShowFormato(false)}
         />
       )}
 
@@ -1124,6 +1165,8 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
       <div className="form-section">
         <h3 className="form-section-title">Opciones</h3>
         <div className="opciones-row">
+          {/* Solo al editar un cliente ya creado; ni en el alta ni en el modal de alta rápida (Nueva Orden) */}
+          {isEdit && !modoModal && (
           <label className="opcion-toggle">
             <input
               type="checkbox"
@@ -1140,6 +1183,7 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
             />
             ¿Es empleado?
           </label>
+          )}
 
           <label className="opcion-toggle">
             <input
@@ -1277,7 +1321,7 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", onC
       <div className="form-section">
         <h3 className="form-section-title">Información adicional</h3>
         <div className="form-grid">
-          {isAdmin && (
+          {isAdmin && isEdit && !modoModal && (
             <div className="form-row">
               <label>Asesor Responsable</label>
               <Dropdown

@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import Dropdown from "../../../components/Dropdown";
 import { getUnidadesMedida } from "../../../api/configuracion";
+import useLineaNegocio from "../../../hooks/useLineaNegocio";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:4000/api";
 
-export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}, modoEntrada = false }) {
+// `lineaNegocio`: línea de la orden desde la que se abre (el stock mostrado es el de su almacén);
+// si no se pasa, se usa la de la ruta (/chirey => Chirey).
+export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}, modoEntrada = false, lineaNegocio }) {
+  const lineaRuta = useLineaNegocio();
+  const linea = lineaNegocio === "CHIREY" ? "CHIREY" : lineaNegocio === undefined ? lineaRuta : "";
   const [codigos, setCodigos]   = useState([]);
   const [stockMap, setStockMap] = useState({});
   const [busqueda, setBusqueda] = useState("");
@@ -31,7 +36,7 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
       .finally(() => {
         Promise.all([
           fetch(`${API}/codigos?limit=1000`, { credentials: "include" }).then((r) => r.json()).catch(() => []),
-          fetch(`${API}/inventario`, { credentials: "include" }).then((r) => r.json()).catch(() => []),
+          fetch(`${API}/inventario${linea ? `?lineaNegocio=${linea}` : ""}`, { credentials: "include" }).then((r) => r.json()).catch(() => []),
           fetch(`${API}/proveedores?limit=200&soloActivos=true`, { credentials: "include" }).then((r) => r.json()).catch(() => ({})),
           getUnidadesMedida().catch(() => []),
         ]).then(([jCod, jInv, jProv, uArr]) => {
@@ -44,7 +49,7 @@ export default function ModalSeleccionarCodigo({ onSelect, onClose, prefill = {}
           setUnidades((Array.isArray(uArr) ? uArr : []).filter((u) => u.activo !== false));
         }).finally(() => setCargando(false));
       });
-  }, []);
+  }, [linea]);
 
   const filtrados = codigos.filter((c) => {
     const q = busqueda.toLowerCase();

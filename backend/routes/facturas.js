@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const EntradaInventario = require('../models/EntradaInventario');
+const { filtroInventario } = require('../utils/lineaNegocio');
 
 // GET /api/facturas-proveedor
 router.get('/facturas-proveedor', async (req, res) => {
@@ -11,7 +12,8 @@ router.get('/facturas-proveedor', async (req, res) => {
     const rx = (s) => new RegExp(String(s).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
 
     // ── Filtros base ──────────────────────────────────────────────────────────
-    const match = { numero: { $nin: [null, ''] } };
+    // Facturas de proveedor de la línea de negocio pedida (default Servicompacto).
+    const match = { ...filtroInventario(req.query.lineaNegocio), numero: { $nin: [null, ''] } };
 
     if (estado && estado !== 'todos') match.estado = estado;
 

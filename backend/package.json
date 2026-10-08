@@ -25,6 +25,7 @@
     "multer": "^2.1.1",
     "pdfkit": "^0.18.0",
     "puppeteer": "^24.42.0",
+    "qrcode": "^1.5.4",
     "xslt-processor": "^5.0.11"
   },
   "devDependencies": {

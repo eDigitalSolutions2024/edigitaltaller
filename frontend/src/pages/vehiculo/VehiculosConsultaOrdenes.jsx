@@ -4,6 +4,7 @@ import { listOrdenesServicio } from "../../api/vehiculos";
 import { getMisGrupos } from "../../api/grupos";
 import { useNavigate } from "react-router-dom";
 import { getUser } from "../../auth";
+import useLineaNegocio from "../../hooks/useLineaNegocio";
 import { formatFecha } from "../../utils/fechas";
 
 
@@ -97,7 +98,9 @@ export default function VehiculosConsultaOrdenes() {
   const [searchOs, setSearchOs] = useState("");
   const [search, setSearch] = useState("");
   // Filtro por línea de negocio: "" = todas, "SERVICOMPACTO" o "CHIREY"
-  const [lineaNegocio, setLineaNegocio] = useState("");
+  // Dentro de /chirey la línea queda fija en CHIREY y el filtro se oculta.
+  const lineaFija = useLineaNegocio();
+  const [lineaNegocio, setLineaNegocio] = useState(lineaFija);
   const [page, setPage] = useState(1);
   const [limit] = useState(10);
   const [total, setTotal] = useState(0);
@@ -342,6 +345,7 @@ export default function VehiculosConsultaOrdenes() {
 
           {/* Filtro por línea de negocio + leyenda de colores */}
           <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+            {lineaFija ? <div /> : (
             <div className="btn-group btn-group-sm" role="group" aria-label="Filtro línea de negocio">
               <button
                 type="button"
@@ -365,6 +369,7 @@ export default function VehiculosConsultaOrdenes() {
                 Chirey
               </button>
             </div>
+            )}
             <div className="d-flex align-items-center gap-3 small text-muted">
               <span className="d-flex align-items-center gap-1">
                 <span
