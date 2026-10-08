@@ -9,6 +9,7 @@ import {
   getReporteCajasIngresosDias,
   getReporteCajasIngresosPdfUrl,
   regenerarReporteCajasIngresos,
+  restaurarReporteCajasIngresos,
 } from '../../../api/reportes';
 import { getUser } from '../../../auth';
 import { formatFecha } from '../../../utils/fechas';
@@ -68,8 +69,13 @@ export default function ReporteCajasIngresos() {
 
   // Regenerar día (solo admin): un día ya terminado queda congelado la primera
   // vez que se abre; si algo llegó tarde, el admin lo recalcula con su motivo.
+  // Cada regeneración (y cada restauración) guarda un respaldo completo de
+  // cómo estaba el reporte justo antes, así que un error se puede deshacer
+  // (ver data.cache.historial / restaurarDia más abajo).
   const esAdmin = isAdminLike(getUser()?.role);
   const [modalRegenerar, setModalRegenerar] = useState(false);
+  const [restaurarVersion, setRestaurarVersion] = useState(null); // null = regenerar; número = restaurar a esa versión
+  const [verHistorial, setVerHistorial] = useState(false);
   const [avisoRegen, setAvisoRegen] = useState(null);
 
   const buscar = async (desde, hasta, tipoActual) => {
@@ -79,6 +85,7 @@ export default function ReporteCajasIngresos() {
     setDias(null);
     setDiaActivo(null);
     setAvisoRegen(null);
+    setVerHistorial(false);
     setRango({ desde, hasta });
     try {
       if (!mismoDia(desde, hasta)) {
@@ -100,6 +107,7 @@ export default function ReporteCajasIngresos() {
     setCargando(true);
     setError('');
     setAvisoRegen(null);
+    setVerHistorial(false);
     try {
       const res = await getReporteCajasIngresos(dia.desde, dia.hasta, tipo);
       setData(res.data);
@@ -115,17 +123,18 @@ export default function ReporteCajasIngresos() {
     setData(null);
     setDiaActivo(null);
     setAvisoRegen(null);
+    setVerHistorial(false);
   };
 
-  // Recalcula el día que se está viendo. Lanza el error para que el modal lo
-  // muestre; si sale bien, cierra el modal, muestra el reporte nuevo y, en modo
-  // lista, refresca los totales del día en el índice.
-  const regenerarDia = async (motivo) => {
-    const res = await regenerarReporteCajasIngresos(diaActivo.desde, diaActivo.hasta, tipo, motivo);
+  // Común a regenerar y restaurar: aplica la respuesta (misma forma en los
+  // dos endpoints), cierra el modal y, en modo lista, refresca los totales
+  // del día en el índice.
+  const aplicarResultado = async (res) => {
     const { cambio, ...reporte } = res.data;
     setData(reporte);
     setAvisoRegen(cambio || null);
     setModalRegenerar(false);
+    setRestaurarVersion(null);
     if (dias && rango) {
       try {
         const lista = await getReporteCajasIngresosDias(rango.desde, rango.hasta, tipo);
@@ -134,6 +143,20 @@ export default function ReporteCajasIngresos() {
         /* la lista se actualiza al volver a generar el reporte */
       }
     }
+  };
+
+  // Recalcula el día que se está viendo con los datos de hoy.
+  const regenerarDia = async (motivo) => {
+    const res = await regenerarReporteCajasIngresos(diaActivo.desde, diaActivo.hasta, tipo, motivo);
+    await aplicarResultado(res);
+  };
+
+  // Deshace una regeneración (o restauración) anterior: vuelve el día a como
+  // estaba justo antes de la versión elegida en el historial
+  // (restaurarVersion; undefined = la última acción registrada).
+  const restaurarDia = async (motivo) => {
+    const res = await restaurarReporteCajasIngresos(diaActivo.desde, diaActivo.hasta, tipo, motivo, restaurarVersion ?? undefined);
+    await aplicarResultado(res);
   };
 
   const handleBuscar = (desde, hasta) => buscar(desde, hasta, tipo);
@@ -250,7 +273,7 @@ export default function ReporteCajasIngresos() {
                     type="button"
                     className="btn btn-sm btn-danger"
                     title="Recalcula el día que estás viendo con los datos de hoy (pide motivo)"
-                    onClick={() => setModalRegenerar(true)}
+                    onClick={() => { setRestaurarVersion(null); setModalRegenerar(true); }}
                   >
                     Regenerar día
                   </button>
@@ -297,15 +320,42 @@ export default function ReporteCajasIngresos() {
                   </div>
                 )}
 
-                {data.cache?.ultimaRegeneracion && (
-                  <div className="text-muted small mb-2">
-                    Regenerado el {fechaHora(data.cache.ultimaRegeneracion.fecha)}
-                    {data.cache.ultimaRegeneracion.usuario ? ` por ${data.cache.ultimaRegeneracion.usuario}` : ''}
-                    {data.cache.ultimaRegeneracion.motivo ? ` — Motivo: ${data.cache.ultimaRegeneracion.motivo}` : ''}
+                {tipo === 'REMISION' ? <ReporteRemisiones data={data} /> : <ReporteFacturas data={data} />}
+
+                {data.cache && (
+                  <div className="text-center mt-3">
+                    {data.cache.historial?.length > 0 ? (
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-secondary"
+                        onClick={() => setVerHistorial((v) => !v)}
+                      >
+                        {verHistorial ? '▲ ' : '▼ '}
+                        Generado el {fechaHora(data.cache.generadoEn)} · {data.cache.historial.length}{' '}
+                        {data.cache.historial.length === 1 ? 'cambio' : 'cambios'}
+                      </button>
+                    ) : (
+                      <span className="text-muted small">Generado el {fechaHora(data.cache.generadoEn)}</span>
+                    )}
+
+                    {verHistorial && (
+                      <div className="text-start mt-2">
+                        <HistorialRegeneraciones
+                          historial={data.cache.historial || []}
+                          esAdmin={esAdmin}
+                          onRestaurar={(version) => { setRestaurarVersion(version); setModalRegenerar(true); }}
+                          onVerPdf={(version) =>
+                            abrirPdf(
+                              getReporteCajasIngresosPdfUrl(diaActivo.desde, diaActivo.hasta, tipo, version),
+                              'reporte-cajas-ingresos-anterior.pdf',
+                              'Reporte de Ingresos (versión anterior)'
+                            )
+                          }
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
-
-                {tipo === 'REMISION' ? <ReporteRemisiones data={data} /> : <ReporteFacturas data={data} />}
               </>
             )}
           </div>
@@ -314,10 +364,11 @@ export default function ReporteCajasIngresos() {
       {pdfModal}
       <ModalRegenerarReporte
         show={modalRegenerar}
+        modo={restaurarVersion !== null ? 'restaurar' : 'regenerar'}
         tituloDia={tituloDiaActivo}
         tipoLabel={tipoLabel}
-        onClose={() => setModalRegenerar(false)}
-        onConfirm={regenerarDia}
+        onClose={() => { setModalRegenerar(false); setRestaurarVersion(null); }}
+        onConfirm={restaurarVersion !== null ? restaurarDia : regenerarDia}
       />
     </div>
   );
@@ -358,6 +409,75 @@ function ListaDias({ titulo, dias, onVerDia }) {
         </div>
       )}
     </>
+  );
+}
+
+// Bitácora de "Regenerar día"/"Restaurar" de este día (ver
+// ReporteCajasSnapshot.regeneraciones en el backend): cada fila es una
+// acción ya aplicada, con sus totales de antes y de después, un botón para
+// VER (y de ahí descargar) el PDF de cómo se veía el reporte justo ANTES de
+// esa acción, y — solo admin — uno para restaurarlo a ese mismo punto.
+function HistorialRegeneraciones({ historial, esAdmin, onRestaurar, onVerPdf }) {
+  if (!historial.length) return null;
+  return (
+    <div className="card mb-3">
+      <div className="card-header py-2 fw-semibold small">Historial de este día</div>
+      <div className="table-responsive">
+        <table className="table table-sm table-bordered mb-0 align-middle">
+          <thead className="table-light">
+            <tr>
+              <th>Cuándo</th>
+              <th>Quién</th>
+              <th>Acción</th>
+              <th>Motivo</th>
+              <th className="text-end">Venta del día</th>
+              <th className="text-end">Total Ingreso</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...historial].reverse().map((h) => (
+              <tr key={h.version}>
+                <td className="small">{fechaHora(h.fecha)}</td>
+                <td className="small">{h.usuario || '—'}</td>
+                <td className="small">
+                  <span className={`badge ${h.accion === 'restaurar' ? 'text-bg-info' : 'text-bg-warning'}`}>
+                    {h.accion === 'restaurar' ? 'Restaurar' : 'Regenerar'}
+                  </span>
+                </td>
+                <td className="small">{h.motivo || '—'}</td>
+                <td className="text-end small">
+                  {fmtTotal(h.totalesAntes?.totalVentaDia)} → <strong>{fmtTotal(h.totalesDespues?.totalVentaDia)}</strong>
+                </td>
+                <td className="text-end small">
+                  {fmtTotal(h.totalesAntes?.totalIngreso)} → <strong>{fmtTotal(h.totalesDespues?.totalIngreso)}</strong>
+                </td>
+                <td className="text-end text-nowrap">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-secondary me-1"
+                    title="Ver (y descargar) el PDF de cómo estaba el reporte justo antes de esta acción"
+                    onClick={() => onVerPdf(h.version)}
+                  >
+                    Ver PDF
+                  </button>
+                  {esAdmin && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-danger"
+                      title="Vuelve el reporte a como estaba justo antes de esta acción"
+                      onClick={() => onRestaurar(h.version)}
+                    >
+                      Restaurar a antes
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 

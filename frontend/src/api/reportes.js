@@ -53,11 +53,23 @@ export const getReporteCajasIngresos = (desde, hasta, tipo) =>
 export const regenerarReporteCajasIngresos = (desde, hasta, tipo, motivo) =>
   http.post('/reportes/cajas-ingresos/regenerar', { desde, hasta, tipo, motivo });
 
+// Solo admin: deshace una regeneración (o restauración) equivocada, volviendo
+// el día a como estaba justo antes de esa acción. Sin `version`, deshace la
+// última acción registrada; con `version` (el índice que trae cada entrada
+// del historial en cache.historial), restaura a como estaba antes de ESA
+// acción en particular.
+export const restaurarReporteCajasIngresos = (desde, hasta, tipo, motivo, version) =>
+  http.post('/reportes/cajas-ingresos/restaurar', { desde, hasta, tipo, motivo, version });
+
 export const getReporteCajasIngresosDias = (desde, hasta, tipo) =>
   http.get('/reportes/cajas-ingresos-dias', { params: { desde, hasta, tipo } });
 
-export const getReporteCajasIngresosPdfUrl = (desde, hasta, tipo) =>
-  `${BASE_URL}/reportes/cajas-ingresos-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}&tipo=${encodeURIComponent(tipo)}`;
+// `version` (opcional): el PDF de un respaldo del historial (ver
+// data.cache.historial / restaurarReporteCajasIngresos) en vez del vigente —
+// "cómo se veía antes de esa regeneración/restauración".
+export const getReporteCajasIngresosPdfUrl = (desde, hasta, tipo, version) =>
+  `${BASE_URL}/reportes/cajas-ingresos-pdf?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}&tipo=${encodeURIComponent(tipo)}` +
+  (version !== undefined && version !== null ? `&version=${encodeURIComponent(version)}` : '');
 
 export const getReporteRhCxC = (desde, hasta, mecanico, linea) =>
   http.get('/reportes/rh-cxc', { params: { desde, hasta, mecanico: mecanico || undefined, ...paramsLinea(linea) } });

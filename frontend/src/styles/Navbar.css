@@ -115,6 +115,10 @@
   }
   .app-shell.is-hidden .sidebar{
     transform: translateX(-100%);
+    overflow: hidden;
+    visibility: hidden; /* evita que el texto de la marca desborde y se vea */
+    transition: width .2s ease, transform .25s ease, visibility 0s linear .25s;
+    box-shadow: none;
   }
 
   /* Mostrar overlay cuando NO está hidden (sidebar visible) */

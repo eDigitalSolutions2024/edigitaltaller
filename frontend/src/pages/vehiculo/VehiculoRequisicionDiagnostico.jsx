@@ -7,6 +7,7 @@ import {
 import { getOrdenCompraPdfBlobUrl } from "../../api/ordenesCompra";
 import usePdfModal from "../../hooks/usePdfModal";
 import "../../styles/requisicion.css";
+import "../../styles/presupuestoVenta.css";
 
 export default function VehiculoRequisicionDiagnostico({ orden, onSaved, onGoPresupuesto, readOnly = false }) {
   const { pdfModal, abrirPdf } = usePdfModal();

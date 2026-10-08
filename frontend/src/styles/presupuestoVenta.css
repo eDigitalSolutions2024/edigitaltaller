@@ -129,3 +129,22 @@
 .mo-ancho .mo-resumen > div span { font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; }
 .mo-ancho .mo-resumen .mo-resumen-total { border-top: 0; margin-top: 0; padding-top: 0; font-size: 1rem; }
 @media (max-width: 575px) { .mo-ancho .modal-footer { flex-wrap: wrap; } }
+
+/* Estados de los botones propios: `.btn:hover/:focus/:active` (Bootstrap) pisa el fondo
+   y deja el texto blanco sobre fondo claro; se fijan con mayor especificidad. */
+.btn.pv-btn-agregar, .btn.rq-btn-agrupar { background-color: #d34b3f; border-color: #d34b3f; color: #fff; }
+.btn.pv-btn-agregar:hover, .btn.pv-btn-agregar:focus, .btn.pv-btn-agregar:active,
+.btn.rq-btn-agrupar:hover, .btn.rq-btn-agrupar:focus, .btn.rq-btn-agrupar:active {
+  background-color: #bd4035; border-color: #bd4035; color: #fff; box-shadow: none; filter: none;
+}
+.btn.pv-btn-agregar:disabled, .btn.rq-btn-agrupar:disabled { background-color: #d34b3f; border-color: #d34b3f; color: #fff; opacity: .5; }
+
+.btn.pv-btn-detalle { background-color: #fff; border-color: #2d2a6b; color: #2d2a6b; }
+.btn.pv-btn-detalle:hover, .btn.pv-btn-detalle:focus, .btn.pv-btn-detalle:active {
+  background-color: rgba(45,42,107,.08); border-color: #2d2a6b; color: #2d2a6b; box-shadow: none;
+}
+
+.btn.rq-btn-elegida { background-color: #2d2a6b; border-color: #2d2a6b; color: #fff; }
+.btn.rq-btn-elegida:hover, .btn.rq-btn-elegida:focus, .btn.rq-btn-elegida:active { background-color: #24215a; border-color: #24215a; color: #fff; }
+.btn.rq-btn-elegir { background-color: #fff; border-color: #2d2a6b; color: #2d2a6b; }
+.btn.rq-btn-elegir:hover, .btn.rq-btn-elegir:focus, .btn.rq-btn-elegir:active { background-color: rgba(45,42,107,.08); border-color: #2d2a6b; color: #2d2a6b; }

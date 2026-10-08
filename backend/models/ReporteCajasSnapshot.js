@@ -22,11 +22,15 @@ const reporteCajasSnapshotSchema = new mongoose.Schema(
     // funciones), para servirlo idéntico en cualquier consulta posterior.
     data: { type: mongoose.Schema.Types.Mixed, required: true },
     generadoEn: { type: Date, default: Date.now },
-    // Bitácora de "Regenerar día" (solo admin, con motivo): cada vez que se
-    // descarta la foto y se recalcula el día con los datos de hoy — p. ej.
-    // porque una Factura Global de ese día se timbró después de que el
-    // reporte ya se había congelado. Guarda los totales de antes y de después
-    // para poder ver qué movió.
+    // Bitácora de "Regenerar día" / "Restaurar versión" (solo admin, con
+    // motivo): cada vez que se descarta la foto vigente y se reemplaza por
+    // otra — por regenerar (recalcular con los datos de hoy, p. ej. porque
+    // una Factura Global de ese día se timbró después de que el reporte ya
+    // se había congelado) o por restaurar (deshacer una regeneración
+    // equivocada). `dataAntes` guarda una copia COMPLETA de `data` tal como
+    // estaba justo antes de esta acción — no solo los totales — para poder
+    // restaurar exactamente a ese punto más tarde (ver POST
+    // /cajas-ingresos/restaurar) y no solo saber que algo cambió.
     regeneraciones: {
       type: [
         new mongoose.Schema(
@@ -35,6 +39,8 @@ const reporteCajasSnapshotSchema = new mongoose.Schema(
             usuario: { type: String, default: '' },
             usuarioId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
             motivo: { type: String, default: '' },
+            accion: { type: String, enum: ['regenerar', 'restaurar'], default: 'regenerar' },
+            dataAntes: { type: mongoose.Schema.Types.Mixed, default: null },
             totalesAntes: { type: mongoose.Schema.Types.Mixed, default: null },
             totalesDespues: { type: mongoose.Schema.Types.Mixed, default: null },
           },

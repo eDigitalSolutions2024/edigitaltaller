@@ -9,6 +9,8 @@ import { puedeEditarCodigosCliente, isAdminLike } from "../../utils/roles";
 import { REGIMEN_FISCAL_OPTIONS } from "../../utils/regimenFiscal";
 import ModalCodigosCliente from "./components/ModalCodigosCliente";
 import ModalCuentasBancariasCliente from "./components/ModalCuentasBancariasCliente";
+import ModalRazonesSocialesCliente from "./components/ModalRazonesSocialesCliente";
+import ModalFormatoFacturaCliente from "./components/ModalFormatoFacturaCliente";
 import ConvertirEmpleadoModal from "./ConvertirEmpleadoModal";
 import MigrarOrdenesEmpleadoModal from "./MigrarOrdenesEmpleadoModal";
 import ConfirmarDesactivarClienteModal from "./ConfirmarDesactivarClienteModal";
@@ -344,6 +346,8 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", lin
   // Catálogo de códigos de servicio propios del cliente (solo en edición).
   const [showCodigos, setShowCodigos] = useState(false);
   const [showCuentas, setShowCuentas] = useState(false);
+  const [showFormato, setShowFormato] = useState(false);
+  const [showRazones, setShowRazones] = useState(false);
   // Desactivar/reactivar (ver Cliente.activo) y convertir a Empleado viven
   // en el mismo menú ⚙ Configuración, no en Consulta de Clientes.
   const [cambiandoEstado, setCambiandoEstado] = useState(false);
@@ -637,6 +641,20 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", lin
                   </button>
                 </li>
               )}
+              {puedeCodigos && (
+                <li>
+                  <button type="button" className="dropdown-item" onClick={() => setShowFormato(true)}>
+                    Formato de factura
+                  </button>
+                </li>
+              )}
+              {puedeCodigos && (
+                <li>
+                  <button type="button" className="dropdown-item" onClick={() => setShowRazones(true)}>
+                    Razones sociales
+                  </button>
+                </li>
+              )}
               {isAdmin && (
                 <li>
                   <button
@@ -707,6 +725,22 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", lin
           clienteId={id}
           clienteNombre={form.nombre}
           onClose={() => setShowCodigos(false)}
+        />
+      )}
+
+      {isEdit && !modoModal && puedeCodigos && showRazones && (
+        <ModalRazonesSocialesCliente
+          clienteId={id}
+          clienteNombre={nombreClienteActual}
+          onClose={() => setShowRazones(false)}
+        />
+      )}
+
+      {isEdit && !modoModal && puedeCodigos && showFormato && (
+        <ModalFormatoFacturaCliente
+          clienteId={id}
+          clienteNombre={nombreClienteActual}
+          onClose={() => setShowFormato(false)}
         />
       )}
 
@@ -1131,8 +1165,8 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", lin
       <div className="form-section">
         <h3 className="form-section-title">Opciones</h3>
         <div className="opciones-row">
-          {/* En el modal de alta rápida (Nueva Orden) no se ofrece "Es empleado" */}
-          {!modoModal && (
+          {/* Solo al editar un cliente ya creado; ni en el alta ni en el modal de alta rápida (Nueva Orden) */}
+          {isEdit && !modoModal && (
           <label className="opcion-toggle">
             <input
               type="checkbox"
@@ -1287,7 +1321,7 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", lin
       <div className="form-section">
         <h3 className="form-section-title">Información adicional</h3>
         <div className="form-grid">
-          {isAdmin && !modoModal && (
+          {isAdmin && isEdit && !modoModal && (
             <div className="form-row">
               <label>Asesor Responsable</label>
               <Dropdown

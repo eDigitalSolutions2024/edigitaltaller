@@ -291,7 +291,7 @@ export default function App() {
 
           {/* Chirey: mismas pantallas que el resto del sistema, pero filtradas/escritas
               con la línea CHIREY (ver hooks/useLineaNegocio) y con inventario propio. */}
-          <Route path="chirey/*" element={<RoleRoute module={["vehiculo", "refaccionaria", "inventario", "factura_proveedor"]}><ChireyLayout /></RoleRoute>}>
+          <Route path="chirey/*" element={<RoleRoute module={["vehiculo", "refaccionaria", "inventario", "factura_proveedor", "facturacion", "facturas_consulta"]}><ChireyLayout /></RoleRoute>}>
             <Route index element={<ChireyDashboard />} />
 
             {/* Órdenes */}
@@ -304,6 +304,9 @@ export default function App() {
             <Route path="solicitudes-taller" element={<RoleRoute module="refaccionaria"><SolicitudesTaller /></RoleRoute>} />
             <Route path="solicitudes-taller/:id" element={<RoleRoute module="refaccionaria"><SolicitudTallerDetalle /></RoleRoute>} />
             <Route path="por-surtir" element={<RoleRoute module="refaccionaria"><PorSurtir /></RoleRoute>} />
+
+            {/* Facturas de clientes Chirey (misma pantalla que Facturación ▸ Consultar) */}
+            <Route path="facturas" element={<RoleRoute module={["facturacion", "facturas_consulta"]}><ConsultarFacturas /></RoleRoute>} />
 
             {/* Inventario propio de Chirey */}
             <Route path="inventario/consultar" element={<RoleRoute module={["refaccionaria", "inventario"]}><ConsultarInventario /></RoleRoute>} />

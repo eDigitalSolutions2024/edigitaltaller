@@ -131,6 +131,14 @@ const ClienteSchema = new Schema(
       index: true,
     },
 
+    // Formato de la representación impresa (PDF) de sus facturas:
+    // 'NORMAL' (por defecto) o 'INEGI' (4 secciones, ver service/facturaFormatoInegi.js).
+    formatoFactura: {
+      type: String,
+      enum: ["NORMAL", "INEGI"],
+      default: "NORMAL",
+    },
+
     // Datos “particular” (también útiles como contacto general)
     nombre: { type: String, trim: true },
     apellidoPaterno: { type: String, trim: true },
@@ -200,6 +208,22 @@ const ClienteSchema = new Schema(
 
     // Cuentas bancarias del cliente por banco (ver CuentaBancariaClienteSchema).
     // Solo se editan por PUT /api/clientes/:id/cuentas-bancarias.
+    // Historial de razones sociales con las que se ha facturado a este cliente
+    // (nombre distinto al fiscal). Se llena solo al generar una factura y se
+    // administra en ⚙ Configuración → Razones sociales.
+    razonesSociales: {
+      type: [
+        new Schema(
+          {
+            nombre: { type: String, trim: true, required: true },
+            veces: { type: Number, default: 0 },
+            ultimaVez: { type: Date, default: null },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
     cuentasBancarias: { type: [CuentaBancariaClienteSchema], default: [] },
 
     // Ramas por tipo

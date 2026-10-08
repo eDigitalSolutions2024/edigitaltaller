@@ -109,7 +109,7 @@ const DEPOSITO_LABELS = [
   ['efectivo', 'EFECTIVO'],
 ];
 
-function buildHtml(data, desde, hasta, sitio) {
+function buildHtml(data, desde, hasta, sitio, aviso) {
   const {
     anticipos = [],
     anticiposCancelados = [],
@@ -269,6 +269,18 @@ function buildHtml(data, desde, hasta, sitio) {
     }
 
     @page { size: A4 landscape; margin: 14mm; }
+
+    /* Banner de "esto no es la versión vigente" (ver cajas-ingresos-pdf?version=N) */
+    .aviso-version {
+      background: #fff3cd;
+      border: 1px solid #d9b500;
+      color: #6b5400;
+      font-size: 9pt;
+      font-weight: bold;
+      text-align: center;
+      padding: 4px 8px;
+      margin-bottom: 6px;
+    }
   </style>
 </head>
 <body>
@@ -277,6 +289,8 @@ function buildHtml(data, desde, hasta, sitio) {
     ${LOGO_DATA_URL ? `<img src="${LOGO_DATA_URL}" />` : '<span class="marca-txt">Servi compactos</span>'}
     ${sitio.esMatriz ? '<div class="matriz">Matriz</div>' : ''}
   </div>
+
+  ${aviso ? `<div class="aviso-version">${esc(aviso)}</div>` : ''}
 
   <table class="data">
     <thead>
@@ -338,9 +352,9 @@ function buildHtml(data, desde, hasta, sitio) {
 </html>`;
 }
 
-async function streamReporteFacturasDiarioPdf(res, data, desde, hasta) {
+async function streamReporteFacturasDiarioPdf(res, data, desde, hasta, aviso) {
   const sitio = await getSitioConfig();
-  const html = buildHtml(data, desde, hasta, sitio);
+  const html = buildHtml(data, desde, hasta, sitio, aviso);
 
   const browser = await puppeteer.launch({
     headless: 'new',

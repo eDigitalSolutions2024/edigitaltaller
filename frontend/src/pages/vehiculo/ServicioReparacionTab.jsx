@@ -21,7 +21,7 @@ const PDF_SECTIONS = [
   { label: "Sistema de enfriamiento",                textKey: "sistemaEnfriamiento" },
 ];
 
-export default function ServicioReparacionTab({ ordenId, initialData, existingRefacciones = [], serviciosCatalogoSeleccionados = [], onSaved, onServicioQuitado, readOnly = false, sinVehiculo = false }) {
+export default function ServicioReparacionTab({ ordenId, initialData, existingRefacciones = [], serviciosCatalogoSeleccionados = [], enVenta = false, onSaved, onServicioQuitado, readOnly = false, sinVehiculo = false }) {
   const [form, setForm] = useState(emptyForm);
   const [activePdf, setActivePdf] = useState({
     fallasMotorOtros: false,
@@ -42,6 +42,7 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
   const [showModal, setShowModal] = useState(false);
   const [refacciones, setRefacciones] = useState([{ refaccion: "", cantidad: 1 }]);
   const [guardandoRefacciones, setGuardandoRefacciones] = useState(false);
+  const [verSolicitadas, setVerSolicitadas] = useState(false);
 
   // Modal de omitir refacciones (continuar solo con servicios)
   const [showOmitirModal, setShowOmitirModal] = useState(false);
@@ -226,6 +227,27 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
           : item
       )
     );
+
+  const handleCancelarExistente = async (idx) => {
+    const r = existingRefacciones[idx];
+    const aviso = (r.opciones || []).length > 0 ? " Ya tiene cotizaciones y se perderán." : "";
+    if (!window.confirm(`¿Cancelar la solicitud de "${r.refaccion}"?${aviso}`)) return;
+    try {
+      setGuardandoRefacciones(true);
+      const restantes = existingRefacciones.filter((_, i) => i !== idx);
+      let res = await saveRequisicionDiagnostico(ordenId, { refacciones: restantes });
+      // Sin nada por cotizar, la orden deja de esperar a refaccionaria.
+      if (restantes.length === 0 && res?.data?.vehiculo?.estadoOrden === "PENDIENTE_REFACCIONARIA") {
+        res = await saveRequisicionDiagnostico(ordenId, { refacciones: [], estadoOrden: "INGRESO" });
+      }
+      if (onSaved && res?.data?.vehiculo) onSaved(res.data.vehiculo);
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo cancelar la refacción.");
+    } finally {
+      setGuardandoRefacciones(false);
+    }
+  };
 
   const handleEnviarRefacciones = async () => {
     if (!ordenId) return;
@@ -644,6 +666,46 @@ export default function ServicioReparacionTab({ ordenId, initialData, existingRe
                   Indica las refacciones que necesita el vehículo. El
                   refaccionario recibirá esta solicitud y cotizará las opciones.
                 </p>
+
+                {existingRefacciones.length > 0 && (
+                  <div className="mb-3">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary"
+                      onClick={() => setVerSolicitadas((v) => !v)}
+                    >
+                      {verSolicitadas ? "▾" : "▸"} Ver refacciones ya solicitadas ({existingRefacciones.length})
+                    </button>
+                    {verSolicitadas && (<>
+                    <ul className="list-group list-group-flush mt-2">
+                      {existingRefacciones.map((r, i) => (
+                        <li key={i} className="list-group-item d-flex justify-content-between align-items-center py-1">
+                          <span>{r.refaccion}</span>
+                          <span className="d-flex align-items-center gap-2">
+                            <span className="badge bg-secondary">Cant: {r.cant}</span>
+                            {(r.opciones || []).length > 0 && (
+                              <span className="badge bg-info text-dark">Cotizada</span>
+                            )}
+                            {!(enVenta && (r.opciones || []).length > 0) && (
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-danger"
+                                disabled={guardandoRefacciones}
+                                onClick={() => handleCancelarExistente(i)}
+                              >
+                                Cancelar
+                              </button>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-muted small mt-1 mb-0">
+                      Las nuevas se agregan a estas. Para editar las anteriores, usa la pestaña de requisición.
+                    </p>
+                    </>)}
+                  </div>
+                )}
 
                 <table className="table table-sm table-bordered align-middle">
                   <thead className="table-light">

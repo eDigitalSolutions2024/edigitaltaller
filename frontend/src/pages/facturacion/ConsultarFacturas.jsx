@@ -11,6 +11,7 @@ import {
 } from "../../api/facturasCfdi";
 
 import { isAdminLike } from "../../utils/roles";
+import useLineaNegocio, { paramsLinea } from "../../hooks/useLineaNegocio";
 function money(n) {
   const x = Number(n || 0);
   return x.toLocaleString("es-MX", { style: "currency", currency: "MXN" });
@@ -391,6 +392,7 @@ function descargarZipBlob(data, nombre) {
 }
 
 export default function ConsultarFacturas() {
+  const linea = useLineaNegocio(); // "CHIREY" bajo /chirey: solo facturas de clientes Chirey
   const [filtros, setFiltros] = useState({ q: "", desde: "", hasta: "", estatus: "todos", condicion: "todos" });
   const [docs, setDocs] = useState([]);
   const [page, setPage] = useState(1);
@@ -405,7 +407,7 @@ export default function ConsultarFacturas() {
   const buscar = useCallback(async (nuevosFiltros = filtros, nuevaPagina = 1) => {
     setCargando(true);
     try {
-      const res = await listFacturasCfdi({ ...nuevosFiltros, page: nuevaPagina, limit: 10 });
+      const res = await listFacturasCfdi({ ...nuevosFiltros, ...paramsLinea(linea), page: nuevaPagina, limit: 10 });
       setDocs(res.data?.docs || []);
       setPage(res.data?.page || 1);
       setTotalPages(res.data?.totalPages || 1);
@@ -415,7 +417,7 @@ export default function ConsultarFacturas() {
     } finally {
       setCargando(false);
     }
-  }, [filtros]);
+  }, [filtros, linea]);
 
   useEffect(() => {
     buscar(filtros, 1);

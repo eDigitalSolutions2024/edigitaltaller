@@ -12,6 +12,9 @@ const FiscalConfig = require("../models/FiscalConfig");
 const FacturaCfdi = require("../models/FacturaCfdi");
 const Vehiculo = require("../models/Vehiculo");
 const CuentaBancaria = require("../models/CuentaBancaria");
+const Cliente = require("../models/Cliente");
+const ConceptoPreset = require("../models/ConceptoPreset");
+const { drawFacturaInegi } = require("../service/facturaFormatoInegi");
 const { formaPagoSatDeNotaVenta } = require("../utils/formaPagoSat");
 const { abreviaturaFormaPago } = require("../utils/abreviaturaFormaPago");
 const { getSitioConfig } = require("../utils/sitioConfig");
@@ -1283,10 +1286,31 @@ router.post("/preview", async (req, res) => {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", "inline; filename=preview.pdf");
 
-    const doc = new PDFDocument({ size: "LETTER", margin: M });
+    const usaFormatoInegi = tipoFactura === "factura" && (await formatoFacturaDelCliente(cliente)) === "INEGI";
+    const doc = new PDFDocument({ size: "LETTER", margin: M, bufferPages: usaFormatoInegi });
     doc.pipe(res);
 
-    if (esComplementoPago) {
+    if (usaFormatoInegi) {
+      const conceptosPdf = repartirDescuentoEnConceptos(conceptos, descuento);
+      drawFacturaInegi(doc, {
+        emisor,
+        cliente,
+        ordenes: Array.isArray(ordenes) && ordenes.length ? ordenes : orden ? [orden] : [],
+        conceptos: conceptosPdf,
+        cfdi,
+        totales: { subtotal, descuento, iva, isr, total },
+        meta: {
+          ...buildMeta(),
+          fechaEmision: new Date(),
+          uuid: "",
+          sello: "— disponible al generar/timbrar el XML —",
+          selloSat: "",
+          cadenaComplemento: "",
+        },
+        clavesDesc: await descripcionesClaveSat(conceptosPdf),
+        helpers: helpersInegi,
+      });
+    } else if (esComplementoPago) {
       // Mismo criterio que generar_xml.js: banco del "Cobro en Cajas" capturado en
       // este complemento, solo relevante si la forma de pago resuelta es transferencia.
       const primeraEntradaPago = Array.isArray(pagosSinComprobante) ? pagosSinComprobante[0] : null;
@@ -1327,6 +1351,38 @@ router.post("/preview", async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+
+/* =========================
+   FORMATO INEGI (por cliente)
+   Cliente.formatoFactura = "INEGI" → la factura se imprime con el layout de
+   4 secciones de service/facturaFormatoInegi.js en vez del formato normal.
+========================= */
+async function formatoFacturaDelCliente(cliente) {
+  const id = cliente?.clienteId || cliente?._id;
+  if (!id || !mongoose.isValidObjectId(id)) return "NORMAL";
+  const c = await Cliente.findById(id).select("formatoFactura").lean().catch(() => null);
+  return c?.formatoFactura === "INEGI" ? "INEGI" : "NORMAL";
+}
+
+// { cProdServ: "descripción SAT" } a partir del catálogo de conceptos (Configuración fiscal).
+async function descripcionesClaveSat(conceptos) {
+  const claves = [...new Set((conceptos || []).map((c) => safe(c.cProdServ)).filter(Boolean))];
+  if (!claves.length) return {};
+  const filas = await ConceptoPreset.find({ cProdServ: { $in: claves }, cProdServDescripcion: { $ne: "" } })
+    .select("cProdServ cProdServDescripcion")
+    .lean()
+    .catch(() => []);
+  const mapa = {};
+  for (const f of filas) if (!mapa[f.cProdServ]) mapa[f.cProdServ] = f.cProdServDescripcion;
+  return mapa;
+}
+
+const helpersInegi = {
+  usoCfdiLabel,
+  formaPagoLabel,
+  numeroALetras,
+  formatDireccion,
+};
 
 /* =========================
    Datos + render del PDF de una factura ya guardada.
@@ -1438,6 +1494,8 @@ async function cargarDatosFacturaPdf(id) {
   const rfcBancoEmisor = esComplementoPago ? await rfcDelBanco(f.pago?.banco) : "";
   const rfcBancoOrdenante = esComplementoPago ? await rfcDelBanco(f.pago?.bancoOrdenante) : "";
 
+  const usaFormatoInegi = f.tipoFactura === "factura" && (await formatoFacturaDelCliente(f.cliente)) === "INEGI";
+
   return {
     f,
     emisor,
@@ -1446,6 +1504,8 @@ async function cargarDatosFacturaPdf(id) {
     totales,
     meta,
     folioTxt,
+    usaFormatoInegi,
+    clavesDesc: usaFormatoInegi ? await descripcionesClaveSat(conceptos) : {},
     informacionGlobal: f.informacionGlobal || null,
     esComplementoPago,
     esNotaCredito,
@@ -1458,9 +1518,27 @@ async function cargarDatosFacturaPdf(id) {
 function renderFacturaPdfDoc(data) {
   const { f, emisor, ordenes, conceptos, totales, meta, informacionGlobal, esComplementoPago, esNotaCredito, numeroCuentaBanco, rfcBancoEmisor, rfcBancoOrdenante } = data;
 
-  const doc = new PDFDocument({ size: "LETTER", margin: M });
+  const doc = new PDFDocument({ size: "LETTER", margin: M, bufferPages: !!data.usaFormatoInegi });
 
-  if (esComplementoPago) {
+  if (data.usaFormatoInegi) {
+    drawFacturaInegi(doc, {
+      emisor,
+      cliente: f.cliente,
+      ordenes,
+      conceptos,
+      cfdi: f.cfdi,
+      totales,
+      meta: {
+        ...meta,
+        fechaEmision: new Date(f.fecha || f.createdAt || Date.now()),
+        uuid: safe(f.uuid),
+        sello: safe(f.sello) || "— sin sello —",
+        cadenaComplemento: "",
+      },
+      clavesDesc: data.clavesDesc,
+      helpers: helpersInegi,
+    });
+  } else if (esComplementoPago) {
     drawReciboElectronicoPago(doc, {
       emisor,
       cliente: f.cliente,

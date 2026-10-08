@@ -24,6 +24,8 @@ const OPCIONES = [
     visible: (r) => canSeeModule(r, "refaccionaria") },
   { emoji: "🧾", title: "Facturas de Proveedor", desc: "Facturas de proveedor de Chirey", to: "/chirey/inventario/factura-proveedor",
     visible: (r) => canSeeAny(r, ["refaccionaria", "factura_proveedor"]) },
+  { emoji: "🧾", title: "Consultar Facturas", desc: "Facturas emitidas a clientes Chirey", to: "/chirey/facturas",
+    visible: (r) => canSeeAny(r, ["facturacion", "facturas_consulta"]) },
   { emoji: "📈", title: "Reportes Chirey", desc: "Originales, ventas, órdenes abiertas, garantías y más", to: "/chirey/reportes",
     visible: (r) => reportesChireyVisibles(r).length > 0 },
 ];

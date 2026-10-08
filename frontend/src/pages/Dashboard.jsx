@@ -2,8 +2,9 @@ import { NavLink } from "react-router-dom";
 import { getUser } from '../auth';
 import { useEffect, useState } from "react";
 import http from "../api/http";
-import { canSeeModule, isReadOnly, isAdminLike } from "../utils/roles";
+import { canSeeModule, canSeeAny, isReadOnly, isAdminLike } from "../utils/roles";
 import { getRefaccionariaAlerts } from "../api/vehiculos";
+import chireyIcono from "../img/Chirey-icono.svg";
 import "../styles/dashboard.css";
 
 const PERIODOS = [
@@ -33,6 +34,7 @@ const ALL_TILES = [
   { key: "factura-prov", title: "Facturas de Proveedor", desc: "Consulta de facturas de proveedor", to: "/refaccionaria/factura-proveedor",  emoji: "📑", roles: ["recepcion"] },
   { key: "inventario-consulta", title: "Inventario",    desc: "Consulta de existencias",            to: "/refaccionaria/consultar",          emoji: "🧰", roles: ["auditoria"] },
   { key: "garantias",    title: "Garantías",            desc: "Solicitudes y seguimiento",          to: "/garantias",                        emoji: "🛡️", roles: ["admin", "jefe", "asesor_servicio", "auditoria"] },
+  { key: "chirey",       title: "Chirey",               desc: "Órdenes, inventario y reportes Chirey", to: "/chirey",                       img: chireyIcono, anyModule: ["vehiculo", "refaccionaria", "inventario", "factura_proveedor"] },
   { key: "reportes",     title: "Reportes",             desc: "Ingresos y métricas",                to: "/reportes",                         emoji: "📈", module: "reportes" },
   { key: "soporte",      title: "Soporte",              desc: "Reporta o da seguimiento a tickets", to: "/soporte/mis-tickets",              emoji: "🛟" },
   { key: "administracion", title: "Administración",     desc: "Personal y grupos de trabajo",       to: "/admin/personal",                   emoji: "🗂️", roles: ["admin"] },
@@ -52,7 +54,7 @@ const PRIMARY_ACTION_BY_ROLE = {
 function tilesForUser(role) {
   const isAdmin = isAdminLike(role);
   return ALL_TILES
-    .filter((t) => (t.roles ? t.roles.includes(role) : t.module ? canSeeModule(role, t.module) : true))
+    .filter((t) => (t.roles ? t.roles.includes(role) : t.anyModule ? canSeeAny(role, t.anyModule) : t.module ? canSeeModule(role, t.module) : true))
     .map((t) => (t.key === "soporte" && isAdmin ? { ...t, to: "/soporte/admin", desc: "Panel de tickets del taller" } : t));
 }
 
@@ -166,7 +168,7 @@ export default function Dashboard() {
             {it.badgeKey && refaAlerts[it.badgeKey] > 0 && (
               <span className="tile__badge">{refaAlerts[it.badgeKey]}</span>
             )}
-            <div className="tile__emoji">{it.emoji}</div>
+            <div className="tile__emoji">{it.img ? <img src={it.img} alt="" style={{ height: "1em", width: "auto", objectFit: "contain", verticalAlign: "middle" }} /> : it.emoji}</div>
             <div className="tile__title">{it.title}</div>
             <div className="tile__desc">{it.desc}</div>
           </NavLink>

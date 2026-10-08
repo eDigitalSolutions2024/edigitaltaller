@@ -2288,8 +2288,16 @@ router.get('/cajas-ingresos-dias', async (req, res) => {
 async function metaSnapshotDia(tipo, desde, hasta) {
   const diaKey = diaKeyCongelable(desde, hasta);
   if (!diaKey) return null;
+  // `dataAntes` (la copia completa de respaldo) se deja FUERA de esta
+  // proyección a propósito: puede ser tan pesada como el reporte mismo y
+  // aquí solo hace falta la lista ligera para mostrar el historial — el
+  // propio endpoint de restaurar relee el documento completo cuando de
+  // verdad necesita ese respaldo.
   const snap = await ReporteCajasSnapshot.findOne({ tipo, diaKey })
-    .select('generadoEn regeneraciones')
+    .select(
+      'generadoEn regeneraciones.fecha regeneraciones.usuario regeneraciones.motivo ' +
+        'regeneraciones.accion regeneraciones.totalesAntes regeneraciones.totalesDespues'
+    )
     .lean();
   if (!snap) return null;
   const regs = snap.regeneraciones || [];
@@ -2298,8 +2306,21 @@ async function metaSnapshotDia(tipo, desde, hasta) {
     generadoEn: snap.generadoEn,
     regeneraciones: regs.length,
     ultimaRegeneracion: ultima
-      ? { fecha: ultima.fecha, usuario: ultima.usuario, motivo: ultima.motivo }
+      ? { fecha: ultima.fecha, usuario: ultima.usuario, motivo: ultima.motivo, accion: ultima.accion || 'regenerar' }
       : null,
+    // Historial completo (ligero, sin `dataAntes`) para que la pantalla
+    // pueda listar cada regeneración/restauración con sus totales de antes
+    // y de después, y ofrecer "Restaurar" apuntando a `version` (su índice
+    // en este arreglo, estable porque regeneraciones solo crece).
+    historial: regs.map((r, i) => ({
+      version: i,
+      fecha: r.fecha,
+      usuario: r.usuario,
+      motivo: r.motivo,
+      accion: r.accion || 'regenerar',
+      totalesAntes: r.totalesAntes,
+      totalesDespues: r.totalesDespues,
+    })),
   };
 }
 
@@ -2333,8 +2354,12 @@ router.post('/cajas-ingresos/regenerar', proteger, requiereRol('admin'), async (
 
     const builder = tipo === 'REMISION' ? buildReporteRemisionesDiarioImpl : buildReporteFacturasDiarioImpl;
     const data = await builder({ desde, hasta });
-    const previo = await ReporteCajasSnapshot.findOne({ tipo, diaKey }).select('data.totales').lean();
-    const totalesAntes = previo?.data?.totales || null;
+    // Se guarda COMPLETO (no solo los totales) como `dataAntes`: es el
+    // respaldo que permite restaurar este día exactamente a como estaba
+    // justo antes de esta regeneración (ver POST /cajas-ingresos/restaurar).
+    const previo = await ReporteCajasSnapshot.findOne({ tipo, diaKey }).select('data').lean();
+    const dataAntes = previo?.data || null;
+    const totalesAntes = dataAntes?.totales || null;
 
     await ReporteCajasSnapshot.findOneAndUpdate(
       { tipo, diaKey },
@@ -2346,6 +2371,8 @@ router.post('/cajas-ingresos/regenerar', proteger, requiereRol('admin'), async (
             usuario: req.user?.name || req.user?.username || '',
             usuarioId: req.user?._id || null,
             motivo,
+            accion: 'regenerar',
+            dataAntes,
             totalesAntes,
             totalesDespues: data.totales || null,
           },
@@ -2363,6 +2390,90 @@ router.post('/cajas-ingresos/regenerar', proteger, requiereRol('admin'), async (
     });
   } catch (err) {
     console.error('Error regenerando reporte cajas ingresos:', err);
+    return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
+  }
+});
+
+// POST /api/reportes/cajas-ingresos/restaurar   body: { desde, hasta, tipo, motivo, version? }
+// Solo admin, con motivo obligatorio. Deshace una regeneración (o una
+// restauración previa) equivocada: reemplaza `data` por el respaldo
+// `dataAntes` guardado en `regeneraciones[version]` — "cómo estaba el
+// reporte justo antes de esa acción". Sin `version`, deshace la ÚLTIMA
+// acción (regenerar o restaurar) registrada. La propia restauración queda
+// en la misma bitácora (con su propio `dataAntes`, lo que había ANTES de
+// restaurar), así que también se puede deshacer si hace falta.
+router.post('/cajas-ingresos/restaurar', proteger, requiereRol('admin'), async (req, res) => {
+  try {
+    const { desde, hasta, tipo } = req.body || {};
+    const motivo = String(req.body?.motivo || '').trim().slice(0, 300);
+    if (!desde || !hasta) {
+      return res.status(400).json({ ok: false, msg: 'Parámetros desde y hasta requeridos' });
+    }
+    if (!TIPOS_COMPROBANTE_CAJA.includes(tipo)) {
+      return res.status(400).json({ ok: false, msg: 'Parámetro tipo inválido' });
+    }
+    if (!motivo) {
+      return res.status(400).json({ ok: false, msg: 'Captura el motivo para restaurar el reporte.' });
+    }
+    const diaKey = diaKeyCongelable(desde, hasta);
+    if (!diaKey) {
+      return res.status(400).json({
+        ok: false,
+        msg: 'Solo se puede restaurar el reporte de un día que ya terminó.',
+      });
+    }
+
+    const actual = await ReporteCajasSnapshot.findOne({ tipo, diaKey }).select('data regeneraciones').lean();
+    const regs = actual?.regeneraciones || [];
+    if (!actual || !regs.length) {
+      return res.status(400).json({ ok: false, msg: 'Este día no tiene ninguna regeneración que deshacer.' });
+    }
+    const versionBody = req.body?.version;
+    const version = versionBody === undefined || versionBody === null ? regs.length - 1 : Number(versionBody);
+    const entrada = regs[version];
+    if (!entrada || !Number.isInteger(version) || version < 0) {
+      return res.status(400).json({ ok: false, msg: 'Esa versión del reporte no existe.' });
+    }
+    if (!entrada.dataAntes) {
+      return res.status(400).json({
+        ok: false,
+        msg: 'Esa versión no tiene respaldo guardado (regenerada antes de que existiera esta función), no se puede restaurar.',
+      });
+    }
+
+    const dataRestaurada = entrada.dataAntes;
+    const dataActual = actual.data || null;
+    const totalesAntes = dataActual?.totales || null;
+    const totalesDespues = dataRestaurada?.totales || null;
+
+    await ReporteCajasSnapshot.updateOne(
+      { tipo, diaKey },
+      {
+        $set: { data: dataRestaurada, generadoEn: new Date() },
+        $push: {
+          regeneraciones: {
+            fecha: new Date(),
+            usuario: req.user?.name || req.user?.username || '',
+            usuarioId: req.user?._id || null,
+            motivo,
+            accion: 'restaurar',
+            dataAntes: dataActual,
+            totalesAntes,
+            totalesDespues,
+          },
+        },
+      }
+    );
+
+    return res.json({
+      ok: true,
+      tipo,
+      ...dataRestaurada,
+      cache: await metaSnapshotDia(tipo, desde, hasta),
+      cambio: { antes: totalesAntes, despues: totalesDespues },
+    });
+  } catch (err) {
+    console.error('Error restaurando reporte cajas ingresos:', err);
     return res.status(500).json({ ok: false, msg: 'Error en el servidor' });
   }
 });
@@ -2391,7 +2502,21 @@ router.get('/cajas-ingresos', async (req, res) => {
   }
 });
 
-// GET /api/reportes/cajas-ingresos-pdf?desde=...&hasta=...&tipo=NOTA_VENTA|REMISION
+// Texto del banner amarillo que se imprime arriba del PDF cuando se pide una
+// versión anterior (ver `version` más abajo) en vez del reporte vigente —
+// para que no se confunda con el PDF actual si alguien lo descarga.
+function avisoVersionAnterior(entrada) {
+  const cuando = dayjsFecha(entrada.fecha).format('DD/MM/YYYY HH:mm');
+  const accion = entrada.accion === 'restaurar' ? 'restaurarse' : 'regenerarse';
+  const quien = entrada.usuario ? ` por ${entrada.usuario}` : '';
+  const motivo = entrada.motivo ? ` — Motivo: ${entrada.motivo}` : '';
+  return `VERSIÓN ANTERIOR DEL REPORTE — así estaba antes de ${accion} el ${cuando}${quien}${motivo}`;
+}
+
+// GET /api/reportes/cajas-ingresos-pdf?desde=...&hasta=...&tipo=NOTA_VENTA|REMISION[&version=N]
+// `version` (opcional): en vez del reporte vigente, el respaldo guardado en
+// regeneraciones[N].dataAntes — "cómo se veía el PDF antes de ese cambio" (ver
+// POST /cajas-ingresos/restaurar). Sin `version`, comportamiento de siempre.
 router.get('/cajas-ingresos-pdf', async (req, res) => {
   try {
     const { desde, hasta, tipo } = req.query;
@@ -2402,14 +2527,34 @@ router.get('/cajas-ingresos-pdf', async (req, res) => {
       return res.status(400).json({ ok: false, msg: 'Parámetro tipo inválido' });
     }
 
-    if (tipo === 'REMISION') {
-      const resultado = await buildReporteRemisionesDiario({ desde, hasta });
-      await streamReporteRemisionesDiarioPdf(res, resultado, desde, hasta);
-      return;
+    let resultado;
+    let aviso;
+    if (req.query.version !== undefined) {
+      const version = Number(req.query.version);
+      const diaKey = diaKeyCongelable(desde, hasta);
+      if (!diaKey || !Number.isInteger(version) || version < 0) {
+        return res.status(400).json({ ok: false, msg: 'Parámetro version inválido.' });
+      }
+      const snap = await ReporteCajasSnapshot.findOne({ tipo, diaKey })
+        .select('regeneraciones.fecha regeneraciones.usuario regeneraciones.motivo regeneraciones.accion regeneraciones.dataAntes')
+        .lean();
+      const entrada = snap?.regeneraciones?.[version];
+      if (!entrada?.dataAntes) {
+        return res.status(404).json({ ok: false, msg: 'Esa versión del reporte no está disponible.' });
+      }
+      resultado = entrada.dataAntes;
+      aviso = avisoVersionAnterior(entrada);
+    } else if (tipo === 'REMISION') {
+      resultado = await buildReporteRemisionesDiario({ desde, hasta });
+    } else {
+      resultado = await buildReporteFacturasDiario({ desde, hasta });
     }
 
-    const resultado = await buildReporteFacturasDiario({ desde, hasta });
-    await streamReporteFacturasDiarioPdf(res, resultado, desde, hasta);
+    if (tipo === 'REMISION') {
+      await streamReporteRemisionesDiarioPdf(res, resultado, desde, hasta, aviso);
+      return;
+    }
+    await streamReporteFacturasDiarioPdf(res, resultado, desde, hasta, aviso);
   } catch (err) {
     console.error('Error PDF reporte cajas ingresos:', err);
     if (!res.headersSent) res.status(500).json({ ok: false, msg: 'Error generando PDF' });

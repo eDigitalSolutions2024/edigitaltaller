@@ -873,6 +873,25 @@ router.put('/:id/requisicion-diagnostico', proteger, async (req, res) => {
 
     // Refacciones solicitadas (las que ves en la tabla)
     if (Array.isArray(refacciones)) {
+      // Una vez enviada a venta, las refacciones cotizadas ya no se pueden
+      // quitar ni descartar sus cotizaciones.
+      const enVenta =
+        (vehiculo.presupuesto || []).length > 0 ||
+        ['PENDIENTE_SURTIR', 'REPARACION_EN_CURSO', 'PENDIENTE_CIERRE', 'PENDIENTE_CERRAR', 'CERRADA'].includes(vehiculo.estadoOrden);
+      if (enVenta) {
+        const nuevas = new Map(refacciones.map((r) => [String(r._id || ''), r]));
+        const alterada = (vehiculo.refaccionesSolicitadas || []).some((r) => {
+          if (!(r.opciones || []).length) return false;
+          const n = nuevas.get(String(r._id));
+          return !n || !(n.opciones || []).length;
+        });
+        if (alterada) {
+          return res.status(409).json({
+            ok: false,
+            msg: 'La orden ya fue enviada a venta: no se pueden eliminar refacciones cotizadas.',
+          });
+        }
+      }
       // Aquí ya pueden venir requiereOC, ocGenerada, numeroOC, etc.
       vehiculo.refaccionesSolicitadas = refacciones;
     }
@@ -2325,7 +2344,7 @@ router.put('/:id/cambiar-cliente', proteger, requiereRol('admin'), async (req, r
       return res.status(400).json({ ok: false, msg: 'La orden ya pertenece a ese cliente.' });
     }
 
-    const nuevoCliente = await Cliente.findById(clienteId).select('nombre');
+    const nuevoCliente = await Cliente.findById(clienteId).select('nombre lineaNegocio');
     if (!nuevoCliente) {
       return res.status(404).json({ ok: false, msg: 'Cliente no encontrado.' });
     }
@@ -2367,8 +2386,27 @@ router.put('/:id/cambiar-cliente', proteger, requiereRol('admin'), async (req, r
 
     const clienteAnterior = await Cliente.findById(clienteActualId).select('nombre').lean();
 
+    // La línea de negocio sigue al cliente: si la orden se abrió como Chirey
+    // con un cliente que no lo es (o al revés), al corregir el cliente la orden
+    // pasa a la línea del cliente nuevo. Sus salidas de inventario se re-sellan
+    // para que el stock de cada línea quede consistente.
+    const lineaAnterior = normalizaLineaNegocio(vehiculo.lineaNegocio);
+    const lineaNueva = normalizaLineaNegocio(nuevoCliente.lineaNegocio);
+
     vehiculo.cliente = nuevoCliente._id;
+    vehiculo.lineaNegocio = lineaNueva;
     await vehiculo.save();
+
+    if (lineaNueva !== lineaAnterior && vehiculo.ordenServicio) {
+      try {
+        await SalidaInventario.updateMany(
+          { ordenServicio: vehiculo.ordenServicio },
+          { $set: { lineaNegocio: lineaNueva } }
+        );
+      } catch (errSalidas) {
+        console.error('Re-sellado de salidas por cambio de línea (no crítico):', errSalidas.message);
+      }
+    }
 
     // Mantener sincronizado el Garaje (catálogo de vehículos por VIN). El alta
     // de la orden metió el cliente equivocado en GarageVehiculo.clientes (ver
@@ -2431,6 +2469,7 @@ router.put('/:id/cambiar-cliente', proteger, requiereRol('admin'), async (req, r
         de: { clienteId: clienteActualId, nombre: clienteAnterior?.nombre || '' },
         a: { clienteId: String(nuevoCliente._id), nombre: nuevoCliente.nombre || '' },
         motivo: motivoLimpio,
+        lineaNegocio: { de: lineaAnterior, a: lineaNueva },
       },
     });
 
