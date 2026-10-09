@@ -11,7 +11,7 @@ function getNombreCliente(c) {
   return [c.nombre, c.apellidoPaterno].filter(Boolean).join(" ") || "Sin nombre";
 }
 
-export default function GarageModal({ show, onSelect, onClose }) {
+export default function GarageModal({ show, onSelect, onClose, lineaNegocio }) {
   const [vehiculos, setVehiculos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -27,7 +27,7 @@ export default function GarageModal({ show, onSelect, onClose }) {
     try {
       setLoading(true);
       setError("");
-      const res = await getGarageVehiculos();
+      const res = await getGarageVehiculos(lineaNegocio === "CHIREY" ? "CHIREY" : "SERVICOMPACTO");
       setVehiculos(res.data?.data || []);
     } catch (err) {
       console.error("Error cargando garaje:", err);

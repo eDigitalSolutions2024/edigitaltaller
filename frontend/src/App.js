@@ -306,6 +306,9 @@ export default function App() {
             <Route path="solicitudes-taller/:id" element={<RoleRoute module="refaccionaria"><SolicitudTallerDetalle /></RoleRoute>} />
             <Route path="por-surtir" element={<RoleRoute module="refaccionaria"><PorSurtir /></RoleRoute>} />
 
+            {/* Garaje de vehículos Chirey (series registradas en la línea Chirey) */}
+            <Route path="garaje" element={<RoleRoute module="vehiculo"><GarageAdminPage /></RoleRoute>} />
+
             {/* Facturas de clientes Chirey (misma pantalla que Facturación ▸ Consultar) */}
             <Route path="facturas" element={<RoleRoute module={["facturacion", "facturas_consulta"]}><ConsultarFacturas /></RoleRoute>} />
 

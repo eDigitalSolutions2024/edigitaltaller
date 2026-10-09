@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { getUser } from "../../auth";
-import { canSeeModule, canSeeAny, isReadOnly } from "../../utils/roles";
+import { canSeeModule, canSeeAny, isReadOnly, isAdminLike } from "../../utils/roles";
 import { seccionesChireyVisibles } from "./ChireyReportesLayout";
 import "../../styles/dashboard.css";
 
@@ -18,6 +18,8 @@ const OPCIONES = [
     visible: (r) => canSeeModule(r, "refaccionaria") },
   { emoji: "🚚", title: "Por Surtir", desc: "Refacciones autorizadas por surtir", to: "/chirey/por-surtir",
     visible: (r) => canSeeModule(r, "refaccionaria") },
+  { emoji: "🚗", title: "Garaje", desc: "Vehículos Chirey registrados por número de serie", to: "/chirey/garaje",
+    visible: (r) => canSeeModule(r, "vehiculo") && (isAdminLike(r) || ["asesor_servicio", "captura"].includes(r)) },
   { emoji: "📦", title: "Inventario Chirey", desc: "Existencias del almacén propio de Chirey", to: "/chirey/inventario/consultar",
     visible: (r) => canSeeAny(r, ["refaccionaria", "inventario"]) },
   { emoji: "📥", title: "Entrada de Inventario", desc: "Captura de compras al inventario Chirey", to: "/chirey/inventario/entrada",
