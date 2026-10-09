@@ -2,12 +2,42 @@ const express = require('express');
 const router = express.Router();
 const GarageVehiculo = require('../models/GarageVehiculo');
 const Vehiculo = require('../models/Vehiculo');
+const Cliente = require('../models/Cliente');
+const { normalizaLineaNegocio } = require('../utils/lineaNegocio');
 
 const POPULATE_CLIENTES = 'nombre apellidoPaterno tipoCliente empresa gobierno esEmpleado';
+
+// Filtro por línea de negocio sobre el garaje (la serie es única, así que no
+// lleva campo propio): una serie pertenece a la línea de las órdenes que se le
+// han abierto; si aún no tiene órdenes, a la de sus clientes. Una serie usada
+// en ambas líneas aparece en las dos.
+async function filtroGarajePorLinea(lineaRaw) {
+  const linea = normalizaLineaNegocio(lineaRaw);
+  const [serieChirey, serieNormal, clientesChirey] = await Promise.all([
+    Vehiculo.find({ lineaNegocio: 'CHIREY' }).distinct('serie'),
+    Vehiculo.find({ lineaNegocio: { $ne: 'CHIREY' } }).distinct('serie'),
+    Cliente.find({ lineaNegocio: 'CHIREY' }).distinct('_id'),
+  ]);
+  if (linea === 'CHIREY') {
+    return {
+      $or: [
+        { serie: { $in: serieChirey } },
+        { serie: { $nin: serieNormal }, clientes: { $in: clientesChirey } },
+      ],
+    };
+  }
+  return {
+    $or: [
+      { serie: { $in: serieNormal } },
+      { serie: { $nin: serieChirey }, clientes: { $nin: clientesChirey } },
+    ],
+  };
+}
 
 // GET /api/garage — listar todos los vehículos del garaje
 // Siempre calcula el conteo real de órdenes cerradas por serie.
 // ?detalle=1 además incluye el listado completo de órdenes (vista admin)
+// ?lineaNegocio=CHIREY|SERVICOMPACTO limita a los vehículos de esa línea (sin el parámetro, todos)
 // ?search=xxx busca por coincidencia parcial de serie (autocompletado) y limita a 8 resultados
 router.get('/', async (req, res) => {
   try {
@@ -15,6 +45,10 @@ router.get('/', async (req, res) => {
     const q = {};
     if (search.trim()) {
       q.serie = { $regex: search.trim(), $options: 'i' };
+    }
+    if (req.query.lineaNegocio) {
+      const f = await filtroGarajePorLinea(req.query.lineaNegocio);
+      q.$and = [f];
     }
 
     let query = GarageVehiculo.find(q)
@@ -26,6 +60,12 @@ router.get('/', async (req, res) => {
     const garageVehiculos = await query;
 
     const esDetalle = req.query.detalle === '1';
+    // Con línea, las órdenes y el conteo del vehículo se limitan a esa línea
+    const filtroOrdenes = req.query.lineaNegocio
+      ? (normalizaLineaNegocio(req.query.lineaNegocio) === 'CHIREY'
+          ? { lineaNegocio: 'CHIREY' }
+          : { lineaNegocio: { $ne: 'CHIREY' } })
+      : {};
 
     const data = await Promise.all(
       garageVehiculos.map(async (g) => {
@@ -35,6 +75,7 @@ router.get('/', async (req, res) => {
           const ordenesCerradas = await Vehiculo.find({
             serie: g.serie,
             estadoOrden: 'CERRADA',
+            ...filtroOrdenes,
           })
             .select('ordenServicio fechaRecepcion fechaCierre')
             .populate('cliente', POPULATE_CLIENTES)
@@ -47,6 +88,7 @@ router.get('/', async (req, res) => {
           obj.vecesUsado = await Vehiculo.countDocuments({
             serie: g.serie,
             estadoOrden: 'CERRADA',
+            ...filtroOrdenes,
           });
         }
 

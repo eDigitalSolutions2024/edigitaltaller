@@ -1,11 +1,13 @@
 import http from "./http";
 
-export const getGarageVehiculos = () => http.get("/garage");
+export const getGarageVehiculos = (lineaNegocio) =>
+  http.get("/garage", { params: lineaNegocio ? { lineaNegocio } : {} });
 
-export const searchGarageVehiculos = (search) =>
-  http.get("/garage", { params: { search } });
+export const searchGarageVehiculos = (search, lineaNegocio) =>
+  http.get("/garage", { params: { search, ...(lineaNegocio ? { lineaNegocio } : {}) } });
 
-export const getGarageVehiculosDetalle = () => http.get("/garage?detalle=1");
+export const getGarageVehiculosDetalle = (lineaNegocio) =>
+  http.get("/garage", { params: { detalle: 1, ...(lineaNegocio ? { lineaNegocio } : {}) } });
 
 export const upsertGarageVehiculo = (data) => http.post("/garage", data);
 

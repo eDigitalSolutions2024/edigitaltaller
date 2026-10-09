@@ -179,6 +179,10 @@ const FacturaCfdiSchema = new Schema(
       comentarios: String,
       aplicarRetencionIsr: Boolean,
       isrRate: Number,
+      // Si se imprime en el PDF la info del vehículo (Marca/Modelo/Serie/Placas/Kms)
+      // de la(s) orden(es) facturada(s) — botón "Mostrar información del vehículo
+      // en la factura" del paso Revisión. Default true (comportamiento previo).
+      mostrarVehiculo: { type: Boolean, default: true },
       // cfdi:CfdiRelacionados (CFDI 4.0). Para nota de crédito siempre
       // tipoRelacion "01"; para factura de ingreso es opcional (ver
       // NuevaFactura "Facturas relacionadas"). Null si el CFDI no relaciona

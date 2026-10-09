@@ -446,6 +446,7 @@ export default function VehiculoEntrada() {
         show={showGarageModal}
         onSelect={handleVehiculoDesdeGarage}
         onClose={() => setShowGarageModal(false)}
+        lineaNegocio={esChirey ? "CHIREY" : "SERVICOMPACTO"}
       />
 
       <GarantiaModal

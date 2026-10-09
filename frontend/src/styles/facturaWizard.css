@@ -173,6 +173,38 @@
   word-break: break-word;
 }
 
+/* Switch "Mostrar información del vehículo en la factura" (paso Revisión).
+   Se anula el padding/margin-left que Bootstrap reserva para el checkbox
+   flotado (.form-check / .form-switch), porque aquí el acomodo lo da el
+   flex + gap de abajo; si no, el switch se salía por fuera de la tarjeta. */
+.fw-vehiculo-switch {
+  display: flex !important;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px !important;
+  margin-bottom: 16px !important;
+  background: #f7f5f8;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 10px;
+}
+.fw-vehiculo-switch .form-check-input {
+  margin-left: 0 !important;
+  width: 3.75em;
+  height: 1.9em;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.fw-vehiculo-switch .form-check-input:checked {
+  background-color: var(--fw-orange);
+  border-color: var(--fw-orange);
+}
+.fw-vehiculo-switch .form-check-label {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--fw-ink);
+  cursor: pointer;
+}
+
 /* ---- Burbuja de aviso (naranja): p. ej. facturar con un nombre distinto a la
    razón social. Lleva "colita" apuntando al control que la origina; con
    .fw-bubble--flat se omite para usarla como aviso suelto (no bajo un campo). */

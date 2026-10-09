@@ -326,10 +326,12 @@ function _ModalSeleccionarCodigoLegado({ onSelect, onClose }) {
                           <input
                             type="number"
                             step="0.01"
+                            min="0"
+                            onKeyDown={(e) => e.key === "-" && e.preventDefault()}
                             className="form-control form-control-sm"
                             placeholder="$0.00"
                             value={formNuevo.precioUnitario}
-                            onChange={(e) => setFormNuevo((f) => ({ ...f, precioUnitario: e.target.value }))}
+                            onChange={(e) => !e.target.value.trim().startsWith("-") && setFormNuevo((f) => ({ ...f, precioUnitario: e.target.value }))}
                           />
                         </div>
                       </div>
@@ -538,6 +540,8 @@ export default function SolicitudTallerDetalle() {
   };
 
   const cambiarNuevaOpcion = (index, field, value) => {
+    // Importes y tipo de cambio no admiten valores negativos
+    if (["precioUnitario", "precioCore", "tipoCambio"].includes(field) && String(value).trim().startsWith("-")) return;
     setRefacciones((prev) =>
       prev.map((item, i) => {
         if (i !== index) return item;
@@ -980,6 +984,8 @@ export default function SolicitudTallerDetalle() {
                       <label className="form-label form-label-sm mb-1">Precio unit. <span className="text-danger">*</span></label>
                       <input
                         type="number"
+                        min="0"
+                        onKeyDown={(e) => e.key === "-" && e.preventDefault()}
                         className={`form-control form-control-sm ${itemSeleccionado.nuevaOpcion?._errores?.includes("precioUnitario") ? "is-invalid" : ""}`}
                         placeholder="$0.00"
                         value={itemSeleccionado.nuevaOpcion?.precioUnitario || ""}
@@ -1050,6 +1056,8 @@ export default function SolicitudTallerDetalle() {
                         <label className="form-label form-label-sm mb-1">Precio core</label>
                         <input
                           type="number"
+                          min="0"
+                          onKeyDown={(e) => e.key === "-" && e.preventDefault()}
                           className="form-control form-control-sm"
                           placeholder="$0.00"
                           value={itemSeleccionado.nuevaOpcion?.precioCore || ""}

@@ -64,8 +64,8 @@ export default function ModalFormatoFacturaCliente({ clienteId, clienteNombre = 
               disabled={loading || saving}
               onChange={(e) => setFormato(e.target.value)}
             >
-              <option value="NORMAL">Normal (por defecto)</option>
-              <option value="INEGI">INEGI (4 secciones)</option>
+              <option value="NORMAL">Normal (Servicompactos)</option>
+              <option value="INEGI">INEGI</option>
             </select>
             {msg && <div className="mt-2 small">{msg}</div>}
           </div>

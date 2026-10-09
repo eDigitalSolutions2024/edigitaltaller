@@ -459,11 +459,27 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
 
   // --- Vehículo (centro) o factura relacionada (nota de crédito) ---
   const vx = M + 280;
-  doc.moveTo(vx - 8, y0).lineTo(vx - 8, y0 + h).strokeColor(LINE).lineWidth(0.7).stroke();
   let vy = y0 + 8;
 
+  // Botón "Mostrar información del vehículo en la factura" (paso Revisión).
+  // Default true (comportamiento previo) cuando no viene el dato, por ejemplo
+  // en facturas ya guardadas antes de este cambio.
+  const mostrarVehiculo = cfdi?.mostrarVehiculo !== false;
+
+  // La columna central (y su línea divisoria) solo se dibuja si de verdad va a
+  // llevar contenido; si no, se dejaba una caja vacía (sin vehículo que mostrar,
+  // orden marcada "sin vehículo", o el botón de arriba apagado).
+  const hayColumnaCentro =
+    (ordenUnica && !ordenUnica.sinVehiculo && mostrarVehiculo) ||
+    (!ordenUnica && listaOrdenes.length && mostrarVehiculo) ||
+    (!ordenUnica && !listaOrdenes.length && listaRelacionadas.length);
+
+  if (hayColumnaCentro) {
+    doc.moveTo(vx - 8, y0).lineTo(vx - 8, y0 + h).strokeColor(LINE).lineWidth(0.7).stroke();
+  }
+
   if (ordenUnica) {
-    if (!ordenUnica.sinVehiculo) {
+    if (!ordenUnica.sinVehiculo && mostrarVehiculo) {
       // Numero de orden no necesaria
       // ui.kv(vx, vy, "Orden:", ordenUnica.ordenServicio, 42, 150);
       // vy += 13;
@@ -477,7 +493,7 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
       vy += 13;
       ui.kv(vx, vy, "Kms:", ordenUnica.kmsMillas, 42, 150);
     }
-  } else if (listaOrdenes.length) {
+  } else if (listaOrdenes.length && mostrarVehiculo) {
     // Varias órdenes: no cabe el detalle de cada vehículo, así que se lista una línea
     // por vehículo (sin número de orden). Las órdenes sin vehículo no se listan.
     const vehiculos = listaOrdenes
@@ -1656,6 +1672,92 @@ router.post("/facturas/export-zip", async (req, res) => {
     console.error("POST /facturacion/facturas/export-zip ERROR:", err);
     if (res.headersSent) return res.end();
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/* =========================
+   ENDPOINT
+   POST /api/facturacion/facturas/export-pdf-wt
+   Descarga el PDF de cada factura seleccionada renombrado como
+   "WT-AS-700910-SERVICOMPACTOS DE JUAREZ-<UUID>-<MES>-<AÑO>" (mes/año de la
+   fecha de la factura). Una sola factura => el PDF directo; varias => ZIP.
+   El nombre final viaja en el header X-Filename (URL-encoded).
+========================= */
+const PREFIJO_PDF_WT = "WT-AS-700910-SERVICOMPACTOS DE JUAREZ";
+
+function nombrePdfWt(f) {
+  const fecha = new Date(f.fecha || f.createdAt || Date.now());
+  const partes = new Intl.DateTimeFormat("es-MX", {
+    timeZone: "America/Ciudad_Juarez",
+    month: "2-digit",
+    year: "numeric",
+  }).formatToParts(fecha);
+  const mes = partes.find((p) => p.type === "month")?.value || "";
+  const anio = partes.find((p) => p.type === "year")?.value || "";
+  const id =
+    safe(f.uuid) || [safe(f.serie), safe(f.folio)].filter(Boolean).join("") || String(f._id);
+  return `${PREFIJO_PDF_WT}-${id.toUpperCase()}-${mes}-${anio}`.replace(/[\\/:*?"<>|]/g, "");
+}
+
+router.post("/facturas/export-pdf-wt", async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((id) => typeof id === "string") : [];
+  if (!ids.length) {
+    return res.status(400).json({ ok: false, error: "No se enviaron facturas para exportar." });
+  }
+
+  try {
+    res.setHeader("Access-Control-Expose-Headers", "X-Filename");
+
+    if (ids.length === 1) {
+      const data = await cargarDatosFacturaPdf(ids[0]);
+      const nombre = `${nombrePdfWt(data.f)}.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("X-Filename", encodeURIComponent(nombre));
+      res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(nombre)}`);
+      const doc = renderFacturaPdfDoc(data);
+      doc.pipe(res);
+      doc.end();
+      return;
+    }
+
+    const nombreZip = `facturas_${Date.now()}.zip`;
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("X-Filename", encodeURIComponent(nombreZip));
+    res.setHeader("Content-Disposition", `attachment; filename=${nombreZip}`);
+
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    archive.on("error", (err) => {
+      console.error("POST /facturacion/facturas/export-pdf-wt ARCHIVE ERROR:", err);
+      res.end();
+    });
+    archive.pipe(res);
+
+    const nombresUsados = new Set();
+    for (const id of ids) {
+      try {
+        const data = await cargarDatosFacturaPdf(id);
+        const doc = renderFacturaPdfDoc(data);
+        doc.end();
+
+        const base = nombrePdfWt(data.f);
+        let nombre = base;
+        let i = 2;
+        while (nombresUsados.has(nombre)) {
+          nombre = `${base}_${i}`;
+          i++;
+        }
+        nombresUsados.add(nombre);
+        archive.append(doc, { name: `${nombre}.pdf` });
+      } catch (e) {
+        console.error(`No se pudo generar el PDF de la factura ${id}:`, e.message);
+      }
+    }
+
+    await archive.finalize();
+  } catch (err) {
+    console.error("POST /facturacion/facturas/export-pdf-wt ERROR:", err);
+    if (res.headersSent) return res.end();
+    res.status(err.status || 500).json({ ok: false, error: err.message });
   }
 });
 

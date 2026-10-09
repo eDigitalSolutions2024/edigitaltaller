@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { getUser } from "../../auth";
 import "../../styles/clientes.css";
 
 export default function ClientesLayout() {
@@ -18,6 +19,11 @@ export default function ClientesLayout() {
         <NavLink to={`${base}/consulta`} className={tab}>
           Consultar
         </NavLink>
+        {getUser()?.role === "admin" && (
+          <NavLink to={`${base}/duplicados`} className={tab}>
+            Duplicados
+          </NavLink>
+        )}
       </div>
 
       <div className="clientes-content">

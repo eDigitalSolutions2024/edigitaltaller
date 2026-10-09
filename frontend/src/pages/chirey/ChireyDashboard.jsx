@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { getUser } from "../../auth";
-import { canSeeModule, canSeeAny, isReadOnly } from "../../utils/roles";
-import { reportesChireyVisibles } from "./ChireyReportesLayout";
+import { canSeeModule, canSeeAny, isReadOnly, isAdminLike } from "../../utils/roles";
+import { seccionesChireyVisibles } from "./ChireyReportesLayout";
 import "../../styles/dashboard.css";
 
 // Opciones del apartado Chirey; `visible(role)` replica el acceso del menú lateral.
@@ -18,6 +18,8 @@ const OPCIONES = [
     visible: (r) => canSeeModule(r, "refaccionaria") },
   { emoji: "🚚", title: "Por Surtir", desc: "Refacciones autorizadas por surtir", to: "/chirey/por-surtir",
     visible: (r) => canSeeModule(r, "refaccionaria") },
+  { emoji: "🚗", title: "Garaje", desc: "Vehículos Chirey registrados por número de serie", to: "/chirey/garaje",
+    visible: (r) => canSeeModule(r, "vehiculo") && (isAdminLike(r) || ["asesor_servicio", "captura"].includes(r)) },
   { emoji: "📦", title: "Inventario Chirey", desc: "Existencias del almacén propio de Chirey", to: "/chirey/inventario/consultar",
     visible: (r) => canSeeAny(r, ["refaccionaria", "inventario"]) },
   { emoji: "📥", title: "Entrada de Inventario", desc: "Captura de compras al inventario Chirey", to: "/chirey/inventario/entrada",
@@ -27,7 +29,7 @@ const OPCIONES = [
   { emoji: "🧾", title: "Consultar Facturas", desc: "Facturas emitidas a clientes Chirey", to: "/chirey/facturas",
     visible: (r) => canSeeAny(r, ["facturacion", "facturas_consulta"]) },
   { emoji: "📈", title: "Reportes Chirey", desc: "Originales, ventas, órdenes abiertas, garantías y más", to: "/chirey/reportes",
-    visible: (r) => reportesChireyVisibles(r).length > 0 },
+    visible: (r) => seccionesChireyVisibles(r).length > 0 },
 ];
 
 export default function ChireyDashboard() {

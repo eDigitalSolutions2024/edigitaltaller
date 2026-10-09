@@ -1611,6 +1611,7 @@ router.post("/xml", proteger, async (req, res) => {
           comentarios: cfdiFinal.comentarios,
           aplicarRetencionIsr: cfdiFinal.aplicarRetencionIsr,
           isrRate: cfdiFinal.isrRate,
+          mostrarVehiculo: cfdiFinal.mostrarVehiculo !== false,
           relacion: cfdiFinal.relacion
             ? { tipoRelacion: cfdiFinal.relacion.tipoRelacion, uuids: cfdiFinal.relacion.uuids }
             : undefined,

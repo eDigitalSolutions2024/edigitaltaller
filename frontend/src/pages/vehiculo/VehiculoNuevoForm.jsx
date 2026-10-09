@@ -467,7 +467,7 @@ export default function VehiculoNuevoForm({
     setBuscandoSerie(true);
     serieDebounceRef.current = setTimeout(async () => {
       try {
-        const res = await searchGarageVehiculos(valor.trim());
+        const res = await searchGarageVehiculos(valor.trim(), cliente?.lineaNegocio === "CHIREY" ? "CHIREY" : "SERVICOMPACTO");
         setSugerenciasSerie(res.data?.data || []);
         setMostrarSugerenciasSerie(true);
       } catch {

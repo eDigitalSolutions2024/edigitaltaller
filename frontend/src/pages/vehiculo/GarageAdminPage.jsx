@@ -5,6 +5,7 @@ import { getUser } from "../../auth";
 import { formatFecha as formatFechaBase } from "../../utils/fechas";
 
 import { isAdminLike } from "../../utils/roles";
+import useLineaNegocio from "../../hooks/useLineaNegocio";
 function getNombreCliente(c) {
   if (!c) return "Sin nombre";
   if (c.gobierno?.nombreGobierno) return c.gobierno.nombreGobierno;
@@ -24,6 +25,7 @@ function formatFecha(valor) {
 export default function GarageAdminPage() {
   const navigate = useNavigate();
   const user = getUser();
+  const linea = useLineaNegocio(); // "CHIREY" bajo /chirey: solo el garaje de Chirey
 
   const [vehiculos, setVehiculos] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -34,19 +36,20 @@ export default function GarageAdminPage() {
 
   useEffect(() => {
     if (!isAdminLike(user?.role) && !["asesor_servicio", "captura"].includes(user?.role)) {
-      navigate("/vehiculo/entrada", { replace: true });
+      navigate(linea ? "/chirey" : "/vehiculo/entrada", { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, navigate, linea]);
 
   useEffect(() => {
     cargar();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linea]);
 
   const cargar = async () => {
     try {
       setLoading(true);
       setError("");
-      const res = await getGarageVehiculosDetalle();
+      const res = await getGarageVehiculosDetalle(linea || "SERVICOMPACTO");
       setVehiculos(res.data?.data || []);
     } catch (err) {
       console.error("Error cargando garaje:", err);
@@ -108,6 +111,7 @@ export default function GarageAdminPage() {
             Actualizar
           </button>
         </div>
+        {!linea && (
         <div className="col-auto">
           <button
             className="btn btn-info text-dark btn-sm"
@@ -118,6 +122,7 @@ export default function GarageAdminPage() {
             {importando ? "Importando..." : "Importar órdenes cerradas"}
           </button>
         </div>
+        )}
         <div className="col-auto ms-auto">
           <span className="badge bg-secondary fs-6">
             {filtrados.length} vehículo{filtrados.length !== 1 ? "s" : ""}

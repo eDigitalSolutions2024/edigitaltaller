@@ -100,13 +100,13 @@ function dibujaQr(doc, texto, x, y, size) {
 
 // Etiqueta en negritas + valor debajo, centrados en la columna derecha.
 function parEtiquetaValor(doc, x, y, w, etiqueta, valor) {
-  doc.font("Helvetica-Bold").fontSize(7).fillColor(BLACK);
-  const hEt = doc.heightOfString(etiqueta, { width: w, align: "center" });
-  doc.text(etiqueta, x, y, { width: w, align: "center" });
-  doc.font("Helvetica").fontSize(7);
+  doc.font("Helvetica-Bold").fontSize(6).fillColor(BLACK);
+  const hEt = doc.heightOfString(etiqueta, { width: w, align: "right" });
+  doc.text(etiqueta, x, y, { width: w, align: "right" });
+  doc.font("Helvetica").fontSize(6);
   const v = safe(valor) || "—";
-  const hVal = doc.heightOfString(v, { width: w, align: "center" });
-  doc.text(v, x, y + hEt + 1, { width: w, align: "center" });
+  const hVal = doc.heightOfString(v, { width: w, align: "right" });
+  doc.text(v, x, y + hEt + 1, { width: w, align: "right" });
   return y + hEt + 1 + hVal + 4;
 }
 
@@ -174,42 +174,42 @@ function drawFacturaInegi(doc, data) {
 
   // Centro: emisor y receptor
   let y = M;
-  doc.font("Helvetica-Bold").fontSize(11);
+  doc.font("Helvetica-Bold").fontSize(9);
   doc.text(safe(emisor.nombre) || "EMISOR (configura la Configuración Fiscal)", centroX, y, {
     width: centroW,
     align: "center",
   });
   y = doc.y + 1;
-  const centrado = (txt, font = "Helvetica", size = 7.5) => {
+  const centrado = (txt, font = "Helvetica", size = 6.5) => {
     if (!safe(txt)) return;
     doc.font(font).fontSize(size).text(txt, centroX, y, { width: centroW, align: "center" });
     y = doc.y + 1;
   };
-  centrado(safe(emisor.rfc), "Helvetica", 8);
+  centrado(safe(emisor.rfc), "Helvetica", 6.5);
   centrado(`RÉGIMEN FISCAL: ${regimenLabel(emisor.regimenFiscal)}`);
   const dirEmisor = [safe(emisor.direccionLinea1), safe(emisor.direccionLinea2)].filter(Boolean).join(", ");
-  centrado(dirEmisor, "Helvetica", 6.5);
-  if (safe(emisor.telefono)) centrado(`Tel. ${safe(emisor.telefono)}`, "Helvetica", 6.5);
+  centrado(dirEmisor, "Helvetica", 5.5);
+  if (safe(emisor.telefono)) centrado(`Tel. ${safe(emisor.telefono)}`, "Helvetica", 5.5);
 
-  y += 6;
-  centrado("CLIENTE", "Helvetica-Bold", 11);
-  centrado(safe(cliente.nombre).toUpperCase() || "—", "Helvetica", 8);
-  centrado(safe(cliente.rfc), "Helvetica", 7.5);
+  y += 4;
+  centrado("CLIENTE", "Helvetica-Bold", 9);
+  centrado(safe(cliente.nombre).toUpperCase() || "—", "Helvetica", 6.5);
+  centrado(safe(cliente.rfc), "Helvetica", 6.5);
   centrado(`USO CFDI: ${h.usoCfdiLabel(cfdi.usoCfdi)}`);
   centrado(`DOMICILIO FISCAL: ${safe(cliente.codigoPostalFiscal) || "—"}`);
   centrado(`REGIMEN FISCAL: ${regimenLabel(cliente.regimenFiscal)}`);
   const dirCli = h.formatDireccion(cliente.direccion, cliente.pais);
   const dirCliTxt = [dirCli.linea1, dirCli.linea2].filter((s) => s && s !== "—").join(", ");
-  centrado(dirCliTxt, "Helvetica", 6.5);
+  centrado(dirCliTxt, "Helvetica", 5.5);
   const yCentro = y;
 
   // Derecha: datos de la factura
   let yd = M;
-  doc.font("Helvetica-Bold").fontSize(12).text(`Factura ${safe(meta.folio) || "—"}`, colDerX, yd, {
+  doc.font("Helvetica-Bold").fontSize(10).text(`Factura ${safe(meta.folio) || "—"}`, colDerX, yd, {
     width: colDerW,
-    align: "center",
+    align: "right",
   });
-  yd = doc.y + 4;
+  yd = doc.y + 3;
   const sinTimbre = (v, ph) => safe(v) || ph;
   yd = parEtiquetaValor(doc, colDerX, yd, colDerW, "FOLIO FISCAL (UUID)", sinTimbre(meta.uuid, "— se asigna al timbrar —"));
   yd = parEtiquetaValor(
@@ -266,8 +266,11 @@ function drawFacturaInegi(doc, data) {
     return yy + 12;
   };
 
-  // Datos del vehículo: se imprimen en el primer concepto cuando la factura es de una sola orden.
-  const unicaOrden = ordenes.length === 1 && !ordenes[0].sinVehiculo ? ordenes[0] : null;
+  // Datos del vehículo: se imprimen en el primer concepto cuando la factura es de una sola
+  // orden, salvo que se haya apagado con el botón "Mostrar información del vehículo en la
+  // factura" del paso Revisión (cfdi.mostrarVehiculo === false).
+  const unicaOrden =
+    ordenes.length === 1 && !ordenes[0].sinVehiculo && cfdi.mostrarVehiculo !== false ? ordenes[0] : null;
   const extraVehiculo = unicaOrden
     ? [
         [unicaOrden.marca, unicaOrden.modelo].filter(Boolean).join(" "),
@@ -286,7 +289,15 @@ function drawFacturaInegi(doc, data) {
   let yInicioPagina = y;
 
   const cierraBordePagina = (yFin) => {
-    doc.rect(M, yInicioPagina, W, yFin - yInicioPagina).strokeColor(BLACK).lineWidth(0.5).stroke();
+    // Bordes grises semitransparentes: contorno + separadores de columna.
+    doc.save().strokeColor("#808080").strokeOpacity(0.5).lineWidth(0.6);
+    doc.rect(M, yInicioPagina, W, yFin - yInicioPagina).stroke();
+    let cx = M;
+    cols.slice(0, -1).forEach((c) => {
+      cx += c.w;
+      doc.moveTo(cx, yInicioPagina).lineTo(cx, yFin).stroke();
+    });
+    doc.restore();
   };
 
   conceptos.forEach((c, idx) => {
@@ -328,7 +339,9 @@ function drawFacturaInegi(doc, data) {
       x += col.w;
     });
     y += rowH;
-    doc.moveTo(M, y).lineTo(M + W, y).strokeColor("#888").lineWidth(0.4).stroke();
+    doc.save().strokeColor("#808080").strokeOpacity(0.5).lineWidth(0.6);
+    doc.moveTo(M, y).lineTo(M + W, y).stroke();
+    doc.restore();
   });
   cierraBordePagina(y);
   y += 8;

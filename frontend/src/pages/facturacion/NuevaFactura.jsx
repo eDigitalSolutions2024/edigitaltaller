@@ -1829,6 +1829,10 @@ export default function NuevaFactura() {
   const [aplicarRetencionIsr, setAplicarRetencionIsr] = useState(false);
   const isrRate = 0.0125;
 
+  // Mostrar/ocultar en el PDF la info del vehículo (Marca/Modelo/Serie/Placas/Kms)
+  // de la(s) orden(es) facturada(s). Ver botón en el paso "Revisión".
+  const [mostrarVehiculo, setMostrarVehiculo] = useState(true);
+
   // Complemento de pago
   const [fechaPago, setFechaPago] = useState(hoyISO());
 
@@ -2658,6 +2662,9 @@ export default function NuevaFactura() {
         comentarios,
         aplicarRetencionIsr: esFactura ? aplicarRetencionIsr : false,
         isrRate,
+        // Mostrar/ocultar en el PDF la info del vehículo de la(s) orden(es) (ver
+        // botón en "Revisión"). Solo aplica a Factura (es la única que manda `ordenes`).
+        mostrarVehiculo: esFactura ? mostrarVehiculo : true,
         // CFDI 4.0 cfdi:CfdiRelacionados — opcional (panelFacturasRelacionadas): factura,
         // nota de crédito (adicional a su relación 01 automática, que arma el backend
         // solo) o complemento de pago.
@@ -5422,6 +5429,23 @@ export default function NuevaFactura() {
               </div>
             </div>
           </div>
+
+          {esFactura && ordenes.some((o) => !o.sinVehiculo) && !facturaGeneradaId && (
+            <div className="form-check form-switch fw-vehiculo-switch mb-3">
+              <input
+                type="checkbox"
+                role="switch"
+                className="form-check-input"
+                id="mostrarVehiculoFactura"
+                checked={mostrarVehiculo}
+                onChange={(e) => setMostrarVehiculo(e.target.checked)}
+              />
+              <label className="form-check-label" htmlFor="mostrarVehiculoFactura">
+                Mostrar información del vehículo en la factura
+              </label>
+            </div>
+          )}
+
           {facturaConNombreDistinto && (
             <div className="fw-bubble fw-bubble--flat mb-3">
               <span className="fw-bubble__icon">!</span>
