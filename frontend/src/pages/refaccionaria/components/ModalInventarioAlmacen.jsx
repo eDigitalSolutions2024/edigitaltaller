@@ -14,6 +14,7 @@ export default function ModalInventarioAlmacen({ onSelect, onClose, lineaNegocio
   const [items, setItems] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
+  const [filtroExistencia, setFiltroExistencia] = useState("todos"); // todos | con | sin
 
   useEffect(() => {
     fetch(`${API}/inventario${linea ? `?lineaNegocio=${linea}` : ""}`, { credentials: "include" })
@@ -25,10 +26,13 @@ export default function ModalInventarioAlmacen({ onSelect, onClose, lineaNegocio
 
   const filtrados = items.filter((item) => {
     const q = busqueda.toLowerCase();
+    if (filtroExistencia === "con" && !(item.cantidad > 0)) return false;
+    if (filtroExistencia === "sin" && item.cantidad > 0) return false;
     return (
       (item.codigo || "").toLowerCase().includes(q) ||
       (item.descripcion || "").toLowerCase().includes(q) ||
-      (item.marca || "").toLowerCase().includes(q)
+      (item.marca || "").toLowerCase().includes(q) ||
+      (item.proveedor || "").toLowerCase().includes(q)
     );
   });
 
@@ -42,7 +46,7 @@ export default function ModalInventarioAlmacen({ onSelect, onClose, lineaNegocio
         style={{
           position: "fixed", top: "50%", left: "50%",
           transform: "translate(-50%,-50%)",
-          zIndex: 1050, width: "90%", maxWidth: 780, maxHeight: "80vh",
+          zIndex: 1050, width: "90%", maxWidth: 1000, maxHeight: "80vh",
           background: "white", borderRadius: 8,
           boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
           display: "flex", flexDirection: "column", overflow: "hidden",
@@ -56,14 +60,27 @@ export default function ModalInventarioAlmacen({ onSelect, onClose, lineaNegocio
           >×</button>
         </div>
 
-        <div className="p-3 border-bottom">
+        <div className="p-3 border-bottom d-flex gap-2 align-items-center flex-wrap">
           <input
             autoFocus
             className="form-control form-control-sm"
-            placeholder="Buscar por código, descripción o marca..."
+            style={{ flex: 1, minWidth: 220 }}
+            placeholder="Buscar por código, descripción, marca o proveedor..."
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
           />
+          <div className="btn-group btn-group-sm" role="group" aria-label="Filtrar existencia">
+            {[["todos", "Todos"], ["con", "Con existencia"], ["sin", "Sin stock"]].map(([val, label]) => (
+              <button
+                key={val}
+                type="button"
+                className={`btn ${filtroExistencia === val ? "btn-primary" : "btn-outline-primary"}`}
+                onClick={() => setFiltroExistencia(val)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div style={{ overflowY: "auto", flex: 1 }}>
@@ -78,7 +95,9 @@ export default function ModalInventarioAlmacen({ onSelect, onClose, lineaNegocio
                   <th>Código</th>
                   <th>Descripción</th>
                   <th>Marca</th>
+                  <th>Proveedor</th>
                   <th>Unidad</th>
+                  <th className="text-end">Precio unit.</th>
                   <th style={{ width: 100 }}>Existencia</th>
                 </tr>
               </thead>
@@ -92,7 +111,13 @@ export default function ModalInventarioAlmacen({ onSelect, onClose, lineaNegocio
                     <td>{item.codigo || "—"}</td>
                     <td>{item.descripcion || "—"}</td>
                     <td>{item.marca || "—"}</td>
+                    <td>{item.proveedor || "—"}</td>
                     <td>{item.unidad || "—"}</td>
+                    <td className="text-end">
+                      {item.precioUnitario != null && item.precioUnitario !== ""
+                        ? `$${Number(item.precioUnitario).toFixed(2)}`
+                        : "—"}
+                    </td>
                     <td className="text-center">
                       {item.cantidad > 0 ? (
                         <span className="badge bg-success">{item.cantidad}</span>

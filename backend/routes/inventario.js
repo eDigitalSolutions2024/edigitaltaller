@@ -104,7 +104,7 @@ router.get('/', async (req, res) => {
           from: 'codigorefaccions',
           let: { cidStr: { $toString: '$_id' } },          // nuestro id siempre como string
           pipeline: [
-            { $project: { numeroParte:1, marca:1, descripcion:1, precioUnitario:1, _idStr: { $toString: '$_id' } } },
+            { $project: { numeroParte:1, marca:1, descripcion:1, precioUnitario:1, proveedor:1, _idStr: { $toString: '$_id' } } },
             { $match: { $expr: { $or: [
               { $eq: ['$_idStr', '$$cidStr'] },            // cuando captura.codigoInterno fue ObjectId
               { $eq: ['$numeroParte', '$$cidStr'] }        // cuando captura.codigoInterno fue string (P-1001)
@@ -129,6 +129,7 @@ router.get('/', async (req, res) => {
           cantidad:   1,
           ultFecha:   1,
           marca:          '$code.marca',
+          proveedor:      '$code.proveedor',
           precioUnitario: '$code.precioUnitario',
         }
       },
