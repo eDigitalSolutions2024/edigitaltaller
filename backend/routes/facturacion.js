@@ -459,11 +459,27 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
 
   // --- Vehículo (centro) o factura relacionada (nota de crédito) ---
   const vx = M + 280;
-  doc.moveTo(vx - 8, y0).lineTo(vx - 8, y0 + h).strokeColor(LINE).lineWidth(0.7).stroke();
   let vy = y0 + 8;
 
+  // Botón "Mostrar información del vehículo en la factura" (paso Revisión).
+  // Default true (comportamiento previo) cuando no viene el dato, por ejemplo
+  // en facturas ya guardadas antes de este cambio.
+  const mostrarVehiculo = cfdi?.mostrarVehiculo !== false;
+
+  // La columna central (y su línea divisoria) solo se dibuja si de verdad va a
+  // llevar contenido; si no, se dejaba una caja vacía (sin vehículo que mostrar,
+  // orden marcada "sin vehículo", o el botón de arriba apagado).
+  const hayColumnaCentro =
+    (ordenUnica && !ordenUnica.sinVehiculo && mostrarVehiculo) ||
+    (!ordenUnica && listaOrdenes.length && mostrarVehiculo) ||
+    (!ordenUnica && !listaOrdenes.length && listaRelacionadas.length);
+
+  if (hayColumnaCentro) {
+    doc.moveTo(vx - 8, y0).lineTo(vx - 8, y0 + h).strokeColor(LINE).lineWidth(0.7).stroke();
+  }
+
   if (ordenUnica) {
-    if (!ordenUnica.sinVehiculo) {
+    if (!ordenUnica.sinVehiculo && mostrarVehiculo) {
       // Numero de orden no necesaria
       // ui.kv(vx, vy, "Orden:", ordenUnica.ordenServicio, 42, 150);
       // vy += 13;
@@ -477,7 +493,7 @@ function drawReceptorComprobante(doc, ui, y0, { cliente, orden, ordenes, cfdi, t
       vy += 13;
       ui.kv(vx, vy, "Kms:", ordenUnica.kmsMillas, 42, 150);
     }
-  } else if (listaOrdenes.length) {
+  } else if (listaOrdenes.length && mostrarVehiculo) {
     // Varias órdenes: no cabe el detalle de cada vehículo, así que se lista una línea
     // por vehículo (sin número de orden). Las órdenes sin vehículo no se listan.
     const vehiculos = listaOrdenes

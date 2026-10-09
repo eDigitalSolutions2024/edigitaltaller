@@ -266,8 +266,11 @@ function drawFacturaInegi(doc, data) {
     return yy + 12;
   };
 
-  // Datos del vehículo: se imprimen en el primer concepto cuando la factura es de una sola orden.
-  const unicaOrden = ordenes.length === 1 && !ordenes[0].sinVehiculo ? ordenes[0] : null;
+  // Datos del vehículo: se imprimen en el primer concepto cuando la factura es de una sola
+  // orden, salvo que se haya apagado con el botón "Mostrar información del vehículo en la
+  // factura" del paso Revisión (cfdi.mostrarVehiculo === false).
+  const unicaOrden =
+    ordenes.length === 1 && !ordenes[0].sinVehiculo && cfdi.mostrarVehiculo !== false ? ordenes[0] : null;
   const extraVehiculo = unicaOrden
     ? [
         [unicaOrden.marca, unicaOrden.modelo].filter(Boolean).join(" "),
