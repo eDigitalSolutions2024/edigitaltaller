@@ -7,6 +7,7 @@ import {
   getFacturaCfdiById,
   getFacturaCfdiPdf,
   exportFacturasCfdiZip,
+  exportFacturasPdfWt,
   cancelarFacturaCfdi,
 } from "../../api/facturasCfdi";
 
@@ -379,8 +380,8 @@ function FacturaDetalleModal({ factura: f, onClose }) {
   );
 }
 
-function descargarZipBlob(data, nombre) {
-  const blob = new Blob([data], { type: "application/zip" });
+function descargarZipBlob(data, nombre, tipo = "application/zip") {
+  const blob = new Blob([data], { type: tipo });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -540,6 +541,23 @@ export default function ConsultarFacturas() {
     } catch (e) {
       console.error(e);
       alert("No se pudo generar el ZIP de las facturas seleccionadas.");
+    } finally {
+      setExportando(false);
+    }
+  };
+
+  const exportarPdfWt = async () => {
+    setExportMenuAbierto(false);
+    setExportando(true);
+    try {
+      const res = await exportFacturasPdfWt(idsSeleccionados);
+      const nombre = decodeURIComponent(res.headers?.["x-filename"] || "") || nombreZipExport();
+      const tipo = nombre.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/zip";
+      descargarZipBlob(res.data, nombre, tipo);
+      setSeleccionadas({});
+    } catch (e) {
+      console.error(e);
+      alert("No se pudo generar el PDF de las facturas seleccionadas.");
     } finally {
       setExportando(false);
     }
@@ -725,6 +743,14 @@ export default function ConsultarFacturas() {
                       disabled={exportando}
                     >
                       Descargar como ZIP
+                    </button>
+                    <button
+                      className="btn btn-sm btn-light w-100 text-start rounded-0"
+                      style={{ whiteSpace: "nowrap" }}
+                      onClick={exportarPdfWt}
+                      disabled={exportando}
+                    >
+                      Descargar PDF (nombre WT-AS)
                     </button>
                     <button
                       className="btn btn-sm btn-light w-100 text-start rounded-0"

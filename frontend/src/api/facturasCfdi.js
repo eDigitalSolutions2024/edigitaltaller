@@ -27,3 +27,12 @@ export const exportFacturasCfdiZip = (ids) =>
     { ids },
     { responseType: "arraybuffer" }
   );
+
+// PDF(s) renombrados como WT-AS-700910-SERVICOMPACTOS DE JUAREZ-UUID-MES-AÑO
+// (un PDF si es una sola factura, ZIP si son varias). Nombre final en el header x-filename.
+export const exportFacturasPdfWt = (ids) =>
+  http.post(
+    "/facturacion/facturas/export-pdf-wt",
+    { ids },
+    { responseType: "arraybuffer" }
+  );
