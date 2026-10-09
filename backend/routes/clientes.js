@@ -9,6 +9,10 @@ const { registrarAccion } = require("../utils/registrarAccion");
 const { proteger, requiereRol } = require("../middleware/auth");
 const { normalizaLineaNegocio } = require("../utils/lineaNegocio");
 const { limpiaCuenta, errorCuentaOrdenante, FORMAS_CON_ORDENANTE } = require("../utils/cuentaOrdenante");
+const { buscarCoincidenciasPorNombre, detectarGrupos, nombreCliente } = require("../utils/clientesDuplicados");
+const FusionCliente = require("../models/FusionCliente");
+const AnticipoCliente = require("../models/AnticipoCliente");
+const FacturaCfdi = require("../models/FacturaCfdi");
 const router = express.Router();
 
 // Todas las rutas de clientes requieren sesión: antes no había ningún
@@ -136,56 +140,23 @@ router.post("/", async (req, res) => {
     delete body.formatoFactura;
     delete body.razonesSociales;
 
-    // 👇 Validación de nombre duplicado
-    const { nombre, apellidoPaterno, apellidoMaterno, tipoCliente } = body;
+    // 👇 Advertencia de nombre duplicado (misma línea de negocio, sin importar
+    // mayúsculas/acentos/signos). No es un bloqueo duro: responde 409 con las
+    // coincidencias y el frontend pide confirmación; si el usuario decide crear
+    // igual, reenvía con `confirmarDuplicado: true`.
+    const { tipoCliente } = body;
+    const confirmarDuplicado = body.confirmarDuplicado === true;
+    delete body.confirmarDuplicado;
 
-    if (tipoCliente === "Particular" && nombre) {
-      const query = {
-        lineaNegocio: body.lineaNegocio,
-        nombre: { $regex: new RegExp(`^${escapeRegex(nombre.trim())}$`, "i") },
-        apellidoPaterno: { $regex: new RegExp(`^${escapeRegex((apellidoPaterno || "").trim())}$`, "i") },
-        apellidoMaterno: { $regex: new RegExp(`^${escapeRegex((apellidoMaterno || "").trim())}$`, "i") },
-      };
-
-      const existe = await Cliente.findOne(query);
-      if (existe) {
+    if (!confirmarDuplicado) {
+      const coincidencias = await buscarCoincidenciasPorNombre(body);
+      if (coincidencias.length) {
         return res.status(409).json({
           ok: false,
-          error: `Ya existe un cliente con el nombre "${nombre} ${apellidoPaterno || ""} ${apellidoMaterno || ""}".`.trim(),
+          duplicado: true,
+          coincidencias,
+          error: `Ya existe un cliente con el nombre "${nombreCliente(body)}".`,
         });
-      }
-    }
-
-    // Para empresa/gobierno checa razón social o nombre gobierno
-    if (tipoCliente === "Empresa Privada" || tipoCliente === "Empresa Arrendadora") {
-      if (body.nombre) {
-        const existe = await Cliente.findOne({
-          tipoCliente,
-          lineaNegocio: body.lineaNegocio,
-          nombre: { $regex: new RegExp(`^${escapeRegex(body.nombre.trim())}$`, "i") },
-        });
-        if (existe) {
-          return res.status(409).json({
-            ok: false,
-            error: `Ya existe una empresa con el nombre "${body.nombre}".`,
-          });
-        }
-      }
-    }
-
-    if (tipoCliente === "Empresa Gobierno") {
-      const nombreGob = body.gobierno?.nombreGobierno;
-      if (nombreGob) {
-        const existe = await Cliente.findOne({
-          lineaNegocio: body.lineaNegocio,
-          "gobierno.nombreGobierno": { $regex: new RegExp(`^${escapeRegex(nombreGob.trim())}$`, "i") },
-        });
-        if (existe) {
-          return res.status(409).json({
-            ok: false,
-            error: `Ya existe un gobierno con el nombre "${nombreGob}".`,
-          });
-        }
       }
     }
     // 👆 fin validación
@@ -270,6 +241,384 @@ router.get("/", async (req, res) => {
     res.json({ ok: true, data: items, total, page: Number(page), limit: Number(limit) });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* Duplicados: identificar y fusionar (solo admin).                    */
+/* ------------------------------------------------------------------ */
+
+// SOLO el rol admin (requiereRol("admin") también deja pasar al coordinador).
+const soloAdmin = (req, res, next) =>
+  req.user?.role === "admin" ? next() : res.status(403).json({ ok: false, error: "Solo el administrador puede hacer esto." });
+
+// GET /api/clientes/duplicados  → grupos de clientes activos con mismo nombre o RFC
+router.get("/duplicados", soloAdmin, async (_req, res) => {
+  try {
+    const grupos = await detectarGrupos();
+    res.json({ ok: true, data: grupos });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Campos escalares que el usuario puede resolver a mano en la fusión.
+const CAMPOS_FUSION = [
+  "tipoCliente", "nombre", "apellidoPaterno", "apellidoMaterno", "rfc",
+  "regimenFiscal", "codigoPostalFiscal", "asesorResponsable", "condicionesPago",
+  "observaciones", "empresa.razonSocial", "gobierno.nombreGobierno",
+  "direccion.calle", "direccion.numeroExterior", "direccion.numeroInterior",
+  "direccion.colonia", "direccion.codigoPostal", "direccion.ciudad", "direccion.estado",
+  "facturacion.usoCFDI",
+];
+
+const unicosPor = (arr, clave) => {
+  const vistos = new Set();
+  return arr.filter((x) => {
+    const k = clave(x);
+    if (!k || vistos.has(k)) return false;
+    vistos.add(k);
+    return true;
+  });
+};
+const claveTel = (t) => `${String(t?.lada ?? "").trim()}|${String(t?.numero ?? "").replace(/\D/g, "")}|${String(t?.extension ?? "").trim()}`;
+const claveContacto = (c) => JSON.stringify(c ?? {});
+
+// POST /api/clientes/fusionar
+// body: { principalId, duplicadoIds: [..], campos: { "rfc": "...", "direccion.calle": "..." } }
+// Deja UN solo cliente (principal) con la información de todos: los campos
+// escalares los decide el usuario (`campos`), las listas (correos, teléfonos,
+// códigos, cuentas, razones sociales, contactos) se unen sin repetir, el saldo
+// a favor se suma y todo lo que apuntaba a los duplicados (órdenes, anticipos,
+// facturas, garaje) pasa al principal. Los duplicados quedan INACTIVOS
+// (fusionadoEn → principal), nunca se borran.
+
+// Órdenes de cada duplicado, para elegir cuáles se mueven y para la vista previa.
+async function resumenDuplicados(principalId, dupIds) {
+  const clientes = await Cliente.find({ _id: { $in: dupIds } }).select("saldoAFavor").lean();
+  const ordenes = await Vehiculo.find({ cliente: { $in: dupIds } })
+    .select("cliente ordenServicio marca modelo anio placas createdAt")
+    .sort({ createdAt: -1 })
+    .lean();
+  const out = [];
+  for (const c of clientes) {
+    const [anticipos, facturas] = await Promise.all([
+      AnticipoCliente.countDocuments({ cliente: c._id }),
+      FacturaCfdi.countDocuments({ "cliente.clienteId": c._id }),
+    ]);
+    out.push({
+      clienteId: c._id,
+      saldoAFavor: c.saldoAFavor || 0,
+      anticipos,
+      facturas,
+      ordenes: ordenes.filter((o) => String(o.cliente) === String(c._id)),
+    });
+  }
+  return out;
+}
+
+// POST /api/clientes/fusionar/vista-previa  body: { principalId, duplicadoIds }
+// Cuenta lo que se movería (órdenes con su detalle, anticipos, facturas, saldo).
+router.post("/fusionar/vista-previa", soloAdmin, async (req, res) => {
+  try {
+    const { principalId, duplicadoIds } = req.body || {};
+    const dupIds = (Array.isArray(duplicadoIds) ? duplicadoIds : []).map(String).filter((x) => x !== String(principalId));
+    res.json({ ok: true, data: await resumenDuplicados(principalId, dupIds) });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/clientes/fusionar
+// body: { principalId, duplicadoIds: [..], campos: {...}, ordenIds?: [..] }
+// `ordenIds` (opcional): órdenes de los duplicados que se mueven. Sin él se
+// mueven todas. Un duplicado cuyas órdenes se movieron TODAS se absorbe por
+// completo (datos, anticipos, facturas, saldo, garaje; queda inactivo con
+// fusionadoEn). Si quedan órdenes sin mover, solo se mueven las elegidas y el
+// duplicado sigue activo con el resto. Todo se registra en FusionCliente para
+// poder deshacerlo.
+router.post("/fusionar", soloAdmin, async (req, res) => {
+  try {
+    const { principalId, duplicadoIds, campos = {}, ordenIds } = req.body || {};
+    const dupIds = [...new Set((Array.isArray(duplicadoIds) ? duplicadoIds : []).map(String))].filter(
+      (x) => x !== String(principalId)
+    );
+    if (!principalId || !dupIds.length) {
+      return res.status(400).json({ ok: false, error: "Indica el cliente principal y al menos un duplicado." });
+    }
+
+    const principal = await Cliente.findById(principalId);
+    const duplicados = await Cliente.find({ _id: { $in: dupIds } });
+    if (!principal || duplicados.length !== dupIds.length) {
+      return res.status(404).json({ ok: false, error: "Alguno de los clientes ya no existe." });
+    }
+    const todos = [principal, ...duplicados];
+    if (todos.some((c) => c.empleadoRef)) {
+      return res.status(409).json({ ok: false, error: "No se puede fusionar la ficha de un empleado." });
+    }
+    if (todos.some((c) => c.lineaNegocio !== principal.lineaNegocio)) {
+      return res.status(409).json({ ok: false, error: "Los clientes son de líneas de negocio distintas." });
+    }
+
+    // 0) Qué órdenes se mueven y qué duplicados se absorben por completo.
+    const ordenesDup = await Vehiculo.find({ cliente: { $in: dupIds } }).select("_id cliente").lean();
+    const elegidas = Array.isArray(ordenIds) ? new Set(ordenIds.map(String)) : null;
+    const ordenesMover = ordenesDup.filter((o) => !elegidas || elegidas.has(String(o._id)));
+    const completos = duplicados.filter((d) =>
+      ordenesDup.filter((o) => String(o.cliente) === String(d._id)).every((o) => !elegidas || elegidas.has(String(o._id)))
+    );
+    const parciales = duplicados.filter((d) => !completos.includes(d));
+    if (!ordenesMover.length && !completos.length) {
+      return res.status(400).json({ ok: false, error: "No hay nada que fusionar: selecciona al menos una orden." });
+    }
+
+    const fusion = {
+      principal: principal._id,
+      principalNombre: nombreCliente(principal),
+      duplicados: completos.map((d) => ({
+        cliente: d._id, nombre: nombreCliente(d), activo: d.activo !== false,
+        saldoAFavor: d.saldoAFavor || 0, fusionadoEn: d.fusionadoEn || null,
+      })),
+      origenesParciales: parciales.map((d) => d._id),
+      ordenes: ordenesMover.map((o) => ({ id: o._id, de: o.cliente })),
+      anticipos: [], facturas: [], garage: [], saldoSumado: 0, principalPrevio: {},
+      usuario: req.user?.username || req.user?.email || req.user?.nombre || "",
+    };
+    const compIds = completos.map((d) => d._id);
+
+    // 1) Datos del principal (solo con los duplicados absorbidos por completo).
+    const set = {};
+    const fiscal = {};
+    let saldoExtra = 0;
+    if (completos.length) {
+      for (const k of CAMPOS_FUSION) {
+        if (campos[k] === undefined) continue;
+        set[k] = typeof campos[k] === "string" ? campos[k].trim() : campos[k];
+      }
+      if (set.rfc !== undefined) set.rfc = String(set.rfc).toUpperCase();
+      if (noVacio(set.regimenFiscal)) fiscal["facturacion.regimenFiscal"] = set.regimenFiscal;
+      if (noVacio(set.codigoPostalFiscal)) fiscal["facturacion.direccion.codigoPostal"] = set.codigoPostalFiscal;
+      if (noVacio(set.rfc)) set.requiereFacturacion = true;
+
+      const plano = [principal, ...completos].map((c) => c.toObject());
+      set.emails = unicosPor(plano.flatMap((c) => c.emails || []), (e) => String(e).toLowerCase());
+      set.telefonos = unicosPor(plano.flatMap((c) => c.telefonos || []), claveTel);
+      set.celulares = unicosPor(plano.flatMap((c) => c.celulares || []), claveTel);
+      set.codigosServicio = unicosPor(
+        plano.flatMap((c) => c.codigosServicio || []),
+        (f) => `${f.codigoInterno}|${f.codigoCliente}`
+      );
+      set.cuentasBancarias = unicosPor(
+        plano.flatMap((c) => c.cuentasBancarias || []),
+        (f) => `${f.banco}|${f.formaPago}|${f.numeroCuenta}`
+      );
+      set.razonesSociales = Object.values(
+        plano.flatMap((c) => c.razonesSociales || []).reduce((acc, r) => {
+          const k = String(r.nombre || "").trim().toLowerCase();
+          if (!k) return acc;
+          const prev = acc[k];
+          acc[k] = prev
+            ? {
+                ...prev,
+                veces: (prev.veces || 0) + (r.veces || 0),
+                ultimaVez: [prev.ultimaVez, r.ultimaVez].filter(Boolean).sort().pop() || null,
+              }
+            : { ...r };
+          return acc;
+        }, {})
+      );
+      const contactosEmpresa = unicosPor(plano.flatMap((c) => c.empresa?.contacto || []), claveContacto);
+      if (contactosEmpresa.length) set["empresa.contacto"] = contactosEmpresa;
+      const contactosGob = unicosPor(plano.flatMap((c) => c.gobierno?.contactoGobierno || []), claveContacto);
+      if (contactosGob.length) set["gobierno.contactoGobierno"] = contactosGob;
+      if (principal.formatoFactura === "NORMAL" && completos.some((d) => d.formatoFactura === "INEGI")) {
+        set.formatoFactura = "INEGI";
+      }
+      saldoExtra = Math.round(completos.reduce((s, d) => s + (d.saldoAFavor || 0), 0) * 100) / 100;
+
+      // Valor previo de cada campo raíz que se va a tocar (para deshacer).
+      const previoPlano = principal.toObject();
+      for (const k of Object.keys({ ...set, ...fiscal })) {
+        const top = k.split(".")[0];
+        fusion.principalPrevio[top] = previoPlano[top] === undefined ? null : previoPlano[top];
+      }
+    }
+
+    // 2) Reapuntar lo movido (guardando los _id para poder devolverlo).
+    await Vehiculo.updateMany({ _id: { $in: ordenesMover.map((o) => o._id) } }, { $set: { cliente: principal._id } });
+    if (compIds.length) {
+      const [ants, facs, garajes] = await Promise.all([
+        AnticipoCliente.find({ cliente: { $in: compIds } }).select("_id cliente").lean(),
+        FacturaCfdi.find({ "cliente.clienteId": { $in: compIds } }).select("_id cliente.clienteId").lean(),
+        GarageVehiculo.find({ clientes: { $in: compIds } }).select("_id clientes").lean(),
+      ]);
+      fusion.anticipos = ants.map((a) => ({ id: a._id, de: a.cliente }));
+      fusion.facturas = facs.map((f) => ({ id: f._id, de: f.cliente.clienteId }));
+      fusion.garage = garajes.map((g) => ({
+        id: g._id,
+        clientes: g.clientes.filter((c) => compIds.some((x) => String(x) === String(c))),
+      }));
+      await AnticipoCliente.updateMany({ _id: { $in: ants.map((a) => a._id) } }, { $set: { cliente: principal._id } });
+      await FacturaCfdi.updateMany({ _id: { $in: facs.map((f) => f._id) } }, { $set: { "cliente.clienteId": principal._id } });
+      try {
+        await GarageVehiculo.updateMany({ _id: { $in: garajes.map((g) => g._id) } }, { $addToSet: { clientes: principal._id } });
+        await GarageVehiculo.updateMany({ _id: { $in: garajes.map((g) => g._id) } }, { $pull: { clientes: { $in: compIds } } });
+      } catch (e) {
+        console.error("Sincronización de Garaje (no crítico):", e.message);
+      }
+    }
+
+    // 3) Principal actualizado (+ saldo sumado de forma atómica) y duplicados completos inactivos.
+    let actualizado = principal;
+    if (completos.length) {
+      const update = { $set: { ...set, ...fiscal } };
+      if (saldoExtra > 0) update.$inc = { saldoAFavor: saldoExtra };
+      actualizado = await Cliente.findByIdAndUpdate(principal._id, update, { new: true });
+      await Cliente.updateMany(
+        { _id: { $in: compIds } },
+        { $set: { activo: false, saldoAFavor: 0, fusionadoEn: principal._id } }
+      );
+    }
+    fusion.saldoSumado = saldoExtra;
+    const registro = await FusionCliente.create(fusion);
+
+    registrarAccion(req, {
+      accion: "CLIENTE_FUSIONAR",
+      entidad: "Cliente",
+      entidadId: principal._id,
+      referencia: nombreCliente(actualizado),
+      detalle: {
+        fusionId: String(registro._id),
+        principal: String(principal._id),
+        absorbidos: compIds.map(String),
+        soloOrdenesDe: parciales.map((d) => String(d._id)),
+        ordenesMovidas: fusion.ordenes.length,
+        anticiposMovidos: fusion.anticipos.length,
+        facturasMovidas: fusion.facturas.length,
+        saldoSumado: saldoExtra,
+      },
+    });
+
+    res.json({
+      ok: true,
+      data: {
+        fusionId: registro._id,
+        cliente: actualizado,
+        ordenesMovidas: fusion.ordenes.length,
+        anticiposMovidos: fusion.anticipos.length,
+        facturasMovidas: fusion.facturas.length,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// Una fusión solo se puede deshacer durante esta ventana.
+const DIAS_DESHACER_FUSION = 7;
+
+// GET /api/clientes/fusiones  → últimas fusiones (para "Deshacer")
+router.get("/fusiones", soloAdmin, async (_req, res) => {
+  try {
+    const limite = new Date(Date.now() - DIAS_DESHACER_FUSION * 24 * 60 * 60 * 1000);
+    const data = await FusionCliente.find({ createdAt: { $gte: limite } }).sort({ createdAt: -1 }).limit(30).lean();
+    res.json({ ok: true, data });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/clientes/fusiones/:id/deshacer
+// Devuelve a su cliente original lo que se movió (solo lo que siga en el
+// principal), reactiva a los duplicados, resta el saldo sumado y restaura los
+// campos del principal que la fusión sobrescribió. Si el saldo sumado ya se
+// gastó, se bloquea: hay que resolver ese saldo antes.
+router.post("/fusiones/:id/deshacer", soloAdmin, async (req, res) => {
+  try {
+    const f = await FusionCliente.findById(req.params.id);
+    if (!f) return res.status(404).json({ ok: false, error: "Fusión no encontrada." });
+    if (f.deshechaEn) return res.status(409).json({ ok: false, error: "Esta fusión ya se deshizo." });
+    if (Date.now() - new Date(f.createdAt).getTime() > DIAS_DESHACER_FUSION * 24 * 60 * 60 * 1000) {
+      return res.status(409).json({
+        ok: false,
+        error: `Ya pasaron más de ${DIAS_DESHACER_FUSION} días: esta fusión ya no se puede deshacer.`,
+      });
+    }
+
+    // 1) Saldo: atómico y con guarda (no puede quedar negativo).
+    if (f.saldoSumado > 0) {
+      const r = await Cliente.updateOne(
+        { _id: f.principal, saldoAFavor: { $gte: f.saldoSumado } },
+        { $inc: { saldoAFavor: -f.saldoSumado } }
+      );
+      if (!r.modifiedCount) {
+        return res.status(409).json({
+          ok: false,
+          error: "El saldo a favor que se sumó ya se usó; no se puede deshacer hasta resolverlo.",
+        });
+      }
+    }
+
+    // 2) Devolver cada documento a su dueño original (solo si sigue en el principal).
+    const devolver = async (Modelo, lista, campo) => {
+      const porDueno = new Map();
+      for (const x of lista) {
+        const k = String(x.de);
+        if (!porDueno.has(k)) porDueno.set(k, []);
+        porDueno.get(k).push(x.id);
+      }
+      for (const [dueno, ids] of porDueno) {
+        await Modelo.updateMany({ _id: { $in: ids }, [campo]: f.principal }, { $set: { [campo]: dueno } });
+      }
+    };
+    await devolver(Vehiculo, f.ordenes, "cliente");
+    await devolver(AnticipoCliente, f.anticipos, "cliente");
+    await devolver(FacturaCfdi, f.facturas, "cliente.clienteId");
+    try {
+      for (const g of f.garage) {
+        await GarageVehiculo.updateOne({ _id: g.id }, { $addToSet: { clientes: { $each: g.clientes } } });
+      }
+    } catch (e) {
+      console.error("Sincronización de Garaje (no crítico):", e.message);
+    }
+
+    // 3) Duplicados absorbidos: vuelven a como estaban.
+    for (const d of f.duplicados) {
+      await Cliente.updateOne(
+        { _id: d.cliente },
+        { $set: { activo: d.activo, saldoAFavor: d.saldoAFavor, fusionadoEn: d.fusionadoEn } }
+      );
+    }
+
+    // 4) Campos del principal.
+    const previo = f.principalPrevio || {};
+    const $set = {};
+    const $unset = {};
+    for (const [k, v] of Object.entries(previo)) {
+      if (v === null) $unset[k] = "";
+      else $set[k] = v;
+    }
+    const upd = {};
+    if (Object.keys($set).length) upd.$set = $set;
+    if (Object.keys($unset).length) upd.$unset = $unset;
+    if (Object.keys(upd).length) await Cliente.updateOne({ _id: f.principal }, upd);
+
+    f.deshechaEn = new Date();
+    f.deshechaPor = req.user?.username || req.user?.email || req.user?.nombre || "";
+    await f.save();
+
+    registrarAccion(req, {
+      accion: "CLIENTE_FUSION_DESHACER",
+      entidad: "Cliente",
+      entidadId: f.principal,
+      referencia: f.principalNombre,
+      detalle: { fusionId: String(f._id), ordenes: f.ordenes.length, anticipos: f.anticipos.length, facturas: f.facturas.length },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ ok: false, error: err.message });
   }
 });
 

@@ -20,6 +20,7 @@ import Dashboard from "./pages/Dashboard";
 import ClientesLayout from "./pages/clientes/ClientesLayout";
 import AltaCliente from "./pages/clientes/AltaCliente";
 import ConsultaClientes from "./pages/clientes/ConsultaClientes";
+import DuplicadosClientes from "./pages/clientes/DuplicadosClientes";
 
 // Refaccionaria
 import RefaccionariaLayout from "./pages/refaccionaria/RefaccionariaLayout";
@@ -266,6 +267,7 @@ export default function App() {
             {/* misma pantalla para editar cliente */}
             <Route path="alta/:id" element={<RoleRoute module="clientes" write><AltaCliente /></RoleRoute>} /> {/* 👈 CORREGIDO */}
             <Route path="consulta" element={<ConsultaClientes />} />
+            <Route path="duplicados" element={<RolesRoute roles={['admin']}><DuplicadosClientes /></RolesRoute>} />
           </Route>
 
           {/* Proveedores */}

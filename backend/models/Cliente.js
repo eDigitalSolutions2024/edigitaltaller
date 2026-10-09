@@ -157,6 +157,11 @@ const ClienteSchema = new Schema(
     // POST /api/vehiculos). Las órdenes que ya tenía se conservan intactas.
     activo: { type: Boolean, default: true, index: true },
 
+    // Si este cliente era un duplicado y se fusionó en otro (ver POST
+    // /api/clientes/fusionar): _id del cliente que lo absorbió. Queda inactivo,
+    // no se borra, para poder rastrear a dónde se movió su información.
+    fusionadoEn: { type: Schema.Types.ObjectId, ref: "Cliente", default: null },
+
     // Vínculo con el registro real de Empleado (staff) cuando este cliente es
     // en realidad la "ficha sombra" de un empleado que trae su propio
     // vehículo (ver esEmpleado arriba). Se llena desde el botón "Empleados"

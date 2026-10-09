@@ -71,3 +71,16 @@ export const convertirClienteAEmpleado = (id, payload) =>
 // órdenes del cliente a la ficha del empleado elegido y deja al cliente inactivo.
 export const migrarOrdenesAEmpleado = (id, { empleadoId, userId }) =>
   http.post(`/clientes/${id}/migrar-ordenes-a-empleado`, { empleadoId, userId });
+
+// 👇 Duplicados (solo admin): grupos con mismo nombre/RFC y fusión en un solo cliente.
+export const getClientesDuplicados = () => http.get("/clientes/duplicados");
+
+export const fusionarClientes = ({ principalId, duplicadoIds, campos, ordenIds }) =>
+  http.post("/clientes/fusionar", { principalId, duplicadoIds, campos, ordenIds });
+
+// Qué se movería (órdenes con detalle, anticipos, facturas, saldo) por duplicado.
+export const vistaPreviaFusion = ({ principalId, duplicadoIds }) =>
+  http.post("/clientes/fusionar/vista-previa", { principalId, duplicadoIds });
+
+export const getFusionesClientes = () => http.get("/clientes/fusiones");
+export const deshacerFusionClientes = (id) => http.post(`/clientes/fusiones/${id}/deshacer`);

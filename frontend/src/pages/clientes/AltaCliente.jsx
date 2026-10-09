@@ -501,8 +501,12 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", lin
     loadAsesores();
   }, []);
 
-  const onSubmit = async (e) => {
-    e.preventDefault();
+  // Coincidencias de nombre devueltas por el backend (409 duplicado): se
+  // muestran en una advertencia y el usuario decide si crea el cliente igual.
+  const [duplicados, setDuplicados] = useState(null);
+
+  const onSubmit = async (e, confirmarDuplicado = false) => {
+    e?.preventDefault?.();
     setSaving(true);
     setMsg("");
     try {
@@ -547,7 +551,9 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", lin
         await updateCustomer(id, payload);
         setMsg("✅ Cliente actualizado correctamente.");
       } else {
-        const res = await createCustomer(payload);
+        const res = await createCustomer(
+          confirmarDuplicado ? { ...payload, confirmarDuplicado: true } : payload
+        );
         const clienteNuevo = res?.data?.data;
         setMsg("✅ Cliente creado correctamente.");
         setForm(initial);
@@ -559,7 +565,12 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", lin
       }
       if (!modoModal) navigate("/clientes/consulta");
     } catch (err) {
-      setMsg("❌ " + (err?.response?.data?.error || err.message));
+      if (err?.response?.status === 409 && err.response.data?.duplicado) {
+        setDuplicados(err.response.data.coincidencias || []);
+        setMsg("");
+      } else {
+        setMsg("❌ " + (err?.response?.data?.error || err.message));
+      }
     } finally {
       setSaving(false);
     }
@@ -1376,6 +1387,53 @@ export default function AltaCliente({ modoModal = false, nombreInicial = "", lin
       </div>
 
       {msg && <div className="form-msg">{msg}</div>}
-    </form>
+    
+      {duplicados && (
+        <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 2000 }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">⚠️ Posible cliente duplicado</h5>
+              </div>
+              <div className="modal-body">
+                <p className="mb-2">
+                  Ya existe{duplicados.length > 1 ? "n" : ""} {duplicados.length} cliente
+                  {duplicados.length > 1 ? "s" : ""} con este mismo nombre:
+                </p>
+                <ul className="list-group mb-2">
+                  {duplicados.map((d) => (
+                    <li key={d._id} className="list-group-item">
+                      <strong>{d.nombre}</strong>
+                      <small className="d-block text-muted">
+                        {[d.tipoCliente, d.rfc, (d.emails || [])[0]].filter(Boolean).join(" · ")}
+                      </small>
+                    </li>
+                  ))}
+                </ul>
+                <small className="text-muted">
+                  Si es la misma persona o empresa, cancela y búscala en Clientes para no duplicarla.
+                </small>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-light" onClick={() => setDuplicados(null)}>
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-warning"
+                  disabled={saving}
+                  onClick={() => {
+                    setDuplicados(null);
+                    onSubmit(null, true);
+                  }}
+                >
+                  Crear de todos modos
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+</form>
   );
 }
