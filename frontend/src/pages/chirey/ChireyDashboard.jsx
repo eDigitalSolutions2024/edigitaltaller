@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { getUser } from "../../auth";
 import { canSeeModule, canSeeAny, isReadOnly } from "../../utils/roles";
-import { reportesChireyVisibles } from "./ChireyReportesLayout";
+import { seccionesChireyVisibles } from "./ChireyReportesLayout";
 import "../../styles/dashboard.css";
 
 // Opciones del apartado Chirey; `visible(role)` replica el acceso del menú lateral.
@@ -27,7 +27,7 @@ const OPCIONES = [
   { emoji: "🧾", title: "Consultar Facturas", desc: "Facturas emitidas a clientes Chirey", to: "/chirey/facturas",
     visible: (r) => canSeeAny(r, ["facturacion", "facturas_consulta"]) },
   { emoji: "📈", title: "Reportes Chirey", desc: "Originales, ventas, órdenes abiertas, garantías y más", to: "/chirey/reportes",
-    visible: (r) => reportesChireyVisibles(r).length > 0 },
+    visible: (r) => seccionesChireyVisibles(r).length > 0 },
 ];
 
 export default function ChireyDashboard() {
